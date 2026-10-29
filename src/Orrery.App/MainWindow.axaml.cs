@@ -100,12 +100,16 @@ public partial class MainWindow : Window
         UpdateEmptyState();
     }
 
-    /// <summary>Sizes the remote desktop to fill the session area, so the spike needs no scaling.</summary>
+    /// <summary>
+    /// The starting desktop size, in device pixels, filling the session area. The view corrects it with
+    /// a resize once the tab is laid out.
+    /// </summary>
     (int Width, int Height) DesktopSizeForView()
     {
         var bounds = _sessions.Bounds;
-        int width = Math.Max(640, (int)bounds.Width);
-        int height = Math.Max(480, (int)(bounds.Height - TabHeaderHeight));
+        double scale = RenderScaling;
+        int width = Math.Max(640, (int)(bounds.Width * scale));
+        int height = Math.Max(480, (int)((bounds.Height - TabHeaderHeight) * scale));
 
         // Many RDP servers need the width to be a multiple of 4.
         return (width - width % 4, height);

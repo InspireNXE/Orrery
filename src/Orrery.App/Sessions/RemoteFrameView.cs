@@ -37,11 +37,21 @@ public sealed class RemoteFrameView : Panel
         FontSize = 14,
     };
 
+    const int WheelDelta = 120;
+    static readonly TimeSpan ResizeSettleDelay = TimeSpan.FromMilliseconds(400);
+
     readonly object _dirtyLock = new();
+    readonly DispatcherTimer _resizeTimer;
     FrameRect _dirty;
     bool _resizePending;
     bool _renderQueued;
     WriteableBitmap? _bitmap;
+    TopLevel? _topLevel;
+
+    // Device pixels per DIP. The remote desktop is sized in device pixels and drawn at that DPI, so it
+    // stays sharp on scaled displays; pointer positions are converted the same way.
+    double _scale = 1;
+    double _wheelX, _wheelY;
 
     public RemoteFrameView(IFrameBufferSession session)
     {
@@ -51,6 +61,14 @@ public sealed class RemoteFrameView : Panel
         Background = SurfaceBrush;
         Children.Add(_image);
         Children.Add(_status);
+
+        // Window drags fire many size changes; ask the server once the size settles.
+        _resizeTimer = new DispatcherTimer { Interval = ResizeSettleDelay };
+        _resizeTimer.Tick += (_, _) =>
+        {
+            _resizeTimer.Stop();
+            Session.RequestResize((int)Math.Round(Bounds.Width * _scale), (int)Math.Round(Bounds.Height * _scale));
+        };
 
         session.FrameUpdated += OnFrameUpdated;
         session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => ShowState(e.State, e.Message));
@@ -74,7 +92,20 @@ public sealed class RemoteFrameView : Panel
         if (state == SessionState.Connected)
         {
             Focus();
+            ScheduleResize(); // The view may have changed size while connecting.
         }
+    }
+
+    void ScheduleResize()
+    {
+        _resizeTimer.Stop();
+        _resizeTimer.Start();
+    }
+
+    protected override void OnSizeChanged(SizeChangedEventArgs e)
+    {
+        base.OnSizeChanged(e);
+        ScheduleResize();
     }
 
     void OnFrameUpdated(object? sender, FrameUpdatedEventArgs e)
@@ -110,11 +141,11 @@ public sealed class RemoteFrameView : Panel
             return;
         }
 
-        if (resize || _bitmap is null || _bitmap.PixelSize.Width != width || _bitmap.PixelSize.Height != height)
+        var dpi = new Vector(96 * _scale, 96 * _scale);
+        if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height) || _bitmap.Dpi != dpi)
         {
             _bitmap?.Dispose();
-            _bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96),
-                PixelFormat.Rgba8888, AlphaFormat.Opaque);
+            _bitmap = new WriteableBitmap(new PixelSize(width, height), dpi, PixelFormat.Rgba8888, AlphaFormat.Opaque);
             _image.Source = _bitmap;
             dirty = new FrameRect(0, 0, width, height);
         }
@@ -149,8 +180,27 @@ public sealed class RemoteFrameView : Panel
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        var p = e.GetPosition(_image);
+        var p = e.GetPosition(_image) * _scale;
         Session.SendPointerMove((int)p.X, (int)p.Y);
+    }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        e.Handled = true;
+
+        // Avalonia reports notches (fractions from precision touchpads); RDP wants 120 per notch.
+        // Keep the remainder so slow touchpad scrolling still adds up.
+        // Avalonia's horizontal delta runs opposite to RDP's. Check this on macOS and Linux, where
+        // trackpad direction settings may also apply.
+        _wheelY += e.Delta.Y * WheelDelta;
+        _wheelX -= e.Delta.X * WheelDelta;
+
+        int vertical = (int)_wheelY, horizontal = (int)_wheelX;
+        _wheelY -= vertical;
+        _wheelX -= horizontal;
+        Session.SendWheel(vertical, horizontal: false);
+        Session.SendWheel(horizontal, horizontal: true);
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -184,9 +234,23 @@ public sealed class RemoteFrameView : Panel
         _ => null,
     };
 
+    /// <summary>The window moved to a monitor with different scaling.</summary>
+    void OnScalingChanged(object? sender, EventArgs e)
+    {
+        _scale = _topLevel?.RenderScaling ?? 1;
+        ScheduleResize();
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+
+        _topLevel = TopLevel.GetTopLevel(this);
+        if (_topLevel is not null)
+        {
+            _scale = _topLevel.RenderScaling;
+            _topLevel.ScalingChanged += OnScalingChanged;
+        }
 
         // TabControl detaches hidden tabs; repaint everything when this one comes back.
         if (Session.State == SessionState.Connected)
@@ -198,6 +262,13 @@ public sealed class RemoteFrameView : Panel
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        _resizeTimer.Stop();
+        if (_topLevel is not null)
+        {
+            _topLevel.ScalingChanged -= OnScalingChanged;
+            _topLevel = null;
+        }
+
         _image.Source = null;
         _bitmap?.Dispose();
         _bitmap = null;

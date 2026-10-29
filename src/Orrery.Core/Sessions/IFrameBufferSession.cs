@@ -52,4 +52,16 @@ public interface IFrameBufferSession : IConnectionSession
 
     void SendPointerMove(int x, int y);
     void SendPointerButton(PointerButton button, bool pressed);
+
+    /// <summary>
+    /// Sends wheel rotation in Windows units: 120 per notch, positive is away from the user (scroll up)
+    /// or, when <paramref name="horizontal"/>, to the right.
+    /// </summary>
+    void SendWheel(int units, bool horizontal);
+
+    /// <summary>
+    /// Asks the remote side to change its desktop size, in device pixels. The new size arrives later as a
+    /// <see cref="FrameUpdatedEventArgs.Resized"/> update; servers that can't resize ignore the request.
+    /// </summary>
+    void RequestResize(int width, int height);
 }
