@@ -61,9 +61,11 @@ public sealed class RdpSession : IFrameBufferSession
 
             lock (_stageLock)
             {
+                // ActiveStage.New consumes the result, so read everything we need from it first.
+                var desktopSize = result.DesktopSize;
+                ResetImage(desktopSize.Width, desktopSize.Height);
                 _pointerSoftwareRendering = result.PointerSoftwareRendering;
                 _activeStage = ActiveStage.New(result);
-                ResetImage(result.DesktopSize.Width, result.DesktopSize.Height);
             }
 
             SetState(SessionState.Connected);
