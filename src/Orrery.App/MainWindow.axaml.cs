@@ -3,7 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
+using Orrery.App.Security;
 using Orrery.App.Sessions;
+using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Orrery.Protocols.Rdp;
 
@@ -18,10 +21,20 @@ public partial class MainWindow : Window
     readonly TextBlock _emptyState;
     readonly TextBox _host, _user, _domain, _password;
     readonly TextBlock _error;
+    readonly ServerCertificateValidator _certificateValidator;
 
     public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
+
+        // TODO: resolve this through IDataLocation once storage modes land, so portable mode keeps it with the app.
+        var trustStorePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Orrery", "trusted-certificates.json");
+        _certificateValidator = new ServerCertificateValidator(
+            new JsonCertificateTrustStore(trustStorePath),
+            prompt => Dispatcher.UIThread.InvokeAsync(
+                () => new CertificatePromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
+
         _sessions = this.FindControl<TabControl>("Sessions")!;
         _emptyState = this.FindControl<TextBlock>("EmptyState")!;
         _host = this.FindControl<TextBox>("HostBox")!;
@@ -51,7 +64,7 @@ public partial class MainWindow : Window
         var target = new ConnectionTarget(host, port, NullIfEmpty(_user.Text), NullIfEmpty(_domain.Text));
         var (width, height) = DesktopSizeForView();
 
-        var session = RdpSession.Start(target, _password.Text ?? string.Empty, width, height);
+        var session = RdpSession.Start(target, _password.Text ?? string.Empty, width, height, _certificateValidator);
         _password.Text = string.Empty;
         AddTab(new RemoteFrameView(session));
     }
