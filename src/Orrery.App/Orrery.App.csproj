@@ -15,5 +15,6 @@
     <PackageReference Condition="'$(Configuration)' == 'Debug'" Include="Avalonia.Diagnostics" Version="$(AvaloniaVersion)" />
     <ProjectReference Include="..\Orrery.Core\Orrery.Core.csproj" />
     <ProjectReference Include="..\Orrery.Protocols.Rdp\Orrery.Protocols.Rdp.csproj" />
+    <ProjectReference Include="..\Orrery.Protocols.Ssh\Orrery.Protocols.Ssh.csproj" />
   </ItemGroup>
 </Project>

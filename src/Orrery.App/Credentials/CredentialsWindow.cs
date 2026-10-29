@@ -3,25 +3,28 @@ using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Orrery.Core.Credentials;
+using Orrery.Protocols.Ssh;
 
 namespace Orrery.App.Credentials;
 
 /// <summary>
-/// Lists saved credentials and edits them. The store must already be unlocked.
-/// Leaving the password blank when editing keeps the saved one.
+/// Lists saved credentials and edits them: passwords, or SSH private keys with an optional passphrase.
+/// The store must already be unlocked. Leaving a secret blank when editing keeps the saved one.
 /// </summary>
 sealed class CredentialsWindow : Window
 {
-    static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
-
     readonly ICredentialStore _store;
     readonly ListBox _list = new();
+    readonly ComboBox _kind = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _name = new(), _username = new(), _domain = new(), _notes = new() { AcceptsReturn = true, Height = 64 };
     readonly TextBox _password = new() { PasswordChar = '•' };
-    readonly TextBlock _passwordHint = new() { FontSize = 11, Foreground = MutedBrush };
-    readonly TextBlock _error = new() { Foreground = DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly TextBox _key = new() { AcceptsReturn = true, Height = 110, FontFamily = Dialogs.MonoFont, FontSize = 11, TextWrapping = TextWrapping.NoWrap };
+    readonly TextBox _passphrase = new() { PasswordChar = '•' };
+    readonly TextBlock _secretHint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush };
+    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Control _passwordField, _keyFields, _domainField;
     readonly Button _delete;
     Guid? _editing;
 
@@ -30,12 +33,17 @@ sealed class CredentialsWindow : Window
         _store = store;
 
         Title = "Saved credentials";
-        Width = 760;
-        Height = 480;
-        MinWidth = 620;
-        MinHeight = 400;
+        Width = 780;
+        Height = 560;
+        MinWidth = 640;
+        MinHeight = 440;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.Parse("#14161B"));
+        Background = Dialogs.PanelBrush;
+
+        _kind.Items.Add(new ComboBoxItem { Content = "Password", Tag = CredentialKind.Password });
+        _kind.Items.Add(new ComboBoxItem { Content = "SSH private key", Tag = CredentialKind.SshKey });
+        _kind.SelectedIndex = 0;
+        _kind.SelectionChanged += (_, _) => ShowKindFields();
 
         _list.ItemTemplate = new FuncDataTemplate<CredentialSummary>((c, _) => new StackPanel
         {
@@ -43,7 +51,12 @@ sealed class CredentialsWindow : Window
             Children =
             {
                 new TextBlock { Text = c?.Name, FontWeight = FontWeight.SemiBold },
-                new TextBlock { Text = c?.DisplayUser, FontSize = 12, Foreground = MutedBrush },
+                new TextBlock
+                {
+                    Text = c is null ? null : c.Kind == CredentialKind.Password ? c.DisplayUser : $"{c.DisplayUser} · SSH key",
+                    FontSize = 12,
+                    Foreground = Dialogs.MutedBrush,
+                },
             },
         });
         _list.SelectionChanged += async (_, _) =>
@@ -54,8 +67,11 @@ sealed class CredentialsWindow : Window
             }
         };
 
-        var add = new Button { Content = "New credential", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var add = new Button { Content = "New credential", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
         add.Click += (_, _) => StartNew();
+
+        var loadKey = new Button { Content = "Load from file…", FontSize = 12 };
+        loadKey.Click += async (_, _) => await LoadKeyFileAsync();
 
         var save = new Button { Content = "Save", Padding = new Thickness(16, 6) };
         save.Classes.Add("accent");
@@ -63,9 +79,24 @@ sealed class CredentialsWindow : Window
         _delete = new Button { Content = "Delete", Padding = new Thickness(16, 6) };
         _delete.Click += async (_, _) => await DeleteAsync();
 
+        _passwordField = Dialogs.Field("Password", _password);
+        _domainField = Dialogs.Field("Domain (optional)", _domain);
+        var keyHeader = new DockPanel();
+        DockPanel.SetDock(loadKey, Dock.Right);
+        keyHeader.Children.Add(loadKey);
+        keyHeader.Children.Add(Dialogs.Label("Private key (OpenSSH, PEM or PuTTY .ppk)"));
+        _keyFields = new StackPanel
+        {
+            Spacing = 10,
+            Children =
+            {
+                new StackPanel { Spacing = 4, Children = { keyHeader, _key } },
+                Dialogs.Field("Passphrase (if the key has one)", _passphrase),
+            },
+        };
+
         var left = new DockPanel { Width = 240, Margin = new Thickness(0, 0, 16, 0) };
         DockPanel.SetDock(add, Dock.Bottom);
-        add.Margin = new Thickness(0, 8, 0, 0);
         left.Children.Add(add);
         left.Children.Add(new Border { BorderBrush = new SolidColorBrush(Color.Parse("#2A2F38")), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Child = _list });
 
@@ -74,11 +105,14 @@ sealed class CredentialsWindow : Window
             Spacing = 10,
             Children =
             {
-                Field("Name", _name),
-                Field("Username", _username),
-                Field("Domain (optional)", _domain),
-                new StackPanel { Spacing = 4, Children = { Label("Password"), _password, _passwordHint } },
-                Field("Notes", _notes),
+                Dialogs.Field("Name", _name),
+                Dialogs.Field("Type", _kind),
+                Dialogs.Field("Username", _username),
+                _domainField,
+                _passwordField,
+                _keyFields,
+                _secretHint,
+                Dialogs.Field("Notes", _notes),
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { _delete, save } },
             },
@@ -94,9 +128,14 @@ sealed class CredentialsWindow : Window
         StartNew();
     }
 
-    static TextBlock Label(string text) => new() { Text = text, FontSize = 12, Foreground = MutedBrush };
+    CredentialKind SelectedKind => (CredentialKind)((ComboBoxItem)_kind.SelectedItem!).Tag!;
 
-    static Control Field(string label, Control input) => new StackPanel { Spacing = 4, Children = { Label(label), input } };
+    void ShowKindFields()
+    {
+        bool password = SelectedKind == CredentialKind.Password;
+        _passwordField.IsVisible = _domainField.IsVisible = password;
+        _keyFields.IsVisible = !password;
+    }
 
     async Task RefreshAsync(Guid? select)
     {
@@ -109,10 +148,12 @@ sealed class CredentialsWindow : Window
     {
         _editing = null;
         _list.SelectedItem = null;
-        _name.Text = _username.Text = _domain.Text = _password.Text = _notes.Text = string.Empty;
-        _passwordHint.Text = string.Empty;
+        _name.Text = _username.Text = _domain.Text = _password.Text = _key.Text = _passphrase.Text = _notes.Text = string.Empty;
+        _kind.SelectedIndex = 0;
+        _secretHint.Text = string.Empty;
         _delete.IsEnabled = false;
         _error.IsVisible = false;
+        ShowKindFields();
         _name.Focus();
     }
 
@@ -125,13 +166,36 @@ sealed class CredentialsWindow : Window
 
         _editing = id;
         _name.Text = credential.Name;
+        _kind.SelectedIndex = credential.Kind == CredentialKind.Password ? 0 : 1;
         _username.Text = credential.Username;
         _domain.Text = credential.Domain;
         _notes.Text = credential.Notes;
-        _password.Text = string.Empty;
-        _passwordHint.Text = "Leave blank to keep the saved password.";
+        _password.Text = _key.Text = _passphrase.Text = string.Empty;
+        _secretHint.Text = credential.Kind == CredentialKind.Password
+            ? "Leave the password blank to keep the saved one."
+            : "Leave the key and passphrase blank to keep the saved ones.";
         _delete.IsEnabled = true;
         _error.IsVisible = false;
+        ShowKindFields();
+    }
+
+    async Task LoadKeyFileAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Choose a private key", AllowMultiple = false });
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        await using var stream = await files[0].OpenReadAsync();
+        if (stream.Length > 64 * 1024)
+        {
+            ShowError("That file is too large to be a private key.");
+            return;
+        }
+
+        using var reader = new StreamReader(stream);
+        _key.Text = await reader.ReadToEndAsync();
     }
 
     async Task SaveAsync()
@@ -143,23 +207,39 @@ sealed class CredentialsWindow : Window
             return;
         }
 
+        var existing = _editing is { } id ? await _store.GetAsync(id) : null;
+        var kind = SelectedKind;
         string secret;
-        if (!string.IsNullOrEmpty(_password.Text))
+        string? passphrase = null;
+
+        if (kind == CredentialKind.Password)
         {
-            secret = _password.Text;
-        }
-        else if (_editing is { } id && await _store.GetAsync(id) is { } existing)
-        {
-            secret = existing.Secret;
+            if (!string.IsNullOrEmpty(_password.Text)) secret = _password.Text;
+            else if (existing?.Kind == CredentialKind.Password) secret = existing.Secret;
+            else { ShowError("Enter a password."); return; }
         }
         else
         {
-            ShowError("Enter a password.");
-            return;
+            bool keepKey = string.IsNullOrWhiteSpace(_key.Text) && existing?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase;
+            if (!keepKey && string.IsNullOrWhiteSpace(_key.Text))
+            {
+                ShowError("Paste a private key or load one from a file.");
+                return;
+            }
+
+            secret = keepKey ? existing!.Secret : _key.Text!.Trim() + "\n";
+            passphrase = !string.IsNullOrEmpty(_passphrase.Text) ? _passphrase.Text : keepKey ? existing!.Passphrase : null;
+            if (SshSession.ValidatePrivateKey(secret, passphrase) is { } problem)
+            {
+                ShowError(problem);
+                return;
+            }
+
+            kind = string.IsNullOrEmpty(passphrase) ? CredentialKind.SshKey : CredentialKind.SshKeyWithPassphrase;
         }
 
-        var credential = new Credential(_editing ?? Guid.NewGuid(), name, CredentialKind.Password,
-            Blank(_username.Text), Blank(_domain.Text), secret, Notes: Blank(_notes.Text));
+        var credential = new Credential(_editing ?? Guid.NewGuid(), name, kind,
+            Blank(_username.Text), kind == CredentialKind.Password ? Blank(_domain.Text) : null, secret, passphrase, Blank(_notes.Text));
 
         try
         {

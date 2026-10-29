@@ -20,6 +20,7 @@ using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Rdp;
+using Orrery.Protocols.Ssh;
 
 namespace Orrery.App;
 
@@ -34,6 +35,7 @@ public partial class MainWindow : Window
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
     readonly ServerCertificateValidator _certificateValidator;
+    readonly HostKeyValidator _hostKeyValidator;
     readonly PropertiesPanel _properties;
     readonly DispatcherTimer _saveTimer;
     readonly string? _startupWarning;
@@ -78,6 +80,11 @@ public partial class MainWindow : Window
             prompt => Dispatcher.UIThread.InvokeAsync(
                 () => new CertificatePromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
 
+        _hostKeyValidator = new HostKeyValidator(
+            new JsonCertificateTrustStore(location.FileIn("known-hosts.json")),
+            prompt => Dispatcher.UIThread.InvokeAsync(
+                () => new HostKeyPromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
+
         _credentials = CredentialStores.For(location);
         if (_credentials is VaultFileStore vault)
         {
@@ -120,9 +127,9 @@ public partial class MainWindow : Window
         {
             _properties.TrySave();
             SaveNow();
-            foreach (var view in OpenViews())
+            foreach (var session in OpenSessions())
             {
-                _ = view.Session.DisposeAsync().AsTask();
+                _ = session.DisposeAsync().AsTask();
             }
 
             (_credentials as IDisposable)?.Dispose();
@@ -439,9 +446,9 @@ public partial class MainWindow : Window
             Select(entry.Id);
             await ConnectAsync(entry);
         }
-        else if (choice?.Host is { } host)
+        else if (choice?.Host is not null)
         {
-            await ConnectDirectAsync(host, choice.Port);
+            await ConnectDirectAsync(choice);
         }
     }
 
@@ -459,16 +466,18 @@ public partial class MainWindow : Window
         }
 
         var resolved = SettingsResolver.Resolve(entry);
-        if (resolved.Protocol.Value != Protocol.Rdp)
+        var protocol = resolved.Protocol.Value;
+        if (protocol is not (Protocol.Rdp or Protocol.Ssh))
         {
-            await Dialogs.ShowMessageAsync(this, $"{ProtocolInfo.Label(resolved.Protocol.Value)} isn't supported yet",
-                "Orrery can only open RDP connections for now. SSH and VNC are on the way.");
+            await Dialogs.ShowMessageAsync(this, $"{ProtocolInfo.Label(protocol)} isn't supported yet",
+                "Orrery can open RDP and SSH connections for now. VNC and Telnet are on the way.");
             return;
         }
 
         try
         {
             string? username = resolved.Username.Value, domain = resolved.Domain.Value, password = null;
+            Credential? saved = null;
             if (resolved.CredentialId.Value is { } id)
             {
                 if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
@@ -478,6 +487,7 @@ public partial class MainWindow : Window
 
                 if (await _credentials.GetAsync(id) is { } credential)
                 {
+                    saved = credential;
                     (username, domain, password) = (credential.Username, credential.Domain, credential.Secret);
                 }
             }
@@ -498,9 +508,21 @@ public partial class MainWindow : Window
                 }
 
                 (username, domain, password) = (prompt.Username, prompt.Domain, prompt.Password);
+                if (prompt.CredentialId is { } chosenId && await _credentials.GetAsync(chosenId) is { } chosenCredential)
+                {
+                    saved = chosenCredential;
+                }
             }
 
-            StartSession(entry.Name, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain), password);
+            var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
+            if (protocol == Protocol.Ssh)
+            {
+                await StartSshAsync(entry.Name, target, password, saved);
+            }
+            else
+            {
+                StartRdp(entry.Name, target, password);
+            }
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -508,28 +530,58 @@ public partial class MainWindow : Window
         }
     }
 
-    async Task ConnectDirectAsync(string host, int port)
+    async Task ConnectDirectAsync(QuickConnectChoice choice)
     {
-        var prompt = await new ConnectPromptWindow(_credentials, host, $"{host}:{port}", null, null, offerRemember: false)
+        var host = choice.Host!;
+        var prompt = await new ConnectPromptWindow(_credentials, host, $"{host}:{choice.Port}", choice.Username, null, offerRemember: false)
             .ShowDialog<ConnectPromptResult?>(this);
-        if (prompt is not null)
+        if (prompt is null)
         {
-            StartSession(host, new ConnectionTarget(host, port, prompt.Username, prompt.Domain), prompt.Password);
+            return;
+        }
+
+        var target = new ConnectionTarget(host, choice.Port, prompt.Username, prompt.Domain);
+        if (choice.Protocol == Protocol.Ssh)
+        {
+            var saved = prompt.CredentialId is { } id ? await _credentials.GetAsync(id) : null;
+            await StartSshAsync(host, target, prompt.Password, saved);
+        }
+        else
+        {
+            StartRdp(host, target, prompt.Password);
         }
     }
 
-    void StartSession(string title, ConnectionTarget target, string password)
+    void StartRdp(string title, ConnectionTarget target, string password)
     {
         var (width, height) = DesktopSizeForView();
         var session = RdpSession.Start(target, password, width, height, _certificateValidator);
-        AddTab(new RemoteFrameView(session), title);
+        AddTab(new RemoteFrameView(session), session, title);
         UpdateVaultButton();
     }
 
-    void AddTab(RemoteFrameView view, string title)
+    /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
+    async Task StartSshAsync(string title, ConnectionTarget target, string password, Credential? saved)
+    {
+        if (string.IsNullOrWhiteSpace(target.Username))
+        {
+            await Dialogs.ShowMessageAsync(this, "SSH needs a username", "Set a username on the connection or its saved credential, then connect again.");
+            return;
+        }
+
+        var login = saved?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase
+            ? new SshLogin(target.Username, null, saved.Secret, saved.Passphrase)
+            : new SshLogin(target.Username, password);
+
+        var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24);
+        AddTab(new TerminalView(session), session, title);
+        UpdateVaultButton();
+    }
+
+    void AddTab(Control view, IConnectionSession session, string title)
     {
         var header = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
-        ToolTip.SetTip(header, $"{view.Session.Target.Host}:{view.Session.Target.Port}");
+        ToolTip.SetTip(header, $"{session.Target.Username}{(session.Target.Username is null ? "" : "@")}{session.Target.Host}:{session.Target.Port}");
         var close = new Button
         {
             Content = "✕",
@@ -544,13 +596,14 @@ public partial class MainWindow : Window
         {
             Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { header, close } },
             Content = view,
+            Tag = session,
         };
 
         close.Click += async (_, _) =>
         {
             _sessions.Items.Remove(tab);
             UpdateEmptyState();
-            await view.Session.DisposeAsync();
+            await session.DisposeAsync();
         };
 
         _sessions.Items.Add(tab);
@@ -573,8 +626,8 @@ public partial class MainWindow : Window
         return (width - width % 4, height);
     }
 
-    IEnumerable<RemoteFrameView> OpenViews() =>
-        _sessions.Items.OfType<TabItem>().Select(t => t.Content).OfType<RemoteFrameView>();
+    IEnumerable<IConnectionSession> OpenSessions() =>
+        _sessions.Items.OfType<TabItem>().Select(t => t.Tag).OfType<IConnectionSession>();
 
     void UpdateEmptyState() => _emptyState.IsVisible = _sessions.Items.Count == 0;
 
