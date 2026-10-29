@@ -1,0 +1,68 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Orrery.App.MainWindow"
+        Title="Orrery"
+        Width="1440" Height="900" MinWidth="900" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource OrreryBackground}"
+        Foreground="{StaticResource OrreryText}">
+  <Grid ColumnDefinitions="300,*">
+
+    <!-- Quick connect panel. The connection tree replaces this once the core model lands. -->
+    <Border Background="{StaticResource OrreryPanel}"
+            BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0"
+            Padding="16">
+      <StackPanel Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <Viewbox Width="24" Height="24">
+            <Canvas Width="24" Height="24">
+              <Ellipse Width="20" Height="8.4" Canvas.Left="2" Canvas.Top="7.8"
+                       Stroke="{StaticResource OrreryAccent}" StrokeThickness="1.4" Opacity="0.5">
+                <Ellipse.RenderTransform><RotateTransform Angle="-25" /></Ellipse.RenderTransform>
+              </Ellipse>
+              <Ellipse Width="12.4" Height="5.2" Canvas.Left="5.8" Canvas.Top="9.4"
+                       Stroke="{StaticResource OrreryAccent}" StrokeThickness="1.4">
+                <Ellipse.RenderTransform><RotateTransform Angle="-25" /></Ellipse.RenderTransform>
+              </Ellipse>
+              <Ellipse Width="5.2" Height="5.2" Canvas.Left="9.4" Canvas.Top="9.4" Fill="{StaticResource OrreryAccent}" />
+              <Ellipse Width="3.2" Height="3.2" Canvas.Left="19.46" Canvas.Top="6.17" Fill="{StaticResource OrreryText}" />
+              <Ellipse Width="2.4" Height="2.4" Canvas.Left="5.18" Canvas.Top="13.42" Fill="{StaticResource OrreryText}" />
+            </Canvas>
+          </Viewbox>
+          <TextBlock Text="Orrery" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <TextBlock Classes="section" Text="QUICK CONNECT · RDP" Margin="0,8,0,0" />
+
+        <StackPanel>
+          <TextBlock Classes="label" Text="Host" />
+          <TextBox x:Name="HostBox" Watermark="host or host:port" FontFamily="Cascadia Mono, Consolas, Menlo, monospace" />
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Classes="label" Text="Username" />
+          <TextBox x:Name="UserBox" />
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Classes="label" Text="Domain (optional)" />
+          <TextBox x:Name="DomainBox" />
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Classes="label" Text="Password" />
+          <TextBox x:Name="PasswordBox" PasswordChar="•" />
+        </StackPanel>
+
+        <Button x:Name="ConnectButton" Content="Connect" Classes="accent" IsDefault="True"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Click="OnConnectClick" />
+        <TextBlock x:Name="ErrorText" Foreground="{StaticResource OrreryDanger}" TextWrapping="Wrap" IsVisible="False" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Column="1">
+      <TabControl x:Name="Sessions" Padding="0" />
+      <TextBlock x:Name="EmptyState" Text="No open sessions. Connect to a host on the left."
+                 Foreground="{StaticResource OrreryMuted}"
+                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Grid>
+  </Grid>
+</Window>

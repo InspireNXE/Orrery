@@ -1,0 +1,36 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Orrery.App.App"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <!-- Palette from the mockup. -->
+    <SolidColorBrush x:Key="OrreryBackground" Color="#0E1014" />
+    <SolidColorBrush x:Key="OrreryPanel" Color="#14161B" />
+    <SolidColorBrush x:Key="OrreryInput" Color="#1B1E24" />
+    <SolidColorBrush x:Key="OrreryBorder" Color="#23272F" />
+    <SolidColorBrush x:Key="OrreryText" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="OrreryMuted" Color="#9AA3B2" />
+    <SolidColorBrush x:Key="OrreryAccent" Color="#5B9DFF" />
+    <SolidColorBrush x:Key="OrreryDanger" Color="#FF9AA2" />
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Dark" Accent="#5B9DFF" RegionColor="#0E1014" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.8" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+  </Application.Styles>
+</Application>
