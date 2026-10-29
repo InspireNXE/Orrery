@@ -9,7 +9,39 @@ using Orrery.Core.Connections;
 namespace Orrery.App.Connections;
 
 /// <summary>A saved connection to open, or a host typed in to connect to once.</summary>
-sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port);
+sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port, Protocol Protocol = Protocol.Rdp, string? Username = null)
+{
+    /// <summary>
+    /// Reads "host", "host:port", "rdp://host", "ssh://host", "user@host" and "ssh://user@host:port".
+    /// A username without a scheme means SSH, as on the command line.
+    /// </summary>
+    public static QuickConnectChoice? Parse(string text)
+    {
+        text = text.Trim();
+        var protocol = Protocol.Rdp;
+        bool explicitScheme = false;
+        foreach (var (scheme, p) in new[] { ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh) })
+        {
+            if (text.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
+            {
+                (protocol, explicitScheme, text) = (p, true, text[scheme.Length..]);
+            }
+        }
+
+        string? username = null;
+        int at = text.LastIndexOf('@');
+        if (at > 0)
+        {
+            username = text[..at];
+            text = text[(at + 1)..];
+            if (!explicitScheme) protocol = Protocol.Ssh;
+        }
+
+        return HostAddress.TryParse(text.TrimEnd('/'), ProtocolInfo.DefaultPort(protocol), out var host, out var port)
+            ? new QuickConnectChoice(null, host, port, protocol, username)
+            : null;
+    }
+}
 
 /// <summary>
 /// The Ctrl+K palette: type to find a saved connection by name, host or folder, or enter
@@ -18,10 +50,9 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port)
 sealed class QuickConnectWindow : Window
 {
     const int MaxResults = 8;
-    const int RdpPort = 3389;
 
     readonly ConnectionTree _tree;
-    readonly TextBox _query = new() { Watermark = "Search connections, or type host[:port]", FontSize = 15, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
+    readonly TextBox _query = new() { Watermark = "Search connections, or type host, user@host, ssh://host:port", FontSize = 15, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     readonly ListBox _results = new() { Background = Brushes.Transparent, MaxHeight = 380 };
 
     public QuickConnectWindow(ConnectionTree tree)
@@ -96,10 +127,13 @@ sealed class QuickConnectWindow : Window
         }
 
         bool exactHostSaved = rows.Any(r => string.Equals(r.Choice.Entry?.Host, query, StringComparison.OrdinalIgnoreCase));
-        if (!exactHostSaved && HostAddress.TryParse(query, RdpPort, out var host, out var port))
+        if (!exactHostSaved && QuickConnectChoice.Parse(query) is { } direct)
         {
-            var direct = new Row($"Connect to {host}" + (port != RdpPort ? $":{port}" : string.Empty), "RDP, without saving", "Direct", new QuickConnectChoice(null, host, port));
-            if (rows.Count == 0) rows.Add(direct); else rows.Insert(Math.Min(rows.Count, 1), direct);
+            var label = ProtocolInfo.Label(direct.Protocol);
+            var who = direct.Username is null ? string.Empty : $"{direct.Username}@";
+            var port = direct.Port != ProtocolInfo.DefaultPort(direct.Protocol) ? $":{direct.Port}" : string.Empty;
+            var row = new Row($"Connect to {who}{direct.Host}{port}", $"{label}, without saving", "Direct", direct);
+            if (rows.Count == 0) rows.Add(row); else rows.Insert(Math.Min(rows.Count, 1), row);
         }
 
         _results.ItemsSource = rows;
