@@ -50,6 +50,12 @@ public interface IFrameBufferSession : IConnectionSession
     /// <summary>Sends a PC/AT set-1 scancode. Extended keys carry 0xE0 in the high byte (e.g. 0xE048).</summary>
     void SendKey(ushort scancode, bool pressed);
 
+    /// <summary>
+    /// Releases every key still held. Call when the view loses focus, which hides the key-up events
+    /// (e.g. after Alt+Tab), so the remote side doesn't think Alt is stuck down.
+    /// </summary>
+    void ReleaseAllKeys();
+
     void SendPointerMove(int x, int y);
     void SendPointerButton(PointerButton button, bool pressed);
 
