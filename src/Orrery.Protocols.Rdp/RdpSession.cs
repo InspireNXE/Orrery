@@ -216,8 +216,30 @@ public sealed class RdpSession : IFrameBufferSession
         }
     }
 
+    // Shift, Ctrl, Alt, Windows, and the lock keys.
+    static readonly HashSet<ushort> NonRepeatingKeys =
+        [0x2A, 0x36, 0x1D, 0xE01D, 0x38, 0xE038, 0xE05B, 0xE05C, 0x3A, 0x45, 0x46];
+
+    readonly HashSet<ushort> _heldKeys = [];
+
     public void SendKey(ushort scancode, bool pressed)
     {
+        // Holding a key makes the OS repeat key-down events, and IronRDP turns each repeat of a held key
+        // into release + press. For modifiers the server then sees repeated taps (five Shift taps start
+        // Sticky Keys), and repeated lock keys toggle, so forward only their first press.
+        lock (_heldKeys)
+        {
+            if (pressed && !_heldKeys.Add(scancode) && NonRepeatingKeys.Contains(scancode))
+            {
+                return;
+            }
+
+            if (!pressed)
+            {
+                _heldKeys.Remove(scancode);
+            }
+        }
+
         var key = Scancode.FromU16(scancode);
         SendInput(pressed ? key.AsOperationKeyPressed() : key.AsOperationKeyReleased());
     }
@@ -239,6 +261,50 @@ public sealed class RdpSession : IFrameBufferSession
             _ => RdpPointerButton.X2,
         });
         SendInput(pressed ? rdpButton.AsOperationMouseButtonPressed() : rdpButton.AsOperationMouseButtonReleased());
+    }
+
+    public void SendWheel(int units, bool horizontal)
+    {
+        if (units == 0)
+        {
+            return;
+        }
+
+        var rotation = WheelRotations.New(!horizontal, (short)Math.Clamp(units, short.MinValue, short.MaxValue));
+        SendInput(rotation.AsOperation());
+    }
+
+    public void RequestResize(int width, int height)
+    {
+        if (State != SessionState.Connected)
+        {
+            return;
+        }
+
+        // MS-RDPEDISP: 200 to 8192 pixels, and the width must be even.
+        width = Math.Clamp(width, 200, 8192) & ~1;
+        height = Math.Clamp(height, 200, 8192);
+        if (width == Width && height == Height)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Null when the server hasn't opened the display-control channel, i.e. it can't resize.
+                var outputs = WithStageLock(() => _activeStage!.EncodedResize((uint)width, (uint)height));
+                if (outputs is not null)
+                {
+                    await HandleOutputsAsync(outputs, _cts.Token);
+                }
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                Trace.TraceError($"RDP resize to {width}x{height} failed: {e.Message}");
+            }
+        });
     }
 
     void SendInput(Operation operation)
