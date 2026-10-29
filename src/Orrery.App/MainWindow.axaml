@@ -42,6 +42,10 @@
           <TextBox x:Name="HostBox" Watermark="host or host:port" FontFamily="Cascadia Mono, Consolas, Menlo, monospace" />
         </StackPanel>
         <StackPanel>
+          <TextBlock Classes="label" Text="Saved credential" />
+          <ComboBox x:Name="CredentialBox" HorizontalAlignment="Stretch" />
+        </StackPanel>
+        <StackPanel>
           <TextBlock Classes="label" Text="Username" />
           <TextBox x:Name="UserBox" />
         </StackPanel>
@@ -53,11 +57,17 @@
           <TextBlock Classes="label" Text="Password" />
           <TextBox x:Name="PasswordBox" PasswordChar="•" />
         </StackPanel>
+        <CheckBox x:Name="SaveCredentialBox" Content="Save as a credential" />
 
         <Button x:Name="ConnectButton" Content="Connect" Classes="accent" IsDefault="True"
                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                 Click="OnConnectClick" />
         <TextBlock x:Name="ErrorText" Foreground="{StaticResource OrreryDanger}" TextWrapping="Wrap" IsVisible="False" />
+
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+          <Button x:Name="ManageCredentialsButton" Content="Manage credentials…" Click="OnManageCredentialsClick" />
+          <Button x:Name="LockVaultButton" Content="Lock vault" Click="OnLockVaultClick" IsVisible="False" />
+        </StackPanel>
       </StackPanel>
       </DockPanel>
     </Border>

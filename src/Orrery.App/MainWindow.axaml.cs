@@ -4,7 +4,9 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Orrery.App.Credentials;
 using Orrery.App.Security;
+using Orrery.Core.Credentials;
 using Orrery.App.Sessions;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
@@ -49,6 +51,18 @@ public partial class MainWindow : Window
         _domain = this.FindControl<TextBox>("DomainBox")!;
         _password = this.FindControl<TextBox>("PasswordBox")!;
         _error = this.FindControl<TextBlock>("ErrorText")!;
+        _credentialBox = this.FindControl<ComboBox>("CredentialBox")!;
+        _saveCredential = this.FindControl<CheckBox>("SaveCredentialBox")!;
+        _lockVault = this.FindControl<Button>("LockVaultButton")!;
+
+        _credentials = CredentialStores.For(location);
+        if (_credentials is VaultFileStore vault)
+        {
+            vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(() => _ = RefreshCredentialChoicesAsync());
+        }
+
+        _credentialBox.SelectionChanged += async (_, _) => await OnCredentialChoiceChangedAsync();
+        _ = RefreshCredentialChoicesAsync();
 
         Closing += (_, _) =>
         {
@@ -56,10 +70,12 @@ public partial class MainWindow : Window
             {
                 _ = view.Session.DisposeAsync().AsTask();
             }
+
+            (_credentials as IDisposable)?.Dispose();
         };
     }
 
-    void OnConnectClick(object? sender, RoutedEventArgs e)
+    async void OnConnectClick(object? sender, RoutedEventArgs e)
     {
         if (!TryParseHost(_host.Text, out var host, out var port))
         {
@@ -68,12 +84,164 @@ public partial class MainWindow : Window
         }
 
         ShowError(null);
-        var target = new ConnectionTarget(host, port, NullIfEmpty(_user.Text), NullIfEmpty(_domain.Text));
+        string? username = NullIfEmpty(_user.Text), domain = NullIfEmpty(_domain.Text);
+        string password;
+
+        try
+        {
+            if (SelectedCredential is { } summary)
+            {
+                if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+                {
+                    return;
+                }
+
+                if (await _credentials.GetAsync(summary.Id) is not { } credential)
+                {
+                    ShowError($"The saved credential \"{summary.Name}\" couldn't be read.");
+                    return;
+                }
+
+                (username, domain, password) = (credential.Username, credential.Domain, credential.Secret);
+            }
+            else
+            {
+                password = _password.Text ?? string.Empty;
+                if (_saveCredential.IsChecked == true && !await SaveTypedCredentialAsync(host, username, domain, password))
+                {
+                    return;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            ShowError(ex.Message);
+            return;
+        }
+
+        var target = new ConnectionTarget(host, port, username, domain);
         var (width, height) = DesktopSizeForView();
 
-        var session = RdpSession.Start(target, _password.Text ?? string.Empty, width, height, _certificateValidator);
+        var session = RdpSession.Start(target, password, width, height, _certificateValidator);
         _password.Text = string.Empty;
         AddTab(new RemoteFrameView(session));
+    }
+
+    // ---- Saved credentials ----
+
+    // The item that asks to unlock the vault; selecting it shows the unlock dialog.
+    const string UnlockChoice = "Unlock vault to choose…";
+    const string NoCredentialChoice = "None: type credentials below";
+
+    readonly ICredentialStore _credentials;
+    readonly ComboBox _credentialBox;
+    readonly CheckBox _saveCredential;
+    readonly Button _lockVault;
+    bool _refreshingChoices;
+
+    CredentialSummary? SelectedCredential => (_credentialBox.SelectedItem as ComboBoxItem)?.Tag as CredentialSummary;
+
+    async Task RefreshCredentialChoicesAsync(Guid? select = null)
+    {
+        _refreshingChoices = true;
+        try
+        {
+            var items = new List<ComboBoxItem> { new() { Content = NoCredentialChoice } };
+            if (_credentials.IsLocked)
+            {
+                items.Add(new ComboBoxItem { Content = _credentials.Exists ? UnlockChoice : "Create a vault to save credentials…", Tag = UnlockChoice });
+            }
+            else
+            {
+                items.AddRange((await _credentials.ListAsync()).Select(c => new ComboBoxItem
+                {
+                    Content = c.Username is null ? c.Name : $"{c.Name}  ({c.DisplayUser})",
+                    Tag = c,
+                }));
+            }
+
+            _credentialBox.ItemsSource = items;
+            _credentialBox.SelectedItem = items.FirstOrDefault(i => i.Tag is CredentialSummary c && c.Id == select) ?? items[0];
+            _lockVault.IsVisible = _credentials is VaultFileStore && !_credentials.IsLocked;
+        }
+        finally
+        {
+            _refreshingChoices = false;
+        }
+
+        ApplyCredentialChoice();
+    }
+
+    async Task OnCredentialChoiceChangedAsync()
+    {
+        if (_refreshingChoices)
+        {
+            return;
+        }
+
+        if ((_credentialBox.SelectedItem as ComboBoxItem)?.Tag is UnlockChoice)
+        {
+            bool unlocked = await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this);
+            await RefreshCredentialChoicesAsync();
+            if (unlocked)
+            {
+                _credentialBox.IsDropDownOpen = true;
+            }
+
+            return;
+        }
+
+        ApplyCredentialChoice();
+    }
+
+    /// <summary>A saved credential fills in and locks the user fields; "None" frees them again.</summary>
+    void ApplyCredentialChoice()
+    {
+        var summary = SelectedCredential;
+        bool typing = summary is null;
+
+        _user.IsEnabled = _domain.IsEnabled = _password.IsEnabled = typing;
+        _saveCredential.IsVisible = typing;
+        _password.Watermark = typing ? null : "Saved";
+        if (summary is not null)
+        {
+            _user.Text = summary.Username;
+            _domain.Text = summary.Domain;
+            _password.Text = string.Empty;
+            _saveCredential.IsChecked = false;
+        }
+    }
+
+    async Task<bool> SaveTypedCredentialAsync(string host, string? username, string? domain, string password)
+    {
+        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+        {
+            return false;
+        }
+
+        var name = username is null ? host : $"{username}@{host}";
+        var credential = new Credential(Guid.NewGuid(), name, CredentialKind.Password, username, domain, password);
+        await _credentials.SaveAsync(credential);
+        await RefreshCredentialChoicesAsync(select: credential.Id);
+        return true;
+    }
+
+    async void OnManageCredentialsClick(object? sender, RoutedEventArgs e)
+    {
+        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+        {
+            return;
+        }
+
+        var selected = SelectedCredential?.Id;
+        await new CredentialsWindow(_credentials).ShowDialog(this);
+        await RefreshCredentialChoicesAsync(selected);
+    }
+
+    async void OnLockVaultClick(object? sender, RoutedEventArgs e)
+    {
+        _credentials.Lock();
+        await RefreshCredentialChoicesAsync();
     }
 
     void AddTab(RemoteFrameView view)
