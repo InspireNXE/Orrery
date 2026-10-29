@@ -7,6 +7,7 @@ public enum Protocol
     Rdp,
     Ssh,
     Vnc,
+    Telnet,
 }
 
 public static class ProtocolInfo
@@ -16,6 +17,7 @@ public static class ProtocolInfo
         Protocol.Rdp => 3389,
         Protocol.Ssh => 22,
         Protocol.Vnc => 5900,
+        Protocol.Telnet => 23,
         _ => throw new ArgumentOutOfRangeException(nameof(protocol)),
     };
 
@@ -54,6 +56,9 @@ public abstract class ConnectionNode
     public string Name { get; set; } = string.Empty;
     public string? Notes { get; set; }
     public InheritableSettings Settings { get; set; } = new();
+
+    /// <summary>Where this came from when imported (e.g. "mremoteng:&lt;id&gt;"), to spot re-imports.</summary>
+    public string? ImportSourceId { get; set; }
 
     [JsonIgnore]
     public ConnectionFolder? Parent { get; internal set; }

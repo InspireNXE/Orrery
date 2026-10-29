@@ -54,6 +54,7 @@
 
         <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="4,10,4,0">
           <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Import…" FontSize="12" Click="OnImportClick" ToolTip.Tip="Import connections from mRemoteNG (confCons.xml). You can also drop the file on the list." />
             <Button Content="Credentials…" FontSize="12" Click="OnManageCredentialsClick" />
             <Button x:Name="LockVaultButton" Content="Lock vault" FontSize="12" Click="OnLockVaultClick" IsVisible="False" />
           </StackPanel>

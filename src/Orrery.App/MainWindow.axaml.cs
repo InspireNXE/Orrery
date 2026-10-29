@@ -5,10 +5,13 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
 using Orrery.App.Credentials;
+using Orrery.App.Import;
+using Orrery.Core.Import;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
@@ -26,6 +29,7 @@ public partial class MainWindow : Window
     static readonly DataFormat<string> DragFormat = DataFormat.CreateStringApplicationFormat("orrery-node");
     static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(500);
 
+    readonly DataLocation _location;
     readonly ConnectionStore _connectionStore;
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
@@ -54,6 +58,7 @@ public partial class MainWindow : Window
     public MainWindow(DataLocation location)
     {
         AvaloniaXamlLoader.Load(this);
+        _location = location;
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"{(location.Mode == StorageMode.Portable ? "Portable" : "Installed")} · {location.DataDir}";
@@ -104,6 +109,10 @@ public partial class MainWindow : Window
             if (_startupWarning is not null)
             {
                 await Dialogs.ShowMessageAsync(this, "Your connections couldn't be loaded", _startupWarning);
+            }
+            else
+            {
+                await OfferMRemoteNgImportAsync();
             }
         };
 
@@ -246,12 +255,18 @@ public partial class MainWindow : Window
 
         _treeView.AddHandler(DragDrop.DragOverEvent, (_, e) =>
         {
-            e.DragEffects = DraggedNode(e) is { } node && DropTarget(e, node) is not null ? DragDropEffects.Move : DragDropEffects.None;
+            e.DragEffects = DroppedImportFile(e) is not null ? DragDropEffects.Copy
+                : DraggedNode(e) is { } node && DropTarget(e, node) is not null ? DragDropEffects.Move
+                : DragDropEffects.None;
         });
 
-        _treeView.AddHandler(DragDrop.DropEvent, (_, e) =>
+        _treeView.AddHandler(DragDrop.DropEvent, async (_, e) =>
         {
-            if (DraggedNode(e) is { } node && DropTarget(e, node) is { } target)
+            if (DroppedImportFile(e) is { } file)
+            {
+                await ImportAsync(file);
+            }
+            else if (DraggedNode(e) is { } node && DropTarget(e, node) is { } target)
             {
                 _properties.TrySave();
                 _tree.Move(node, target.Parent, target.Index);
@@ -562,6 +577,134 @@ public partial class MainWindow : Window
         _sessions.Items.OfType<TabItem>().Select(t => t.Content).OfType<RemoteFrameView>();
 
     void UpdateEmptyState() => _emptyState.IsVisible = _sessions.Items.Count == 0;
+
+    // ---- mRemoteNG import ----
+
+    static string? DroppedImportFile(DragEventArgs e) =>
+        e.DataTransfer.TryGetFile()?.TryGetLocalPath() is { } path && path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ? path : null;
+
+    /// <summary>First launch with an empty list on a machine that has mRemoteNG: offer to bring its connections over.</summary>
+    async Task OfferMRemoteNgImportAsync()
+    {
+        if (!OperatingSystem.IsWindows() || _tree.Root.Children.Count > 0)
+        {
+            return;
+        }
+
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "mRemoteNG", "confCons.xml");
+        if (File.Exists(path) && await Dialogs.ConfirmAsync(this, "Import your mRemoteNG connections?",
+                $"Orrery found mRemoteNG's connections file:\n{path}\n\nYou'll see what will be imported before anything changes.", "Review import"))
+        {
+            await ImportAsync(path);
+        }
+    }
+
+    async void OnImportClick(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = "Import from mRemoteNG",
+            AllowMultiple = false,
+            FileTypeFilter = [new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] }],
+        });
+
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        {
+            await ImportAsync(path);
+        }
+    }
+
+    async Task ImportAsync(string path)
+    {
+        ImportResult? result = null;
+        string? masterPassword = null, passwordError = null;
+        while (result is null)
+        {
+            try
+            {
+                var password = masterPassword;
+                result = await Task.Run(() => MRemoteNgImporter.ImportFile(path, password));
+            }
+            catch (MasterPasswordRequiredException e)
+            {
+                passwordError = e.WrongPassword ? "That password is incorrect." : null;
+                masterPassword = await Dialogs.PromptPasswordAsync(this, "Master password",
+                    "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", passwordError);
+                if (masterPassword is null)
+                {
+                    return;
+                }
+            }
+            catch (Exception e) when (e is ImportException or IOException or UnauthorizedAccessException)
+            {
+                await Dialogs.ShowMessageAsync(this, "Couldn't import this file", e.Message);
+                return;
+            }
+        }
+
+        int already = result.CountAlreadyIn(_tree);
+        var storeName = _credentials is VaultFileStore ? "your vault" : "Windows Credential Manager";
+        var choice = await new ImportPreviewWindow(result, already, storeName).ShowDialog<ImportChoice?>(this);
+        if (choice is null)
+        {
+            return;
+        }
+
+        if (choice.SkipAlreadyImported && already > 0)
+        {
+            result = result.WithoutAlreadyIn(_tree);
+        }
+
+        try
+        {
+            if (result.Credentials.Count > 0)
+            {
+                if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+                {
+                    return;
+                }
+
+                foreach (var credential in result.Credentials)
+                {
+                    await _credentials.SaveAsync(credential);
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the imported credentials", $"{e.Message}\n\nNothing was imported.");
+            return;
+        }
+
+        _properties.TrySave();
+        _filter.Text = string.Empty;
+        var importedFolder = result.Root;
+        _tree.AddFrom(importedFolder, _tree.Root, choice.IntoNewFolder);
+        SaveNow();
+        if (choice.IntoNewFolder)
+        {
+            Select(importedFolder.Id);
+        }
+
+        var reportPath = WriteImportReport(result.Report);
+        await Dialogs.ShowMessageAsync(this, $"Imported {result.Report.Connections} connection{(result.Report.Connections == 1 ? "" : "s")}",
+            reportPath is null ? "The import is complete." : $"A summary of what was and wasn't imported is saved at:\n{reportPath}");
+    }
+
+    string? WriteImportReport(ImportReport report)
+    {
+        try
+        {
+            var now = DateTimeOffset.Now;
+            var path = Path.Combine(_location.DataDir, "import", $"mremoteng-{now:yyyyMMdd-HHmmss}.md");
+            AtomicFile.WriteAllText(path, report.ToMarkdown(now));
+            return path;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     // ---- Credentials ----
 
