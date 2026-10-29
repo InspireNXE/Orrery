@@ -40,6 +40,30 @@ static class Dialogs
         return window.ShowDialog<bool>(owner);
     }
 
+    /// <summary>Asks for a password. Null if cancelled.</summary>
+    public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error = null)
+    {
+        var box = new TextBox { PasswordChar = '•' };
+        var ok = new Button { Content = "OK", IsDefault = true };
+        ok.Classes.Add("accent");
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, ok } };
+
+        var window = Shell(title, buttons);
+        var panel = (StackPanel)window.Content!;
+        panel.Children.Insert(1, new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap });
+        panel.Children.Insert(2, box);
+        if (error is not null)
+        {
+            panel.Children.Insert(3, new TextBlock { Text = error, Foreground = DangerBrush, TextWrapping = TextWrapping.Wrap });
+        }
+
+        ok.Click += (_, _) => window.Close(box.Text ?? string.Empty);
+        cancel.Click += (_, _) => window.Close(null);
+        window.Opened += (_, _) => box.Focus();
+        return window.ShowDialog<string?>(owner);
+    }
+
     static Window Shell(string title, Control buttons) => new()
     {
         Title = "Orrery",

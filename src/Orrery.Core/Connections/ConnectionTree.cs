@@ -74,6 +74,33 @@ public sealed class ConnectionTree
         NotifyChanged();
     }
 
+    /// <summary>
+    /// Brings in a detached folder from elsewhere (an import): the folder itself, or just its contents,
+    /// under <paramref name="parent"/>. Raises <see cref="Changed"/> once, however many nodes arrive.
+    /// </summary>
+    public void AddFrom(ConnectionFolder source, ConnectionFolder parent, bool includeSourceFolder)
+    {
+        if (source.Parent is not null)
+        {
+            throw new InvalidOperationException("The source folder must not be in a tree.");
+        }
+
+        if (includeSourceFolder)
+        {
+            Insert(source, parent, null);
+        }
+        else
+        {
+            foreach (var child in source.ChildList.ToList())
+            {
+                source.ChildList.Remove(child);
+                Insert(child, parent, null);
+            }
+        }
+
+        NotifyChanged();
+    }
+
     public void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
     static void Insert(ConnectionNode node, ConnectionFolder parent, int? index)
