@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Devolutions.IronRdp;
+using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using RdpPixelFormat = Devolutions.IronRdp.PixelFormat;
 using RdpPointerButton = Devolutions.IronRdp.MouseButtonType;
@@ -27,7 +28,13 @@ public sealed class RdpSession : IFrameBufferSession
     bool _pointerSoftwareRendering;
     Task? _readLoop;
 
-    RdpSession(ConnectionTarget target) => Target = target;
+    readonly ServerCertificateValidator _certificateValidator;
+
+    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator)
+    {
+        Target = target;
+        _certificateValidator = certificateValidator;
+    }
 
     public ConnectionTarget Target { get; }
     public SessionState State { get; private set; } = SessionState.Connecting;
@@ -40,9 +47,10 @@ public sealed class RdpSession : IFrameBufferSession
     /// <summary>
     /// Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.
     /// </summary>
-    public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight)
+    public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight,
+        ServerCertificateValidator certificateValidator)
     {
-        var session = new RdpSession(target);
+        var session = new RdpSession(target, certificateValidator);
         session._readLoop = Task.Run(() => session.RunAsync(password, desktopWidth, desktopHeight));
         return session;
     }
@@ -53,10 +61,7 @@ public sealed class RdpSession : IFrameBufferSession
         try
         {
             var config = BuildConfig(Target, password, desktopWidth, desktopHeight);
-
-            // TODO(security): Connection.Connect accepts any server certificate. Replace with our own
-            // TLS upgrade that pins the certificate on first use and asks the user when it changes.
-            var (result, framed) = await Connection.Connect(config, Target.Host, null, Target.Port, token);
+            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, _certificateValidator, token);
             _framed = new Framed<Stream>(framed.GetInner().Item1);
 
             lock (_stageLock)
@@ -77,6 +82,10 @@ public sealed class RdpSession : IFrameBufferSession
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             SetState(SessionState.Disconnected);
+        }
+        catch (CertificateRejectedException e)
+        {
+            SetState(SessionState.Failed, e.Message);
         }
         catch (Exception e)
         {
