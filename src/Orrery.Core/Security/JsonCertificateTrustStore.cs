@@ -1,10 +1,10 @@
 using System.Text.Json;
+using Orrery.Core.Storage;
 
 namespace Orrery.Core.Security;
 
 /// <summary>
-/// Keeps pinned certificates in a small JSON file, keyed by "host:port". Saves are atomic:
-/// the file is written to a temporary name and then moved over the original.
+/// Keeps pinned certificates in a small JSON file, keyed by "host:port". Saves are atomic.
 /// </summary>
 public sealed class JsonCertificateTrustStore : ICertificateTrustStore
 {
@@ -39,13 +39,7 @@ public sealed class JsonCertificateTrustStore : ICertificateTrustStore
 
     static string Key(string host, int port) => $"{host.Trim().ToLowerInvariant()}:{port}";
 
-    void Save()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var temp = _path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(new FileModel(1, _pins), JsonOptions));
-        File.Move(temp, _path, overwrite: true);
-    }
+    void Save() => AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(new FileModel(1, _pins), JsonOptions));
 
     static Dictionary<string, PinnedCertificate> Load(string path)
     {

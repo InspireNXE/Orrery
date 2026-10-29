@@ -8,6 +8,7 @@ using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
+using Orrery.Core.Storage;
 using Orrery.Protocols.Rdp;
 
 namespace Orrery.App;
@@ -23,15 +24,21 @@ public partial class MainWindow : Window
     readonly TextBlock _error;
     readonly ServerCertificateValidator _certificateValidator;
 
-    public MainWindow()
+    // For the XAML previewer only.
+    public MainWindow() : this(DataLocationResolver.ForPortable(Path.GetTempPath(), PlatformFolders.ForCurrentOs(), PortableDataChoice.WithApp))
+    {
+    }
+
+    public MainWindow(DataLocation location)
     {
         AvaloniaXamlLoader.Load(this);
 
-        // TODO: resolve this through IDataLocation once storage modes land, so portable mode keeps it with the app.
-        var trustStorePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Orrery", "trusted-certificates.json");
+        var storageText = this.FindControl<TextBlock>("StorageText")!;
+        storageText.Text = $"{(location.Mode == StorageMode.Portable ? "Portable" : "Installed")} · {location.DataDir}";
+        ToolTip.SetTip(storageText, location.DataDir);
+
         _certificateValidator = new ServerCertificateValidator(
-            new JsonCertificateTrustStore(trustStorePath),
+            new JsonCertificateTrustStore(location.FileIn("trusted-certificates.json")),
             prompt => Dispatcher.UIThread.InvokeAsync(
                 () => new CertificatePromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
 

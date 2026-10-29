@@ -12,6 +12,9 @@
     <Border Background="{StaticResource OrreryPanel}"
             BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0"
             Padding="16">
+      <DockPanel>
+      <TextBlock x:Name="StorageText" DockPanel.Dock="Bottom" FontSize="11"
+                 Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" />
       <StackPanel Spacing="14">
         <StackPanel Orientation="Horizontal" Spacing="10">
           <Viewbox Width="24" Height="24">
@@ -56,6 +59,7 @@
                 Click="OnConnectClick" />
         <TextBlock x:Name="ErrorText" Foreground="{StaticResource OrreryDanger}" TextWrapping="Wrap" IsVisible="False" />
       </StackPanel>
+      </DockPanel>
     </Border>
 
     <Grid Grid.Column="1">
