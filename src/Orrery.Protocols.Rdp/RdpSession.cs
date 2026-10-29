@@ -244,6 +244,20 @@ public sealed class RdpSession : IFrameBufferSession
         SendInput(pressed ? key.AsOperationKeyPressed() : key.AsOperationKeyReleased());
     }
 
+    public void ReleaseAllKeys()
+    {
+        ushort[] held;
+        lock (_heldKeys)
+        {
+            held = [.. _heldKeys];
+        }
+
+        foreach (var scancode in held)
+        {
+            SendKey(scancode, pressed: false);
+        }
+    }
+
     public void SendPointerMove(int x, int y)
     {
         var position = MousePosition.New((ushort)Math.Clamp(x, 0, ushort.MaxValue), (ushort)Math.Clamp(y, 0, ushort.MaxValue));

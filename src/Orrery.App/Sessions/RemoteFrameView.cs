@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -234,6 +235,15 @@ public sealed class RemoteFrameView : Panel
         _ => null,
     };
 
+    protected override void OnLostFocus(RoutedEventArgs e)
+    {
+        base.OnLostFocus(e);
+        Session.ReleaseAllKeys();
+    }
+
+    // Switching windows keeps this control focused inside its window, so OnLostFocus doesn't fire.
+    void OnWindowDeactivated(object? sender, EventArgs e) => Session.ReleaseAllKeys();
+
     /// <summary>The window moved to a monitor with different scaling.</summary>
     void OnScalingChanged(object? sender, EventArgs e)
     {
@@ -250,6 +260,10 @@ public sealed class RemoteFrameView : Panel
         {
             _scale = _topLevel.RenderScaling;
             _topLevel.ScalingChanged += OnScalingChanged;
+            if (_topLevel is WindowBase window)
+            {
+                window.Deactivated += OnWindowDeactivated;
+            }
         }
 
         // TabControl detaches hidden tabs; repaint everything when this one comes back.
@@ -266,6 +280,11 @@ public sealed class RemoteFrameView : Panel
         if (_topLevel is not null)
         {
             _topLevel.ScalingChanged -= OnScalingChanged;
+            if (_topLevel is WindowBase window)
+            {
+                window.Deactivated -= OnWindowDeactivated;
+            }
+
             _topLevel = null;
         }
 
