@@ -92,6 +92,38 @@ public class VncSessionTests
         Assert.Contains("auth rejected", server.Log);
     }
 
+    [Theory]
+    [InlineData(32768, 32768)] // 32768 x 32768 x 4 bytes wraps to 0 in 32-bit arithmetic.
+    [InlineData(8193, 10)]
+    public async Task A_desktop_larger_than_orrery_supports_fails_the_session(ushort width, ushort height)
+    {
+        await using var server = new TestRfbServer(password: null, width, height);
+        var failed = new TaskCompletionSource<string?>();
+        await using var session = VncSession.Start(new ConnectionTarget("127.0.0.1", server.Port, null, null), string.Empty);
+        session.StateChanged += (_, e) =>
+        {
+            if (e.State == SessionState.Failed) failed.TrySetResult(e.Message);
+        };
+        if (session.State == SessionState.Failed) failed.TrySetResult(null);
+
+        var message = await failed.Task.WaitAsync(Wait);
+        await Task.Delay(200); // Anything the library still had to do with the frame is done by now.
+
+        Assert.Equal($"The server asked for a {width}x{height} desktop, which is larger than Orrery supports.", message);
+        Assert.Equal(SessionState.Failed, session.State);
+        Assert.Equal((0, 0), (session.Width, session.Height));
+    }
+
+    [Fact]
+    public async Task A_full_hd_desktop_still_connects()
+    {
+        await using var server = new TestRfbServer(password: null, 1920, 1080);
+        await using var session = await ConnectAsync(server, string.Empty);
+
+        Assert.Equal(SessionState.Connected, session.State);
+        Assert.Equal((1920, 1080), (session.Width, session.Height));
+    }
+
     [Fact]
     public async Task Sends_keysyms_and_releases_held_keys()
     {

@@ -46,6 +46,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     IntPtr _buffer;
     int _bufferWidth, _bufferHeight;
     bool _sizeChanged;
+    volatile bool _desktopRefused;
     MouseButtons _buttons;
     Position _pointer = new(0, 0);
     int _wheelVertical, _wheelHorizontal;
@@ -144,13 +145,24 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
 
     unsafe IFramebufferReference IRenderTarget.GrabFramebufferReference(VncSize size, IImmutableSet<Screen> layout)
     {
+        // The server picks the size, and the library writes server pixels at that size's stride, so a
+        // desktop we won't allocate ends the session. The session is failed here as well as by the library's
+        // receive loop, which can lose the exception if it comes before the connection has finished starting.
+        if (!DesktopLimits.IsSupported(size.Width, size.Height))
+        {
+            var message = DesktopLimits.RefusalMessage(size.Width, size.Height);
+            _desktopRefused = true;
+            SetState(SessionState.Failed, message);
+            throw new RfbProtocolException(message);
+        }
+
         _frameLock.Wait();
         try
         {
             if (size.Width != _bufferWidth || size.Height != _bufferHeight || _buffer == IntPtr.Zero)
             {
                 FreeBuffer();
-                _buffer = (IntPtr)NativeMemory.AllocZeroed((nuint)(size.Width * size.Height * BytesPerPixel));
+                _buffer = (IntPtr)NativeMemory.AllocZeroed(checked((nuint)size.Width * (nuint)size.Height * BytesPerPixel));
                 (_bufferWidth, _bufferHeight) = (size.Width, size.Height);
                 _sizeChanged = true;
             }
@@ -194,11 +206,11 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
                 return;
             }
 
-            int sourceStride = _bufferWidth * BytesPerPixel;
+            nint sourceStride = (nint)_bufferWidth * BytesPerPixel;
             for (int row = y; row < bottom; row++)
             {
-                var source = new ReadOnlySpan<byte>((byte*)_buffer + row * sourceStride + x * BytesPerPixel, rowBytes);
-                source.CopyTo(new Span<byte>((byte*)destination + row * destinationStride + x * BytesPerPixel, rowBytes));
+                var source = new ReadOnlySpan<byte>((byte*)_buffer + row * sourceStride + (nint)x * BytesPerPixel, rowBytes);
+                source.CopyTo(new Span<byte>((byte*)destination + (nint)row * destinationStride + (nint)x * BytesPerPixel, rowBytes));
             }
         }
         finally
@@ -346,6 +358,8 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
 
     public void RequestResize(int width, int height)
     {
+        // Asking for more would have the server announce a desktop the session then refuses.
+        (width, height) = (Math.Min(width, DesktopLimits.MaxSide), Math.Min(height, DesktopLimits.MaxSide));
         if (State != SessionState.Connected || _connection is not { DesktopIsResizable: true } connection
             || (width == _bufferWidth && height == _bufferHeight) || width < 1 || height < 1)
         {
@@ -448,7 +462,8 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
 
     void SetState(SessionState state, string? message = null)
     {
-        if (State == state || (State is SessionState.Failed or SessionState.Disconnected && state != SessionState.Connected))
+        // A refused desktop size stays failed, even if the library goes on to report the connection as up.
+        if (State == state || (State is SessionState.Failed or SessionState.Disconnected && (state != SessionState.Connected || _desktopRefused)))
         {
             return;
         }

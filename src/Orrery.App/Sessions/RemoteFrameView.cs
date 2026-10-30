@@ -62,6 +62,9 @@ public sealed class RemoteFrameView : Panel
     WriteableBitmap? _bitmap;
     TopLevel? _topLevel;
 
+    // Set when a frame couldn't be drawn and the session was ended for it.
+    string? _drawFailure;
+
     readonly bool _zoom;
 
     // Remote pixels per DIP. Unzoomed, the remote desktop is sized in device pixels and drawn at that DPI,
@@ -163,6 +166,12 @@ public sealed class RemoteFrameView : Panel
 
     void ShowState(SessionState state, string? message)
     {
+        // The session reports itself disconnected once Flush has ended it; the reason stays up instead.
+        if (_drawFailure is not null)
+        {
+            (state, message) = (SessionState.Failed, _drawFailure);
+        }
+
         _status.IsVisible = state != SessionState.Connected;
         _status.Foreground = state == SessionState.Failed ? DangerBrush : MutedBrush;
         _status.Text = state switch
@@ -222,23 +231,39 @@ public sealed class RemoteFrameView : Panel
         }
 
         int width = Session.Width, height = Session.Height;
-        if (width <= 0 || height <= 0)
+        if (width <= 0 || height <= 0 || _drawFailure is not null)
         {
             return;
         }
 
-        var dpi = new Vector(96 * _scale, 96 * _scale);
-        if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height) || _bitmap.Dpi != dpi)
+        try
         {
-            _bitmap?.Dispose();
-            _bitmap = new WriteableBitmap(new PixelSize(width, height), dpi, PixelFormat.Rgba8888, AlphaFormat.Opaque);
-            _image.Source = _bitmap;
-            dirty = new FrameRect(0, 0, width, height);
-        }
+            var dpi = new Vector(96 * _scale, 96 * _scale);
+            if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height) || _bitmap.Dpi != dpi)
+            {
+                _bitmap?.Dispose();
+                _bitmap = null;
+                _bitmap = new WriteableBitmap(new PixelSize(width, height), dpi, PixelFormat.Rgba8888, AlphaFormat.Opaque);
+                _image.Source = _bitmap;
+                dirty = new FrameRect(0, 0, width, height);
+            }
 
-        using (var buffer = _bitmap.Lock())
+            using (var buffer = _bitmap.Lock())
+            {
+                Session.CopyRegion(dirty, buffer.Address, buffer.RowBytes);
+            }
+        }
+        catch (Exception e) when (e is ArgumentException or OutOfMemoryException or InvalidOperationException)
         {
-            Session.CopyRegion(dirty, buffer.Address, buffer.RowBytes);
+            // Nothing above the dispatcher catches this, so letting it go would end the whole app.
+            System.Diagnostics.Trace.TraceError($"Couldn't draw the {width}x{height} remote desktop: {e}");
+            _image.Source = null;
+            _bitmap?.Dispose();
+            _bitmap = null;
+            _drawFailure = $"Orrery couldn't draw the {width}x{height} remote desktop. {e.Message}";
+            ShowState(SessionState.Failed, _drawFailure);
+            _ = Session.DisconnectAsync();
+            return;
         }
 
         _image.InvalidateVisual();
