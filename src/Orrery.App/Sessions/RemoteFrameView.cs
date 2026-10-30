@@ -22,12 +22,19 @@ public sealed class RemoteFrameView : Panel
     static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
     static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
 
+    // A desktop the server won't resize (most VNC servers) shrinks to fit; one that matches the view is
+    // drawn as is.
     readonly Image _image = new()
     {
-        Stretch = Stretch.None,
-        HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Top,
+        Stretch = Stretch.Uniform,
+        StretchDirection = StretchDirection.DownOnly,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
     };
+
+    // VNC takes keysyms; the keysym sent on key down is remembered so the release matches it, even if
+    // Shift changed what the key types in between.
+    readonly Dictionary<PhysicalKey, uint> _keysymsDown = [];
 
     readonly TextBlock _status = new()
     {
@@ -169,7 +176,22 @@ public sealed class RemoteFrameView : Panel
     {
         // Swallow every key so Tab, arrows and shortcuts go to the remote machine, not Avalonia focus.
         e.Handled = true;
-        if (ScancodeMap.Get(e.PhysicalKey) is { } code)
+        if (Session is IKeysymInput keysyms)
+        {
+            // A repeat sends the keysym from the first press.
+            if (!_keysymsDown.TryGetValue(e.PhysicalKey, out var keysym))
+            {
+                if (KeysymMap.Get(e.Key, e.PhysicalKey, e.KeySymbol) is not { } mapped)
+                {
+                    return;
+                }
+
+                keysym = _keysymsDown[e.PhysicalKey] = mapped;
+            }
+
+            keysyms.SendKeysym(keysym, pressed: true);
+        }
+        else if (ScancodeMap.Get(e.PhysicalKey) is { } code)
         {
             Session.SendKey(code, pressed: true);
         }
@@ -178,7 +200,14 @@ public sealed class RemoteFrameView : Panel
     protected override void OnKeyUp(KeyEventArgs e)
     {
         e.Handled = true;
-        if (ScancodeMap.Get(e.PhysicalKey) is { } code)
+        if (Session is IKeysymInput keysyms)
+        {
+            if (_keysymsDown.Remove(e.PhysicalKey, out var keysym))
+            {
+                keysyms.SendKeysym(keysym, pressed: false);
+            }
+        }
+        else if (ScancodeMap.Get(e.PhysicalKey) is { } code)
         {
             Session.SendKey(code, pressed: false);
         }
@@ -187,8 +216,13 @@ public sealed class RemoteFrameView : Panel
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        var p = e.GetPosition(_image) * _scale;
-        Session.SendPointerMove((int)p.X, (int)p.Y);
+        // Scale by what's on screen, which covers both zoom and a shrunk-to-fit desktop.
+        var p = e.GetPosition(_image);
+        double width = _image.Bounds.Width, height = _image.Bounds.Height;
+        if (width > 0 && height > 0)
+        {
+            Session.SendPointerMove((int)(p.X * Session.Width / width), (int)(p.Y * Session.Height / height));
+        }
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -244,11 +278,17 @@ public sealed class RemoteFrameView : Panel
     protected override void OnLostFocus(RoutedEventArgs e)
     {
         base.OnLostFocus(e);
-        Session.ReleaseAllKeys();
+        ReleaseAllKeys();
     }
 
     // Switching windows keeps this control focused inside its window, so OnLostFocus doesn't fire.
-    void OnWindowDeactivated(object? sender, EventArgs e) => Session.ReleaseAllKeys();
+    void OnWindowDeactivated(object? sender, EventArgs e) => ReleaseAllKeys();
+
+    void ReleaseAllKeys()
+    {
+        _keysymsDown.Clear();
+        Session.ReleaseAllKeys();
+    }
 
     /// <summary>The window moved to a monitor with different scaling.</summary>
     void OnScalingChanged(object? sender, EventArgs e)

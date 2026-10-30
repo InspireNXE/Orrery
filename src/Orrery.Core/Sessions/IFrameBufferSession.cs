@@ -71,3 +71,12 @@ public interface IFrameBufferSession : IConnectionSession
     /// </summary>
     void RequestResize(int width, int height);
 }
+
+/// <summary>
+/// A session that takes keys as X11 keysyms (what a key types, e.g. 'a' or Shift_L) rather than scancodes
+/// (where the key sits). VNC works this way, so the remote side doesn't need the local keyboard layout.
+/// </summary>
+public interface IKeysymInput
+{
+    void SendKeysym(uint keysym, bool pressed);
+}

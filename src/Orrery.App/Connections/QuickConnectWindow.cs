@@ -12,7 +12,7 @@ namespace Orrery.App.Connections;
 sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port, Protocol Protocol = Protocol.Rdp, string? Username = null)
 {
     /// <summary>
-    /// Reads "host", "host:port", "rdp://host", "ssh://host", "user@host" and "ssh://user@host:port".
+    /// Reads "host", "host:port", "rdp://host", "ssh://host", "vnc://host", "user@host" and "ssh://user@host:port".
     /// A username without a scheme means SSH, as on the command line.
     /// </summary>
     public static QuickConnectChoice? Parse(string text)
@@ -20,7 +20,7 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
         text = text.Trim();
         var protocol = Protocol.Rdp;
         bool explicitScheme = false;
-        foreach (var (scheme, p) in new[] { ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh) })
+        foreach (var (scheme, p) in new[] { ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc) })
         {
             if (text.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
             {
