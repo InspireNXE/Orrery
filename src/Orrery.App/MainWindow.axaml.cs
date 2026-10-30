@@ -51,7 +51,7 @@ public partial class MainWindow : Window
     readonly TabControl _sessions;
     readonly TextBlock _emptyState;
     readonly Button _lockVault;
-    readonly MenuItem _connectMenuItem, _deleteMenuItem;
+    readonly MenuItem _connectMenuItem, _duplicateMenuItem, _deleteMenuItem;
 
     bool _rebuilding;
     Point? _dragStart;
@@ -81,6 +81,7 @@ public partial class MainWindow : Window
         _emptyState = this.FindControl<TextBlock>("EmptyState")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
+        _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
         _deleteMenuItem = this.FindControl<MenuItem>("DeleteMenuItem")!;
 
         _certificateValidator = new ServerCertificateValidator(
@@ -224,6 +225,10 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     await DeleteAsync(node);
                     break;
+                case Key.D when e.KeyModifiers == (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control) && SelectedNode is { } original:
+                    e.Handled = true;
+                    Duplicate(original);
+                    break;
                 case Key.F2 when SelectedNode is not null:
                     e.Handled = true;
                     _properties.FocusName();
@@ -238,6 +243,7 @@ public partial class MainWindow : Window
         _treeView.ContextMenu!.Opening += (_, _) =>
         {
             _connectMenuItem.IsEnabled = SelectedNode is ConnectionEntry;
+            _duplicateMenuItem.IsEnabled = SelectedNode is not null;
             _deleteMenuItem.IsEnabled = SelectedNode is not null;
         };
 
@@ -413,6 +419,31 @@ public partial class MainWindow : Window
         {
             await ConnectAsync(entry);
         }
+    }
+
+    async void OnEditDefaultsClick(object? sender, RoutedEventArgs e)
+    {
+        _properties.TrySave();
+        _treeView.SelectedItem = null;
+        await _properties.ShowAsync(_tree.Root);
+    }
+
+    void OnDuplicateMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (SelectedNode is { } node)
+        {
+            Duplicate(node);
+        }
+    }
+
+    /// <summary>Copies the node beside the original and selects the copy, ready to rename.</summary>
+    void Duplicate(ConnectionNode node)
+    {
+        _properties.TrySave();
+        _filter.Text = string.Empty;
+        var copy = _tree.Duplicate(node);
+        Select(copy.Id);
+        Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
     }
 
     async void OnDeleteMenuClick(object? sender, RoutedEventArgs e)

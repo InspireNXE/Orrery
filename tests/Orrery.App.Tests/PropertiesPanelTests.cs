@@ -92,6 +92,39 @@ public class PropertiesPanelTests
         Assert.True(SettingsResolver.Resolve(entry).ShareClipboard.Value);
     }
 
+    [AvaloniaFact]
+    public async Task Defaults_set_on_the_top_level_reach_every_connection()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example" };
+        tree.Add(entry, tree.Root);
+
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 900 };
+        window.Show();
+        await panel.ShowAsync(tree.Root);
+        Dispatcher.UIThread.RunJobs();
+
+        var texts = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+        Assert.Contains("Defaults for all connections", texts);
+        Assert.DoesNotContain("Name", texts);
+
+        // Untick Inherit on Port (the second row) and set 3390.
+        var inherits = window.GetVisualDescendants().OfType<CheckBox>().Where(c => Equals(c.Content, "Inherit")).ToList();
+        inherits[1].IsChecked = false;
+        var port = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.IsEffectivelyVisible && t.Text == "3389");
+        port.Text = "3390";
+        Assert.True(panel.TrySave());
+
+        Assert.Equal(3390, tree.Root.Settings.Port);
+        Assert.Equal("Connections", tree.Root.Name);
+        Assert.Equal(3390, SettingsResolver.Resolve(entry).Port.Value);
+
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From defaults for all connections");
+    }
+
     sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;
