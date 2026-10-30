@@ -11,7 +11,7 @@ namespace Orrery.Core.Credentials;
 /// An encrypted file of credentials, opened with a master password (design doc §3.3).
 /// <para>
 /// Master password → Argon2id → key-encryption key, which unwraps a random 256-bit data key; the data key
-/// encrypts the credential list with XChaCha20-Poly1305. Changing the password only re-wraps the data key.
+/// encrypts the credential list with XChaCha20-Poly1305. Changing the password also replaces the data key.
 /// The KDF settings and salt are bound into both ciphertexts as associated data, so editing them in the
 /// file makes decryption fail instead of weakening the vault.
 /// </para>
@@ -206,9 +206,11 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     }
 
     /// <summary>
-    /// Sets a new master password. Only the data key is re-wrapped (under a fresh salt, with the current KDF
-    /// settings) and the contents re-encrypted with the same data key, so saved credentials are untouched.
-    /// The current password is checked against the file, not taken on trust from an unlocked vault.
+    /// Sets a new master password. A new random data key is wrapped under the new password (with a fresh salt
+    /// and the current KDF settings) and the contents re-encrypted with it, so an old copy of the file opened
+    /// with the old password can't read anything saved after the change. Saved credentials are untouched, and
+    /// if the file can't be written the vault stays as it was. The current password is checked against the
+    /// file, not taken on trust from an unlocked vault.
     /// </summary>
     /// <exception cref="WrongVaultPasswordException"><paramref name="currentPassword"/> doesn't open the vault.</exception>
     public async Task ChangePasswordAsync(string currentPassword, string newPassword)
@@ -246,19 +248,25 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                 throw new WrongVaultPasswordException();
             }
 
+            // Only needed to prove the current password; the contents move to a new data key.
+            CryptographicOperations.ZeroMemory(dataKeyBytes);
+            var newKeyBytes = RandomNumberGenerator.GetBytes(KeySize);
             try
             {
                 var kdf = new KdfBlock(KdfName, _kdfForNewVaults.MemoryKiB, _kdfForNewVaults.Iterations, 1,
                     Convert.ToBase64String(RandomNumberGenerator.GetBytes(SaltSize)));
                 using var kek = DeriveKeyEncryptionKey(newPassword, kdf);
                 var nonce = RandomNumberGenerator.GetBytes(Aead.NonceSize);
-                var rewrapped = Aead.Encrypt(kek, nonce, AssociatedData(kdf, "key"), dataKeyBytes);
+                var wrappedNew = Aead.Encrypt(kek, nonce, AssociatedData(kdf, "key"), newKeyBytes);
 
                 lock (_lock)
                 {
-                    // Save re-encrypts the contents, which are bound to the new salt.
-                    var previous = _file!;
-                    _file = previous with { Kdf = kdf, WrappedKey = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(rewrapped)) };
+                    // Save re-encrypts the contents under the new data key, bound to the new salt, so an old copy
+                    // of the file and the old password can't read anything saved from now on.
+                    var (previousFile, previousKey) = (_file!, _dataKey);
+                    var newKey = Key.Import(Aead, newKeyBytes, KeyBlobFormat.RawSymmetricKey);
+                    _file = previousFile with { Kdf = kdf, WrappedKey = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(wrappedNew)) };
+                    _dataKey = newKey;
                     try
                     {
                         Unlocked();
@@ -266,14 +274,17 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                     }
                     catch
                     {
-                        _file = previous;
+                        (_file, _dataKey) = (previousFile, previousKey);
+                        newKey.Dispose();
                         throw;
                     }
+
+                    previousKey?.Dispose();
                 }
             }
             finally
             {
-                CryptographicOperations.ZeroMemory(dataKeyBytes);
+                CryptographicOperations.ZeroMemory(newKeyBytes);
             }
         });
     }

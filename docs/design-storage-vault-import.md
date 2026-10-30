@@ -174,7 +174,7 @@ vault.frv = JSON header (plaintext) + encrypted payload
 }
 ```
 
-- **Key hierarchy:** master password → Argon2id → key-encryption key (KEK). The KEK unwraps a random 256-bit data key (DEK), and the DEK encrypts the payload. Changing the master password only re-wraps the DEK.
+- **Key hierarchy:** master password → Argon2id → key-encryption key (KEK). The KEK unwraps a random 256-bit data key (DEK), and the DEK encrypts the payload. Changing the master password generates a new DEK, wraps it under the new password (with a fresh salt), and re-encrypts the payload with it. An old copy of the file still opens with the old password, which can't be helped, but nothing saved after the change can be read with the old copy's DEK.
 - **Payload:** JSON array of `Credential` objects.
 - **Associated data:** the header bytes (minus the ciphertexts) are bound as AEAD associated data, so tampering with KDF parameters is detected.
 - **Library:** libsodium (via NSec or Sodium.Core) for both Argon2id and XChaCha20-Poly1305. It behaves the same on all three OSes. .NET's own `AesGcm` depends on the platform's crypto library, and .NET has no built-in Argon2. The cost is a native dependency shipped per platform, which we already accept for IronRDP.
