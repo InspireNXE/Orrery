@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
@@ -9,8 +11,8 @@ using Orrery.Core.Credentials;
 namespace Orrery.App.Connections;
 
 /// <summary>
-/// Edits the selected connection or folder. Each inheritable setting has an "Inherit" box: ticked, the
-/// field shows what the parent provides and stores nothing; unticked, the node's own value overrides it.
+/// Edits the selected connection or folder. Each inheritable setting has an "Inherit" chip: on, the
+/// field shows what the parent provides and stores nothing; off, the node's own value overrides it.
 /// Edits are applied with Save, or automatically when another node is selected.
 /// </summary>
 sealed class PropertiesPanel : UserControl
@@ -18,6 +20,8 @@ sealed class PropertiesPanel : UserControl
     readonly ConnectionTree _tree;
     readonly TextBlock _title = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBlock _path = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
+    readonly Border _tile = new() { Width = 36, Height = 36, CornerRadius = new CornerRadius(8), VerticalAlignment = VerticalAlignment.Top };
+    readonly StrokeIcon _tileIcon = new() { Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     readonly TextBox _name = new(), _host = new() { FontFamily = Dialogs.MonoFont };
     readonly TextBox _notes = new() { AcceptsReturn = true, Height = 72, TextWrapping = TextWrapping.Wrap };
     readonly Control _hostField, _nameField, _notesField;
@@ -25,12 +29,12 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
-    readonly CheckBox _clipboard = new() { Content = "Share the clipboard" };
-    readonly CheckBox _sshAgent = new() { Content = "Use SSH agent keys (Pageant, OpenSSH agent)" };
+    readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
+    readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
-    readonly Button _connect;
-    readonly ScrollViewer _editorView;
+    readonly Button _connect, _save;
+    readonly Control _editorView;
     readonly TextBlock _empty = new()
     {
         Text = "Select a connection or folder to see its settings.",
@@ -59,19 +63,20 @@ sealed class PropertiesPanel : UserControl
         _credentialRow = new InheritRow("Saved credential", _credential, () => ShowInherited(r => _ = _credential.RefreshAsync(r.CredentialId.Value)));
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
-        _clipboardRow = new InheritRow("Clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value));
-        _sshAgentRow = new InheritRow("SSH agent", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
+        _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
+        _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
+        ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
-        _notesField = Dialogs.Field("Notes", _notes);
+        _notesField = Section("Notes", _notes);
 
-        var save = new Button { Content = "Save", Padding = new Thickness(16, 6) };
-        save.Classes.Add("accent");
-        save.Click += (_, _) => TrySave();
-        var revert = new Button { Content = "Revert", Padding = new Thickness(12, 6) };
+        _save = new Button { Content = "Save", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+        _save.Click += (_, _) => TrySave();
+        var revert = new Button { Content = "Revert", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
         revert.Click += async (_, _) => { if (_node is not null) await ShowAsync(_node); };
-        _connect = new Button { Content = "Connect", Padding = new Thickness(12, 6) };
+        _connect = new Button { Content = "Connect", Height = 36, CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+        _connect.Classes.Add("accent");
         _connect.Click += (_, _) =>
         {
             if (TrySave() && _node is ConnectionEntry entry)
@@ -80,35 +85,73 @@ sealed class PropertiesPanel : UserControl
             }
         };
 
-        var editor = new StackPanel
+        _tile.Child = _tileIcon;
+        var header = new DockPanel
         {
-            Spacing = 12,
-            Margin = new Thickness(20),
             Children =
             {
-                new StackPanel { Spacing = 2, Children = { _title, _path } },
-                _nameField,
-                _hostField,
-                _protocolRow.View,
-                _portRow.View,
-                _credentialRow.View,
-                _usernameRow.View,
-                _domainRow.View,
-                _clipboardRow.View,
-                _sshAgentRow.View,
-                _notesField,
-                _error,
-                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, revert, _connect } },
+                Docked(_tile, Dock.Left),
+                new StackPanel { Spacing = 2, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { _title, _path } },
             },
         };
-        _editorView = new ScrollViewer { Content = editor };
+
+        var editor = new StackPanel
+        {
+            Spacing = 20,
+            Margin = new Thickness(16),
+            Children =
+            {
+                header,
+                Section("Connection", _nameField, _hostField,
+                    new Grid
+                    {
+                        ColumnDefinitions = new ColumnDefinitions("*,8,*"),
+                        Children = { _protocolRow.View, At(_portRow.View, column: 2) },
+                    }),
+                Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
+                Section("Options", _clipboardRow.View, _sshAgentRow.View),
+                _notesField,
+            },
+        };
+
+        var actions = new StackPanel
+        {
+            Spacing = 8,
+            Margin = new Thickness(16, 12, 16, 16),
+            Children =
+            {
+                _error,
+                _connect,
+                new Grid
+                {
+                    ColumnDefinitions = new ColumnDefinitions("*,8,*"),
+                    Children = { _save, At(revert, column: 2) },
+                },
+            },
+        };
+
+        _editorView = new DockPanel
+        {
+            Children =
+            {
+                Docked(actions, Dock.Bottom),
+                new ScrollViewer { Content = editor },
+            },
+        };
 
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
 
-        _protocol.SelectionChanged += (_, _) => MarkDirty();
+        _protocol.SelectionChanged += (_, _) =>
+        {
+            MarkDirty();
+            if (_node is ConnectionEntry entry && (_protocol.SelectedItem as ComboBoxItem)?.Tag is Protocol chosen)
+            {
+                ShowTile(entry, chosen);
+            }
+        };
         _credential.ChoiceChanged += (_, _) => MarkDirty();
         _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
         _sshAgent.IsCheckedChanged += (_, _) => MarkDirty();
@@ -155,6 +198,8 @@ sealed class PropertiesPanel : UserControl
             _nameField.IsVisible = _notesField.IsVisible = !defaults;
             _name.Text = node.Name;
             _hostField.IsVisible = _connect.IsVisible = node is ConnectionEntry;
+            _save.Classes.Set("accent", node is not ConnectionEntry);
+            ShowTile(node, own.Protocol ?? inherited.Protocol.Value);
             _host.Text = (node as ConnectionEntry)?.Host;
             _notes.Text = node.Notes;
 
@@ -283,6 +328,48 @@ sealed class PropertiesPanel : UserControl
         return false;
     }
 
+    /// <summary>The coloured square beside the name: the protocol for a connection, a folder otherwise.</summary>
+    void ShowTile(ConnectionNode node, Protocol protocol)
+    {
+        bool folder = node is not ConnectionEntry;
+        _tile.Background = folder ? FolderTileBrush : ProtocolStyle.Background(protocol);
+        _tileIcon.Foreground = folder ? FolderBrush : ProtocolStyle.Foreground(protocol);
+        _tileIcon.Data = Geometry.Parse(folder ? Icons.Folder : ProtocolStyle.Icon(protocol));
+    }
+
+    static readonly IBrush FolderTileBrush = new SolidColorBrush(Color.Parse("#33291A")).ToImmutable();
+    static readonly IBrush FolderBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
+
+    static ToggleSwitch Switch(string name) => new()
+    {
+        Name = name,
+        OnContent = null,
+        OffContent = null,
+        MinWidth = 0,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    /// <summary>A titled group of fields, headed like the mockup's inspector.</summary>
+    static Control Section(string title, params Control[] children)
+    {
+        var section = new StackPanel { Spacing = 10 };
+        section.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
+        section.Children.AddRange(children);
+        return section;
+    }
+
+    static Control Docked(Control control, Dock dock)
+    {
+        DockPanel.SetDock(control, dock);
+        return control;
+    }
+
+    static Control At(Control control, int column)
+    {
+        Grid.SetColumn(control, column);
+        return control;
+    }
+
     void SelectProtocol(Protocol protocol) =>
         _protocol.SelectedItem = _protocol.Items.OfType<ComboBoxItem>().First(i => (Protocol)i.Tag! == protocol);
 
@@ -297,13 +384,16 @@ sealed class PropertiesPanel : UserControl
     static string Describe<T>(Resolved<T> resolved) =>
         resolved.Source is { } source ? source.Parent is null ? "From defaults for all connections" : $"From {source.Name}" : "Orrery's default";
 
-    /// <summary>A label, an "Inherit" box, the editor, and where the inherited value comes from.</summary>
+    /// <summary>
+    /// A label with an "Inherit" chip, the editor, and where the inherited value comes from. Inline rows
+    /// (switches) put the editor on the label's line.
+    /// </summary>
     sealed class InheritRow
     {
         readonly TextBlock _hint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush };
         readonly Control _editor;
 
-        public InheritRow(string label, Control editor, Action showInherited)
+        public InheritRow(string label, Control editor, Action showInherited, bool inline = false)
         {
             _editor = editor;
             Inherit.IsCheckedChanged += (_, _) =>
@@ -316,15 +406,30 @@ sealed class PropertiesPanel : UserControl
                     showInherited();
                 }
             };
+            ToolTip.SetTip(Inherit, "On: use the value from the folder above. Off: set this one's own.");
 
             var header = new DockPanel();
+            if (inline)
+            {
+                DockPanel.SetDock(editor, Dock.Right);
+                header.Children.Add(editor);
+            }
+
             DockPanel.SetDock(Inherit, Dock.Right);
             header.Children.Add(Inherit);
-            header.Children.Add(Dialogs.Label(label));
-            View = new StackPanel { Spacing = 4, Children = { header, editor, _hint } };
+            var title = inline
+                ? new TextBlock { Text = label, Foreground = SoftBrush, VerticalAlignment = VerticalAlignment.Center }
+                : Dialogs.Label(label);
+            title.TextTrimming = TextTrimming.CharacterEllipsis;
+            header.Children.Add(title);
+            View = inline
+                ? new StackPanel { Children = { header, _hint } }
+                : new StackPanel { Spacing = 4, Children = { header, editor, _hint } };
         }
 
-        public CheckBox Inherit { get; } = new() { Content = "Inherit", FontSize = 11, MinHeight = 0, Padding = new Thickness(4, 0, 0, 0) };
+        static readonly IBrush SoftBrush = new SolidColorBrush(Color.Parse("#C3C9D3")).ToImmutable();
+
+        public ToggleButton Inherit { get; } = new() { Content = "Inherit", Classes = { "inherit" }, VerticalAlignment = VerticalAlignment.Center };
 
         public Control View { get; }
 

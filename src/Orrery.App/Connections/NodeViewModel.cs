@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using Avalonia.Media;
 using Orrery.Core.Connections;
+using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
 
@@ -7,11 +10,16 @@ namespace Orrery.App.Connections;
 /// One row in the connection tree. Rebuilt from the model whenever the tree changes; the model stays
 /// the source of truth. While filtering, rows are force-expanded and expansion isn't saved.
 /// </summary>
-public sealed class NodeViewModel
+public sealed class NodeViewModel : INotifyPropertyChanged
 {
+    static readonly IBrush ConnectedBrush = new SolidColorBrush(Color.Parse("#5FD38D")).ToImmutable();
+    static readonly IBrush ConnectingBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
+    static readonly IBrush OfflineBrush = new SolidColorBrush(Color.Parse("#5B6372")).ToImmutable();
+
     readonly Action? _expansionChanged;
     readonly bool _persistExpansion;
     bool _isExpanded;
+    SessionState? _status;
 
     public NodeViewModel(ConnectionNode node, IEnumerable<NodeViewModel> children, bool forceExpanded, Action? expansionChanged)
     {
@@ -28,8 +36,43 @@ public sealed class NodeViewModel
     public string Name => string.IsNullOrWhiteSpace(Node.Name) ? "(unnamed)" : Node.Name;
     public bool IsFolder => Node is ConnectionFolder;
     public bool IsConnection => Node is ConnectionEntry;
-    public string Badge => IsConnection ? ProtocolInfo.Label(SettingsResolver.Resolve(Node).Protocol.Value) : string.Empty;
+    Protocol Protocol => SettingsResolver.Resolve(Node).Protocol.Value;
+    public string Badge => IsConnection ? ProtocolInfo.Label(Protocol) : string.Empty;
+    public IBrush BadgeBackground => ProtocolStyle.Background(Protocol);
+    public IBrush BadgeForeground => ProtocolStyle.Foreground(Protocol);
     public string Detail => Node is ConnectionEntry entry ? entry.Host : $"{((ConnectionFolder)Node).Children.Count}";
+
+    /// <summary>How many connections a folder holds, at any depth.</summary>
+    public string Count => Node is ConnectionFolder folder ? folder.Descendants().OfType<ConnectionEntry>().Count().ToString() : string.Empty;
+
+    /// <summary>The state of this connection's open session, or null when none is open.</summary>
+    public SessionState? Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value)
+            {
+                return;
+            }
+
+            _status = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusFill)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusStroke)));
+        }
+    }
+
+    // A filled dot for an open session, a hollow ring otherwise.
+    public IBrush? StatusFill => _status switch
+    {
+        SessionState.Connected => ConnectedBrush,
+        SessionState.Connecting => ConnectingBrush,
+        _ => null,
+    };
+
+    public IBrush? StatusStroke => StatusFill is null ? OfflineBrush : null;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public bool IsExpanded
     {

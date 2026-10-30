@@ -1,22 +1,27 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Orrery.App.Connections"
+        xmlns:c="using:Orrery.App.Controls"
         x:Class="Orrery.App.MainWindow"
         Title="Orrery"
         Icon="/Assets/orrery.ico"
         Width="1440" Height="900" MinWidth="1000" MinHeight="600"
         WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="PreferSystemChrome"
+        ExtendClientAreaTitleBarHeightHint="44"
+        FontSize="13"
         Background="{StaticResource OrreryBackground}"
         Foreground="{StaticResource OrreryText}">
-  <Grid ColumnDefinitions="280,*,Auto">
+  <Grid>
+    <DockPanel>
 
-    <!-- Connection tree -->
-    <Border Background="{StaticResource OrreryPanel}"
-            BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0"
-            Padding="12,14,12,12">
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Spacing="12" Margin="4,0,4,10">
-          <StackPanel Orientation="Horizontal" Spacing="10">
+      <!-- Title bar: the window's own chrome, with quick connect in the middle. -->
+      <Border x:Name="TitleBar" DockPanel.Dock="Top" Height="44"
+              Background="{StaticResource OrreryBackground}"
+              BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1">
+        <Grid x:Name="TitleBarGrid" ColumnDefinitions="Auto,*,Auto">
+          <StackPanel x:Name="Brand" Orientation="Horizontal" Spacing="10" Margin="14,0,16,0" VerticalAlignment="Center" IsHitTestVisible="False">
             <Viewbox Width="24" Height="24">
               <Canvas Width="24" Height="24">
                 <Ellipse Width="20" Height="8.4" Canvas.Left="2" Canvas.Top="7.8"
@@ -32,92 +37,202 @@
                 <Ellipse Width="2.4" Height="2.4" Canvas.Left="5.18" Canvas.Top="13.42" Fill="{StaticResource OrreryText}" />
               </Canvas>
             </Viewbox>
-            <TextBlock Text="Orrery" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="Orrery" FontWeight="SemiBold" VerticalAlignment="Center" />
           </StackPanel>
 
-          <Button x:Name="QuickConnectButton" HorizontalAlignment="Stretch" Click="OnQuickConnectClick">
+          <Button x:Name="QuickConnectButton" Grid.Column="1" Classes="search"
+                  HorizontalAlignment="Stretch" MaxWidth="520" Height="30" VerticalAlignment="Center"
+                  Click="OnQuickConnectClick" ToolTip.Tip="Quick connect (Ctrl+K)">
             <DockPanel>
-              <TextBlock DockPanel.Dock="Right" Text="Ctrl K" FontSize="11" Foreground="{StaticResource OrreryMuted}" VerticalAlignment="Center" />
-              <TextBlock Text="Quick connect…" Foreground="{StaticResource OrreryMuted}" />
+              <Border DockPanel.Dock="Right" BorderBrush="{StaticResource OrreryControlBorder}" BorderThickness="1"
+                      CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                <TextBlock x:Name="QuickConnectShortcut" Text="Ctrl K" Classes="mono" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
+              </Border>
+              <c:StrokeIcon DockPanel.Dock="Left" Width="14" Height="14" StrokeThickness="2" Margin="0,0,8,0"
+                            Data="M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M20 20l-3.5-3.5" />
+              <TextBlock Text="Quick connect: host, user@host, rdp://, ssh:// or search" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" Foreground="{StaticResource OrreryMuted}" />
             </DockPanel>
           </Button>
 
-          <DockPanel>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-              <Button x:Name="NewFolderButton" Content="+ Folder" FontSize="11" Padding="6,2" Click="OnNewFolderClick" ToolTip.Tip="New folder" />
-              <Button x:Name="NewConnectionButton" Content="+ Connection" FontSize="11" Padding="6,2" Click="OnNewConnectionClick" ToolTip.Tip="New connection" />
-            </StackPanel>
-            <TextBlock Classes="section" Text="CONNECTIONS" VerticalAlignment="Center" />
-          </DockPanel>
-
-          <TextBox x:Name="FilterBox" Watermark="Filter" />
-        </StackPanel>
-
-        <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="4,10,4,0">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Import…" FontSize="12" Click="OnImportClick" ToolTip.Tip="Import connections from mRemoteNG (confCons.xml). You can also drop the file on the list." />
-            <Button Content="Credentials…" FontSize="12" Click="OnManageCredentialsClick" />
-            <Button x:Name="LockVaultButton" Content="Lock vault" FontSize="12" Click="OnLockVaultClick" IsVisible="False" />
-            <Button Content="Settings…" FontSize="12" Click="OnSettingsClick" ToolTip.Tip="Settings (Ctrl+,)" />
-          </StackPanel>
-          <TextBlock x:Name="StorageText" FontSize="11" Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" />
-        </StackPanel>
-
-        <Grid>
-          <TreeView x:Name="Tree" Background="Transparent" DragDrop.AllowDrop="True">
-            <TreeView.Styles>
-              <Style Selector="TreeViewItem" x:DataType="vm:NodeViewModel">
-                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                <Setter Property="MinHeight" Value="30" />
-              </Style>
-            </TreeView.Styles>
-            <TreeView.ItemTemplate>
-              <TreeDataTemplate x:DataType="vm:NodeViewModel" ItemsSource="{Binding Children}">
-                <DockPanel Background="Transparent">
-                  <Border DockPanel.Dock="Right" IsVisible="{Binding IsConnection}" Background="#1D2E45"
-                          CornerRadius="4" Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Badge}" FontSize="10" Foreground="#8CC2FF"
-                               FontFamily="Cascadia Mono, Consolas, Menlo, monospace" />
-                  </Border>
-                  <PathIcon DockPanel.Dock="Left" IsVisible="{Binding IsFolder}" Width="14" Height="14" Margin="0,0,8,0"
-                            Foreground="#E0B45A"
-                            Data="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                             ToolTip.Tip="{Binding Detail}" />
-                </DockPanel>
-              </TreeDataTemplate>
-            </TreeView.ItemTemplate>
-            <TreeView.ContextMenu>
-              <ContextMenu>
-                <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
-                <Separator />
-                <MenuItem Header="New connection" Click="OnNewConnectionClick" />
-                <MenuItem Header="New folder" Click="OnNewFolderClick" />
-                <MenuItem x:Name="DuplicateMenuItem" Header="Duplicate" Click="OnDuplicateMenuClick" InputGesture="Ctrl+D" />
-                <Separator />
-                <MenuItem Header="Defaults for all connections…" Click="OnEditDefaultsClick" />
-                <Separator />
-                <MenuItem x:Name="DeleteMenuItem" Header="Delete" Click="OnDeleteMenuClick" InputGesture="Delete" />
-              </ContextMenu>
-            </TreeView.ContextMenu>
-          </TreeView>
-          <TextBlock x:Name="TreeEmptyState" TextWrapping="Wrap" Foreground="{StaticResource OrreryMuted}" Margin="6,8"
-                     Text="No saved connections yet. Add one with + Connection, or use Quick connect." />
+          <!-- Room for the system's minimise, maximise and close buttons. -->
+          <Border x:Name="CaptionSpace" Grid.Column="2" Width="150" />
         </Grid>
-      </DockPanel>
-    </Border>
+      </Border>
 
-    <!-- Sessions -->
-    <Grid Grid.Column="1">
-      <TabControl x:Name="Sessions" Padding="0" />
-      <TextBlock x:Name="EmptyState" Text="No open sessions. Double-click a connection, or press Ctrl+K."
-                 Foreground="{StaticResource OrreryMuted}"
-                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-    </Grid>
+      <!-- Status bar -->
+      <Border DockPanel.Dock="Bottom" Height="26" Padding="14,0"
+              BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,1,0,0">
+        <DockPanel>
+          <TextBlock x:Name="ModeText" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource OrreryMuted}" VerticalAlignment="Center" />
+          <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+            <TextBlock x:Name="SessionCountText" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
+            <TextBlock x:Name="StorageText" FontSize="11" Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" MaxWidth="700" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
 
-    <!-- Properties of the selected connection or folder -->
-    <Border Grid.Column="2" x:Name="PropertiesHost" Width="320"
-            Background="{StaticResource OrreryPanel}"
-            BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0" />
+      <Grid ColumnDefinitions="52,Auto,*,Auto">
+
+        <!-- Activity rail -->
+        <Border BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0" Padding="0,10">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Bottom" Spacing="4" HorizontalAlignment="Center">
+              <Button x:Name="LockVaultButton" Classes="icon rail" Click="OnLockVaultClick" IsVisible="False"
+                      ToolTip.Tip="Lock the vault" AutomationProperties.Name="Lock the vault">
+                <c:StrokeIcon Width="20" Height="20" Data="M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4" />
+              </Button>
+              <Button Classes="icon rail" Click="OnSettingsClick" ToolTip.Tip="Settings (Ctrl+,)" AutomationProperties.Name="Settings">
+                <c:StrokeIcon Width="20" Height="20" Data="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+              </Button>
+            </StackPanel>
+            <StackPanel Spacing="4" HorizontalAlignment="Center">
+              <Button x:Name="ConnectionsRailButton" Classes="icon rail active" Click="OnToggleConnectionsClick"
+                      ToolTip.Tip="Show or hide connections" AutomationProperties.Name="Connections">
+                <c:StrokeIcon Width="20" Height="20" Data="M5 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M8 20h8 M12 16v4" />
+              </Button>
+              <Button Classes="icon rail" Click="OnManageCredentialsClick" ToolTip.Tip="Saved credentials" AutomationProperties.Name="Credentials">
+                <c:StrokeIcon Width="20" Height="20" Data="M4 15a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M11 12l9-9 M17 6l3 3 M15 8l2 2" />
+              </Button>
+            </StackPanel>
+          </DockPanel>
+        </Border>
+
+        <!-- Connection tree -->
+        <Border x:Name="ConnectionsPanel" Grid.Column="1" Width="280"
+                Background="{StaticResource OrreryPanel}"
+                BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="14,10,10,6">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                <Button x:Name="NewFolderButton" Classes="icon" Width="28" Height="28" Click="OnNewFolderClick"
+                        ToolTip.Tip="New folder" AutomationProperties.Name="New folder">
+                  <c:StrokeIcon Data="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M12 10v6 M9 13h6" />
+                </Button>
+                <Button x:Name="NewConnectionButton" Classes="icon" Width="28" Height="28" Click="OnNewConnectionClick"
+                        ToolTip.Tip="New connection" AutomationProperties.Name="New connection">
+                  <c:StrokeIcon StrokeThickness="2" Data="M12 5v14 M5 12h14" />
+                </Button>
+              </StackPanel>
+              <TextBlock Classes="section" Text="CONNECTIONS" VerticalAlignment="Center" />
+            </DockPanel>
+
+            <TextBox x:Name="FilterBox" DockPanel.Dock="Top" Watermark="Filter" Margin="12,0,12,10" FontSize="12" MinHeight="30">
+              <TextBox.InnerLeftContent>
+                <c:StrokeIcon Width="13" Height="13" StrokeThickness="2" Margin="10,0,0,0" Foreground="{StaticResource OrreryMuted}"
+                              Data="M4 6h16 M7 12h10 M10 18h4" />
+              </TextBox.InnerLeftContent>
+            </TextBox>
+
+            <!-- Drop zone and import button for mRemoteNG files. -->
+            <Button x:Name="ImportDropZone" DockPanel.Dock="Bottom" Classes="dropzone" Margin="12" Click="OnImportClick"
+                    DragDrop.AllowDrop="True" HorizontalAlignment="Stretch"
+                    ToolTip.Tip="Import connections from mRemoteNG">
+              <Grid>
+                <Rectangle x:Name="DropZoneOutline" RadiusX="8" RadiusY="8" Stroke="#2F3540" StrokeThickness="1" StrokeDashArray="4,3" />
+                <TextBlock TextWrapping="Wrap" LineHeight="18" Margin="12,10" FontSize="12">
+                  <Run Text="Import from mRemoteNG: drop a " />
+                  <Run Text="confCons.xml" FontFamily="{StaticResource OrreryMono}" Foreground="{StaticResource OrrerySoftText}" />
+                  <Run Text=" here, or click to browse." />
+                </TextBlock>
+              </Grid>
+            </Button>
+
+            <Grid>
+              <TreeView x:Name="Tree" Background="Transparent" DragDrop.AllowDrop="True" Padding="6,0">
+                <TreeView.Styles>
+                  <Style Selector="TreeViewItem" x:DataType="vm:NodeViewModel">
+                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                  </Style>
+                </TreeView.Styles>
+                <TreeView.ItemTemplate>
+                  <TreeDataTemplate x:DataType="vm:NodeViewModel" ItemsSource="{Binding Children}">
+                    <DockPanel Background="Transparent" Margin="0,0,8,0">
+                      <Border DockPanel.Dock="Right" IsVisible="{Binding IsConnection}" Background="{Binding BadgeBackground}"
+                              CornerRadius="4" Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Badge}" FontSize="10" FontWeight="Medium" Foreground="{Binding BadgeForeground}"
+                                   FontFamily="{StaticResource OrreryMono}" />
+                      </Border>
+                      <TextBlock DockPanel.Dock="Right" IsVisible="{Binding IsFolder}" Text="{Binding Count}" FontSize="11"
+                                 Foreground="#8A93A3" VerticalAlignment="Center" Margin="8,0,0,0" />
+                      <c:StrokeIcon DockPanel.Dock="Left" IsVisible="{Binding IsFolder}" Width="15" Height="15" Margin="0,0,8,0"
+                                    Foreground="{StaticResource OrreryFolder}"
+                                    Data="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+                      <Ellipse DockPanel.Dock="Left" IsVisible="{Binding IsConnection}" Width="7" Height="7" Margin="2,0,9,0"
+                               Fill="{Binding StatusFill}" Stroke="{Binding StatusStroke}" StrokeThickness="1" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                 ToolTip.Tip="{Binding Detail}" />
+                    </DockPanel>
+                  </TreeDataTemplate>
+                </TreeView.ItemTemplate>
+                <TreeView.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
+                    <Separator />
+                    <MenuItem Header="New connection" Click="OnNewConnectionClick" />
+                    <MenuItem Header="New folder" Click="OnNewFolderClick" />
+                    <MenuItem x:Name="DuplicateMenuItem" Header="Duplicate" Click="OnDuplicateMenuClick" InputGesture="Ctrl+D" />
+                    <Separator />
+                    <MenuItem Header="Defaults for all connections…" Click="OnEditDefaultsClick" />
+                    <Separator />
+                    <MenuItem x:Name="DeleteMenuItem" Header="Delete" Click="OnDeleteMenuClick" InputGesture="Delete" />
+                  </ContextMenu>
+                </TreeView.ContextMenu>
+              </TreeView>
+              <TextBlock x:Name="TreeEmptyState" TextWrapping="Wrap" Foreground="{StaticResource OrreryMuted}" Margin="20,8"
+                         Text="No saved connections yet. Add one with +, or use Quick connect." />
+            </Grid>
+          </DockPanel>
+        </Border>
+
+        <!-- Sessions -->
+        <DockPanel Grid.Column="2">
+          <Border DockPanel.Dock="Top" x:Name="TabStripBar" Background="{StaticResource OrreryPanel}"
+                  BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1" Padding="10,8,10,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <StackPanel x:Name="TabStrip" Orientation="Horizontal" Spacing="2" VerticalAlignment="Bottom" />
+                <Button Classes="icon" Width="32" Height="32" Margin="2,0,0,1" VerticalAlignment="Bottom" CornerRadius="6"
+                        Click="OnQuickConnectClick" ToolTip.Tip="New session (Ctrl+K)" AutomationProperties.Name="New session">
+                  <c:StrokeIcon Width="14" Height="14" StrokeThickness="2" Data="M12 5v14 M5 12h14" />
+                </Button>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+
+          <Border DockPanel.Dock="Top" x:Name="SessionToolbar" IsVisible="False" Padding="14,7"
+                  BorderBrush="#1C2027" BorderThickness="0,0,0,1">
+            <DockPanel>
+              <StackPanel x:Name="SessionActions" DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" />
+              <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <c:StrokeIcon x:Name="SessionLock" Width="14" Height="14" StrokeThickness="2"
+                                Data="M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4" />
+                  <TextBlock x:Name="SessionAddress" Classes="mono" FontSize="12" Foreground="{StaticResource OrrerySoftText}" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock x:Name="SessionDetail" FontSize="12" Foreground="#8A93A3" VerticalAlignment="Center" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <Grid>
+            <Panel x:Name="SessionHost" Background="#0B0D10" />
+            <StackPanel x:Name="EmptyState" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock Text="No open sessions" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              <TextBlock Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"
+                         Text="Double-click a connection, or press Ctrl K to quick connect." />
+            </StackPanel>
+          </Grid>
+        </DockPanel>
+
+        <!-- Properties of the selected connection or folder -->
+        <Border Grid.Column="3" x:Name="PropertiesHost" Width="320"
+                Background="{StaticResource OrreryPanel}"
+                BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0" />
+      </Grid>
+    </DockPanel>
+
+    <!-- Dims the window while the quick connect palette is open. -->
+    <Border x:Name="Dimmer" Background="#9E050608" IsVisible="False" />
   </Grid>
 </Window>

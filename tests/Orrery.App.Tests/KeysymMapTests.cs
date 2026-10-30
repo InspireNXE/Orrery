@@ -42,4 +42,16 @@ public class KeysymMapTests
         var choice = QuickConnectChoice.Parse(text)!;
         Assert.Equal((host, port, protocol), (choice.Host, choice.Port, choice.Protocol));
     }
+
+    [Theory]
+    [InlineData("box", "Rdp:3389,Ssh:22")]
+    [InlineData("box:2222", "Rdp:2222,Ssh:2222")]
+    [InlineData("admin@box", "Ssh:22,Rdp:3389")]
+    [InlineData("vnc://box", "Vnc:5900")]
+    [InlineData("", "")]
+    public void Quick_connect_offers_rdp_and_ssh_unless_a_scheme_picks_one(string text, string expected)
+    {
+        var offered = QuickConnectChoice.Candidates(text).Select(c => $"{c.Protocol}:{c.Port}");
+        Assert.Equal(expected, string.Join(",", offered));
+    }
 }
