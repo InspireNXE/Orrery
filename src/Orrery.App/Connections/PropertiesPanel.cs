@@ -20,8 +20,8 @@ sealed class PropertiesPanel : UserControl
     readonly ConnectionTree _tree;
     readonly TextBlock _title = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBlock _path = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly Border _tile = new() { Width = 36, Height = 36, CornerRadius = new CornerRadius(8), VerticalAlignment = VerticalAlignment.Top };
-    readonly StrokeIcon _tileIcon = new() { Width = 18, Height = 18, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    readonly StrokeIcon _tileIcon = new();
+    readonly Border _tile;
     readonly TextBox _name = new(), _host = new() { FontFamily = Dialogs.MonoFont };
     readonly TextBox _notes = new() { AcceptsReturn = true, Height = 72, TextWrapping = TextWrapping.Wrap };
     readonly Control _hostField, _nameField, _notesField;
@@ -35,13 +35,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
-    readonly TextBlock _empty = new()
-    {
-        Text = "Select a connection or folder to see its settings.",
-        Foreground = Dialogs.MutedBrush,
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(20),
-    };
+    readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
 
     ConnectionNode? _node;
     bool _loading;
@@ -52,6 +46,7 @@ sealed class PropertiesPanel : UserControl
     {
         _tree = tree;
         _credential = new CredentialPicker(credentials);
+        _tile = Pane.Tile(_tileIcon);
 
         foreach (var protocol in Enum.GetValues<Protocol>())
         {
@@ -69,7 +64,7 @@ sealed class PropertiesPanel : UserControl
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
-        _notesField = Section("Notes", _notes);
+        _notesField = Pane.Section("Notes", _notes);
 
         _save = new Button { Content = "Save", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
         _save.Click += (_, _) => TrySave();
@@ -85,59 +80,25 @@ sealed class PropertiesPanel : UserControl
             }
         };
 
-        _tile.Child = _tileIcon;
-        var header = new DockPanel
-        {
-            Children =
-            {
-                Docked(_tile, Dock.Left),
-                new StackPanel { Spacing = 2, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { _title, _path } },
-            },
-        };
-
         var editor = new StackPanel
         {
             Spacing = 20,
             Margin = new Thickness(16),
             Children =
             {
-                header,
-                Section("Connection", _nameField, _hostField,
-                    new Grid
-                    {
-                        ColumnDefinitions = new ColumnDefinitions("*,8,*"),
-                        Children = { _protocolRow.View, At(_portRow.View, column: 2) },
-                    }),
-                Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
-                Section("Options", _clipboardRow.View, _sshAgentRow.View),
+                Pane.Header(_tile, _title, _path),
+                Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
+                Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
+                Pane.Section("Options", _clipboardRow.View, _sshAgentRow.View),
                 _notesField,
             },
         };
 
-        var actions = new StackPanel
+        _editorView = Pane.WithFooter(editor, new StackPanel
         {
             Spacing = 8,
-            Margin = new Thickness(16, 12, 16, 16),
-            Children =
-            {
-                _error,
-                _connect,
-                new Grid
-                {
-                    ColumnDefinitions = new ColumnDefinitions("*,8,*"),
-                    Children = { _save, At(revert, column: 2) },
-                },
-            },
-        };
-
-        _editorView = new DockPanel
-        {
-            Children =
-            {
-                Docked(actions, Dock.Bottom),
-                new ScrollViewer { Content = editor },
-            },
-        };
+            Children = { _error, _connect, Pane.Pair(_save, revert) },
+        });
 
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes })
         {
@@ -340,35 +301,17 @@ sealed class PropertiesPanel : UserControl
     static readonly IBrush FolderTileBrush = new SolidColorBrush(Color.Parse("#33291A")).ToImmutable();
     static readonly IBrush FolderBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
 
+    // Fluent's switch keeps a gap on its right for On/Off text; the negative margin lines the track up
+    // with the right edge of the text fields.
     static ToggleSwitch Switch(string name) => new()
     {
         Name = name,
         OnContent = null,
         OffContent = null,
         MinWidth = 0,
+        Margin = new Thickness(10, 0, -11, 0),
         VerticalAlignment = VerticalAlignment.Center,
     };
-
-    /// <summary>A titled group of fields, headed like the mockup's inspector.</summary>
-    static Control Section(string title, params Control[] children)
-    {
-        var section = new StackPanel { Spacing = 10 };
-        section.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
-        section.Children.AddRange(children);
-        return section;
-    }
-
-    static Control Docked(Control control, Dock dock)
-    {
-        DockPanel.SetDock(control, dock);
-        return control;
-    }
-
-    static Control At(Control control, int column)
-    {
-        Grid.SetColumn(control, column);
-        return control;
-    }
 
     void SelectProtocol(Protocol protocol) =>
         _protocol.SelectedItem = _protocol.Items.OfType<ComboBoxItem>().First(i => (Protocol)i.Tag! == protocol);
