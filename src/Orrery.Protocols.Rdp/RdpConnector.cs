@@ -18,6 +18,12 @@ public sealed class CertificateRejectedException(string host)
 /// </summary>
 static class RdpConnector
 {
+    /// <summary>How long the whole CredSSP exchange may take, including any Kerberos requests.</summary>
+    static readonly TimeSpan CredsspTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>The largest single CredSSP reply accepted.</summary>
+    const int MaxCredsspReply = 64 * 1024;
+
     public static async Task<(ConnectionResult Result, Framed<SslStream> Framed)> ConnectAsync(
         Config config, ConnectionTarget target, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
         CancellationToken token)
@@ -46,9 +52,30 @@ static class RdpConnector
         connector.MarkSecurityUpgradeAsDone();
         var framedSsl = new Framed<SslStream>(ssl);
 
-        if (connector.ShouldPerformCredssp())
+        // Without CredSSP the credentials would go in the clear, so a server that skips it is refused.
+        if (!connector.ShouldPerformCredssp())
         {
-            await PerformCredsspAsync(connector, target.Host, writeBuf, framedSsl, serverPublicKey, token);
+            ssl.Dispose();
+            throw new NotSupportedException("The server doesn't support Network Level Authentication, which Orrery requires.");
+        }
+
+        using (var credsspTimeout = CancellationTokenSource.CreateLinkedTokenSource(token))
+        {
+            credsspTimeout.CancelAfter(CredsspTimeout);
+            try
+            {
+                await PerformCredsspAsync(connector, target.Host, writeBuf, framedSsl, serverPublicKey, credsspTimeout.Token);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                ssl.Dispose();
+                throw new TimeoutException("The server took too long to sign in.");
+            }
+            catch
+            {
+                ssl.Dispose();
+                throw;
+            }
         }
 
         while (!connector.DynState.IsTerminal())
@@ -143,7 +170,7 @@ static class RdpConnector
                 return;
             }
 
-            var pdu = await framed.ReadByHint(hint, token);
+            var pdu = await ReadTsRequestAsync(framed, token);
             var decoded = sequence.DecodeServerMessage(pdu);
             if (decoded is null)
             {
@@ -152,6 +179,24 @@ static class RdpConnector
 
             tsRequest = decoded;
         }
+    }
+
+    /// <summary>
+    /// Reads one CredSSP reply, which is a DER SEQUENCE. IronRDP's own <c>ReadByHint</c> keeps reading when the
+    /// length uses 3 or 4 bytes and has no size cap, so the length is read here and checked first.
+    /// </summary>
+    static async Task<byte[]> ReadTsRequestAsync(Framed<SslStream> framed, CancellationToken token)
+    {
+        var header = await framed.ReadExact(2, token);
+        var extra = DerSequence.ExtraLengthBytes(header[1]);
+        if (extra > 0)
+        {
+            header = [.. header, .. await framed.ReadExact((nuint)extra, token)];
+        }
+
+        var total = DerSequence.TotalSize(header, MaxCredsspReply);
+        var rest = total > header.Length ? await framed.ReadExact((nuint)(total - header.Length), token) : [];
+        return [.. header, .. rest];
     }
 
     /// <summary>Runs CredSSP's network requests, which go to a Kerberos KDC when one is used.</summary>

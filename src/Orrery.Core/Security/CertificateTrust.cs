@@ -6,7 +6,8 @@ namespace Orrery.Core.Security;
 
 public enum CertificateTrustDecision
 {
-    Reject,
+    /// <summary>Must stay 0: closing a prompt without answering returns <c>default</c>, which has to refuse.</summary>
+    Reject = 0,
     TrustOnce,
     TrustAlways,
 }

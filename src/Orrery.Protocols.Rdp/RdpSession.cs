@@ -559,6 +559,11 @@ public sealed class RdpSession : IFrameBufferSession
         builder.ClientName = "Orrery";
         builder.ClientDir = "C:\\";
         builder.PerformanceFlags = PerformanceFlags.NewDefault();
+
+        // NLA is required: credentials only ever go through CredSSP, inside a certificate-checked TLS session.
+        // These are IronRDP's defaults today; they're set here so a changed default can't weaken the sign-in.
+        builder.EnableCredssp = true;
+        builder.EnableTls = false;
         return builder.Build();
     }
 }
