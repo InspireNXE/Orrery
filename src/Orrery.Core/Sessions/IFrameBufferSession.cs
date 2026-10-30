@@ -80,3 +80,16 @@ public interface IKeysymInput
 {
     void SendKeysym(uint keysym, bool pressed);
 }
+
+/// <summary>
+/// A session that shares clipboard text with the remote side and leaves it to the view to talk to the local
+/// clipboard (VNC). RDP's clipboard runs inside IronRDP and doesn't use this.
+/// </summary>
+public interface IClipboardSession
+{
+    /// <summary>The remote clipboard changed. Raised on a background thread.</summary>
+    event EventHandler<string>? RemoteClipboardChanged;
+
+    /// <summary>Puts <paramref name="text"/> on the remote clipboard.</summary>
+    void SendClipboard(string text);
+}

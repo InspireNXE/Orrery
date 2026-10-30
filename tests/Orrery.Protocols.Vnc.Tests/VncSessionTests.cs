@@ -139,4 +139,41 @@ public class VncSessionTests
         Assert.Equal(SessionState.Disconnected, session.State);
         await WaitUntilAsync(() => server.Log.Contains("client hung up"));
     }
+
+    [Fact]
+    public async Task Exchanges_clipboard_text_both_ways()
+    {
+        await using var server = new TestRfbServer(password: null);
+        await using var session = await ConnectAsync(server, string.Empty);
+        var fromServer = new TaskCompletionSource<string>();
+        session.RemoteClipboardChanged += (_, text) => fromServer.TrySetResult(text);
+
+        session.SendClipboard("copied here, café");
+        await server.SendClipboardAsync("copied there");
+
+        Assert.Equal("copied there", await fromServer.Task.WaitAsync(Wait));
+        await WaitUntilAsync(() => !server.ClientClipboard.IsEmpty);
+        Assert.Equal("copied here, café", Assert.Single(server.ClientClipboard));
+    }
+
+    [Fact]
+    public async Task Leaves_the_clipboard_alone_when_sharing_is_off()
+    {
+        await using var server = new TestRfbServer(password: null);
+        var connected = new TaskCompletionSource();
+        await using var session = VncSession.Start(new ConnectionTarget("127.0.0.1", server.Port, null, null), string.Empty, shareClipboard: false);
+        session.FrameUpdated += (_, _) => connected.TrySetResult();
+        await connected.Task.WaitAsync(Wait);
+        bool received = false;
+        session.RemoteClipboardChanged += (_, _) => received = true;
+
+        session.SendClipboard("private");
+        await server.SendClipboardAsync("from server");
+        session.SendKeysym('x', pressed: true); // Something that does arrive, to know the server has caught up.
+        await WaitUntilAsync(() => !server.Keys.IsEmpty);
+        await Task.Delay(200);
+
+        Assert.Empty(server.ClientClipboard);
+        Assert.False(received);
+    }
 }

@@ -9,6 +9,7 @@ using MarcusW.VncClient.Protocol.MessageTypes;
 using MarcusW.VncClient.Protocol.Services;
 using MarcusW.VncClient.Protocol.Implementation.Services.Transports;
 using MarcusW.VncClient.Protocol.SecurityTypes;
+using MarcusW.VncClient.Output;
 using MarcusW.VncClient.Rendering;
 using MarcusW.VncClient.Security;
 using Microsoft.Extensions.Logging;
@@ -23,7 +24,7 @@ namespace Orrery.Protocols.Vnc;
 /// A VNC session backed by MarcusW.VncClient (MIT). The library decodes straight into our RGBA buffer
 /// through <see cref="IRenderTarget"/>; keys go over as X11 keysyms, so the server needs no keyboard layout.
 /// </summary>
-public sealed class VncSession : IFrameBufferSession, IKeysymInput, IRenderTarget
+public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSession, IRenderTarget, IOutputHandler
 {
     const int BytesPerPixel = 4;
     const int WheelNotch = 120;
@@ -51,11 +52,13 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IRenderTarge
     Task? _connectTask;
 
     readonly ILoggerFactory _logging;
+    readonly bool _shareClipboard;
 
-    VncSession(ConnectionTarget target, string password, ILoggerFactory? logging)
+    VncSession(ConnectionTarget target, string password, bool shareClipboard, ILoggerFactory? logging)
     {
         Target = target;
         _password = password;
+        _shareClipboard = shareClipboard;
         _logging = logging ?? NullLoggerFactory.Instance;
     }
 
@@ -66,12 +69,14 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IRenderTarge
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+    public event EventHandler<string>? RemoteClipboardChanged;
 
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
     /// <param name="logging">The VNC library's own diagnostics; none when null.</param>
-    public static VncSession Start(ConnectionTarget target, string password, ILoggerFactory? logging = null)
+    /// <param name="shareClipboard">Exchange clipboard text with the server (RFB carries Latin-1 only).</param>
+    public static VncSession Start(ConnectionTarget target, string password, bool shareClipboard = true, ILoggerFactory? logging = null)
     {
-        var session = new VncSession(target, password, logging);
+        var session = new VncSession(target, password, shareClipboard, logging);
         session._connectTask = Task.Run(session.ConnectAsync);
         return session;
     }
@@ -86,6 +91,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IRenderTarge
                 TransportParameters = new TcpTransportParameters { Host = Target.Host, Port = Target.Port },
                 AuthenticationHandler = new Authenticator(Target.Username, _password),
                 InitialRenderTarget = this,
+                InitialOutputHandler = this,
                 AllowSharedConnection = true,
 
                 // A dropped session shows as disconnected, like RDP and SSH; reconnecting is the user's call.
@@ -369,6 +375,28 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IRenderTarge
         {
             Trace.TraceWarning($"VNC input dropped: {e.Message}");
         }
+    }
+
+    // ---- Clipboard ----
+
+    public void SendClipboard(string text)
+    {
+        if (_shareClipboard)
+        {
+            Send(new ClientCutTextMessage(text));
+        }
+    }
+
+    void IOutputHandler.HandleServerClipboardUpdate(string text)
+    {
+        if (_shareClipboard)
+        {
+            RemoteClipboardChanged?.Invoke(this, text);
+        }
+    }
+
+    void IOutputHandler.RingBell()
+    {
     }
 
     // ---- Lifetime ----

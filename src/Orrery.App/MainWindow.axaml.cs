@@ -594,7 +594,7 @@ public partial class MainWindow : Window
             case Protocol.Ssh:
                 return StartSshAsync(title, target, password, saved);
             case Protocol.Vnc:
-                StartVnc(title, target, password);
+                StartVnc(title, target, password, shareClipboard);
                 return Task.CompletedTask;
             default:
                 StartRdp(title, target, password, shareClipboard);
@@ -603,9 +603,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
-    void StartVnc(string title, ConnectionTarget target, string password)
+    void StartVnc(string title, ConnectionTarget target, string password, bool shareClipboard)
     {
-        var session = VncSession.Start(target, password);
+        var session = VncSession.Start(target, password, shareClipboard);
         AddTab(new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session, title);
         UpdateVaultButton();
     }
