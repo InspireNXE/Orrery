@@ -125,6 +125,51 @@ public class VaultFileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task A_batch_is_saved_together_and_reads_back()
+    {
+        var batch = Enumerable.Range(1, 5).Select(i => Sample($"imported {i}", $"secret-{i}")).ToList();
+        using (var store = NewStore())
+        {
+            await store.UnlockAsync(Password);
+            await store.SaveAllAsync(batch);
+        }
+
+        using var reopened = NewStore();
+        await reopened.UnlockAsync(Password);
+        Assert.Equal(5, (await reopened.ListAsync()).Count);
+        foreach (var credential in batch)
+        {
+            Assert.Equal(credential, await reopened.GetAsync(credential.Id));
+        }
+    }
+
+    [Fact]
+    public async Task A_batch_that_cannot_be_written_leaves_the_vault_as_it_was()
+    {
+        using var store = NewStore();
+        await store.UnlockAsync(Password);
+        var earlier = Sample("earlier");
+        await store.SaveAsync(earlier);
+
+        // A folder where the vault file should be makes the write fail.
+        File.Delete(VaultPath);
+        Directory.CreateDirectory(VaultPath);
+        await Assert.ThrowsAnyAsync<Exception>(() => store.SaveAllAsync([Sample("one"), Sample("two")]));
+
+        Assert.Equal(earlier.Id, Assert.Single(await store.ListAsync()).Id);
+    }
+
+    [Fact]
+    public async Task A_batch_into_a_locked_vault_is_refused()
+    {
+        using var store = NewStore();
+        await store.UnlockAsync(Password);
+        store.Lock();
+
+        await Assert.ThrowsAsync<VaultLockedException>(() => store.SaveAllAsync([Sample()]));
+    }
+
+    [Fact]
     public void Credential_ToString_hides_the_secret()
     {
         Assert.DoesNotContain("Sup3r-Secret!", Sample().ToString());

@@ -13,9 +13,43 @@ public sealed class ConnectionTree
         Relink(root);
     }
 
+    /// <summary>
+    /// Most folders on the way from the root to any node, the root not counted. Anything that adds or moves a
+    /// folder checks <see cref="CanPlace"/> first; imports are held to it too.
+    /// </summary>
+    public const int MaxFolderDepth = 60;
+
     public ConnectionFolder Root { get; }
 
     public event EventHandler? Changed;
+
+    /// <summary>How many folders deep <paramref name="folder"/> is: 0 for the root, 1 for a top-level folder.</summary>
+    public static int DepthOf(ConnectionFolder folder) => folder.Ancestors().Count();
+
+    /// <summary>True if <paramref name="node"/> and everything in it fits under <paramref name="parent"/> within <see cref="MaxFolderDepth"/>.</summary>
+    public static bool CanPlace(ConnectionNode node, ConnectionFolder parent) => DepthOf(parent) + FolderLevels(node) <= MaxFolderDepth;
+
+    /// <summary>Folder levels a node brings with it: 0 for a connection, 1 for an empty folder.</summary>
+    static int FolderLevels(ConnectionNode node)
+    {
+        int deepest = 0;
+        var pending = new Stack<(ConnectionNode Node, int Levels)>([(node, 0)]);
+        while (pending.TryPop(out var item))
+        {
+            if (item.Node is not ConnectionFolder folder)
+            {
+                continue;
+            }
+
+            deepest = Math.Max(deepest, item.Levels + 1);
+            foreach (var child in folder.Children)
+            {
+                pending.Push((child, item.Levels + 1));
+            }
+        }
+
+        return deepest;
+    }
 
     public static ConnectionTree Empty() => new(new ConnectionFolder { Name = "Connections" });
 

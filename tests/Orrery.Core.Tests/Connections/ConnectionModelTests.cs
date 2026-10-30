@@ -184,6 +184,57 @@ public class ConnectionModelTests : IDisposable
     }
 
     [Fact]
+    public void Store_round_trips_folders_nested_60_deep()
+    {
+        var tree = ConnectionTree.Empty();
+        var parent = tree.Root;
+        for (int i = 1; i <= 60; i++)
+        {
+            var folder = new ConnectionFolder { Name = $"level {i}" };
+            tree.Add(folder, parent);
+            parent = folder;
+        }
+
+        var leaf = new ConnectionEntry { Name = "leaf", Host = "deep.example" };
+        tree.Add(leaf, parent);
+        var store = new ConnectionStore(Path.Combine(_dir, "connections.json"), Path.Combine(_dir, "backups"));
+        store.Save(tree);
+
+        var loaded = Assert.IsType<ConnectionEntry>(store.Load().Find(leaf.Id));
+        Assert.Equal("deep.example", loaded.Host);
+        Assert.Equal(60, loaded.Ancestors().Count(a => a.Parent is not null));
+    }
+
+    [Fact]
+    public void Folders_can_be_placed_down_to_the_depth_limit_and_no_further()
+    {
+        var tree = ConnectionTree.Empty();
+        var parent = tree.Root;
+        for (int i = 1; i < ConnectionTree.MaxFolderDepth; i++)
+        {
+            var folder = new ConnectionFolder { Name = $"level {i}" };
+            tree.Add(folder, parent);
+            parent = folder;
+        }
+
+        Assert.Equal(0, ConnectionTree.DepthOf(tree.Root));
+        Assert.Equal(ConnectionTree.MaxFolderDepth - 1, ConnectionTree.DepthOf(parent));
+        Assert.True(ConnectionTree.CanPlace(new ConnectionFolder(), parent));
+        Assert.True(ConnectionTree.CanPlace(new ConnectionEntry(), parent));
+
+        // A folder with a subfolder needs two levels, and there's only one left.
+        var pair = new ConnectionFolder { Name = "outer" };
+        tree.Add(pair, tree.Root);
+        tree.Add(new ConnectionFolder { Name = "inner" }, pair);
+        Assert.False(ConnectionTree.CanPlace(pair, parent));
+
+        var last = new ConnectionFolder { Name = "last" };
+        tree.Add(last, parent);
+        Assert.False(ConnectionTree.CanPlace(new ConnectionFolder(), last));
+        Assert.True(ConnectionTree.CanPlace(new ConnectionEntry(), last));
+    }
+
+    [Fact]
     public void Missing_file_loads_an_empty_tree()
     {
         var store = new ConnectionStore(Path.Combine(_dir, "connections.json"), Path.Combine(_dir, "backups"));

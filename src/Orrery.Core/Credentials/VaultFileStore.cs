@@ -293,6 +293,30 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         return Task.CompletedTask;
     }
 
+    public Task SaveAllAsync(IReadOnlyList<Credential> credentials)
+    {
+        lock (_lock)
+        {
+            var items = Unlocked();
+            var before = items.ToList();
+            var ids = credentials.Select(c => c.Id).ToHashSet();
+            items.RemoveAll(c => ids.Contains(c.Id));
+            items.AddRange(credentials);
+            try
+            {
+                Save();
+            }
+            catch
+            {
+                items.Clear();
+                items.AddRange(before);
+                throw;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task DeleteAsync(Guid id)
     {
         lock (_lock)

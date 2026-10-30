@@ -208,6 +208,7 @@ public class PropertiesPanelTests
 
         public Task<Credential?> GetAsync(Guid id) => Task.FromResult<Credential?>(null);
         public Task SaveAsync(Credential credential) => Task.CompletedTask;
+        public Task SaveAllAsync(IReadOnlyList<Credential> credentials) => Task.CompletedTask;
         public Task DeleteAsync(Guid id) => Task.CompletedTask;
     }
 }

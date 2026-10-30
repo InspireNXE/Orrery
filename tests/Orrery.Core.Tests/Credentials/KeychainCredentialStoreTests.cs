@@ -15,7 +15,22 @@ public class KeychainCredentialStoreTests : IDisposable
         public Dictionary<string, byte[]> Items { get; } = [];
         public string Name => "the test keychain";
         public int? MaxSecretSize => maxSize;
-        public void Write(string key, byte[] secret) => Items[key] = [.. secret];
+
+        /// <summary>When set, that write (counting from 1) fails as a real keychain might.</summary>
+        public int? FailOnWrite { get; set; }
+
+        int _writes;
+
+        public void Write(string key, byte[] secret)
+        {
+            if (++_writes == FailOnWrite)
+            {
+                throw new System.ComponentModel.Win32Exception(1312, "The keychain refused the write.");
+            }
+
+            Items[key] = [.. secret];
+        }
+
         public byte[]? Read(string key) => Items.TryGetValue(key, out var secret) ? [.. secret] : null;
         public void Delete(string key) => Items.Remove(key);
     }
@@ -62,6 +77,41 @@ public class KeychainCredentialStoreTests : IDisposable
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveAsync(big));
         Assert.Contains("the test keychain", error.Message);
         Assert.Empty(await store.ListAsync());
+    }
+
+    static Credential[] Batch(int count) =>
+        Enumerable.Range(1, count).Select(i => new Credential(Guid.NewGuid(), $"imported {i}", CredentialKind.Password, $"user{i}", null, $"dummy-{i}")).ToArray();
+
+    [Fact]
+    public async Task A_batch_saves_every_secret_and_one_index()
+    {
+        var backend = new MemoryBackend();
+        var batch = Batch(5);
+
+        await new KeychainCredentialStore(IndexPath, backend).SaveAllAsync(batch);
+
+        var reopened = new KeychainCredentialStore(IndexPath, backend);
+        Assert.Equal(5, (await reopened.ListAsync()).Count);
+        foreach (var credential in batch)
+        {
+            Assert.Equal(credential, await reopened.GetAsync(credential.Id));
+        }
+    }
+
+    [Fact]
+    public async Task A_batch_that_fails_partway_leaves_nothing_new_behind()
+    {
+        var backend = new MemoryBackend();
+        var store = new KeychainCredentialStore(IndexPath, backend);
+        var earlier = Batch(1)[0];
+        await store.SaveAsync(earlier);
+        var indexBefore = await File.ReadAllTextAsync(IndexPath);
+
+        backend.FailOnWrite = 4; // The earlier save was write 1, so the batch's third secret fails.
+        await Assert.ThrowsAsync<System.ComponentModel.Win32Exception>(() => store.SaveAllAsync(Batch(5)));
+
+        Assert.Equal([KeychainCredentialStore.KeyPrefix + earlier.Id], backend.Items.Keys);
+        Assert.Equal(indexBefore, await File.ReadAllTextAsync(IndexPath));
     }
 
     /// <summary>The real Windows Credential Manager; removes what it writes.</summary>

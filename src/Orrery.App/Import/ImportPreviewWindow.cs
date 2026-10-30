@@ -93,7 +93,8 @@ sealed class ImportPreviewWindow : Window
 
         var list = new StackPanel { Spacing = 2 };
         list.Children.Add(Dialogs.Label(title));
-        foreach (var line in lines)
+        // One TextBlock a line and no virtualisation, so a long list is shortened first.
+        foreach (var line in ImportReport.Shorten(lines))
         {
             list.Children.Add(new TextBlock { Text = "• " + line, Foreground = brush, FontSize = 12, TextWrapping = TextWrapping.Wrap });
         }
