@@ -1,16 +1,23 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Templates;
+using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Connections;
 
 namespace Orrery.App.Connections;
 
-/// <summary>A saved connection to open, or a host typed in to connect to once.</summary>
-sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port, Protocol Protocol = Protocol.Rdp, string? Username = null)
+/// <summary>
+/// A saved connection to open, a host typed in to connect to once, or (with <see cref="NewName"/>) a new
+/// connection to create.
+/// </summary>
+sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port, Protocol Protocol = Protocol.Rdp, string? Username = null, string? NewName = null)
 {
+    static readonly (string Scheme, Protocol Protocol)[] Schemes =
+        [("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet)];
+
     /// <summary>
     /// Reads "host", "host:port", "rdp://host", "ssh://host", "vnc://host", "telnet://host", "user@host" and "ssh://user@host:port".
     /// A username without a scheme means SSH, as on the command line.
@@ -20,7 +27,7 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
         text = text.Trim();
         var protocol = Protocol.Rdp;
         bool explicitScheme = false;
-        foreach (var (scheme, p) in new[] { ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet) })
+        foreach (var (scheme, p) in Schemes)
         {
             if (text.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
             {
@@ -41,103 +48,211 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
             ? new QuickConnectChoice(null, host, port, protocol, username)
             : null;
     }
+
+    /// <summary>
+    /// The ways to connect to what was typed: the protocol a scheme names, or without one, the likely
+    /// protocol first and the other of RDP and SSH second.
+    /// </summary>
+    public static IReadOnlyList<QuickConnectChoice> Candidates(string text)
+    {
+        if (Parse(text) is not { } first)
+        {
+            return [];
+        }
+
+        if (Schemes.Any(s => text.TrimStart().StartsWith(s.Scheme, StringComparison.OrdinalIgnoreCase)))
+        {
+            return [first];
+        }
+
+        // A port that was typed applies to both; otherwise each protocol uses its own.
+        var other = first.Protocol == Protocol.Ssh ? Protocol.Rdp : Protocol.Ssh;
+        int port = first.Port == ProtocolInfo.DefaultPort(first.Protocol) ? ProtocolInfo.DefaultPort(other) : first.Port;
+        return [first, first with { Protocol = other, Port = port }];
+    }
 }
 
 /// <summary>
-/// The Ctrl+K palette: type to find a saved connection by name, host or folder, or enter
-/// <c>host[:port]</c> to connect directly. Enter opens the highlighted row; arrows move.
+/// The Ctrl+K palette: type to find a saved connection by name, host or folder, enter
+/// <c>host[:port]</c> to connect directly, or make a new connection. Enter opens the highlighted row;
+/// arrows move; Esc or clicking elsewhere closes it.
 /// </summary>
 sealed class QuickConnectWindow : Window
 {
     const int MaxResults = 8;
+    const double TopOffset = 96;
+
+    static readonly IBrush PanelBrush = Brush("#181B21");
+    static readonly IBrush LineBrush = Brush("#262A33");
+    static readonly IBrush OutlineBrush = Brush("#2F3540");
+    static readonly IBrush HighlightBrush = Brush("#252B36");
+    static readonly IBrush AccentBrush = Brush("#5B9DFF");
+    static readonly IBrush SoftBrush = Brush("#C3C9D3");
 
     readonly ConnectionTree _tree;
-    readonly TextBox _query = new() { Watermark = "Search connections, or type host, user@host, ssh://host:port", FontSize = 15, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
-    readonly ListBox _results = new() { Background = Brushes.Transparent, MaxHeight = 380 };
+    readonly TextBox _query = new()
+    {
+        Watermark = "Search connections, or type host, user@host, ssh://host:port",
+        FontSize = 15,
+        BorderThickness = new Thickness(0),
+        Background = Brushes.Transparent,
+        VerticalAlignment = VerticalAlignment.Center,
+        Padding = new Thickness(0),
+        MinHeight = 0,
+    };
+    readonly StackPanel _list = new() { Spacing = 2, Margin = new Thickness(8) };
+    readonly List<Item> _items = [];
+    int _selected = -1;
+    bool _closing;
 
     public QuickConnectWindow(ConnectionTree tree)
     {
         _tree = tree;
 
         Title = "Quick connect";
-        Width = 600;
+        Width = 620;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.Parse("#181B21"));
+        ShowInTaskbar = false;
+        SystemDecorations = SystemDecorations.None;
+        TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
+        Background = Brushes.Transparent;
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        FontSize = 13;
 
-        _results.ItemTemplate = new FuncDataTemplate<Row>((row, _) => new DockPanel
-        {
-            Margin = new Thickness(4, 2),
-            Children =
-            {
-                Docked(new TextBlock { Text = row?.Hint, FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center }, Dock.Right),
-                new StackPanel
-                {
-                    Children =
-                    {
-                        new TextBlock { Text = row?.Title, FontWeight = FontWeight.SemiBold },
-                        new TextBlock { Text = row?.Subtitle, FontSize = 12, Foreground = Dialogs.MutedBrush, IsVisible = !string.IsNullOrEmpty(row?.Subtitle) },
-                    },
-                },
-            },
-        });
+        // Hide the TextBox's own focus border and hover background.
+        _query.Resources["TextControlBackgroundFocused"] = Brushes.Transparent;
+        _query.Resources["TextControlBackgroundPointerOver"] = Brushes.Transparent;
+        _query.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(0);
 
         _query.TextChanged += (_, _) => Refresh();
         _query.KeyDown += OnQueryKeyDown;
-        _results.DoubleTapped += (_, _) => Accept();
 
-        Content = new StackPanel
+        var search = new DockPanel
         {
-            Spacing = 4,
-            Margin = new Thickness(12),
+            Height = 52,
+            Margin = new Thickness(16, 0),
             Children =
             {
+                Docked(Chip("Esc"), Dock.Right),
+                Docked(new StrokeIcon { Data = Geometry.Parse(Icons.Search), StrokeThickness = 2, Foreground = Dialogs.MutedBrush, Margin = new Thickness(0, 0, 10, 0) }, Dock.Left),
                 _query,
-                new Border { Height = 1, Background = new SolidColorBrush(Color.Parse("#262A33")), Margin = new Thickness(0, 4) },
-                _results,
-                new TextBlock
+            },
+        };
+
+        var footer = new WrapPanel
+        {
+            Margin = new Thickness(16, 10),
+            Children =
+            {
+                Hint("↑↓", "move"),
+                Hint("↵", "open"),
+                Hint("Esc", "close"),
+                Hint("ssh:// rdp:// vnc:// telnet://", "pick a protocol"),
+            },
+        };
+
+        Content = new Border
+        {
+            Background = PanelBrush,
+            BorderBrush = OutlineBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            ClipToBounds = true,
+            Child = new DockPanel
+            {
+                Children =
                 {
-                    Text = "↑↓ to move · Enter to connect · Esc to close · host:port connects directly",
-                    FontSize = 11,
-                    Foreground = Dialogs.MutedBrush,
-                    Margin = new Thickness(4, 6, 4, 0),
+                    Docked(new Border { BorderBrush = LineBrush, BorderThickness = new Thickness(0, 0, 0, 1), Child = search }, Dock.Top),
+                    Docked(new Border { BorderBrush = LineBrush, BorderThickness = new Thickness(0, 1, 0, 0), Child = footer }, Dock.Bottom),
+                    new ScrollViewer { MaxHeight = 440, Content = _list },
                 },
             },
         };
 
-        Opened += (_, _) => _query.Focus();
+        Opened += (_, _) =>
+        {
+            PlaceOverOwner();
+            _query.Focus();
+        };
+
+        // Like a menu: clicking anywhere else dismisses it.
+        Deactivated += (_, _) =>
+        {
+            if (!_closing)
+            {
+                Finish(null);
+            }
+        };
+
         Refresh();
     }
 
-    static Control Docked(Control control, Dock dock)
+    /// <summary>Near the top of the owner, centred, where the eye already is.</summary>
+    void PlaceOverOwner()
     {
-        DockPanel.SetDock(control, dock);
-        return control;
+        if (Owner is not Window owner)
+        {
+            return;
+        }
+
+        double scaling = owner.RenderScaling;
+        Position = new PixelPoint(
+            owner.Position.X + (int)((owner.Bounds.Width - Width) / 2 * scaling),
+            owner.Position.Y + (int)(TopOffset * scaling));
+    }
+
+    void Finish(QuickConnectChoice? choice)
+    {
+        _closing = true;
+        Close(choice);
     }
 
     void Refresh()
     {
         var query = _query.Text?.Trim() ?? string.Empty;
-        var rows = new List<Row>();
+        _list.Children.Clear();
+        _items.Clear();
 
-        foreach (var entry in Rank(query).Take(MaxResults))
+        var saved = Rank(query).Take(MaxResults).ToList();
+        if (saved.Count > 0)
         {
-            rows.Add(new Row(entry.Name, $"{entry.Host}  ·  {(entry.Path is { Length: > 0 } p ? p : "Top level")}", "Saved", new QuickConnectChoice(entry, null, 0)));
+            AddHeader(query.Length == 0 ? "Saved connections" : "Matching connections");
+            foreach (var entry in saved)
+            {
+                AddItem(SavedRow(entry, query), new QuickConnectChoice(entry, null, 0), "Connect");
+            }
         }
 
-        bool exactHostSaved = rows.Any(r => string.Equals(r.Choice.Entry?.Host, query, StringComparison.OrdinalIgnoreCase));
-        if (!exactHostSaved && QuickConnectChoice.Parse(query) is { } direct)
+        bool exactHostSaved = saved.Any(e => string.Equals(e.Host, query, StringComparison.OrdinalIgnoreCase));
+        IReadOnlyList<QuickConnectChoice> direct = exactHostSaved ? [] : QuickConnectChoice.Candidates(query);
+        if (direct.Count > 0)
         {
-            var label = ProtocolInfo.Label(direct.Protocol);
-            var who = direct.Username is null ? string.Empty : $"{direct.Username}@";
-            var port = direct.Port != ProtocolInfo.DefaultPort(direct.Protocol) ? $":{direct.Port}" : string.Empty;
-            var row = new Row($"Connect to {who}{direct.Host}{port}", $"{label}, without saving", "Direct", direct);
-            if (rows.Count == 0) rows.Add(row); else rows.Insert(Math.Min(rows.Count, 1), row);
+            AddHeader("Connect directly");
+            foreach (var choice in direct)
+            {
+                AddItem(DirectRow(choice), choice, "Without saving");
+            }
         }
 
-        _results.ItemsSource = rows;
-        _results.SelectedIndex = rows.Count > 0 ? 0 : -1;
+        if (query.Length > 0)
+        {
+            AddHeader("Actions");
+            var host = direct.Count > 0 ? direct[0].Host : null;
+            AddItem(ActionRow($"New connection named “{query}”…"), new QuickConnectChoice(null, host, 0, NewName: query), "Create");
+        }
+
+        if (_items.Count == 0)
+        {
+            _list.Children.Add(new TextBlock
+            {
+                Text = "No saved connections yet. Type a host name to connect to it.",
+                Foreground = Dialogs.MutedBrush,
+                Margin = new Thickness(10, 8),
+            });
+        }
+
+        Select(_items.Count > 0 ? 0 : -1);
     }
 
     /// <summary>Name prefix matches first, then other name, host or folder matches.</summary>
@@ -167,37 +282,217 @@ sealed class QuickConnectWindow : Window
         return 0;
     }
 
+    // ---- Rows ----
+
+    void AddHeader(string text) => _list.Children.Add(new TextBlock
+    {
+        Text = text.ToUpperInvariant(),
+        FontSize = 11,
+        FontWeight = FontWeight.SemiBold,
+        LetterSpacing = 0.8,
+        Foreground = Dialogs.MutedBrush,
+        Margin = new Thickness(10, _list.Children.Count == 0 ? 6 : 10, 10, 4),
+    });
+
+    void AddItem(Control content, QuickConnectChoice choice, string hint)
+    {
+        var hintText = new TextBlock { Text = $"{hint}  ↵", FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+        var row = new Border
+        {
+            Height = 40,
+            Padding = new Thickness(8, 0, 10, 0),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(2, 0, 0, 0),
+            Background = Brushes.Transparent,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = new DockPanel { Children = { Docked(hintText, Dock.Right), content } },
+        };
+
+        var item = new Item(row, hintText, choice);
+        int index = _items.Count;
+        row.PointerEntered += (_, _) => Select(index);
+        row.PointerPressed += (_, e) =>
+        {
+            e.Handled = true;
+            Finish(choice);
+        };
+
+        _items.Add(item);
+        _list.Children.Add(row);
+    }
+
+    static Control SavedRow(ConnectionEntry entry, string query)
+    {
+        var protocol = SettingsResolver.Resolve(entry).Protocol.Value;
+        var name = new TextBlock { FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        name.Inlines = Highlight(entry.Name, query);
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Children =
+            {
+                Badge(protocol),
+                name,
+                new TextBlock
+                {
+                    Text = entry.Path is { Length: > 0 } path ? path : entry.Host,
+                    FontSize = 12,
+                    Foreground = Dialogs.MutedBrush,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 260,
+                },
+            },
+        };
+    }
+
+    static Control DirectRow(QuickConnectChoice choice)
+    {
+        var who = choice.Username is null ? string.Empty : $"{choice.Username}@";
+        var port = choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
+        var text = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        text.Inlines =
+        [
+            new Run($"{ProtocolInfo.Label(choice.Protocol)} to "),
+            new Run($"{who}{choice.Host}{port}") { FontFamily = Dialogs.MonoFont },
+        ];
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Children =
+            {
+                new StrokeIcon { Data = Geometry.Parse(ProtocolStyle.Icon(choice.Protocol)), Foreground = ProtocolStyle.Foreground(choice.Protocol), VerticalAlignment = VerticalAlignment.Center },
+                text,
+            },
+        };
+    }
+
+    static Control ActionRow(string label) => new StackPanel
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 10,
+        Children =
+        {
+            new StrokeIcon { Data = Geometry.Parse(Icons.Plus), StrokeThickness = 2, Foreground = SoftBrush, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis },
+        },
+    };
+
+    /// <summary>The name with the first match of the query in the accent colour.</summary>
+    static InlineCollection Highlight(string name, string query)
+    {
+        int at = query.Length == 0 ? -1 : name.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
+        if (at < 0)
+        {
+            return [new Run(name)];
+        }
+
+        return
+        [
+            new Run(name[..at]),
+            new Run(name.Substring(at, query.Length)) { Foreground = AccentBrush },
+            new Run(name[(at + query.Length)..]),
+        ];
+    }
+
+    static Control Badge(Protocol protocol) => new Border
+    {
+        Background = ProtocolStyle.Background(protocol),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(5, 1),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock
+        {
+            Text = ProtocolInfo.Label(protocol),
+            FontSize = 10,
+            FontWeight = FontWeight.Medium,
+            FontFamily = Dialogs.MonoFont,
+            Foreground = ProtocolStyle.Foreground(protocol),
+        },
+    };
+
+    static Control Chip(string text) => new Border
+    {
+        BorderBrush = OutlineBrush,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(6, 1),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = text, FontSize = 11, FontFamily = Dialogs.MonoFont, Foreground = Dialogs.MutedBrush },
+    };
+
+    static Control Hint(string keys, string action) => new TextBlock
+    {
+        FontSize = 11,
+        Foreground = Dialogs.MutedBrush,
+        Margin = new Thickness(0, 0, 16, 0),
+        Inlines = [new Run(keys) { FontFamily = Dialogs.MonoFont }, new Run($" {action}")],
+    };
+
+    static Control Docked(Control control, Dock dock)
+    {
+        DockPanel.SetDock(control, dock);
+        return control;
+    }
+
+    static IBrush Brush(string color) => new SolidColorBrush(Color.Parse(color)).ToImmutable();
+
+    // ---- Keyboard ----
+
+    void Select(int index)
+    {
+        if (_selected >= 0 && _selected < _items.Count)
+        {
+            _items[_selected].Show(false);
+        }
+
+        _selected = index;
+        if (index >= 0)
+        {
+            _items[index].Show(true);
+            _items[index].Row.BringIntoView();
+        }
+    }
+
     void OnQueryKeyDown(object? sender, KeyEventArgs e)
     {
-        int count = _results.ItemCount;
+        int count = _items.Count;
         switch (e.Key)
         {
             case Key.Down when count > 0:
-                _results.SelectedIndex = (_results.SelectedIndex + 1) % count;
+                Select((_selected + 1) % count);
                 e.Handled = true;
                 break;
             case Key.Up when count > 0:
-                _results.SelectedIndex = (_results.SelectedIndex - 1 + count) % count;
+                Select((_selected - 1 + count) % count);
                 e.Handled = true;
                 break;
             case Key.Enter:
-                Accept();
+                if (_selected >= 0)
+                {
+                    Finish(_items[_selected].Choice);
+                }
+
                 e.Handled = true;
                 break;
             case Key.Escape:
-                Close(null);
+                Finish(null);
                 e.Handled = true;
                 break;
         }
     }
 
-    void Accept()
+    sealed record Item(Border Row, TextBlock Hint, QuickConnectChoice Choice)
     {
-        if (_results.SelectedItem is Row row)
+        public void Show(bool selected)
         {
-            Close(row.Choice);
+            Row.Background = selected ? HighlightBrush : Brushes.Transparent;
+            Row.BorderBrush = selected ? AccentBrush : Brushes.Transparent;
+            Hint.IsVisible = selected;
         }
     }
-
-    sealed record Row(string Title, string Subtitle, string Hint, QuickConnectChoice Choice);
 }

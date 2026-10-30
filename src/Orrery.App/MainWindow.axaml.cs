@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -31,7 +32,9 @@ namespace Orrery.App;
 
 public partial class MainWindow : Window
 {
-    const double TabHeaderHeight = 48;
+    // The session toolbar's height, which isn't laid out yet when the first session starts.
+    const double SessionToolbarHeight = 45;
+    static readonly Thickness TerminalMargin = new(14, 10);
     static readonly DataFormat<string> DragFormat = DataFormat.CreateStringApplicationFormat("orrery-node");
     static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(500);
 
@@ -50,10 +53,19 @@ public partial class MainWindow : Window
     readonly TreeView _treeView;
     readonly TextBox _filter;
     readonly TextBlock _treeEmptyState;
-    readonly TabControl _sessions;
-    readonly TextBlock _emptyState;
+    readonly StackPanel _tabStrip;
+    readonly Panel _sessionHost;
+    readonly Control _emptyState;
+    readonly Border _sessionToolbar;
+    readonly StackPanel _sessionActions;
+    readonly TextBlock _sessionAddress, _sessionDetail, _sessionCount;
+    readonly Controls.StrokeIcon _sessionLock;
+    readonly Border _connectionsPanel, _dimmer;
+    readonly Button _connectionsRailButton, _importDropZone;
     readonly Button _lockVault;
     readonly MenuItem _connectMenuItem, _duplicateMenuItem, _deleteMenuItem;
+    readonly List<SessionTab> _tabs = [];
+    SessionTab? _currentTab;
 
     bool _rebuilding;
     Point? _dragStart;
@@ -73,14 +85,30 @@ public partial class MainWindow : Window
         _settingsStore = AppSettingsStore.In(location);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
-        storageText.Text = $"{(location.Mode == StorageMode.Portable ? "Portable" : "Installed")} · {location.DataDir}";
+        storageText.Text = $"Data: {location.DataDir}";
         ToolTip.SetTip(storageText, location.DataDir);
+        this.FindControl<TextBlock>("ModeText")!.Text = location.Mode == StorageMode.Portable ? "Portable" : "Installed";
+        if (OperatingSystem.IsMacOS())
+        {
+            this.FindControl<TextBlock>("QuickConnectShortcut")!.Text = "⌘K";
+        }
 
         _treeView = this.FindControl<TreeView>("Tree")!;
         _filter = this.FindControl<TextBox>("FilterBox")!;
         _treeEmptyState = this.FindControl<TextBlock>("TreeEmptyState")!;
-        _sessions = this.FindControl<TabControl>("Sessions")!;
-        _emptyState = this.FindControl<TextBlock>("EmptyState")!;
+        _tabStrip = this.FindControl<StackPanel>("TabStrip")!;
+        _sessionHost = this.FindControl<Panel>("SessionHost")!;
+        _emptyState = this.FindControl<Control>("EmptyState")!;
+        _sessionToolbar = this.FindControl<Border>("SessionToolbar")!;
+        _sessionActions = this.FindControl<StackPanel>("SessionActions")!;
+        _sessionAddress = this.FindControl<TextBlock>("SessionAddress")!;
+        _sessionDetail = this.FindControl<TextBlock>("SessionDetail")!;
+        _sessionLock = this.FindControl<Controls.StrokeIcon>("SessionLock")!;
+        _sessionCount = this.FindControl<TextBlock>("SessionCountText")!;
+        _connectionsPanel = this.FindControl<Border>("ConnectionsPanel")!;
+        _connectionsRailButton = this.FindControl<Button>("ConnectionsRailButton")!;
+        _importDropZone = this.FindControl<Button>("ImportDropZone")!;
+        _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
         _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
@@ -118,12 +146,15 @@ public partial class MainWindow : Window
         this.FindControl<Border>("PropertiesHost")!.Child = _properties;
 
         WireTree();
+        WireTitleBar();
         RebuildTree();
         UpdateVaultButton();
+        UpdateSessionChrome();
 
         KeyDown += OnWindowKeyDown;
         Opened += async (_, _) =>
         {
+            FitTitleBarToCaptionButtons();
             if (_startupWarning is not null)
             {
                 await Dialogs.ShowMessageAsync(this, "Your connections couldn't be loaded", _startupWarning);
@@ -302,6 +333,70 @@ public partial class MainWindow : Window
         });
     }
 
+    // ---- Window chrome ----
+
+    void WireTitleBar()
+    {
+        // The title bar is drawn by Orrery, so its empty parts move and maximise the window.
+        var titleBar = this.FindControl<Border>("TitleBar")!;
+        titleBar.PointerPressed += (_, e) =>
+        {
+            if (e.Source is Visual source && source.FindAncestorOfType<Button>(includeSelf: true) is null
+                && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            {
+                if (e.ClickCount == 2)
+                {
+                    WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+                }
+                else
+                {
+                    BeginMoveDrag(e);
+                }
+            }
+        };
+
+        _importDropZone.AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        {
+            bool importable = DroppedImportFile(e) is not null;
+            e.DragEffects = importable ? DragDropEffects.Copy : DragDropEffects.None;
+            _importDropZone.Classes.Set("dragover", importable);
+        });
+        _importDropZone.AddHandler(DragDrop.DragLeaveEvent, (_, _) => _importDropZone.Classes.Set("dragover", false));
+        _importDropZone.AddHandler(DragDrop.DropEvent, async (_, e) =>
+        {
+            _importDropZone.Classes.Set("dragover", false);
+            if (DroppedImportFile(e) is { } file)
+            {
+                await ImportAsync(file);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Leaves room for the system's window buttons: on the right on Windows, on the left on macOS. Where the
+    /// window keeps its own title bar (most Linux desktops), none is needed.
+    /// </summary>
+    void FitTitleBarToCaptionButtons()
+    {
+        var captionSpace = this.FindControl<Border>("CaptionSpace")!;
+        var brand = this.FindControl<Control>("Brand")!;
+        if (!IsExtendedIntoWindowDecorations)
+        {
+            captionSpace.Width = 16;
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            captionSpace.Width = 16;
+            brand.Margin = new Thickness(80, 0, 16, 0);
+        }
+    }
+
+    void OnToggleConnectionsClick(object? sender, RoutedEventArgs e)
+    {
+        _connectionsPanel.IsVisible = !_connectionsPanel.IsVisible;
+        _connectionsRailButton.Classes.Set("active", _connectionsPanel.IsVisible);
+    }
+
     ConnectionNode? SelectedNode => (_treeView.SelectedItem as NodeViewModel)?.Node;
 
     static NodeViewModel? RowAt(object? source) =>
@@ -357,6 +452,7 @@ public partial class MainWindow : Window
         }
 
         _treeEmptyState.IsVisible = _tree.Root.Children.Count == 0;
+        UpdateTreeStatus();
         if (SelectedNode != _properties.Node)
         {
             _ = _properties.ShowAsync(SelectedNode);
@@ -490,8 +586,27 @@ public partial class MainWindow : Window
 
     async Task OpenQuickConnectAsync()
     {
-        var choice = await new QuickConnectWindow(_tree).ShowDialog<QuickConnectChoice?>(this);
-        if (choice?.Entry is { } entry)
+        if (_dimmer.IsVisible)
+        {
+            return;
+        }
+
+        QuickConnectChoice? choice;
+        _dimmer.IsVisible = true;
+        try
+        {
+            choice = await new QuickConnectWindow(_tree).ShowDialog<QuickConnectChoice?>(this);
+        }
+        finally
+        {
+            _dimmer.IsVisible = false;
+        }
+
+        if (choice?.NewName is { } name)
+        {
+            AddAndEdit(new ConnectionEntry { Name = name, Host = choice.Host ?? string.Empty });
+        }
+        else if (choice?.Entry is { } entry)
         {
             Select(entry.Id);
             await ConnectAsync(entry);
@@ -518,10 +633,11 @@ public partial class MainWindow : Window
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
+        var origin = new SessionOrigin(entry.Name, protocol, entry.Id, () => ConnectAsync(entry));
         // Telnet has no login of its own: the server asks in the terminal.
         if (protocol == Protocol.Telnet)
         {
-            StartTelnet(entry.Name, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null));
+            StartTelnet(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null));
             return;
         }
 
@@ -547,7 +663,7 @@ public partial class MainWindow : Window
             if (password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipAgent
                 && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
             {
-                StartSshWithAgent(entry.Name, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
+                StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
                     whenRefused: () => ConnectAsync(entry, skipAgent: true));
                 return;
             }
@@ -575,7 +691,7 @@ public partial class MainWindow : Window
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            await StartSessionAsync(protocol, entry.Name, target, password, saved, resolved.ShareClipboard.Value);
+            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -586,15 +702,16 @@ public partial class MainWindow : Window
     async Task ConnectDirectAsync(QuickConnectChoice choice, bool skipAgent = false)
     {
         var host = choice.Host!;
+        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice));
         if (choice.Protocol == Protocol.Telnet)
         {
-            StartTelnet(host, new ConnectionTarget(host, choice.Port, choice.Username, null));
+            StartTelnet(origin, new ConnectionTarget(host, choice.Port, choice.Username, null));
             return;
         }
 
         if (choice.Protocol == Protocol.Ssh && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
         {
-            StartSshWithAgent(host, new ConnectionTarget(host, choice.Port, choice.Username, null),
+            StartSshWithAgent(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
                 whenRefused: () => ConnectDirectAsync(choice, skipAgent: true));
             return;
         }
@@ -608,46 +725,46 @@ public partial class MainWindow : Window
 
         var target = new ConnectionTarget(host, choice.Port, prompt.Username, prompt.Domain);
         var saved = prompt.CredentialId is { } id ? await _credentials.GetAsync(id) : null;
-        await StartSessionAsync(choice.Protocol, host, target, prompt.Password, saved);
+        await StartSessionAsync(origin, target, prompt.Password, saved);
     }
 
-    Task StartSessionAsync(Protocol protocol, string title, ConnectionTarget target, string password, Credential? saved,
+    Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
         bool shareClipboard = true)
     {
-        switch (protocol)
+        switch (origin.Protocol)
         {
             case Protocol.Ssh:
-                return StartSshAsync(title, target, password, saved);
+                return StartSshAsync(origin, target, password, saved);
             case Protocol.Vnc:
-                StartVnc(title, target, password, shareClipboard);
+                StartVnc(origin, target, password, shareClipboard);
                 return Task.CompletedTask;
             default:
-                StartRdp(title, target, password, shareClipboard);
+                StartRdp(origin, target, password, shareClipboard);
                 return Task.CompletedTask;
         }
     }
 
     /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
-    void StartVnc(string title, ConnectionTarget target, string password, bool shareClipboard)
+    void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard)
     {
         var session = VncSession.Start(target, password, shareClipboard);
-        AddTab(new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session, title);
+        AddTab(new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session, origin);
         UpdateVaultButton();
     }
 
-    void StartRdp(string title, ConnectionTarget target, string password, bool shareClipboard)
+    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard)
     {
         bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
         var (width, height) = DesktopSizeForView(zoom);
         var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
-        AddTab(new RemoteFrameView(session, zoom), session, title);
+        AddTab(new RemoteFrameView(session, zoom), session, origin);
         UpdateVaultButton();
     }
 
-    void StartTelnet(string title, ConnectionTarget target)
+    void StartTelnet(SessionOrigin origin, ConnectionTarget target)
     {
         var session = TelnetSession.Start(target, 80, 24);
-        AddTab(new TerminalView(session), session, title);
+        AddTab(new TerminalView(session) { Margin = TerminalMargin }, session, origin);
     }
 
     /// <summary>Whether an SSH agent is running and holds at least one key. Never throws.</summary>
@@ -668,7 +785,7 @@ public partial class MainWindow : Window
     /// Logs in with the agent's keys alone. If the server refuses them all, the tab closes and
     /// <paramref name="whenRefused"/> asks for a login the usual way.
     /// </summary>
-    void StartSshWithAgent(string title, ConnectionTarget target, Func<Task> whenRefused)
+    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused)
     {
         var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24);
         session.StateChanged += (_, e) =>
@@ -682,11 +799,11 @@ public partial class MainWindow : Window
                 });
             }
         };
-        AddTab(new TerminalView(session), session, title);
+        AddTab(new TerminalView(session) { Margin = TerminalMargin }, session, origin);
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
-    async Task StartSshAsync(string title, ConnectionTarget target, string password, Credential? saved)
+    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved)
     {
         if (string.IsNullOrWhiteSpace(target.Username))
         {
@@ -699,47 +816,138 @@ public partial class MainWindow : Window
             : new SshLogin(target.Username, password);
 
         var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24);
-        AddTab(new TerminalView(session), session, title);
+        AddTab(new TerminalView(session) { Margin = TerminalMargin }, session, origin);
         UpdateVaultButton();
     }
 
-    void AddTab(Control view, IConnectionSession session, string title)
+    // ---- Session tabs ----
+
+    void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
-        var header = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
-        ToolTip.SetTip(header, $"{session.Target.Username}{(session.Target.Username is null ? "" : "@")}{session.Target.Host}:{session.Target.Port}");
-        var close = new Button
+        var tab = new SessionTab(session, view, origin);
+        tab.Selected += (_, _) => SelectTab(tab);
+        tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
+        tab.StateChanged += (_, _) =>
         {
-            Content = "✕",
-            FontSize = 11,
-            Padding = new Thickness(6, 2),
-            Background = null,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        ToolTip.SetTip(close, "Disconnect and close");
-
-        var tab = new TabItem
-        {
-            Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { header, close } },
-            Content = view,
-            Tag = session,
+            UpdateTreeStatus();
+            if (tab == _currentTab)
+            {
+                UpdateSessionToolbar();
+            }
         };
 
-        close.Click += async (_, _) => await CloseTabAsync(session);
+        _tabs.Add(tab);
+        _tabStrip.Children.Add(tab.Header);
+        _sessionHost.Children.Add(view);
+        SelectTab(tab);
+        UpdateSessionChrome();
+    }
 
-        _sessions.Items.Add(tab);
-        _sessions.SelectedItem = tab;
-        UpdateEmptyState();
+    void SelectTab(SessionTab? tab)
+    {
+        _currentTab = tab;
+        foreach (var each in _tabs)
+        {
+            each.IsSelected = each == tab;
+        }
+
+        UpdateSessionToolbar();
+        if (tab is not null)
+        {
+            tab.Header.BringIntoView();
+            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+        }
     }
 
     async Task CloseTabAsync(IConnectionSession session)
     {
-        if (_sessions.Items.OfType<TabItem>().FirstOrDefault(t => t.Tag == session) is { } tab)
+        if (_tabs.FirstOrDefault(t => t.Session == session) is { } tab)
         {
-            _sessions.Items.Remove(tab);
-            UpdateEmptyState();
+            int index = _tabs.IndexOf(tab);
+            _tabs.Remove(tab);
+            _tabStrip.Children.Remove(tab.Header);
+            _sessionHost.Children.Remove(tab.View);
+            if (tab == _currentTab)
+            {
+                SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)]);
+            }
+
+            UpdateSessionChrome();
         }
 
         await session.DisposeAsync();
+    }
+
+    /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
+    void UpdateSessionToolbar()
+    {
+        _sessionToolbar.IsVisible = _currentTab is not null;
+        _sessionActions.Children.Clear();
+        if (_currentTab is not { } tab)
+        {
+            return;
+        }
+
+        var session = tab.Session;
+        var state = session.State;
+        _sessionAddress.Text = tab.Address;
+        _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
+        _sessionDetail.Text = $"{ProtocolInfo.Label(tab.Origin.Protocol)} · " + state switch
+        {
+            SessionState.Connecting => "Connecting…",
+            SessionState.Disconnected => "Disconnected",
+            SessionState.Failed => "Couldn't connect",
+            _ when session is IFrameBufferSession frame && frame.Width > 0 => $"{frame.Width}×{frame.Height}",
+            _ => "Connected",
+        };
+
+        if (state == SessionState.Connected && session is IFrameBufferSession desktop)
+        {
+            var ctrlAltDel = new Button { Content = "Ctrl+Alt+Del" };
+            ToolTip.SetTip(ctrlAltDel, "Send Ctrl+Alt+Del to the remote computer");
+            ctrlAltDel.Click += (_, _) =>
+            {
+                SendCtrlAltDel(desktop);
+                tab.View.Focus();
+            };
+            _sessionActions.Children.Add(ctrlAltDel);
+        }
+
+        if (state is SessionState.Connecting or SessionState.Connected)
+        {
+            var disconnect = new Button { Content = "Disconnect" };
+            disconnect.Classes.Add("danger");
+            disconnect.Click += async (_, _) => await session.DisconnectAsync();
+            _sessionActions.Children.Add(disconnect);
+        }
+        else
+        {
+            var reconnect = new Button { Content = "Reconnect" };
+            reconnect.Classes.Add("accent");
+            reconnect.Click += async (_, _) =>
+            {
+                await CloseTabAsync(session);
+                await tab.Origin.Reconnect();
+            };
+            _sessionActions.Children.Add(reconnect);
+        }
+    }
+
+    /// <summary>Presses Ctrl, Alt and Delete together on the remote computer, then lets them go.</summary>
+    static void SendCtrlAltDel(IFrameBufferSession desktop)
+    {
+        if (desktop is IKeysymInput keysyms)
+        {
+            uint[] keys = [0xFFE3, 0xFFE9, 0xFFFF]; // Control_L, Alt_L, Delete
+            foreach (var key in keys) keysyms.SendKeysym(key, true);
+            foreach (var key in keys.Reverse()) keysyms.SendKeysym(key, false);
+        }
+        else
+        {
+            ushort[] keys = [0x1D, 0x38, 0xE053]; // Ctrl, Alt, Delete (extended)
+            foreach (var key in keys) desktop.SendKey(key, true);
+            foreach (var key in keys.Reverse()) desktop.SendKey(key, false);
+        }
     }
 
     /// <summary>
@@ -748,8 +956,9 @@ public partial class MainWindow : Window
     /// </summary>
     (int Width, int Height) DesktopSizeForView(bool zoom)
     {
-        var bounds = _sessions.Bounds;
-        var (fullWidth, fullHeight) = RemoteFrameView.DesktopSize(new Size(bounds.Width, bounds.Height - TabHeaderHeight), RenderScaling, zoom);
+        var bounds = _sessionHost.Bounds;
+        double available = bounds.Height - (_sessionToolbar.IsVisible ? 0 : SessionToolbarHeight);
+        var (fullWidth, fullHeight) = RemoteFrameView.DesktopSize(new Size(bounds.Width, available), RenderScaling, zoom);
         int width = Math.Max(640, fullWidth);
         int height = Math.Max(480, fullHeight);
 
@@ -757,10 +966,39 @@ public partial class MainWindow : Window
         return (width - width % 4, height);
     }
 
-    IEnumerable<IConnectionSession> OpenSessions() =>
-        _sessions.Items.OfType<TabItem>().Select(t => t.Tag).OfType<IConnectionSession>();
+    IEnumerable<IConnectionSession> OpenSessions() => _tabs.Select(t => t.Session);
 
-    void UpdateEmptyState() => _emptyState.IsVisible = _sessions.Items.Count == 0;
+    void UpdateSessionChrome()
+    {
+        _emptyState.IsVisible = _tabs.Count == 0;
+        _sessionCount.Text = _tabs.Count == 1 ? "1 session open" : $"{_tabs.Count} sessions open";
+        UpdateTreeStatus();
+    }
+
+    /// <summary>Lights the dot beside each saved connection that has a session open.</summary>
+    void UpdateTreeStatus()
+    {
+        var states = new Dictionary<Guid, SessionState>();
+        foreach (var tab in _tabs)
+        {
+            // Connected wins when one connection is open in two tabs.
+            if (tab.Origin.EntryId is { } id && tab.Session.State is SessionState.Connected or SessionState.Connecting
+                && states.GetValueOrDefault(id) != SessionState.Connected)
+            {
+                states[id] = tab.Session.State;
+            }
+        }
+
+        var stack = new Stack<NodeViewModel>((_treeView.ItemsSource as IEnumerable<NodeViewModel>) ?? []);
+        while (stack.TryPop(out var row))
+        {
+            row.Status = states.TryGetValue(row.Node.Id, out var state) ? state : null;
+            foreach (var child in row.Children)
+            {
+                stack.Push(child);
+            }
+        }
+    }
 
     // ---- mRemoteNG import ----
 

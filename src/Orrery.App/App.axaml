@@ -7,11 +7,74 @@
     <SolidColorBrush x:Key="OrreryBackground" Color="#0E1014" />
     <SolidColorBrush x:Key="OrreryPanel" Color="#14161B" />
     <SolidColorBrush x:Key="OrreryInput" Color="#1B1E24" />
+    <SolidColorBrush x:Key="OrreryRaised" Color="#181B21" />
     <SolidColorBrush x:Key="OrreryBorder" Color="#23272F" />
+    <SolidColorBrush x:Key="OrreryControlBorder" Color="#2A2F38" />
+    <SolidColorBrush x:Key="OrreryHover" Color="#1F232B" />
+    <SolidColorBrush x:Key="OrrerySelected" Color="#232833" />
     <SolidColorBrush x:Key="OrreryText" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="OrrerySoftText" Color="#C3C9D3" />
     <SolidColorBrush x:Key="OrreryMuted" Color="#9AA3B2" />
     <SolidColorBrush x:Key="OrreryAccent" Color="#5B9DFF" />
     <SolidColorBrush x:Key="OrreryDanger" Color="#FF9AA2" />
+    <SolidColorBrush x:Key="OrreryConnected" Color="#5FD38D" />
+    <SolidColorBrush x:Key="OrreryFolder" Color="#E0B45A" />
+    <FontFamily x:Key="OrreryMono">Cascadia Mono, Consolas, Menlo, monospace</FontFamily>
+
+    <!-- Fluent's control colours, moved onto the palette. -->
+    <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
+    <SolidColorBrush x:Key="ButtonBackground" Color="#181B21" />
+    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#20242C" />
+    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#14161B" />
+    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#14161B" />
+    <SolidColorBrush x:Key="ButtonBorderBrush" Color="#2A2F38" />
+    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#353B46" />
+    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#2A2F38" />
+    <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#1F232B" />
+    <SolidColorBrush x:Key="ButtonForeground" Color="#C3C9D3" />
+    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#5B6372" />
+    <SolidColorBrush x:Key="AccentButtonBackground" Color="#5B9DFF" />
+    <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#76AEFF" />
+    <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#4A8AE8" />
+    <SolidColorBrush x:Key="AccentButtonForeground" Color="#0E1014" />
+    <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#0E1014" />
+    <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#0E1014" />
+    <SolidColorBrush x:Key="TextControlBackground" Color="#1B1E24" />
+    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#1F232A" />
+    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#1B1E24" />
+    <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#16181D" />
+    <SolidColorBrush x:Key="TextControlBorderBrush" Color="#2A2F38" />
+    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#353B46" />
+    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#5B9DFF" />
+    <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#1F232B" />
+    <SolidColorBrush x:Key="TextControlForeground" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#8A93A3" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#8A93A3" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#8A93A3" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#8A93A3" />
+    <SolidColorBrush x:Key="ComboBoxBackground" Color="#1B1E24" />
+    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#1F232A" />
+    <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="#16181D" />
+    <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#2A2F38" />
+    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#353B46" />
+    <SolidColorBrush x:Key="ComboBoxBorderBrushDisabled" Color="#1F232B" />
+    <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#181B21" />
+    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#2F3540" />
+    <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#5B9DFF" />
+    <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#76AEFF" />
+    <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#0E1014" />
+    <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#0E1014" />
+    <SolidColorBrush x:Key="ToggleSwitchFillOnDisabled" Color="#2C4466" />
+    <SolidColorBrush x:Key="ToggleSwitchKnobFillOnDisabled" Color="#8AA6CC" />
+    <SolidColorBrush x:Key="ToggleSwitchStrokeOff" Color="#5B6372" />
+    <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="#9AA3B2" />
+    <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#181B21" />
+    <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#2F3540" />
+    <SolidColorBrush x:Key="ToolTipBackground" Color="#20242C" />
+    <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#2F3540" />
   </Application.Resources>
 
   <Application.Styles>
@@ -31,6 +94,177 @@
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
       <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="{StaticResource OrreryMono}" />
+    </Style>
+
+    <!-- Small bordered buttons, as in the mockup's session toolbar. -->
+    <Style Selector="Button">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.accent">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="#2A1A1D" />
+      <Setter Property="BorderBrush" Value="#4A2A2E" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryDanger}" />
+    </Style>
+    <Style Selector="Button.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3A2025" />
+      <Setter Property="BorderBrush" Value="#5E343A" />
+      <Setter Property="Foreground" Value="#FFB8BE" />
+    </Style>
+
+    <!-- Borderless icon buttons: the rail, the tree header, tab close. -->
+    <Style Selector="Button.icon">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.icon:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="Button.icon.active">
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryAccent}" />
+    </Style>
+    <Style Selector="Button.rail">
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+
+    <!-- The title bar's quick connect box: a button that looks like a search field. -->
+    <Style Selector="Button.search">
+      <Setter Property="Background" Value="{StaticResource OrreryRaised}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.search:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1D2027" />
+      <Setter Property="BorderBrush" Value="#353B46" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+    </Style>
+
+    <Style Selector="Button.dropzone">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.dropzone:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#181B21" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+    </Style>
+    <Style Selector="Button.dropzone.dragover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1A2433" />
+    </Style>
+
+    <!-- Session tabs: open on the session below, with an accent line along the top of the current one. -->
+    <Style Selector="Button.tab">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="8,8,0,0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Button.tab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#191C22" />
+      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+    </Style>
+    <Style Selector="Button.tab.selected">
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Background" Value="{StaticResource OrreryBackground}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
+      <Setter Property="BorderThickness" Value="1,1,1,0" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+      <Setter Property="Margin" Value="0,0,0,-1" />
+    </Style>
+    <Style Selector="Button.tab.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrreryBackground}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="Button.tabclose">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+
+    <!-- Inherit: a small chip that says where a setting comes from. -->
+    <Style Selector="ToggleButton.inherit">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#8A93A3" />
+    </Style>
+    <Style Selector="ToggleButton.inherit:checked /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
+      <Setter Property="Foreground" Value="#B7C0CC" />
+    </Style>
+    <Style Selector="ToggleButton.inherit:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#2A303C" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+
+    <!-- Connection tree rows: rounded, with an accent edge on the selected row. -->
+    <Style Selector="TreeView#Tree TreeViewItem">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot">
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="MinHeight" Value="30" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot:pointerover">
+      <Setter Property="Background" Value="#1A1D23" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="BorderThickness" Value="2,0,0,0" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot:pointerover">
+      <Setter Property="Background" Value="#262C38" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem /template/ ContentPresenter#PART_HeaderPresenter">
+      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem:selected /template/ ContentPresenter#PART_HeaderPresenter">
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem /template/ ContentPresenter#PART_Header">
+      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem:selected /template/ ContentPresenter#PART_Header">
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+
+    <Style Selector="ToolTip">
+      <Setter Property="FontSize" Value="12" />
     </Style>
   </Application.Styles>
 </Application>
