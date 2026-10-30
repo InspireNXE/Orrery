@@ -12,7 +12,11 @@ namespace Orrery.Protocols.Ssh;
 /// How to log in: a password (also answers keyboard-interactive prompts) or a private key, after the SSH
 /// agent's keys when <see cref="UseAgent"/> is set. A null password means don't try one.
 /// </summary>
-public sealed record SshLogin(string Username, string? Password, string? PrivateKey = null, string? Passphrase = null, bool UseAgent = false);
+public sealed record SshLogin(string Username, string? Password, string? PrivateKey = null, string? Passphrase = null, bool UseAgent = false)
+{
+    // The generated one would print the password, key and passphrase.
+    public override string ToString() => $"SshLogin {{ Username = {Username}, UseAgent = {UseAgent} }}";
+}
 
 /// <summary>
 /// An interactive shell over SSH.NET with an xterm-256color pty. The host key is checked during key
@@ -23,11 +27,13 @@ public sealed class SshSession : ITerminalSession
     const string TerminalType = "xterm-256color";
     static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
     static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
+    static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     readonly HostKeyValidator _hostKeys;
     readonly object _lock = new();
     SshClient? _client;
     ShellStream? _shell;
+    ShellPump? _pump;
     int _columns, _rows;
 
     SshSession(ConnectionTarget target, HostKeyValidator hostKeys, int columns, int rows)
@@ -88,12 +94,15 @@ public sealed class SshSession : ITerminalSession
             int columns, rows;
             lock (_lock) (columns, rows) = (_columns, _rows);
             var shell = client.CreateShellStream(TerminalType, (uint)columns, (uint)rows, 0, 0, 64 * 1024);
-            shell.DataReceived += (_, e) => DataReceived?.Invoke(e.Data);
-            shell.Closed += (_, _) => SetState(SessionState.Disconnected);
             shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message);
 
-            lock (_lock) _shell = shell;
+            // Output is read off the stream, not taken from its DataReceived event: the stream keeps everything
+            // until it's read. The reader reports the end once the last output is out, which the stream's
+            // Closed event (raised on another thread) can't promise.
+            var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected), Fail);
+            lock (_lock) (_shell, _pump) = (shell, pump);
             SetState(SessionState.Connected);
+            pump.Start();
         }
         catch (NoLoginMethodException e)
         {
@@ -191,24 +200,17 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
+    /// <summary>Queues the bytes for the background writer and returns at once, so a stalled server can't block the caller.</summary>
     public void Send(ReadOnlySpan<byte> data)
     {
-        ShellStream? shell;
-        lock (_lock) shell = _shell;
-        if (shell is null || State != SessionState.Connected)
+        ShellPump? pump;
+        lock (_lock) pump = _pump;
+        if (pump is null || State != SessionState.Connected)
         {
             return;
         }
 
-        try
-        {
-            shell.Write(data);
-            shell.Flush();
-        }
-        catch (Exception e) when (e is ObjectDisposedException or SshException or IOException)
-        {
-            Fail(e.Message);
-        }
+        pump.Send(data);
     }
 
     public void Resize(int columns, int rows)
@@ -234,16 +236,19 @@ public sealed class SshSession : ITerminalSession
     {
         SshClient? client;
         ShellStream? shell;
+        ShellPump? pump;
         lock (_lock)
         {
-            (client, shell) = (_client, _shell);
-            (_client, _shell) = (null, null);
+            (client, shell, pump) = (_client, _shell, _pump);
+            (_client, _shell, _pump) = (null, null, null);
         }
 
-        return Task.Run(() =>
+        pump?.Stop();
+        return Task.Run(async () =>
         {
             try
             {
+                // Disposing the stream wakes the reader; closing the client frees a writer stuck sending.
                 shell?.Dispose();
                 if (client?.IsConnected == true) client.Disconnect();
             }
@@ -254,12 +259,22 @@ public sealed class SshSession : ITerminalSession
             finally
             {
                 client?.Dispose();
+                await WaitForAsync(pump);
                 SetState(SessionState.Disconnected);
             }
         });
     }
 
     public async ValueTask DisposeAsync() => await DisconnectAsync();
+
+    async Task WaitForAsync(ShellPump? pump)
+    {
+        // Bounded, and never throws, so closing always ends in Disconnected.
+        if (pump is not null && await Task.WhenAny(pump.Completion, Task.Delay(StopTimeout)) != pump.Completion)
+        {
+            Trace.TraceWarning($"SSH session to {Target.Host} left its reader or writer running after closing.");
+        }
+    }
 
     void Fail(string message)
     {

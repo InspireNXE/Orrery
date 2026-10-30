@@ -120,12 +120,13 @@ public sealed class TerminalView : Control
 
     void ShowState(SessionState state, string? message)
     {
+        // Each line resets attributes first, so a host's hidden or odd colours can't hide or disguise it.
         var target = $"{Session.Target.Host}:{Session.Target.Port}";
         var text = state switch
         {
-            SessionState.Connecting => $"\u001b[90mConnecting to {target}…\u001b[0m\r\n",
-            SessionState.Failed => $"\r\n\u001b[31mConnection failed: {message}\u001b[0m\r\n",
-            SessionState.Disconnected => "\r\n\u001b[90m[Disconnected]\u001b[0m\r\n",
+            SessionState.Connecting => $"\u001b[0m\u001b[90mConnecting to {target}…\u001b[0m\r\n",
+            SessionState.Failed => $"\r\n\u001b[0m\u001b[31mConnection failed: {Printable(message)}\u001b[0m\r\n",
+            SessionState.Disconnected => "\r\n\u001b[0m\u001b[90m[Disconnected]\u001b[0m\r\n",
             _ => null,
         };
 
@@ -138,6 +139,34 @@ public sealed class TerminalView : Control
         {
             Dispatcher.UIThread.Post(() => Focus());
         }
+    }
+
+    const int MaxMessageLength = 300;
+
+    /// <summary>
+    /// A failure message as one plain line: it can come from the server (its disconnect reason) or an agent's key
+    /// comment, so control characters that would start escape sequences become '?', and it's kept short.
+    /// </summary>
+    static string Printable(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return "";
+
+        bool cut = message.Length > MaxMessageLength;
+        int length = cut ? MaxMessageLength - 1 : message.Length;
+        if (cut && char.IsHighSurrogate(message[length - 1])) length--; // Don't leave half a surrogate pair behind.
+
+        var text = new StringBuilder(MaxMessageLength);
+        foreach (char c in message.AsSpan(0, length))
+        {
+            text.Append(c switch
+            {
+                '\r' or '\n' or '\t' => ' ',
+                < ' ' or '\u007f' or (>= '\u0080' and <= '\u009f') => '?',
+                _ => c,
+            });
+        }
+
+        return cut ? text.Append('…').ToString() : text.ToString();
     }
 
     void MeasureCell()
