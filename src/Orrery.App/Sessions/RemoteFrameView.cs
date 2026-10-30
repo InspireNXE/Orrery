@@ -49,14 +49,19 @@ public sealed class RemoteFrameView : Panel
     WriteableBitmap? _bitmap;
     TopLevel? _topLevel;
 
-    // Device pixels per DIP. The remote desktop is sized in device pixels and drawn at that DPI, so it
-    // stays sharp on scaled displays; pointer positions are converted the same way.
+    readonly bool _zoom;
+
+    // Remote pixels per DIP. Unzoomed, the remote desktop is sized in device pixels and drawn at that DPI,
+    // so it stays sharp but its text is as small as at 100%. Zoomed, it is sized in DIPs and enlarged to fit,
+    // because IronRDP's .NET API can't tell the server the display scale. Pointer positions use the same factor.
     double _scale = 1;
     double _wheelX, _wheelY;
 
-    public RemoteFrameView(IFrameBufferSession session)
+    /// <param name="zoom">Enlarge the remote desktop to match this display's scaling.</param>
+    public RemoteFrameView(IFrameBufferSession session, bool zoom = false)
     {
         Session = session;
+        _zoom = zoom;
         Focusable = true;
         ClipToBounds = true;
         Background = SurfaceBrush;
@@ -68,7 +73,8 @@ public sealed class RemoteFrameView : Panel
         _resizeTimer.Tick += (_, _) =>
         {
             _resizeTimer.Stop();
-            Session.RequestResize((int)Math.Round(Bounds.Width * _scale), (int)Math.Round(Bounds.Height * _scale));
+            var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
+            Session.RequestResize(width, height);
         };
 
         session.FrameUpdated += OnFrameUpdated;
@@ -247,8 +253,28 @@ public sealed class RemoteFrameView : Panel
     /// <summary>The window moved to a monitor with different scaling.</summary>
     void OnScalingChanged(object? sender, EventArgs e)
     {
-        _scale = _topLevel?.RenderScaling ?? 1;
+        UpdateScale();
         ScheduleResize();
+    }
+
+    void UpdateScale()
+    {
+        double displayScale = _topLevel?.RenderScaling ?? 1;
+        _scale = _zoom ? 1 : displayScale;
+
+        // Whole-number zoom (200%) stays crisp with plain pixel doubling; other factors need smoothing.
+        bool wholeZoom = Math.Abs(displayScale - Math.Round(displayScale)) < 0.01;
+        RenderOptions.SetBitmapInterpolationMode(_image,
+            !_zoom || displayScale <= 1 ? BitmapInterpolationMode.Unspecified
+            : wholeZoom ? BitmapInterpolationMode.None
+            : BitmapInterpolationMode.HighQuality);
+    }
+
+    /// <summary>The desktop size to ask for, in remote pixels, for a session area of <paramref name="size"/> DIPs.</summary>
+    public static (int Width, int Height) DesktopSize(Size size, double displayScale, bool zoom)
+    {
+        double scale = zoom ? 1 : displayScale;
+        return ((int)Math.Round(size.Width * scale), (int)Math.Round(size.Height * scale));
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -258,7 +284,7 @@ public sealed class RemoteFrameView : Panel
         _topLevel = TopLevel.GetTopLevel(this);
         if (_topLevel is not null)
         {
-            _scale = _topLevel.RenderScaling;
+            UpdateScale();
             _topLevel.ScalingChanged += OnScalingChanged;
             if (_topLevel is WindowBase window)
             {

@@ -43,6 +43,16 @@ public class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Remote_desktop_zoom_is_on_unless_turned_off()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.True(store.Load().ZoomRemoteDesktops);
+
+        store.Save(new AppSettings { RemoteDesktopZoom = false });
+        Assert.False(store.Load().ZoomRemoteDesktops);
+    }
+
+    [Fact]
     public void Zero_minutes_means_never_lock()
     {
         Assert.Null(new AppSettings { AutoLockMinutes = 0 }.AutoLockAfter);

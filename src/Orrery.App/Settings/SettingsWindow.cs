@@ -71,6 +71,7 @@ sealed class SettingsWindow : Window
                     new TextBlock { Text = "Settings", FontSize = 18, FontWeight = FontWeight.SemiBold },
                     StorageSection(),
                     CredentialsSection(),
+                    RemoteDesktopSection(),
                     AboutSection(),
                     close,
                 },
@@ -349,6 +350,23 @@ sealed class SettingsWindow : Window
             _ = Dialogs.ShowMessageAsync(this, "Couldn't save settings", e.Message);
             return false;
         }
+    }
+
+    // ---- Remote desktops ----
+
+    Control RemoteDesktopSection()
+    {
+        var zoom = new CheckBox { Content = "Enlarge remote desktops to match this display's scaling", IsChecked = _settings.ZoomRemoteDesktops };
+        zoom.IsCheckedChanged += (_, _) =>
+        {
+            _settings = _settings with { RemoteDesktopZoom = zoom.IsChecked == true };
+            TrySaveSettings();
+        };
+
+        return Section("Remote desktops",
+            zoom,
+            Note("Remote desktops don't learn this display's scaling, so without this their text is as small as at 100%. "
+                + "Enlarged, text is crisp at 200% and slightly soft at 125% or 150%. Applies to new connections."));
     }
 
     // ---- About ----

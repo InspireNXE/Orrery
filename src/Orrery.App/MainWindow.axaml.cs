@@ -570,9 +570,10 @@ public partial class MainWindow : Window
 
     void StartRdp(string title, ConnectionTarget target, string password)
     {
-        var (width, height) = DesktopSizeForView();
+        bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
+        var (width, height) = DesktopSizeForView(zoom);
         var session = RdpSession.Start(target, password, width, height, _certificateValidator);
-        AddTab(new RemoteFrameView(session), session, title);
+        AddTab(new RemoteFrameView(session, zoom), session, title);
         UpdateVaultButton();
     }
 
@@ -628,15 +629,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The starting desktop size, in device pixels, filling the session area. The view corrects it with
+    /// The starting desktop size, in remote pixels, filling the session area. The view corrects it with
     /// a resize once the tab is laid out.
     /// </summary>
-    (int Width, int Height) DesktopSizeForView()
+    (int Width, int Height) DesktopSizeForView(bool zoom)
     {
         var bounds = _sessions.Bounds;
-        double scale = RenderScaling;
-        int width = Math.Max(640, (int)(bounds.Width * scale));
-        int height = Math.Max(480, (int)((bounds.Height - TabHeaderHeight) * scale));
+        var (fullWidth, fullHeight) = RemoteFrameView.DesktopSize(new Size(bounds.Width, bounds.Height - TabHeaderHeight), RenderScaling, zoom);
+        int width = Math.Max(640, fullWidth);
+        int height = Math.Max(480, fullHeight);
 
         // Many RDP servers need the width to be a multiple of 4.
         return (width - width % 4, height);
