@@ -3,6 +3,7 @@
         xmlns:vm="using:Orrery.App.Connections"
         x:Class="Orrery.App.MainWindow"
         Title="Orrery"
+        Icon="/Assets/orrery.ico"
         Width="1440" Height="900" MinWidth="1000" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource OrreryBackground}"

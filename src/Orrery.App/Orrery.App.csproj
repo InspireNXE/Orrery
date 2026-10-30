@@ -5,7 +5,14 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon>Assets\orrery.ico</ApplicationIcon>
+    <Product>Orrery</Product>
+    <Description>Orrery Connection Manager</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\orrery.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Orrery.App.Tests" />
