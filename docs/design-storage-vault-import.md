@@ -74,6 +74,8 @@ The "user profile" option uses a `Portable` subfolder (e.g. `%APPDATA%\Orrery\Po
 | macOS | `~/Library/Application Support/Orrery` | `~/Library/Caches/Orrery` | `~/Library/Logs/Orrery` |
 | Linux | `$XDG_CONFIG_HOME/orrery` (default `~/.config`) | `$XDG_CACHE_HOME/orrery` | `$XDG_STATE_HOME/orrery/logs` |
 
+For development and testing, setting `ORRERY_HOME` to an absolute path puts installed mode's config, cache and logs under `config/`, `cache/` and `logs/` in that folder, so a test run never touches the real profile.
+
 In portable mode, cache and logs live under the data folder (`cache/`, `logs/`) so nothing is left on the host machine.
 
 ### 2.4 Data folder layout

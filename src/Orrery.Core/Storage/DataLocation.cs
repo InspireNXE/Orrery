@@ -24,8 +24,19 @@ public sealed record PlatformFolders(string Config, string Cache, string Logs)
     const string AppName = "Orrery";
     const string LinuxName = "orrery";
 
+    /// <summary>
+    /// Points installed mode at <c>config</c>, <c>cache</c> and <c>logs</c> under one folder instead of the
+    /// user profile. For development and testing, so a test run never touches the real data.
+    /// </summary>
+    public const string HomeOverrideVariable = "ORRERY_HOME";
+
     public static PlatformFolders ForCurrentOs()
     {
+        if (Environment.GetEnvironmentVariable(HomeOverrideVariable) is { Length: > 0 } overrideHome && Path.IsPathRooted(overrideHome))
+        {
+            return new(Path.Combine(overrideHome, "config"), Path.Combine(overrideHome, "cache"), Path.Combine(overrideHome, "logs"));
+        }
+
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         if (OperatingSystem.IsWindows())
