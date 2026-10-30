@@ -174,10 +174,24 @@ public partial class MainWindow : Window
         _credentials = CredentialStores.For(location, _settingsStore.Load());
         if (_credentials is VaultFileStore vault)
         {
-            vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(() =>
+            vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(async () =>
             {
-                UpdateVaultButton();
-                _credentialsView?.ShowLocked();
+                try
+                {
+                    UpdateVaultButton();
+                    _credentialsView?.ShowLocked();
+
+                    // As the manual lock does: keep the inspector's edits, then rebuild it so the credential picker stops listing names.
+                    _properties?.TrySave();
+                    if (_properties is not null)
+                    {
+                        await _properties.ShowAsync(_properties.Node);
+                    }
+                }
+                catch (Exception)
+                {
+                    // The lock has happened; a failure redrawing the inspector mustn't take the app down.
+                }
             });
         }
 

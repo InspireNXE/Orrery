@@ -25,6 +25,12 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     const int SaltSize = 16;
     const int KeySize = 32;
     const int FreeAttempts = 5;
+    const string Damaged = "The vault file is damaged.";
+
+    // Argon2 limits accepted from a file: the defaults for new vaults sit well inside them, and parallelism is the one value written.
+    const int MinMemoryKiB = 8 * 1024;
+    const int MaxMemoryKiB = 1024 * 1024;
+    const int MaxIterations = 100;
 
     static readonly AeadAlgorithm Aead = AeadAlgorithm.XChaCha20Poly1305;
     static readonly JsonSerializerOptions JsonOptions = new()
@@ -128,11 +134,30 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     void Open(string masterPassword)
     {
-        var file = JsonSerializer.Deserialize<VaultFile>(File.ReadAllText(_path), JsonOptions)
-            ?? throw new InvalidDataException("The vault file is empty.");
+        VaultFile? file;
+        try
+        {
+            file = JsonSerializer.Deserialize<VaultFile>(File.ReadAllText(_path), JsonOptions);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidDataException(Damaged);
+        }
 
-        if (file.Format != Format || file.Version != Version || file.Kdf.Alg != KdfName
-            || file.WrappedKey.Alg != CipherName || file.Payload?.Alg != CipherName)
+        if (file is null)
+        {
+            throw new InvalidDataException("The vault file is empty.");
+        }
+
+        if (file.Format != Format || file.Version != Version)
+        {
+            throw new InvalidDataException("This isn't an Orrery vault, or it was made by a newer version.");
+        }
+
+        // Everything in the header is checked before the password is tried, so a damaged or hostile file can't
+        // crash the unlock or start a derivation that never finishes.
+        ValidateHeader(file);
+        if (file.Kdf.Alg != KdfName || file.WrappedKey.Alg != CipherName || file.Payload!.Alg != CipherName)
         {
             throw new InvalidDataException("This isn't an Orrery vault, or it was made by a newer version.");
         }
@@ -357,6 +382,35 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         {
             CryptographicOperations.ZeroMemory(plaintext);
         }
+    }
+
+    static void ValidateHeader(VaultFile file)
+    {
+        bool valid = file.Kdf is { } kdf && file.WrappedKey is { } wrapped && file.Payload is { } payload
+            && kdf.MemoryKiB is >= MinMemoryKiB and <= MaxMemoryKiB
+            && kdf.Iterations is >= 1 and <= MaxIterations
+            && kdf.Parallelism == 1
+            && DecodedLength(kdf.Salt) == SaltSize
+            && DecodedLength(wrapped.Nonce) == Aead.NonceSize
+            && DecodedLength(payload.Nonce) == Aead.NonceSize
+            && DecodedLength(wrapped.Ciphertext) >= Aead.TagSize
+            && DecodedLength(payload.Ciphertext) >= Aead.TagSize;
+        if (!valid)
+        {
+            throw new InvalidDataException(Damaged);
+        }
+    }
+
+    /// <summary>The byte length of a base64 string, or -1 if it is missing or not valid base64.</summary>
+    static int DecodedLength(string? base64)
+    {
+        if (string.IsNullOrEmpty(base64))
+        {
+            return -1;
+        }
+
+        var buffer = new byte[base64.Length];
+        return Convert.TryFromBase64String(base64, buffer, out int written) ? written : -1;
     }
 
     void Touch() => _lastUsed = DateTime.UtcNow;
