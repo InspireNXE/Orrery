@@ -87,6 +87,7 @@ public sealed class RdpSession : IFrameBufferSession
             {
                 // ActiveStage.New consumes the result, so read everything we need from it first.
                 var desktopSize = result.DesktopSize;
+                CheckDesktopSize(desktopSize.Width, desktopSize.Height);
                 ResetImage(desktopSize.Width, desktopSize.Height);
                 _pointerSoftwareRendering = result.PointerSoftwareRendering;
                 _activeStage = ActiveStage.New(result);
@@ -239,6 +240,7 @@ public sealed class RdpSession : IFrameBufferSession
         var finalized = activation.State.Finalized;
         lock (_stageLock)
         {
+            CheckDesktopSize(finalized.DesktopSize.Width, finalized.DesktopSize.Height);
             ResetImage(finalized.DesktopSize.Width, finalized.DesktopSize.Height);
             _activeStage!.Reactivate(
                 activation.IoChannelId,
@@ -255,16 +257,39 @@ public sealed class RdpSession : IFrameBufferSession
         FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
     }
 
-    // Caller holds _stageLock.
+    /// <summary>
+    /// The server picks the desktop size. One we won't buffer ends the session with a plain message: the
+    /// exception reaches <see cref="RunAsync"/>, which fails the session with it.
+    /// </summary>
+    static void CheckDesktopSize(ushort width, ushort height)
+    {
+        if (!DesktopLimits.IsSupported(width, height))
+        {
+            throw new NotSupportedException(DesktopLimits.RefusalMessage(width, height));
+        }
+    }
+
+    // Caller holds _stageLock. Width and Height change only once both buffers exist, so a failed
+    // allocation leaves the previous frame whole.
     void ResetImage(ushort width, ushort height)
     {
+        var frame = new byte[checked((long)width * height * BytesPerPixel)];
+        var image = DecodedImage.New(RdpPixelFormat.RgbA32, width, height);
+        try
+        {
+            image.FillData(frame);
+        }
+        catch
+        {
+            image.Dispose();
+            throw;
+        }
+
         var previous = _image;
-        _image = DecodedImage.New(RdpPixelFormat.RgbA32, width, height);
+        (_image, _frame) = (image, frame);
         previous?.Dispose();
         Width = width;
         Height = height;
-        _frame = new byte[width * height * BytesPerPixel];
-        _image.FillData(_frame);
     }
 
     public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride)
@@ -278,8 +303,9 @@ public sealed class RdpSession : IFrameBufferSession
 
             for (int row = y; row < bottom; row++)
             {
+                // The frame is at most DesktopLimits.MaxSide squared, so its offsets fit in an int.
                 Marshal.Copy(_frame, row * stride + x * BytesPerPixel,
-                    destination + row * destinationStride + x * BytesPerPixel, rowBytes);
+                    destination + (nint)row * destinationStride + (nint)x * BytesPerPixel, rowBytes);
             }
         }
     }
@@ -364,8 +390,8 @@ public sealed class RdpSession : IFrameBufferSession
         }
 
         // MS-RDPEDISP: 200 to 8192 pixels, and the width must be even.
-        width = Math.Clamp(width, 200, 8192) & ~1;
-        height = Math.Clamp(height, 200, 8192);
+        width = Math.Clamp(width, 200, DesktopLimits.MaxSide) & ~1;
+        height = Math.Clamp(height, 200, DesktopLimits.MaxSide);
         if (width == Width && height == Height)
         {
             return;

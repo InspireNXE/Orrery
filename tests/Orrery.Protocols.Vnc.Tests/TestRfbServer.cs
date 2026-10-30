@@ -10,6 +10,7 @@ namespace Orrery.Protocols.Vnc.Tests;
 /// <summary>
 /// A minimal RFB 3.8 server for tests (RFC 6143): no-auth or VNC Authentication, one client, Raw updates of
 /// a fixed picture in whatever pixel format the client asks for. It records the input it receives.
+/// The desktop it announces can be larger than the picture, which then sits in its top-left corner.
 /// </summary>
 sealed class TestRfbServer : IAsyncDisposable
 {
@@ -17,6 +18,7 @@ sealed class TestRfbServer : IAsyncDisposable
 
     readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     readonly string? _password;
+    readonly ushort _desktopWidth, _desktopHeight;
     readonly CancellationTokenSource _cts = new();
     readonly Task _serve;
 
@@ -24,9 +26,10 @@ sealed class TestRfbServer : IAsyncDisposable
     int _bpp = 32, _redShift = 16, _greenShift = 8, _blueShift = 0, _redMax = 255, _greenMax = 255, _blueMax = 255;
     bool _bigEndian;
 
-    public TestRfbServer(string? password)
+    public TestRfbServer(string? password, ushort desktopWidth = Width, ushort desktopHeight = Height)
     {
         _password = password;
+        (_desktopWidth, _desktopHeight) = (desktopWidth, desktopHeight);
         _listener.Start();
         _serve = Task.Run(ServeAsync);
     }
@@ -102,8 +105,8 @@ sealed class TestRfbServer : IAsyncDisposable
 
             var name = "Orrery test"u8.ToArray();
             var init = new List<byte>();
-            init.AddRange(BigEndian((ushort)Width));
-            init.AddRange(BigEndian((ushort)Height));
+            init.AddRange(BigEndian(_desktopWidth));
+            init.AddRange(BigEndian(_desktopHeight));
             init.AddRange([32, 24, 0, 1]);
             init.AddRange(BigEndian((ushort)255)); init.AddRange(BigEndian((ushort)255)); init.AddRange(BigEndian((ushort)255));
             init.AddRange([16, 8, 0, 0, 0, 0]);
@@ -171,16 +174,17 @@ sealed class TestRfbServer : IAsyncDisposable
     byte[] RawUpdate()
     {
         int bytesPerPixel = _bpp / 8;
+        int width = Math.Min(Width, (int)_desktopWidth), height = Math.Min(Height, (int)_desktopHeight);
         var message = new List<byte> { 0, 0 };
         message.AddRange(BigEndian((ushort)1));
         message.AddRange(BigEndian((ushort)0)); message.AddRange(BigEndian((ushort)0));
-        message.AddRange(BigEndian((ushort)Width)); message.AddRange(BigEndian((ushort)Height));
+        message.AddRange(BigEndian((ushort)width)); message.AddRange(BigEndian((ushort)height));
         message.AddRange(BigEndian(0u)); // Raw
 
         var pixel = new byte[4];
-        for (int y = 0; y < Height; y++)
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < Width; x++)
+            for (int x = 0; x < width; x++)
             {
                 var (r, g, b) = PixelAt(x, y);
                 uint value = (uint)(r * _redMax / 255) << _redShift | (uint)(g * _greenMax / 255) << _greenShift | (uint)(b * _blueMax / 255) << _blueShift;
