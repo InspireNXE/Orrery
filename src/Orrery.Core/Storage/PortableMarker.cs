@@ -33,6 +33,7 @@ public sealed record PortableMarker(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    [JsonIgnore]
     public PortableDataChoice? Choice => DataLocation switch
     {
         "app" => PortableDataChoice.WithApp,
