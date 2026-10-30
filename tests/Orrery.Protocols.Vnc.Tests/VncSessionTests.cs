@@ -92,6 +92,60 @@ public class VncSessionTests
         Assert.Contains("auth rejected", server.Log);
     }
 
+    static void AssertNeverSent(TestRfbServer server, string text) =>
+        Assert.True(server.Received.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(text)) < 0, $"the client sent \"{text}\"");
+
+    [Fact]
+    public async Task Picks_vnc_authentication_over_a_type_that_sends_the_password_as_text()
+    {
+        // 24 is IntegratedSSH, which the library ranks above VNC Authentication and which sends the login in clear text.
+        await using var server = new TestRfbServer(password: "dummypw1", securityTypes: [2, 24]);
+        await using var session = await ConnectAsync(server, "dummypw1");
+
+        Assert.Equal(SessionState.Connected, session.State);
+        var handshake = server.Handshake;
+        Assert.Equal(12 + 1 + 16, handshake.Length); // Its version, its choice, then only the DES response.
+        Assert.Equal(2, handshake[12]);
+        AssertNeverSent(server, "dummypw1");
+    }
+
+    [Theory]
+    [InlineData(24, false)] // IntegratedSSH
+    [InlineData(19, false)] // VeNCrypt
+    [InlineData(20, false)] // SASL
+    [InlineData(16, false)] // Tight
+    [InlineData(24, true)]  // RFB 3.3, where the server names the type instead of offering it.
+    public async Task Refuses_a_server_that_only_offers_another_login_method(int securityType, bool rfb33)
+    {
+        await using var server = new TestRfbServer(password: null, securityTypes: [(byte)securityType], rfb33: rfb33);
+        var settled = new TaskCompletionSource<SessionStateChangedEventArgs>();
+        await using var session = VncSession.Start(new ConnectionTarget("127.0.0.1", server.Port, "dummyuser", null), "dummypw1-long");
+        session.StateChanged += (_, e) =>
+        {
+            if (e.State is SessionState.Failed or SessionState.Connected) settled.TrySetResult(e);
+        };
+        if (session.State is SessionState.Failed or SessionState.Connected) settled.TrySetResult(new(session.State, "settled early"));
+
+        var outcome = await settled.Task.WaitAsync(Wait);
+
+        Assert.Equal(SessionState.Failed, outcome.State);
+        Assert.False(string.IsNullOrWhiteSpace(outcome.Message));
+        Assert.Equal(12, server.Received.Length); // The client's version, and nothing after it.
+        AssertNeverSent(server, "dummypw1");
+        AssertNeverSent(server, "dummyuser");
+    }
+
+    [Fact]
+    public async Task A_server_without_authentication_still_connects_and_gets_no_password()
+    {
+        await using var server = new TestRfbServer(password: null, securityTypes: [1]);
+        await using var session = await ConnectAsync(server, "dummypw1");
+
+        Assert.Equal(SessionState.Connected, session.State);
+        Assert.Equal(12 + 1, server.Handshake.Length);
+        AssertNeverSent(server, "dummypw1");
+    }
+
     [Theory]
     [InlineData(32768, 32768)] // 32768 x 32768 x 4 bytes wraps to 0 in 32-bit arithmetic.
     [InlineData(8193, 10)]
