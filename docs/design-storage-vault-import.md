@@ -307,12 +307,12 @@ The report never contains secrets.
 - **Security:** parse XML with DTD processing prohibited and no XML resolver (blocks XXE and entity-expansion attacks). Cap the file size, and fuzz the parser with malformed input.
 
 ### 4.10 Licensing note
-mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. **Do not copy its code**, including the crypto and serializer classes. Write the importer from the format as observed in fixtures and documented behaviour, so Orrery can keep whatever license we choose.
+mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. **Do not copy its code**, including the crypto and serializer classes. Write the importer from the format as observed in fixtures and documented behaviour, so Orrery can stay MIT-licensed.
 
 ---
 
 ## 5. Open questions
-1. **License for Orrery:** MIT/Apache to match IronRDP, or GPL? This affects contributors and the clean-room rule in §4.10.
+1. ~~**License for Orrery:**~~ Decided: MIT (see `LICENSE`). The clean-room rule in §4.10 still applies.
 2. **Vault in installed mode:** OS keychain by default (seamless) or vault file by default (one encrypted file to back up)? This draft proposes the keychain.
 3. **Portable on macOS:** worth supporting beyond "it works"? Gatekeeper and App Translocation make running from removable media awkward.
 4. **Shared data folder:** if someone points two machines at one synced custom folder, the lock file covers simultaneous use but not sync conflicts. Is a warning enough for v1?
