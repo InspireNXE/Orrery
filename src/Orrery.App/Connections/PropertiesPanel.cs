@@ -28,7 +28,7 @@ sealed class PropertiesPanel : UserControl
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect;
-    readonly StackPanel _editor;
+    readonly ScrollViewer _editorView;
     readonly TextBlock _empty = new()
     {
         Text = "Select a connection or folder to see its settings.",
@@ -40,6 +40,7 @@ sealed class PropertiesPanel : UserControl
     ConnectionNode? _node;
     bool _loading;
     bool _dirty;
+    int _showVersion;
 
     public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials)
     {
@@ -73,7 +74,7 @@ sealed class PropertiesPanel : UserControl
             }
         };
 
-        _editor = new StackPanel
+        var editor = new StackPanel
         {
             Spacing = 12,
             Margin = new Thickness(20),
@@ -92,6 +93,7 @@ sealed class PropertiesPanel : UserControl
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, revert, _connect } },
             },
         };
+        _editorView = new ScrollViewer { Content = editor };
 
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes })
         {
@@ -120,6 +122,7 @@ sealed class PropertiesPanel : UserControl
         }
 
         _node = node;
+        int version = ++_showVersion;
         _error.IsVisible = false;
         if (node is null)
         {
@@ -153,6 +156,11 @@ sealed class PropertiesPanel : UserControl
                 var id when id == InheritableSettings.NoCredential => null,
                 var id => id,
             });
+            if (version != _showVersion)
+            {
+                // Another node was selected while the credential list loaded; that call owns the panel.
+                return;
+            }
 
             _usernameRow.Load(own.Username is null, Describe(inherited.Username));
             _username.Text = own.Username ?? inherited.Username.Value;
@@ -160,12 +168,15 @@ sealed class PropertiesPanel : UserControl
             _domainRow.Load(own.Domain is null, Describe(inherited.Domain));
             _domain.Text = own.Domain ?? inherited.Domain.Value;
 
-            Content = new ScrollViewer { Content = _editor };
+            Content = _editorView;
         }
         finally
         {
-            _loading = false;
-            _dirty = false;
+            if (version == _showVersion)
+            {
+                _loading = false;
+                _dirty = false;
+            }
         }
     }
 
