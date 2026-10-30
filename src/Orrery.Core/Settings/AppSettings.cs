@@ -31,6 +31,15 @@ public sealed record AppSettings
     /// <summary>Minutes of vault inactivity before it locks; 0 means never. Null is <see cref="DefaultAutoLockMinutes"/>.</summary>
     public int? AutoLockMinutes { get; init; }
 
+    /// <summary>
+    /// Enlarge remote desktops to match this display's scaling (null is on). Off shows them pixel for pixel,
+    /// sharp but with 100% sized text, since the server isn't told the display scale.
+    /// </summary>
+    public bool? RemoteDesktopZoom { get; init; }
+
+    [JsonIgnore]
+    public bool ZoomRemoteDesktops => RemoteDesktopZoom ?? true;
+
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;
