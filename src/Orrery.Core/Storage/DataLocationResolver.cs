@@ -78,7 +78,7 @@ public static class DataLocationResolver
     {
         try
         {
-            Directory.CreateDirectory(directory);
+            PrivateStorage.CreateDirectory(directory);
             var probe = Path.Combine(directory, $".orrery-probe-{Guid.NewGuid():N}");
             File.WriteAllText(probe, string.Empty);
             File.Delete(probe);
