@@ -1,9 +1,9 @@
 # Packet 12: Give the vault a new data key when the master password changes
 
 Rating: Decision. Findings: S-9. Depends on: 11 (both edit `VaultFileStore.cs`).
-Runner: `packet-opus-high` (Opus, high effort), once answered. Vault key handling; a mistake loses every saved credential.
+Runner: `packet-opus-high` (Opus, high effort). Vault key handling; a mistake loses every saved credential.
 
-**Answer:** not given yet.
+**Answer (2026-10-30):** A, a new data key on every master password change, with design doc §3.3 updated to match.
 
 ## Question
 Changing the master password today re-wraps the same data key (design doc §3.3 says so on purpose). An old copy of
@@ -37,7 +37,7 @@ password and decrypted the current payload, including that secret. The realistic
 password leaked, changes it, then rotates server passwords, while an old copy sits in a synced folder's version history or
 a backup.
 
-## Changes (option A, once approved)
+## Changes (option A, approved)
 1. In `ChangePasswordAsync`, after verifying the old password, generate a fresh data key (as vault creation does; find
    that code and reuse it), wrap the new key under the new password, and inside the lock swap `_dataKey` for the new key
    before `Save`. On failure, restore both `_file` and the old `_dataKey` exactly as the current rollback restores `_file`,

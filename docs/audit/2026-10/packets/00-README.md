@@ -17,7 +17,7 @@ Nothing here has run yet.
 | 09 | [Contain session crashes](09-contain-session-crashes.md) | Mechanical | S-15, S-16, backstop | 01 | sonnet-medium | Ready after 01 |
 | 10 | [Import limits and errors](10-import-limits-and-errors.md) | Guided | S-17, S-18, S-19, S-33 | 04 (file) | opus-medium | Ready after 04 |
 | 11 | [Vault header and auto-lock](11-vault-header-and-auto-lock.md) | Mechanical | S-31, S-32 | 10 (file) | sonnet-medium | Ready after 10 |
-| 12 | [New data key on password change](12-new-data-key-on-password-change.md) | Decision | S-9 | 11 | opus-high | Waiting on owner |
+| 12 | [New data key on password change](12-new-data-key-on-password-change.md) | Decision | S-9 | 11 | opus-high | Ready after 11 |
 | 13 | [SSH agent hardening](13-ssh-agent-hardening.md) | Guided | S-25, S-26, S-27, S-28 | 06 | opus-high | Ready after 06 |
 | 14 | [SSH legacy algorithms](14-ssh-legacy-algorithms.md) | Mechanical | S-23 | 13 (file) | sonnet-medium | Ready after 13 |
 | 15 | [RDP connect hardening](15-rdp-connect-hardening.md) | Mechanical | S-29, notes | 09 (file) | sonnet-medium | Ready after 09 |
@@ -43,17 +43,16 @@ Runners are the agents in `.claude/agents/packet-*.md`, chosen by how much judge
 ## Owner decisions
 
 Open:
-1. **Packet 12, master password change.** A: new data key on every change and update design doc §3.3 (recommended).
-   B: keep the design and reword the UI.
-2. **Scope of lower-integrity processes.** Should a low-integrity process of the same user (a browser sandbox) count as
+1. **Scope of lower-integrity processes.** Should a low-integrity process of the same user (a browser sandbox) count as
    crossing a boundary? It sets S-28's severity (Low or High). Packet 13 is worth running either way.
-3. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
+2. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
    plus a repo `nuget.config` with source mapping? Not packeted yet.
 
 Decided:
 - 2026-10-30: profile confirmed as written, including its accepted risks.
 - 2026-10-30: packet 02, option A. Only None and classic VNC auth.
 - 2026-10-30: packet 05, option A. Protected ACLs on folders Orrery creates, plus a warning for open folders.
+- 2026-10-30: packet 12, option A. New data key on every master password change.
 
 ## Orchestrator
 
