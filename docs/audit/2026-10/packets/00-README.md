@@ -7,7 +7,7 @@ Nothing here has run yet.
 | # | Packet | Rating | Findings | Depends on | Runner | State |
 |---|---|---|---|---|---|---|
 | 01 | [Cap remote desktop sizes](01-cap-remote-desktop-sizes.md) | Mechanical | S-1, S-6, S-7 (part) | — | opus-high | Ready |
-| 02 | [Restrict VNC security types](02-restrict-vnc-security-types.md) | Decision | S-2 | 01 (file) | opus-high | Waiting on owner |
+| 02 | [Restrict VNC security types](02-restrict-vnc-security-types.md) | Decision | S-2 | 01 (file) | opus-high | Ready after 01 |
 | 03 | [Move data touches only Orrery's files](03-move-data-only-orrery-files.md) | Guided | S-3 | — | opus-high | Ready |
 | 04 | [Unix file modes and safe temp files](04-unix-file-modes-and-temp-files.md) | Mechanical | S-8, S-4 (part) | 03 (file) | sonnet-medium | Ready |
 | 05 | [Windows data folder access](05-windows-data-folder-access.md) | Decision | S-4 | 04 | opus-high | Waiting on owner |
@@ -43,19 +43,18 @@ Runners are the agents in `.claude/agents/packet-*.md`, chosen by how much judge
 ## Owner decisions
 
 Open:
-1. **Packet 02, VNC security types.** A: allow only None and classic VNC auth (recommended). B: keep TLS-based types
-   and validate them.
-2. **Packet 05, Windows folder access.** A: protected ACL on folders Orrery creates plus a warning for folders the user
+1. **Packet 05, Windows folder access.** A: protected ACL on folders Orrery creates plus a warning for folders the user
    picks (recommended). B: ACLs only. C: warning only.
-3. **Packet 12, master password change.** A: new data key on every change and update design doc §3.3 (recommended).
+2. **Packet 12, master password change.** A: new data key on every change and update design doc §3.3 (recommended).
    B: keep the design and reword the UI.
-4. **Scope of lower-integrity processes.** Should a low-integrity process of the same user (a browser sandbox) count as
+3. **Scope of lower-integrity processes.** Should a low-integrity process of the same user (a browser sandbox) count as
    crossing a boundary? It sets S-28's severity (Low or High). Packet 13 is worth running either way.
-5. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
+4. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
    plus a repo `nuget.config` with source mapping? Not packeted yet.
 
 Decided:
 - 2026-10-30: profile confirmed as written, including its accepted risks.
+- 2026-10-30: packet 02, option A. Only None and classic VNC auth.
 
 ## Orchestrator
 

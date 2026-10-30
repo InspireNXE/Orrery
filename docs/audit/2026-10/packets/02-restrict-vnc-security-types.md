@@ -1,9 +1,10 @@
 # Packet 02: Stop the VNC client sending the saved password in clear text
 
 Rating: Decision. Findings: S-2. Depends on: 01 (both edit `VncSession.cs`).
-Runner: `packet-opus-high` (Opus, high effort), once answered. A wrong type list sends real credentials in the clear.
+Runner: `packet-opus-high` (Opus, high effort). A wrong type list sends real credentials in the clear.
 
-**Answer:** not given yet.
+**Answer (2026-10-30):** A, only None and classic VNC authentication. Servers that require VeNCrypt, TLS or RA2 stop
+connecting until a later change wires those types to the certificate prompt.
 
 ## Question
 The VNC library (`Community.MarcusW.VncClient` 2.0.8, a one-person fork) registers 13 security types and lets the
@@ -38,7 +39,7 @@ anything but CRAM-MD5), Tight login and the TLS types with a self-signed certifi
 credential is often a vault credential reused elsewhere (`src/Orrery.App/MainWindow.axaml.cs:891-904, 938, 993-995`).
 Classic VNC auth (DES, 8 characters) is an accepted risk; this is far worse.
 
-## Changes (option A, once approved)
+## Changes (option A, approved)
 1. Pass a security-types builder through the `DefaultImplementation` constructor overload that takes one (check its
    signature in the 2.0.8 package; the verifier found a three-argument constructor). Return only
    `NoneSecurityType` and `VncAuthenticationSecurityType`.
