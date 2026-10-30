@@ -128,6 +128,16 @@ public class DataLocationResolverTests : IDisposable
         Assert.Empty(Directory.GetFiles(dir));
     }
 
+    [Fact]
+    public void Saved_marker_holds_only_the_choice_fields()
+    {
+        Assert.True(PortableMarker.For(PortableDataChoice.Custom, "../moved").TrySave(_appDir));
+
+        var json = File.ReadAllText(Path.Combine(_appDir, PortableMarker.FileName));
+        Assert.DoesNotContain("Choice", json);
+        Assert.Equal(PortableDataChoice.Custom, PortableMarker.TryLoad(_appDir)!.Choice);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
