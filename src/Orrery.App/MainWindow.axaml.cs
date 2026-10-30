@@ -532,7 +532,7 @@ public partial class MainWindow : Window
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            await StartSessionAsync(protocol, entry.Name, target, password, saved);
+            await StartSessionAsync(protocol, entry.Name, target, password, saved, resolved.ShareClipboard.Value);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -555,7 +555,8 @@ public partial class MainWindow : Window
         await StartSessionAsync(choice.Protocol, host, target, prompt.Password, saved);
     }
 
-    Task StartSessionAsync(Protocol protocol, string title, ConnectionTarget target, string password, Credential? saved)
+    Task StartSessionAsync(Protocol protocol, string title, ConnectionTarget target, string password, Credential? saved,
+        bool shareClipboard = true)
     {
         switch (protocol)
         {
@@ -565,7 +566,7 @@ public partial class MainWindow : Window
                 StartVnc(title, target, password);
                 return Task.CompletedTask;
             default:
-                StartRdp(title, target, password);
+                StartRdp(title, target, password, shareClipboard);
                 return Task.CompletedTask;
         }
     }
@@ -578,11 +579,11 @@ public partial class MainWindow : Window
         UpdateVaultButton();
     }
 
-    void StartRdp(string title, ConnectionTarget target, string password)
+    void StartRdp(string title, ConnectionTarget target, string password, bool shareClipboard)
     {
         bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
         var (width, height) = DesktopSizeForView(zoom);
-        var session = RdpSession.Start(target, password, width, height, _certificateValidator);
+        var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
         AddTab(new RemoteFrameView(session, zoom), session, title);
         UpdateVaultButton();
     }

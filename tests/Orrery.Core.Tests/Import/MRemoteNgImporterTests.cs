@@ -150,6 +150,26 @@ public class MRemoteNgImporterTests
     }
 
     [Fact]
+    public void Clipboard_sharing_is_imported_where_it_differs_from_the_default()
+    {
+        var result = Import(File(new[]
+        {
+            Node("Locked down", "Container", new XAttribute("RedirectClipboard", "false"),
+                Node("inherits", "Connection", Conn("RDP", "3389"), new XAttribute("InheritRedirectClipboard", "true")),
+                Node("own", "Connection", Conn("RDP", "3389"), new XAttribute("RedirectClipboard", "true"))),
+            Node("plain", "Connection", Conn("RDP", "3389"), new XAttribute("RedirectClipboard", "true")),
+        }));
+
+        var folder = Assert.Single(result.Root.Children.OfType<ConnectionFolder>());
+        Assert.False(folder.Settings.ShareClipboard);
+        Assert.Null(Entry(result, "inherits").Settings.ShareClipboard);
+        Assert.False(SettingsResolver.Resolve(Entry(result, "inherits")).ShareClipboard.Value);
+        Assert.True(Entry(result, "own").Settings.ShareClipboard);
+        Assert.Null(Entry(result, "plain").Settings.ShareClipboard); // Same as the default: nothing stored.
+        Assert.True(SettingsResolver.Resolve(Entry(result, "plain")).ShareClipboard.Value);
+    }
+
+    [Fact]
     public void Passwords_become_saved_credentials_with_duplicates_merged()
     {
         var result = Import(File(InheritingTree()));

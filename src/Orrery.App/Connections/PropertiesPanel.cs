@@ -25,7 +25,8 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow;
+    readonly CheckBox _clipboard = new() { Content = "Share the clipboard (RDP)" };
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect;
     readonly ScrollViewer _editorView;
@@ -57,6 +58,7 @@ sealed class PropertiesPanel : UserControl
         _credentialRow = new InheritRow("Saved credential", _credential, () => ShowInherited(r => _ = _credential.RefreshAsync(r.CredentialId.Value)));
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
+        _clipboardRow = new InheritRow("Clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value));
 
         _hostField = Dialogs.Field("Host", _host);
 
@@ -88,6 +90,7 @@ sealed class PropertiesPanel : UserControl
                 _credentialRow.View,
                 _usernameRow.View,
                 _domainRow.View,
+                _clipboardRow.View,
                 Dialogs.Field("Notes", _notes),
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, revert, _connect } },
@@ -102,7 +105,8 @@ sealed class PropertiesPanel : UserControl
 
         _protocol.SelectionChanged += (_, _) => MarkDirty();
         _credential.ChoiceChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow })
+        _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -168,6 +172,9 @@ sealed class PropertiesPanel : UserControl
             _domainRow.Load(own.Domain is null, Describe(inherited.Domain));
             _domain.Text = own.Domain ?? inherited.Domain.Value;
 
+            _clipboardRow.Load(own.ShareClipboard is null, Describe(inherited.ShareClipboard));
+            _clipboard.IsChecked = own.ShareClipboard ?? inherited.ShareClipboard.Value;
+
             Content = _editorView;
         }
         finally
@@ -224,6 +231,7 @@ sealed class PropertiesPanel : UserControl
             CredentialId = _credentialRow.Inherit.IsChecked == true ? null : _credential.SelectedId ?? InheritableSettings.NoCredential,
             Username = _usernameRow.Inherit.IsChecked == true ? null : _username.Text?.Trim() ?? string.Empty,
             Domain = _domainRow.Inherit.IsChecked == true ? null : _domain.Text?.Trim() ?? string.Empty,
+            ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
         };
         _node.Name = name;
         _node.Notes = string.IsNullOrWhiteSpace(_notes.Text) ? null : _notes.Text.Trim();

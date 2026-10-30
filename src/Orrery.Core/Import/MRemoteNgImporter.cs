@@ -289,6 +289,11 @@ public static class MRemoteNgImporter
                     SetText(folder, node.Effective("Domain"), s => s.Domain, (s, v) => s.Domain = v);
                 }
 
+                if (node.Children.Any(c => c.Inherits("RedirectClipboard")))
+                {
+                    SetClipboard(folder, node);
+                }
+
                 foreach (var child in node.Children)
                 {
                     Add(child, folder);
@@ -329,6 +334,7 @@ public static class MRemoteNgImporter
             SetPort(entry, node);
             SetText(entry, node.Effective("Username"), s => s.Username, (s, v) => s.Username = v);
             SetText(entry, node.Effective("Domain"), s => s.Domain, (s, v) => s.Domain = v);
+            SetClipboard(entry, node);
             AddCredential(entry, node);
             NoteUnsupported(node, mapped);
         }
@@ -428,6 +434,21 @@ public static class MRemoteNgImporter
             if (SettingsResolver.Resolve(node).Port.Value != port)
             {
                 node.Settings.Port = port;
+            }
+        }
+
+        /// <summary>mRemoteNG's RedirectClipboard, stored only where it differs from what's inherited.</summary>
+        static void SetClipboard(ConnectionNode node, MNode source)
+        {
+            if (!bool.TryParse(source.Effective("RedirectClipboard"), out var share))
+            {
+                return;
+            }
+
+            node.Settings.ShareClipboard = null;
+            if (SettingsResolver.Resolve(node).ShareClipboard.Value != share)
+            {
+                node.Settings.ShareClipboard = share;
             }
         }
 
