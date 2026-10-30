@@ -2,29 +2,29 @@
 
 Work packets for the security pass. Each one closes findings from `../findings-security.md` and can be run by a session
 that has read nothing else. Line numbers come from `58e9c72` (the findings commit, `deffa86`, changed only docs).
-Nothing here has run yet.
+All but packet 18 ran on 2026-10-30; results are in `../round.md`.
 
 | # | Packet | Rating | Findings | Depends on | Runner | State |
 |---|---|---|---|---|---|---|
-| 01 | [Cap remote desktop sizes](01-cap-remote-desktop-sizes.md) | Mechanical | S-1, S-6, S-7 (part) | — | opus-high | Ready |
-| 02 | [Restrict VNC security types](02-restrict-vnc-security-types.md) | Decision | S-2 | 01 (file) | opus-high | Ready after 01 |
-| 03 | [Move data touches only Orrery's files](03-move-data-only-orrery-files.md) | Guided | S-3 | — | opus-high | Ready |
-| 04 | [Unix file modes and safe temp files](04-unix-file-modes-and-temp-files.md) | Mechanical | S-8, S-4 (part) | 03 (file) | sonnet-medium | Ready |
-| 05 | [Windows data folder access](05-windows-data-folder-access.md) | Decision | S-4 | 04 | opus-high | Ready after 04 |
-| 06 | [SSH stream, writes and failure text](06-ssh-stream-and-writes.md) | Guided | S-5, S-24, S-22 | — | opus-medium | Ready |
-| 07 | [Terminal emulator limits](07-terminal-emulator-limits.md) | Mechanical | S-10, S-11, S-12, S-13, S-20, S-21 | — | sonnet-medium | Ready |
-| 08 | [Telnet limits and faults](08-telnet-limits-and-faults.md) | Mechanical | S-14, S-10 (part) | — | sonnet-low | Ready |
-| 09 | [Contain session crashes](09-contain-session-crashes.md) | Mechanical | S-15, S-16, backstop | 01 | sonnet-medium | Ready after 01 |
-| 10 | [Import limits and errors](10-import-limits-and-errors.md) | Guided | S-17, S-18, S-19, S-33 | 04 (file) | opus-medium | Ready after 04 |
-| 11 | [Vault header and auto-lock](11-vault-header-and-auto-lock.md) | Mechanical | S-31, S-32 | 10 (file) | sonnet-medium | Ready after 10 |
-| 12 | [New data key on password change](12-new-data-key-on-password-change.md) | Decision | S-9 | 11 | opus-high | Ready after 11 |
-| 13 | [SSH agent hardening](13-ssh-agent-hardening.md) | Guided | S-25, S-26, S-27, S-28 | 06 | opus-high | Ready after 06 |
-| 14 | [SSH legacy algorithms](14-ssh-legacy-algorithms.md) | Mechanical | S-23 | 13 (file) | sonnet-medium | Ready after 13 |
-| 15 | [RDP connect hardening](15-rdp-connect-hardening.md) | Mechanical | S-29, notes | 09 (file) | sonnet-medium | Ready after 09 |
-| 16 | [Focus on connect](16-focus-on-connect.md) | Mechanical | S-30 | 06, 15 (file) | sonnet-low | Ready after 06 and 15 |
-| 17 | [BouncyCastle pin](17-bouncycastle-pin.md) | Mechanical | S-34 | — | sonnet-low | Ready |
+| 01 | [Cap remote desktop sizes](01-cap-remote-desktop-sizes.md) | Mechanical | S-1, S-6, S-7 (part) | — | opus-high | Done (f521420) |
+| 02 | [Restrict VNC security types](02-restrict-vnc-security-types.md) | Decision | S-2 | 01 (file) | opus-high | Done (a6d36a2) |
+| 03 | [Move data touches only Orrery's files](03-move-data-only-orrery-files.md) | Guided | S-3 | — | opus-high | Done (85e5762) |
+| 04 | [Unix file modes and safe temp files](04-unix-file-modes-and-temp-files.md) | Mechanical | S-8, S-4 (part) | 03 (file) | sonnet-medium | Done (e5fb86c) |
+| 05 | [Windows data folder access](05-windows-data-folder-access.md) | Decision | S-4 | 04 | opus-high | Done (ced2fb5) |
+| 06 | [SSH stream, writes and failure text](06-ssh-stream-and-writes.md) | Guided | S-5, S-24, S-22 | — | opus-medium | Done (22b8fff) |
+| 07 | [Terminal emulator limits](07-terminal-emulator-limits.md) | Mechanical | S-10, S-11, S-12, S-13, S-20, S-21 | — | sonnet-medium | Done (dae4adb) |
+| 08 | [Telnet limits and faults](08-telnet-limits-and-faults.md) | Mechanical | S-14, S-10 (part) | — | sonnet-low | Done (98428ab) |
+| 09 | [Contain session crashes](09-contain-session-crashes.md) | Mechanical | S-15, S-16, backstop | 01 | sonnet-medium | Done (3556946) |
+| 10 | [Import limits and errors](10-import-limits-and-errors.md) | Guided | S-17, S-18, S-19, S-33 | 04 (file) | opus-medium | Done (a6a7711) |
+| 11 | [Vault header and auto-lock](11-vault-header-and-auto-lock.md) | Mechanical | S-31, S-32 | 10 (file) | sonnet-medium | Done (fbcf720) |
+| 12 | [New data key on password change](12-new-data-key-on-password-change.md) | Decision | S-9 | 11 | opus-high | Done (1f0d711) |
+| 13 | [SSH agent hardening](13-ssh-agent-hardening.md) | Guided | S-25, S-26, S-27, S-28 | 06 | opus-high | Done (6067c61) |
+| 14 | [SSH legacy algorithms](14-ssh-legacy-algorithms.md) | Mechanical | S-23 | 13 (file) | sonnet-medium | Done (73eef43) |
+| 15 | [RDP connect hardening](15-rdp-connect-hardening.md) | Mechanical | S-29, notes | 09 (file) | sonnet-medium | Done (9a146ff) |
+| 16 | [Focus on connect](16-focus-on-connect.md) | Mechanical | S-30 | 06, 15 (file) | sonnet-low | Done (b6adf83) |
+| 17 | [BouncyCastle pin](17-bouncycastle-pin.md) | Mechanical | S-34 | — | sonnet-low | Done (a63bbe5) |
 | 18 | [IronRDP upgrade](18-ironrdp-upgrade.md) | Mechanical | S-7 | 01 | sonnet-low | Blocked: no package with the fixes yet |
-| 19 | [NuGet lock files](19-nuget-lock-files.md) | Mechanical | owner request | 17 | sonnet-medium | Ready after 17 |
+| 19 | [NuGet lock files](19-nuget-lock-files.md) | Mechanical | owner request | 17 | sonnet-medium | Done (106b0b3) |
 
 "(file)" means the packets don't need each other's results but edit the same files, so they run one after the other.
 
