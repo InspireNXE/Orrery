@@ -35,6 +35,8 @@ public class KeysymMapTests
     [Theory]
     [InlineData("vnc://box", "box", 5900, Protocol.Vnc)]
     [InlineData("vnc://box:5901", "box", 5901, Protocol.Vnc)]
+    [InlineData("telnet://switch", "switch", 23, Protocol.Telnet)]
+    [InlineData("telnet://switch:2323", "switch", 2323, Protocol.Telnet)]
     public void Quick_connect_reads_vnc_addresses(string text, string host, int port, Protocol protocol)
     {
         var choice = QuickConnectChoice.Parse(text)!;

@@ -24,6 +24,7 @@ using Orrery.Core.Storage;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
 using Orrery.Protocols.Ssh.Agent;
+using Orrery.Protocols.Telnet;
 using Orrery.Protocols.Vnc;
 
 namespace Orrery.App;
@@ -517,10 +518,10 @@ public partial class MainWindow : Window
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
-        if (protocol is not (Protocol.Rdp or Protocol.Ssh or Protocol.Vnc))
+        // Telnet has no login of its own: the server asks in the terminal.
+        if (protocol == Protocol.Telnet)
         {
-            await Dialogs.ShowMessageAsync(this, $"{ProtocolInfo.Label(protocol)} isn't supported yet",
-                "Orrery can open RDP, SSH and VNC connections for now. Telnet is on the way.");
+            StartTelnet(entry.Name, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null));
             return;
         }
 
@@ -585,6 +586,12 @@ public partial class MainWindow : Window
     async Task ConnectDirectAsync(QuickConnectChoice choice, bool skipAgent = false)
     {
         var host = choice.Host!;
+        if (choice.Protocol == Protocol.Telnet)
+        {
+            StartTelnet(host, new ConnectionTarget(host, choice.Port, choice.Username, null));
+            return;
+        }
+
         if (choice.Protocol == Protocol.Ssh && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
         {
             StartSshWithAgent(host, new ConnectionTarget(host, choice.Port, choice.Username, null),
@@ -635,6 +642,12 @@ public partial class MainWindow : Window
         var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
         AddTab(new RemoteFrameView(session, zoom), session, title);
         UpdateVaultButton();
+    }
+
+    void StartTelnet(string title, ConnectionTarget target)
+    {
+        var session = TelnetSession.Start(target, 80, 24);
+        AddTab(new TerminalView(session), session, title);
     }
 
     /// <summary>Whether an SSH agent is running and holds at least one key. Never throws.</summary>

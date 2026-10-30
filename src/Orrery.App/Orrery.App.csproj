@@ -18,5 +18,6 @@
     <ProjectReference Include="..\Orrery.Protocols.Rdp\Orrery.Protocols.Rdp.csproj" />
     <ProjectReference Include="..\Orrery.Protocols.Ssh\Orrery.Protocols.Ssh.csproj" />
     <ProjectReference Include="..\Orrery.Protocols.Vnc\Orrery.Protocols.Vnc.csproj" />
+    <ProjectReference Include="..\Orrery.Protocols.Telnet\Orrery.Protocols.Telnet.csproj" />
   </ItemGroup>
 </Project>
