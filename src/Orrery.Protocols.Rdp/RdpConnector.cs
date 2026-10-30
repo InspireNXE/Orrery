@@ -19,13 +19,18 @@ public sealed class CertificateRejectedException(string host)
 static class RdpConnector
 {
     public static async Task<(ConnectionResult Result, Framed<SslStream> Framed)> ConnectAsync(
-        Config config, ConnectionTarget target, ServerCertificateValidator validator, CancellationToken token)
+        Config config, ConnectionTarget target, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
+        CancellationToken token)
     {
         var tcp = await OpenTcpAsync(target.Host, target.Port, token);
         var framed = new Framed<NetworkStream>(tcp.GetStream());
 
         var connector = ClientConnector.New(config, tcp.Client.LocalEndPoint!.ToString()!);
         connector.WithDynamicChannelDisplayControl();
+        if (clipboard is not null)
+        {
+            connector.AttachStaticCliprdr(clipboard.BuildCliprdr());
+        }
         if (config.DvcPipeProxy is { } dvcPipeProxy)
         {
             connector.WithDynamicChannelPipeProxy(dvcPipeProxy);
