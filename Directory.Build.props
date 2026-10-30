@@ -12,6 +12,16 @@
     <Copyright>Copyright (c) 2026 InspireNXE</Copyright>
   </PropertyGroup>
 
+  <!-- Each project records the exact packages it restored in packages.lock.json. Release builds (CI, or
+       -p:OrreryLockedRestore=true, as the packaging scripts pass) refuse a restore that differs from it. -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- The platforms build/package.ps1 publishes, so the lock files also record each one's runtime packs. Set for every
+         project, not only Orrery.App: `dotnet publish -r <rid>` restores the referenced libraries for that rid too. -->
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-arm64;osx-x64</RuntimeIdentifiers>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true' or '$(OrreryLockedRestore)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+
   <PropertyGroup>
     <AvaloniaVersion>11.3.22</AvaloniaVersion>
     <IronRdpVersion>2026.10.29</IronRdpVersion>

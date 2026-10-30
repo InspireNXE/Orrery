@@ -37,7 +37,7 @@ foreach ($rid in $Runtimes) {
 
     Write-Host "== $rid" -ForegroundColor Cyan
     $publish = Join-Path $artifacts "publish/$rid"
-    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false
+    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true
     if ($LASTEXITCODE -ne 0) { throw "Publishing $rid failed." }
     & (Join-Path $PSScriptRoot 'Generate-ThirdPartyNotices.ps1') -PublishDir $publish
 

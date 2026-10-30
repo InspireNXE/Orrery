@@ -70,7 +70,7 @@ else {
     Invoke-Native "dotnet" -Description "dotnet publish" -Arguments @(
         "publish", (Join-Path $repoRoot "src\Orrery.App\Orrery.App.csproj"),
         "-c", $Configuration, "-r", $Runtime, "--self-contained", "true",
-        "-p:DebugType=none", "-p:DebugSymbols=false", "-o", $PublishDir)
+        "-p:DebugType=none", "-p:DebugSymbols=false", "-p:OrreryLockedRestore=true", "-o", $PublishDir)
     $PublishDir = (Resolve-Path $PublishDir).Path
 }
 
