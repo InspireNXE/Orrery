@@ -138,6 +138,26 @@ public class DataLocationResolverTests : IDisposable
         Assert.Equal(PortableDataChoice.Custom, PortableMarker.TryLoad(_appDir)!.Choice);
     }
 
+    [Fact]
+    public void Orrery_home_redirects_the_platform_folders()
+    {
+        var previous = Environment.GetEnvironmentVariable(PlatformFolders.HomeOverrideVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(PlatformFolders.HomeOverrideVariable, _root);
+            var folders = PlatformFolders.ForCurrentOs();
+            Assert.Equal(Path.Combine(_root, "config"), folders.Config);
+            Assert.Equal(Path.Combine(_root, "logs"), folders.Logs);
+
+            Environment.SetEnvironmentVariable(PlatformFolders.HomeOverrideVariable, "relative/path");
+            Assert.NotEqual(Path.Combine("relative/path", "config"), PlatformFolders.ForCurrentOs().Config);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(PlatformFolders.HomeOverrideVariable, previous);
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
