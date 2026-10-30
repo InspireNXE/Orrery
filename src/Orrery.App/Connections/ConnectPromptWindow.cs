@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Orrery.App.Credentials;
 using Orrery.Core.Credentials;
 
@@ -75,6 +76,31 @@ sealed class ConnectPromptWindow : Window
             await _picker.RefreshAsync(select: null);
             (string.IsNullOrEmpty(_username.Text) ? _username : _password).Focus();
         };
+
+        // If the vault locks itself while this is open, stop showing what came out of it. The choice stays;
+        // Connect asks for the master password again.
+        if (store is VaultFileStore vault)
+        {
+            EventHandler onAutoLocked = (_, _) => Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    var chosen = _picker.SelectedId;
+                    if (chosen is not null)
+                    {
+                        _username.Text = _domain.Text = null;
+                    }
+
+                    await _picker.RefreshAsync(chosen);
+                }
+                catch (Exception)
+                {
+                    // The lock has happened; a failure redrawing the list mustn't take the app down.
+                }
+            });
+            vault.AutoLocked += onAutoLocked;
+            Closed += (_, _) => vault.AutoLocked -= onAutoLocked;
+        }
     }
 
     void ApplyChoice()

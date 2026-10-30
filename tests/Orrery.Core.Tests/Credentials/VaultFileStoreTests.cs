@@ -111,6 +111,92 @@ public class VaultFileStoreTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => reopened.UnlockAsync(Password));
     }
 
+    [Theory]
+    [InlineData("truncated")]
+    [InlineData("not json")]
+    [InlineData("wrong type")]
+    [InlineData("kdf missing")]
+    [InlineData("kdf null")]
+    [InlineData("wrappedKey missing")]
+    [InlineData("payload missing")]
+    [InlineData("salt not base64")]
+    [InlineData("salt wrong length")]
+    [InlineData("salt missing")]
+    [InlineData("key nonce wrong length")]
+    [InlineData("key nonce not base64")]
+    [InlineData("payload nonce wrong length")]
+    [InlineData("key ciphertext not base64")]
+    [InlineData("key ciphertext too short")]
+    [InlineData("payload ciphertext not base64")]
+    [InlineData("iterations 0")]
+    [InlineData("iterations 1000000")]
+    [InlineData("iterations max")]
+    [InlineData("parallelism 2")]
+    [InlineData("parallelism 0")]
+    [InlineData("memory 7")]
+    [InlineData("memory max")]
+    public async Task A_damaged_header_is_rejected_as_damaged_without_a_long_derivation(string damage)
+    {
+        using (var store = NewStore())
+        {
+            await store.UnlockAsync(Password);
+            await store.SaveAsync(Sample());
+        }
+
+        var text = await File.ReadAllTextAsync(VaultPath);
+        if (damage == "truncated")
+        {
+            text = text[..(text.Length / 2)];
+        }
+        else if (damage == "not json")
+        {
+            text = "this is not json";
+        }
+        else
+        {
+            var json = JsonNode.Parse(text)!;
+            switch (damage)
+            {
+                case "wrong type": json["version"] = "one"; break;
+                case "kdf missing": json.AsObject().Remove("kdf"); break;
+                case "kdf null": json["kdf"] = null; break;
+                case "wrappedKey missing": json.AsObject().Remove("wrappedKey"); break;
+                case "payload missing": json.AsObject().Remove("payload"); break;
+                case "salt not base64": json["kdf"]!["salt"] = "!!! not base64 !!!"; break;
+                case "salt wrong length": json["kdf"]!["salt"] = Convert.ToBase64String(new byte[8]); break;
+                case "salt missing": json["kdf"]!.AsObject().Remove("salt"); break;
+                case "key nonce wrong length": json["wrappedKey"]!["nonce"] = Convert.ToBase64String(new byte[8]); break;
+                case "key nonce not base64": json["wrappedKey"]!["nonce"] = "!!!"; break;
+                case "payload nonce wrong length": json["payload"]!["nonce"] = Convert.ToBase64String(new byte[8]); break;
+                case "key ciphertext not base64": json["wrappedKey"]!["ct"] = "!!!"; break;
+                case "key ciphertext too short": json["wrappedKey"]!["ct"] = Convert.ToBase64String(new byte[4]); break;
+                case "payload ciphertext not base64": json["payload"]!["ct"] = "!!!"; break;
+                case "iterations 0": json["kdf"]!["iterations"] = 0; break;
+                case "iterations 1000000": json["kdf"]!["iterations"] = 1_000_000; break;
+                case "iterations max": json["kdf"]!["iterations"] = int.MaxValue; break;
+                case "parallelism 2": json["kdf"]!["parallelism"] = 2; break;
+                case "parallelism 0": json["kdf"]!["parallelism"] = 0; break;
+                case "memory 7": json["kdf"]!["memoryKiB"] = 7; break;
+                case "memory max": json["kdf"]!["memoryKiB"] = int.MaxValue; break;
+                default: throw new ArgumentException(damage);
+            }
+
+            text = json.ToJsonString();
+        }
+
+        await File.WriteAllTextAsync(VaultPath, text);
+
+        using var reopened = NewStore();
+        var unlock = reopened.UnlockAsync(Password);
+        if (await Task.WhenAny(unlock, Task.Delay(TimeSpan.FromSeconds(5))) != unlock)
+        {
+            Assert.Fail("Unlocking a damaged vault started a long key derivation instead of rejecting the header.");
+        }
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => unlock);
+        Assert.True(reopened.IsLocked);
+    }
+
     [Fact]
     public async Task Delete_removes_the_credential()
     {
