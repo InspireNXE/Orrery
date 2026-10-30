@@ -164,6 +164,12 @@ public sealed class RdpSession : IFrameBufferSession
                 // Only this clipboard operation failed; the session goes on.
                 Trace.TraceWarning($"RDP clipboard operation failed: {e.Message}");
             }
+            catch (Exception e)
+            {
+                // A write to a dropped connection, say. The read loop reports the disconnect.
+                Trace.TraceWarning($"RDP clipboard loop ended: {e.Message}");
+                return;
+            }
         }
     }
 
@@ -466,14 +472,25 @@ public sealed class RdpSession : IFrameBufferSession
         }
 
         _cts.Cancel();
-        if (_readLoop is not null)
+        // Each loop has already reported its own outcome, so a fault here is only traced.
+        await AwaitLoopAsync(_readLoop);
+        await AwaitLoopAsync(_clipboardLoop);
+    }
+
+    static async Task AwaitLoopAsync(Task? loop)
+    {
+        if (loop is null)
         {
-            await _readLoop;
+            return;
         }
 
-        if (_clipboardLoop is not null)
+        try
         {
-            await _clipboardLoop;
+            await loop;
+        }
+        catch (Exception e)
+        {
+            Trace.TraceWarning($"RDP session loop had failed: {e.Message}");
         }
     }
 
