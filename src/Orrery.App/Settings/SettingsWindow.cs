@@ -215,6 +215,19 @@ sealed class SettingsWindow : Window
 
         _autoLock.SelectedItem = _autoLock.Items.OfType<ComboBoxItem>().First(i => (int)i.Tag! == minutes);
         _autoLock.SelectionChanged += (_, _) => SaveAutoLock();
+        if (_credentials is VaultFileStore { Exists: true } vault)
+        {
+            var change = new Button { Content = "Change master password…" };
+            change.Click += async (_, _) =>
+            {
+                if (await new ChangeMasterPasswordWindow(vault).ShowDialog<bool>(this))
+                {
+                    await Dialogs.ShowMessageAsync(this, "Master password changed", "Use the new password the next time you unlock the vault.");
+                }
+            };
+            section.Children.Add(change);
+        }
+
         section.Children.Add(Row("Lock the vault when unused for", _autoLock));
         section.Children.Add(_autoLockNote);
         UpdateAutoLockNote(current);
