@@ -107,7 +107,7 @@ public interface IDataLocation
 Resolved once in `Program.Main` and registered as a singleton. No other code computes paths.
 
 ### 2.6 Write safety
-- **Atomic writes:** write `file.tmp`, flush to disk, then rename over the original. Never write in place.
+- **Atomic writes:** write a temp file next to the original (`file.<random>.tmp`, created fresh, never an existing file or link), flush to disk, then rename over the original. Never write in place. On Linux and macOS the data folder and its subfolders are created 0700 and every file 0600 (backups included), and an existing data folder open to group or others is set to 0700 at start-up; files already in it are left alone and fix their mode the next time they're saved.
 - **Backups:** before each save of `connections.json` or `vault.frv`, copy the previous version into `backups/`. Keep the last 10 plus one per day for 7 days.
 - **Single instance per data folder:** hold an exclusive lock on `.lock`. A second instance pointed at the same folder brings the first one to the front instead of opening.
 - **Schema versioning:** every JSON file carries `"schemaVersion"`. Migrations run on load, after a backup.

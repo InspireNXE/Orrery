@@ -279,6 +279,37 @@ public class DataMoverTests : IDisposable
         Assert.Equal([Path.Combine("backups", "notes.txt")], left);
     }
 
+    [Fact]
+    public void An_interrupted_atomic_write_is_deleted_with_the_old_copy_and_never_copied()
+    {
+        // The temp names AtomicFile uses (name + random + ".tmp"), and the plain name.tmp older versions used.
+        string[] temps = ["vault.frv.0123456789ABCDEF.tmp", "connections.json.FEDCBA9876543210.tmp", "vault.frv.tmp"];
+        foreach (var temp in temps)
+        {
+            File.WriteAllText(Path.Combine(_source, temp), "half");
+        }
+
+        File.WriteAllText(Path.Combine(_source, "backups", "connections-2.json.0123456789ABCDEF.tmp"), "half");
+        File.WriteAllText(Path.Combine(_source, "notes.txt.0123456789ABCDEF.tmp"), "mine");
+        File.WriteAllText(Path.Combine(_source, "vault.frvX.0123456789ABCDEF.tmp"), "mine");
+        var target = Path.Combine(_root, "moved");
+
+        Assert.Equal(3, DataMover.Copy(_source, target));
+        Assert.Equal(["backups", "connections.json", "pending-cleanup.json", "vault.frv"], Directory.GetFileSystemEntries(target).Select(Path.GetFileName).Order());
+
+        var left = DataMover.DeleteOldCopy(_source);
+
+        foreach (var temp in temps)
+        {
+            Assert.False(File.Exists(Path.Combine(_source, temp)), temp);
+        }
+
+        Assert.False(File.Exists(Path.Combine(_source, "backups", "connections-2.json.0123456789ABCDEF.tmp")));
+        Assert.True(File.Exists(Path.Combine(_source, "notes.txt.0123456789ABCDEF.tmp")));
+        Assert.True(File.Exists(Path.Combine(_source, "vault.frvX.0123456789ABCDEF.tmp")));
+        Assert.Equal(2, left.Count);
+    }
+
     /// <summary>A junction on Windows (no admin rights needed), a symlink elsewhere.</summary>
     void Link(string link, string target)
     {

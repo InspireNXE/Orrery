@@ -55,7 +55,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
     void Backup()
     {
-        Directory.CreateDirectory(backupDirectory);
+        PrivateStorage.CreateDirectory(backupDirectory);
 
         // Names sort by time, so the oldest come first.
         var backups = Directory.GetFiles(backupDirectory, "connections-*.json").Order(StringComparer.Ordinal).ToList();
@@ -67,6 +67,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         var name = $"connections-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.json";
         var backup = Path.Combine(backupDirectory, name);
         File.Copy(path, backup, overwrite: true);
+        PrivateStorage.RestrictFile(backup);
         File.SetLastWriteTimeUtc(backup, DateTime.UtcNow);
         backups.Add(backup);
 

@@ -13,11 +13,18 @@ public sealed class DataFolderLock : IDisposable
     /// <returns>Null if another Orrery instance already holds the folder.</returns>
     public static DataFolderLock? TryAcquire(string dataDir)
     {
-        Directory.CreateDirectory(dataDir);
+        PrivateStorage.CreateDirectory(dataDir);
+        PrivateStorage.RestrictDirectory(dataDir);
         try
         {
-            var stream = new FileStream(Path.Combine(dataDir, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+            var stream = new FileStream(Path.Combine(dataDir, ".lock"), PrivateStorage.Private(new FileStreamOptions
+            {
+                Mode = FileMode.OpenOrCreate,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.None,
+                BufferSize = 1,
+                Options = FileOptions.DeleteOnClose,
+            }));
             return new DataFolderLock(stream);
         }
         catch (IOException)

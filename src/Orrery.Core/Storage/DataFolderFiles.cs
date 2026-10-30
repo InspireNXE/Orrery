@@ -34,7 +34,7 @@ public static class DataFolderFiles
 
     /// <summary>
     /// Orrery's, but about the folder they sit in: deleted with an old copy, never copied. Interrupted
-    /// <see cref="AtomicFile"/> writes (<c>name.tmp</c>) count too.
+    /// <see cref="AtomicFile"/> writes (<c>name.&lt;random&gt;.tmp</c>, or <c>name.tmp</c> from earlier versions) count too.
     /// </summary>
     public static readonly IReadOnlyList<string> DeleteOnly = [PendingCleanup.FileName];
 
@@ -58,7 +58,7 @@ public static class DataFolderFiles
         Matches(pattern, name) || IsTempOf(name, n => Matches(pattern, n));
 
     static bool IsTempOf(string name, Func<string, bool> owned) =>
-        name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) && owned(name[..^".tmp".Length]);
+        AtomicFile.TargetOfTemp(name) is { } target && owned(target);
 
     static bool MatchesAny(IEnumerable<string> patterns, string name) => patterns.Any(p => Matches(p, name));
 
