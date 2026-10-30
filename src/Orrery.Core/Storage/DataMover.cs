@@ -3,27 +3,40 @@ using System.Security.Cryptography;
 namespace Orrery.Core.Storage;
 
 /// <summary>
-/// Copies the data folder somewhere else for Settings › Move data (design doc §2.7). Each file is checked
-/// with SHA-256 before anything points at the copy, and the old folder is only removed on request.
+/// Copies the data folder somewhere else for Settings › Move data (design doc §2.7). Only Orrery's own files
+/// (<see cref="DataFolderFiles"/>) move, links are never followed, and each file is checked with SHA-256
+/// before anything points at the copy. The old folder is only removed on request.
 /// </summary>
 public static class DataMover
 {
-    /// <summary>Files in the top folder that belong to the running copy of Orrery, not to the data.</summary>
-    static readonly string[] Skipped = [".lock", InstalledLocationPointer.FileName];
+    public const string NestedMessage = "Choose a folder that isn't inside the current data folder and doesn't contain it.";
+
+    /// <summary>More links than this in one path is a loop, or near enough.</summary>
+    const int MaxLinkDepth = 32;
 
     /// <summary>Why <paramref name="target"/> can't receive the data, or null if it can.</summary>
     public static string? CheckTarget(string source, string target)
     {
-        var from = Normalize(source);
-        var to = Normalize(target);
-        if (SamePath(from, to))
+        var from = Resolve(source);
+        var to = Resolve(target);
+        if (IsRoot(from))
+        {
+            return "Orrery's data is at the top of a drive, so Move data can't keep it apart from everything else there. Move the files by hand instead.";
+        }
+
+        if (IsRoot(to))
+        {
+            return "Choose a folder, not the top of a drive.";
+        }
+
+        if (IsSame(from, to))
         {
             return "That's the folder Orrery already uses.";
         }
 
         if (IsInside(to, from) || IsInside(from, to))
         {
-            return "Choose a folder that isn't inside the current data folder and doesn't contain it.";
+            return NestedMessage;
         }
 
         if (Directory.Exists(to) && Directory.EnumerateFileSystemEntries(to).Any())
@@ -34,7 +47,10 @@ public static class DataMover
         return DataLocationResolver.IsWritable(to) ? null : "Orrery can't write to that folder.";
     }
 
-    /// <summary>Copies and verifies. On any failure the partial copy is removed and the exception rethrown.</summary>
+    /// <summary>
+    /// Copies and verifies Orrery's files, then records <paramref name="source"/> in the copy so the restart
+    /// can offer to delete it. On any failure the partial copy is removed and the exception rethrown.
+    /// </summary>
     /// <returns>The number of files copied.</returns>
     public static int Copy(string source, string target)
     {
@@ -46,7 +62,7 @@ public static class DataMover
         int count = 0;
         try
         {
-            foreach (var file in DataFiles(source))
+            foreach (var file in Sort(source, copying: true).Owned)
             {
                 var relative = Path.GetRelativePath(source, file);
                 var destination = Path.Combine(target, relative);
@@ -59,6 +75,8 @@ public static class DataMover
 
                 count++;
             }
+
+            PendingCleanup.Record(target, source);
         }
         catch
         {
@@ -70,21 +88,30 @@ public static class DataMover
     }
 
     /// <summary>
-    /// Deletes the data files from the old folder, then any folders left empty. Anything that isn't
-    /// Orrery's (the installed-mode pointer, files the user added) stays.
+    /// Deletes Orrery's files (<see cref="DataFolderFiles"/>) from the old folder, then its own folders and the
+    /// old folder itself if they're left empty. Everything else stays: the installed-mode pointer, files and
+    /// folders the user added, a nested <c>Portable</c> folder, and any link, which is never followed.
     /// </summary>
-    public static void DeleteOldCopy(string oldDataDir)
+    /// <returns>What was left in place that isn't Orrery's, relative to <paramref name="oldDataDir"/>.</returns>
+    public static IReadOnlyList<string> DeleteOldCopy(string oldDataDir)
     {
-        foreach (var file in DataFiles(oldDataDir).ToList())
+        if (IsRoot(Resolve(oldDataDir)))
+        {
+            throw new IOException("Orrery won't delete files from the top of a drive.");
+        }
+
+        var (owned, others) = Sort(oldDataDir, copying: false);
+        foreach (var file in owned)
         {
             File.Delete(file);
         }
 
-        foreach (var dir in Directory.EnumerateDirectories(oldDataDir, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length).ToList())
+        foreach (var (name, _) in DataFolderFiles.Folders)
         {
-            if (!Directory.EnumerateFileSystemEntries(dir).Any())
+            var dir = new DirectoryInfo(Path.Combine(oldDataDir, name));
+            if (dir.Exists && !IsLink(dir) && !dir.EnumerateFileSystemInfos().Any())
             {
-                Directory.Delete(dir);
+                dir.Delete();
             }
         }
 
@@ -92,16 +119,106 @@ public static class DataMover
         {
             Directory.Delete(oldDataDir);
         }
+
+        return others;
+    }
+
+    /// <summary>Why the old copy mustn't be deleted now that Orrery uses <paramref name="currentDataDir"/>, or null if it can be.</summary>
+    public static string? CheckOldCopy(string oldDataDir, string currentDataDir)
+    {
+        if (!Directory.Exists(oldDataDir))
+        {
+            return "The old folder isn't there any more.";
+        }
+
+        var old = Resolve(oldDataDir);
+        var current = Resolve(currentDataDir);
+        if (IsRoot(old))
+        {
+            return "The old folder is the top of a drive, so Orrery won't delete anything there.";
+        }
+
+        return IsSame(old, current) || IsInside(old, current) || IsInside(current, old)
+            ? "The old folder is, contains, or is inside the folder Orrery uses now."
+            : null;
     }
 
     public static bool SamePath(string a, string b) => string.Equals(Normalize(a), Normalize(b), PathComparison);
 
-    static IEnumerable<string> DataFiles(string dir)
+    /// <summary>
+    /// Splits the top level of <paramref name="dir"/> into Orrery's files (full paths) and everything else
+    /// (relative paths), looking one level into Orrery's own folders and never through a link. When copying,
+    /// a link where one of Orrery's files belongs stops the move rather than leaving that file behind.
+    /// </summary>
+    static (List<string> Owned, List<string> Others) Sort(string dir, bool copying)
     {
-        var top = Normalize(dir);
-        return Directory.EnumerateFiles(top, "*", SearchOption.AllDirectories)
-            .Where(f => !(Path.GetDirectoryName(f) == top && Skipped.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)));
+        var owned = new List<string>();
+        var others = new List<string>();
+        foreach (var entry in new DirectoryInfo(dir).EnumerateFileSystemInfos())
+        {
+            if (DataFolderFiles.IsUntouched(entry.Name))
+            {
+                continue;
+            }
+
+            if (entry is DirectoryInfo folder && DataFolderFiles.PatternFor(folder.Name) is { } pattern)
+            {
+                if (IsLink(folder))
+                {
+                    Keep(folder.Name);
+                    continue;
+                }
+
+                foreach (var child in folder.EnumerateFileSystemInfos())
+                {
+                    var relative = Path.Combine(folder.Name, child.Name);
+                    bool ours = child is FileInfo && (copying ? DataFolderFiles.IsCopiedFrom(pattern, child.Name) : DataFolderFiles.IsDeletedFrom(pattern, child.Name));
+                    Place(child, relative, ours);
+                }
+            }
+            else
+            {
+                bool ours = entry is FileInfo && (copying ? DataFolderFiles.IsCopied(entry.Name) : DataFolderFiles.IsDeleted(entry.Name));
+                if (!ours && copying && DataFolderFiles.IsDeleted(entry.Name))
+                {
+                    continue; // Orrery's, but it stays with this folder
+                }
+
+                Place(entry, entry.Name, ours);
+            }
+        }
+
+        return (owned, others);
+
+        void Place(FileSystemInfo entry, string relative, bool ours)
+        {
+            if (!ours)
+            {
+                others.Add(relative);
+            }
+            else if (IsLink(entry))
+            {
+                Keep(relative);
+            }
+            else
+            {
+                owned.Add(entry.FullName);
+            }
+        }
+
+        void Keep(string relative)
+        {
+            if (copying)
+            {
+                throw new IOException($"{relative} is a link to somewhere else, so Orrery won't move it. Replace it with the real files, then try again.");
+            }
+
+            others.Add(relative);
+        }
     }
+
+    /// <summary>A symbolic link or junction. Other reparse points (cloud placeholders, dedup) are ordinary files here.</summary>
+    static bool IsLink(FileSystemInfo entry) => entry.LinkTarget is not null;
 
     static byte[] Hash(string file)
     {
@@ -133,6 +250,59 @@ public static class DataMover
 
     static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-    static bool IsInside(string path, string folder) =>
-        path.StartsWith(folder + Path.DirectorySeparatorChar, PathComparison);
+    /// <summary>
+    /// The full path with every existing link along it followed to its final target, so a junction or symlink
+    /// alias spells a folder the same way as the folder itself. Parts that don't exist yet stay as written.
+    /// </summary>
+    static string Resolve(string path, int depth = 0)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full)!;
+        var parts = Parts(full);
+        var current = root;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            current = Path.Combine(current, parts[i]);
+            if (depth < MaxLinkDepth && FinalTarget(current) is { } target)
+            {
+                return Resolve(Path.Combine([target, .. parts[(i + 1)..]]), depth + 1);
+            }
+        }
+
+        return Path.TrimEndingDirectorySeparator(current);
+    }
+
+    static string? FinalTarget(string path)
+    {
+        try
+        {
+            var info = new DirectoryInfo(path);
+            return info.LinkTarget is null ? null : info.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The root (a drive, share or <c>/</c>) followed by each folder name, for comparing segment by segment.</summary>
+    static string[] Segments(string resolved) =>
+        [Path.TrimEndingDirectorySeparator(Path.GetPathRoot(resolved)!), .. Parts(resolved)];
+
+    static string[] Parts(string full) =>
+        full[Path.GetPathRoot(full)!.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+
+    static bool IsRoot(string resolved) => Segments(resolved).Length == 1;
+
+    static bool IsSame(string a, string b) => Segments(a).SequenceEqual(Segments(b), PathComparer);
+
+    /// <summary>True when <paramref name="path"/> is somewhere below <paramref name="folder"/>. A root counts as a folder.</summary>
+    static bool IsInside(string path, string folder)
+    {
+        var inner = Segments(path);
+        var outer = Segments(folder);
+        return inner.Length > outer.Length && inner.Take(outer.Length).SequenceEqual(outer, PathComparer);
+    }
+
+    static StringComparer PathComparer => StringComparer.FromComparison(PathComparison);
 }
