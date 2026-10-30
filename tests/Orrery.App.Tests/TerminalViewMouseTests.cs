@@ -89,4 +89,23 @@ public class TerminalViewMouseTests
         Assert.EndsWith(";1M", session.Sent[1]);
         Assert.EndsWith(";1m", session.Sent[2]);
     }
+
+    [AvaloniaFact]
+    public void The_pointer_is_an_arrow_while_a_program_has_the_mouse()
+    {
+        var (window, session) = Open();
+        var view = (TerminalView)window.Content!;
+        window.MouseMove(new Avalonia.Point(5, 5));
+        var textCursor = view.Cursor;
+
+        session.Output("[?1000h");
+        Dispatcher.UIThread.RunJobs();
+        window.MouseMove(new Avalonia.Point(6, 6));
+        var tracking = view.Cursor;
+        window.MouseMove(new Avalonia.Point(7, 7), RawInputModifiers.Shift);
+        var withShift = view.Cursor;
+
+        Assert.NotSame(textCursor, tracking);
+        Assert.Same(textCursor, withShift);
+    }
 }
