@@ -11,6 +11,7 @@ namespace Orrery.Protocols.Vnc.Tests;
 /// A minimal RFB 3.8 server for tests (RFC 6143): no-auth or VNC Authentication, one client, Raw updates of
 /// a fixed picture in whatever pixel format the client asks for. It records the input it receives.
 /// The desktop it announces can be larger than the picture, which then sits in its top-left corner.
+/// It can offer other security types, or speak RFB 3.3 and name one, to see what a client sends for them.
 /// </summary>
 sealed class TestRfbServer : IAsyncDisposable
 {
@@ -19,6 +20,10 @@ sealed class TestRfbServer : IAsyncDisposable
     readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     readonly string? _password;
     readonly ushort _desktopWidth, _desktopHeight;
+    readonly byte[]? _securityTypes;
+    readonly bool _rfb33;
+    readonly List<byte> _received = [];
+    byte[] _handshake = [];
     readonly CancellationTokenSource _cts = new();
     readonly Task _serve;
 
@@ -26,10 +31,15 @@ sealed class TestRfbServer : IAsyncDisposable
     int _bpp = 32, _redShift = 16, _greenShift = 8, _blueShift = 0, _redMax = 255, _greenMax = 255, _blueMax = 255;
     bool _bigEndian;
 
-    public TestRfbServer(string? password, ushort desktopWidth = Width, ushort desktopHeight = Height)
+    /// <param name="securityTypes">The security types to offer instead of the one the password implies. Once the
+    /// client picks one other than None or VNC Authentication, the server keeps what it sends and hangs up.</param>
+    /// <param name="rfb33">Speak RFB 3.3, where the server names the first of the security types instead of offering them.</param>
+    public TestRfbServer(string? password, ushort desktopWidth = Width, ushort desktopHeight = Height,
+        byte[]? securityTypes = null, bool rfb33 = false)
     {
         _password = password;
         (_desktopWidth, _desktopHeight) = (desktopWidth, desktopHeight);
+        (_securityTypes, _rfb33) = (securityTypes, rfb33);
         _listener.Start();
         _serve = Task.Run(ServeAsync);
     }
@@ -41,6 +51,12 @@ sealed class TestRfbServer : IAsyncDisposable
     public ConcurrentQueue<string> Log { get; } = new();
     public ConcurrentQueue<string> ClientClipboard { get; } = new();
     public ConcurrentQueue<int> Encodings { get; } = new();
+
+    /// <summary>Every byte the client has sent so far, in order.</summary>
+    public byte[] Received { get { lock (_received) return [.. _received]; } }
+
+    /// <summary>What the client sent before the security result: its version, its choice and any login response.</summary>
+    public byte[] Handshake => Volatile.Read(ref _handshake);
 
     readonly SemaphoreSlim _writeLock = new(1, 1);
     Stream? _stream;
@@ -78,29 +94,56 @@ sealed class TestRfbServer : IAsyncDisposable
             var stream = client.GetStream();
             var token = _cts.Token;
 
-            await stream.WriteAsync("RFB 003.008\n"u8.ToArray(), token);
+            await stream.WriteAsync((_rfb33 ? "RFB 003.003\n"u8 : "RFB 003.008\n"u8).ToArray(), token);
             await ReadExactAsync(stream, 12, token);
 
-            byte securityType = _password is null ? (byte)1 : (byte)2;
-            await stream.WriteAsync(new byte[] { 1, securityType }, token);
-            var chosen = (await ReadExactAsync(stream, 1, token))[0];
+            byte[] offered = _securityTypes ?? [_password is null ? (byte)1 : (byte)2];
+            byte chosen;
+            if (_rfb33)
+            {
+                chosen = offered[0];
+                await stream.WriteAsync(BigEndian((uint)chosen), token);
+            }
+            else
+            {
+                await stream.WriteAsync(new[] { (byte)offered.Length }.Concat(offered).ToArray(), token);
+                chosen = (await ReadExactAsync(stream, 1, token))[0];
+            }
+
             Log.Enqueue($"security {chosen}");
+
+            if (chosen is not (1 or 2))
+            {
+                await KeepUntilQuietAsync(stream, chosen, token);
+                _handshake = Received;
+                return;
+            }
 
             if (chosen == 2)
             {
                 var challenge = RandomNumberGenerator.GetBytes(16);
                 await stream.WriteAsync(challenge, token);
                 var response = await ReadExactAsync(stream, 16, token);
+                _handshake = Received;
                 if (!response.AsSpan().SequenceEqual(VncAuthResponse(_password!, challenge)))
                 {
                     var reason = "Authentication failed"u8.ToArray();
-                    await stream.WriteAsync(BigEndian(1u).Concat(BigEndian((uint)reason.Length)).Concat(reason).ToArray(), token);
+                    await stream.WriteAsync(_rfb33 ? BigEndian(1u) : BigEndian(1u).Concat(BigEndian((uint)reason.Length)).Concat(reason).ToArray(), token);
                     Log.Enqueue("auth rejected");
                     return;
                 }
             }
+            else
+            {
+                _handshake = Received;
+            }
 
-            await stream.WriteAsync(BigEndian(0u), token);
+            // RFB 3.3 sends no security result after None.
+            if (chosen == 2 || !_rfb33)
+            {
+                await stream.WriteAsync(BigEndian(0u), token);
+            }
+
             await ReadExactAsync(stream, 1, token); // ClientInit: shared flag.
 
             var name = "Orrery test"u8.ToArray();
@@ -214,11 +257,51 @@ sealed class TestRfbServer : IAsyncDisposable
         return des.EncryptEcb(challenge, PaddingMode.None);
     }
 
-    static async Task<byte[]> ReadExactAsync(Stream stream, int count, CancellationToken token)
+    async Task<byte[]> ReadExactAsync(Stream stream, int count, CancellationToken token)
     {
         var buffer = new byte[count];
         await stream.ReadExactlyAsync(buffer, token);
+        lock (_received) _received.AddRange(buffer);
         return buffer;
+    }
+
+    /// <summary>Keeps what the client sends for a security type this server doesn't speak, until it's quiet for a second.</summary>
+    async Task KeepUntilQuietAsync(Stream stream, byte securityType, CancellationToken token)
+    {
+        // IntegratedSSH (24) waits for an SSH banner and then for a reply to each packet; play along, so a client
+        // that speaks it gets as far as sending its login.
+        bool ssh = securityType == 24;
+        if (ssh)
+        {
+            await stream.WriteAsync("SSH-2.0-OrreryTest\r\n"u8.ToArray(), token);
+        }
+
+        var buffer = new byte[4096];
+        while (true)
+        {
+            using var quiet = CancellationTokenSource.CreateLinkedTokenSource(token);
+            quiet.CancelAfter(TimeSpan.FromSeconds(1));
+            int read;
+            try
+            {
+                read = await stream.ReadAsync(buffer, quiet.Token);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (read == 0)
+            {
+                return;
+            }
+
+            lock (_received) _received.AddRange(buffer.AsSpan(0, read));
+            if (ssh)
+            {
+                await stream.WriteAsync(new byte[16], token);
+            }
+        }
     }
 
     static byte[] BigEndian(ushort value) { var b = new byte[2]; BinaryPrimitives.WriteUInt16BigEndian(b, value); return b; }

@@ -7,6 +7,7 @@ using MarcusW.VncClient.Protocol;
 using MarcusW.VncClient.Protocol.Implementation;
 using MarcusW.VncClient.Protocol.MessageTypes;
 using MarcusW.VncClient.Protocol.Services;
+using MarcusW.VncClient.Protocol.Implementation.SecurityTypes;
 using MarcusW.VncClient.Protocol.Implementation.Services.Transports;
 using MarcusW.VncClient.Protocol.SecurityTypes;
 using MarcusW.VncClient.Output;
@@ -90,7 +91,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
             var parameters = new ConnectParameters
             {
                 TransportParameters = new TcpTransportParameters { Host = Target.Host, Port = Target.Port },
-                AuthenticationHandler = new Authenticator(Target.Username, _password),
+                AuthenticationHandler = new Authenticator(_password),
                 InitialRenderTarget = this,
                 InitialOutputHandler = this,
                 AllowSharedConnection = true,
@@ -485,9 +486,20 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
     }
 
-    /// <summary>The library's default protocol, but it remembers the transport so the session can close it.</summary>
-    sealed class ClosableImplementation(VncSession session) : DefaultImplementation
+    /// <summary>
+    /// The library's default protocol, but with only the security types Orrery allows, and it remembers the
+    /// transport so the session can close it.
+    /// </summary>
+    sealed class ClosableImplementation(VncSession session)
+        : DefaultImplementation(AllowedSecurityTypes, GetDefaultMessageTypes, GetDefaultEncodingTypes)
     {
+        // Only None and classic VNC authentication (audit S-2). The library's defaults add types that send the
+        // saved username and password in clear text, or accept any TLS certificate, and it lets the server pick
+        // the highest it offers. Don't put the defaults back until each type is checked; TLS, VeNCrypt and RA2
+        // would first need Orrery's certificate prompt.
+        static IEnumerable<ISecurityType> AllowedSecurityTypes(RfbConnectionContext context) =>
+            [new NoneSecurityType(context), new VncAuthenticationSecurityType(context)];
+
         public override ITransportConnector CreateTransportConnector(RfbConnectionContext context) =>
             new Connector(base.CreateTransportConnector(context), session);
 
@@ -502,16 +514,21 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
     }
 
-    /// <summary>Answers the server's login request with the password, plus the username where it asks for one.</summary>
-    sealed class Authenticator(string? username, string password) : IAuthenticationHandler
+    /// <summary>
+    /// Answers classic VNC authentication with the password. Anything else asking for it is refused, so the
+    /// password only ever leaves as a DES response, even if another security type gets in (audit S-2).
+    /// </summary>
+    sealed class Authenticator(string password) : IAuthenticationHandler
     {
         public Task<TInput> ProvideAuthenticationInputAsync<TInput>(RfbConnection connection, ISecurityType securityType,
             IAuthenticationInputRequest<TInput> request) where TInput : class, IAuthenticationInput
         {
-            IAuthenticationInput input = typeof(TInput) == typeof(CredentialsAuthenticationInput)
-                ? new CredentialsAuthenticationInput(username ?? string.Empty, password)
-                : new PasswordAuthenticationInput(password);
-            return Task.FromResult((TInput)input);
+            if (securityType.GetType() != typeof(VncAuthenticationSecurityType) || typeof(TInput) != typeof(PasswordAuthenticationInput))
+            {
+                throw new HandshakeFailedException("The server asked for a login method Orrery doesn't support.");
+            }
+
+            return Task.FromResult((TInput)(IAuthenticationInput)new PasswordAuthenticationInput(password));
         }
     }
 }
