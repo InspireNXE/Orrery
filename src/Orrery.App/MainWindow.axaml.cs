@@ -34,6 +34,7 @@ public partial class MainWindow : Window
 {
     // The session toolbar's height, which isn't laid out yet when the first session starts.
     const double SessionToolbarHeight = 45;
+    const double MinTerminalFontSize = 8, MaxTerminalFontSize = 32;
     static readonly Thickness TerminalMargin = new(14, 10);
     static readonly DataFormat<string> DragFormat = DataFormat.CreateStringApplicationFormat("orrery-node");
     static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(500);
@@ -63,6 +64,15 @@ public partial class MainWindow : Window
     readonly Border _sidePanel, _propertiesHost, _dimmer;
     readonly Button _importDropZone;
     readonly ContentControl _settingsHost;
+    readonly Button _sidePanelToggle, _inspectorToggle;
+    readonly Control _titleBar, _rail, _statusBar, _tabStripBar;
+    readonly Border _fullScreenBar, _fullScreenHotZone;
+    readonly TextBlock _fullScreenTitle;
+
+    // Full screen hides every pane and bar; these are what to put back.
+    bool _fullScreen;
+    WindowState _stateBeforeFullScreen;
+    (bool Side, bool Inspector) _panesBeforeFullScreen;
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
@@ -123,6 +133,15 @@ public partial class MainWindow : Window
         _importDropZone = this.FindControl<Button>("ImportDropZone")!;
         _settingsHost = this.FindControl<ContentControl>("SettingsHost")!;
         _settingsRailButton = this.FindControl<Button>("SettingsRailButton")!;
+        _sidePanelToggle = this.FindControl<Button>("SidePanelToggle")!;
+        _inspectorToggle = this.FindControl<Button>("InspectorToggle")!;
+        _titleBar = this.FindControl<Control>("TitleBar")!;
+        _rail = this.FindControl<Control>("Rail")!;
+        _statusBar = this.FindControl<Control>("StatusBar")!;
+        _tabStripBar = this.FindControl<Control>("TabStripBar")!;
+        _fullScreenBar = this.FindControl<Border>("FullScreenBar")!;
+        _fullScreenHotZone = this.FindControl<Border>("FullScreenHotZone")!;
+        _fullScreenTitle = this.FindControl<TextBlock>("FullScreenTitle")!;
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
@@ -180,6 +199,10 @@ public partial class MainWindow : Window
 
         WireTree();
         WireTitleBar();
+        WireFullScreen();
+        var layout = _settingsStore.Load();
+        ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
+        ShowInspector(layout.InspectorOpen ?? true, save: false);
         RebuildTree();
         UpdateVaultButton();
         UpdateSessionChrome();
@@ -440,24 +463,24 @@ public partial class MainWindow : Window
 
         if (side == _side && _sidePanel.IsVisible)
         {
-            _sidePanel.IsVisible = false;
-            _sides[side].RailButton.Classes.Set("active", false);
+            ShowSidePanel(false);
             return;
         }
 
         _properties.TrySave();
         _side = side;
-        _sidePanel.IsVisible = true;
-        foreach (var (name, (button, view)) in _sides)
+        foreach (var (name, (_, view)) in _sides)
         {
-            button.Classes.Set("active", name == side);
             view.IsVisible = name == side;
         }
+
+        ShowSidePanel(true);
 
         _propertiesHost.Child = side == "credentials" ? _credentialsView.Editor : _properties;
         switch (side)
         {
             case "credentials":
+                ShowInspector(true);
                 await _credentialsView.ShowAsync();
                 break;
             case "recent":
@@ -466,6 +489,137 @@ public partial class MainWindow : Window
             default:
                 await _properties.ShowAsync(SelectedNode);
                 break;
+        }
+    }
+
+    // ---- Panes ----
+
+    void OnToggleSidePanelClick(object? sender, RoutedEventArgs e) => ShowSidePanel(!_sidePanel.IsVisible);
+
+    void OnToggleInspectorClick(object? sender, RoutedEventArgs e) => ShowInspector(!_propertiesHost.IsVisible);
+
+    /// <summary>Shows or hides the side panel (Ctrl+B); the rail stays, and its button for the panel lights up.</summary>
+    void ShowSidePanel(bool open, bool save = true)
+    {
+        _sidePanel.IsVisible = open;
+        foreach (var (name, (button, _)) in _sides)
+        {
+            button.Classes.Set("active", open && name == _side);
+        }
+
+        ToolTip.SetTip(_sidePanelToggle, open ? "Hide the side panel (Ctrl+B)" : "Show the side panel (Ctrl+B)");
+        if (save)
+        {
+            SaveLayout();
+        }
+    }
+
+    /// <summary>Shows or hides the right-hand pane (Ctrl+Alt+B): connection settings or the credential editor.</summary>
+    void ShowInspector(bool open, bool save = true)
+    {
+        if (!open)
+        {
+            _properties.TrySave();
+        }
+
+        _propertiesHost.IsVisible = open;
+        ToolTip.SetTip(_inspectorToggle, open ? "Hide the settings pane (Ctrl+Alt+B)" : "Show the settings pane (Ctrl+Alt+B)");
+        if (save)
+        {
+            SaveLayout();
+        }
+    }
+
+    /// <summary>Remembers which panes are open for the next start.</summary>
+    void SaveLayout()
+    {
+        try
+        {
+            _settingsStore.Save(_settingsStore.Load() with { SidePanelOpen = _sidePanel.IsVisible, InspectorOpen = _propertiesHost.IsVisible });
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Couldn't save the layout: {e.Message}");
+        }
+    }
+
+    // ---- Full screen ----
+
+    void WireFullScreen()
+    {
+        // Ctrl+Alt+Break, as in Remote Desktop Connection. Caught on the way down, before a session
+        // swallows it; Windows reports Ctrl+Break as Cancel.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key is Key.Pause or Key.Cancel && e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                e.Handled = true;
+                if (_fullScreen)
+                {
+                    ExitFullScreen();
+                }
+                else
+                {
+                    EnterFullScreen();
+                }
+            }
+        }, RoutingStrategies.Tunnel);
+
+        _fullScreenHotZone.PointerEntered += (_, _) =>
+        {
+            _fullScreenTitle.Text = _currentTab?.Origin.Title;
+            _fullScreenBar.IsVisible = true;
+        };
+        _fullScreenBar.PointerExited += (_, _) => _fullScreenBar.IsVisible = false;
+    }
+
+    void OnExitFullScreenClick(object? sender, RoutedEventArgs e) => ExitFullScreen();
+
+    /// <summary>The current session fills the screen; everything else hides until Ctrl+Alt+Break.</summary>
+    void EnterFullScreen()
+    {
+        if (_fullScreen || _currentTab is not { } tab)
+        {
+            return;
+        }
+
+        if (_settingsHost.IsVisible)
+        {
+            CloseSettings();
+        }
+
+        _fullScreen = true;
+        _panesBeforeFullScreen = (_sidePanel.IsVisible, _propertiesHost.IsVisible);
+        _stateBeforeFullScreen = WindowState;
+        _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = false;
+        _sidePanel.IsVisible = _propertiesHost.IsVisible = _sessionToolbar.IsVisible = false;
+        _fullScreenHotZone.IsVisible = true;
+
+        // Avalonia keeps a title bar strip at the top of a full-screen window that draws into its client
+        // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
+        ExtendClientAreaToDecorationsHint = false;
+        WindowState = WindowState.FullScreen;
+        Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+    }
+
+    void ExitFullScreen()
+    {
+        if (!_fullScreen)
+        {
+            return;
+        }
+
+        _fullScreen = false;
+        _fullScreenHotZone.IsVisible = _fullScreenBar.IsVisible = false;
+        _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
+        _sidePanel.IsVisible = _panesBeforeFullScreen.Side;
+        _propertiesHost.IsVisible = _panesBeforeFullScreen.Inspector;
+        WindowState = _stateBeforeFullScreen;
+        ExtendClientAreaToDecorationsHint = true;
+        UpdateSessionToolbar();
+        if (_currentTab is { } tab)
+        {
+            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
         }
     }
 
@@ -656,6 +810,16 @@ public partial class MainWindow : Window
             e.Handled = true;
             OpenSettings();
         }
+        else if (e.Key == Key.B && e.KeyModifiers == modifier)
+        {
+            e.Handled = true;
+            ShowSidePanel(!_sidePanel.IsVisible);
+        }
+        else if (e.Key == Key.B && e.KeyModifiers == (modifier | KeyModifiers.Alt))
+        {
+            e.Handled = true;
+            ShowInspector(!_propertiesHost.IsVisible);
+        }
     }
 
     async void OnQuickConnectClick(object? sender, RoutedEventArgs e) => await OpenQuickConnectAsync();
@@ -840,7 +1004,7 @@ public partial class MainWindow : Window
     void StartTelnet(SessionOrigin origin, ConnectionTarget target)
     {
         var session = TelnetSession.Start(target, 80, 24);
-        AddTab(new TerminalView(session) { Margin = TerminalMargin }, session, origin);
+        AddTab(NewTerminalView(session), session, origin);
     }
 
     /// <summary>Whether an SSH agent is running and holds at least one key. Never throws.</summary>
@@ -875,7 +1039,7 @@ public partial class MainWindow : Window
                 });
             }
         };
-        AddTab(new TerminalView(session) { Margin = TerminalMargin }, session, origin);
+        AddTab(NewTerminalView(session), session, origin);
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
@@ -892,8 +1056,40 @@ public partial class MainWindow : Window
             : new SshLogin(target.Username, password);
 
         var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24);
-        AddTab(new TerminalView(session) { Margin = TerminalMargin }, session, origin);
+        AddTab(NewTerminalView(session), session, origin);
         UpdateVaultButton();
+    }
+
+    /// <summary>A terminal at the saved text size; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
+    TerminalView NewTerminalView(ITerminalSession session)
+    {
+        var view = new TerminalView(session)
+        {
+            Margin = TerminalMargin,
+            TextSize = _settingsStore.Load().TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+        };
+        view.TextSizeRequested += (_, step) => ChangeTerminalTextSize(step);
+        return view;
+    }
+
+    /// <param name="step">+1 larger, -1 smaller, 0 back to the default.</param>
+    void ChangeTerminalTextSize(int step)
+    {
+        double current = _settingsStore.Load().TerminalFontSize ?? AppSettings.DefaultTerminalFontSize;
+        double size = step == 0 ? AppSettings.DefaultTerminalFontSize : Math.Clamp(current + step, MinTerminalFontSize, MaxTerminalFontSize);
+        foreach (var view in _tabs.Select(t => t.View).OfType<TerminalView>())
+        {
+            view.TextSize = size;
+        }
+
+        try
+        {
+            _settingsStore.Save(_settingsStore.Load() with { TerminalFontSize = size == AppSettings.DefaultTerminalFontSize ? null : size });
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Couldn't save the terminal text size: {e.Message}");
+        }
     }
 
     // ---- Session tabs ----
@@ -903,6 +1099,7 @@ public partial class MainWindow : Window
         var tab = new SessionTab(session, view, origin);
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
+        tab.Header.ContextMenu = TabMenu(tab);
         tab.StateChanged += (_, _) =>
         {
             UpdateTreeStatus();
@@ -950,6 +1147,11 @@ public partial class MainWindow : Window
             _tabs.Remove(tab);
             _tabStrip.Children.Remove(tab.Header);
             _sessionHost.Children.Remove(tab.View);
+            if (_tabs.Count == 0)
+            {
+                ExitFullScreen();
+            }
+
             if (tab == _currentTab)
             {
                 SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)]);
@@ -964,7 +1166,7 @@ public partial class MainWindow : Window
     /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
     void UpdateSessionToolbar()
     {
-        _sessionToolbar.IsVisible = _currentTab is not null;
+        _sessionToolbar.IsVisible = _currentTab is not null && !_fullScreen;
         _sessionActions.Children.Clear();
         if (_currentTab is not { } tab)
         {
@@ -982,19 +1184,47 @@ public partial class MainWindow : Window
             SessionState.Failed => "Couldn't connect",
             _ when session is IFrameBufferSession frame && frame.Width > 0 => $"{frame.Width}×{frame.Height}",
             _ => "Connected",
-        };
+        } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
 
-        if (state == SessionState.Connected && session is IFrameBufferSession desktop)
+        if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
         {
             var ctrlAltDel = new Button { Content = "Ctrl+Alt+Del" };
             ToolTip.SetTip(ctrlAltDel, "Send Ctrl+Alt+Del to the remote computer");
             ctrlAltDel.Click += (_, _) =>
             {
-                SendCtrlAltDel(desktop);
-                tab.View.Focus();
+                desktop.SendKeys(RemoteKeyCombo.CtrlAltDel);
+                desktop.Focus();
             };
             _sessionActions.Children.Add(ctrlAltDel);
         }
+
+        if (state == SessionState.Connected)
+        {
+            var fullScreen = new Button { Content = Controls.StrokeIcon.Create(Controls.Icons.FullScreen, 15) };
+            fullScreen.Classes.Add("icon");
+            fullScreen.Classes.Add("small");
+            ToolTip.SetTip(fullScreen, "Full screen (Ctrl+Alt+Break)");
+            Avalonia.Automation.AutomationProperties.SetName(fullScreen, "Full screen");
+            fullScreen.Click += (_, _) => EnterFullScreen();
+            _sessionActions.Children.Add(fullScreen);
+        }
+
+        var more = new Button { Content = Controls.StrokeIcon.Create(Controls.Icons.More, 16) };
+        more.Classes.Add("icon");
+        more.Classes.Add("small");
+        ToolTip.SetTip(more, "More options");
+        Avalonia.Automation.AutomationProperties.SetName(more, "More options");
+        var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
+        flyout.Opening += (_, _) =>
+        {
+            flyout.Items.Clear();
+            foreach (var item in SessionMenu(tab))
+            {
+                flyout.Items.Add(item);
+            }
+        };
+        more.Flyout = flyout;
+        _sessionActions.Children.Add(more);
 
         if (state is SessionState.Connecting or SessionState.Connected)
         {
@@ -1016,22 +1246,167 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Presses Ctrl, Alt and Delete together on the remote computer, then lets them go.</summary>
-    static void SendCtrlAltDel(IFrameBufferSession desktop)
+    /// <summary>What the session toolbar's More menu offers, for the session as it is now.</summary>
+    List<Control> SessionMenu(SessionTab tab)
     {
-        if (desktop is IKeysymInput keysyms)
+        bool connected = tab.Session.State == SessionState.Connected;
+        bool mac = OperatingSystem.IsMacOS();
+        var items = new List<Control>();
+        if (tab.View is RemoteFrameView desktop)
         {
-            uint[] keys = [0xFFE3, 0xFFE9, 0xFFFF]; // Control_L, Alt_L, Delete
-            foreach (var key in keys) keysyms.SendKeysym(key, true);
-            foreach (var key in keys.Reverse()) keysyms.SendKeysym(key, false);
+            var keys = MenuItemFor("Send keys", null, enabled: connected && !desktop.ViewOnly);
+            foreach (var combo in RemoteKeyCombo.Menu)
+            {
+                keys.Items.Add(MenuItemFor(combo.Label, () =>
+                {
+                    desktop.SendKeys(combo);
+                    desktop.Focus();
+                }));
+            }
+
+            items.Add(keys);
+            var viewOnly = MenuItemFor("View only", () =>
+            {
+                desktop.ViewOnly = !desktop.ViewOnly;
+                UpdateSessionToolbar();
+            });
+            viewOnly.ToggleType = MenuItemToggleType.CheckBox;
+            viewOnly.IsChecked = desktop.ViewOnly;
+            ToolTip.SetTip(viewOnly, "Watch without sending keys or clicks");
+            items.Add(viewOnly);
+            items.Add(new Separator());
+            items.Add(MenuItemFor("Save screenshot…", async () => await SaveScreenshotAsync(tab, desktop), enabled: desktop.HasFrame));
         }
-        else
+        else if (tab.View is TerminalView terminal)
         {
-            ushort[] keys = [0x1D, 0x38, 0xE053]; // Ctrl, Alt, Delete (extended)
-            foreach (var key in keys) desktop.SendKey(key, true);
-            foreach (var key in keys.Reverse()) desktop.SendKey(key, false);
+            string command = mac ? "Cmd" : "Ctrl";
+            items.Add(MenuItemFor("Copy", async () => await terminal.CopyAsync(), mac ? "Cmd+C" : "Ctrl+Shift+C", terminal.HasSelection));
+            items.Add(MenuItemFor("Paste", async () => await terminal.PasteAsync(), mac ? "Cmd+V" : "Ctrl+Shift+V", connected));
+            items.Add(new Separator());
+            items.Add(MenuItemFor("Larger text", () => ChangeTerminalTextSize(1), $"{command}+OemPlus"));
+            items.Add(MenuItemFor("Smaller text", () => ChangeTerminalTextSize(-1), $"{command}+OemMinus"));
+            items.Add(MenuItemFor("Reset text size", () => ChangeTerminalTextSize(0), $"{command}+D0"));
+            items.Add(new Separator());
+            items.Add(MenuItemFor("Save output…", async () => await SaveOutputAsync(tab, terminal)));
+            items.Add(MenuItemFor("Clear scrollback", terminal.ClearScrollback));
+        }
+
+        items.Add(new Separator());
+        items.AddRange(TabActions(tab));
+        return items;
+    }
+
+    /// <summary>The tab's right-click menu.</summary>
+    ContextMenu TabMenu(SessionTab tab)
+    {
+        var menu = new ContextMenu();
+        menu.Opening += (_, _) =>
+        {
+            menu.Items.Clear();
+            foreach (var item in TabActions(tab))
+            {
+                menu.Items.Add(item);
+            }
+
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItemFor("Close", async () => await CloseTabAsync(tab.Session)));
+            menu.Items.Add(MenuItemFor("Close other tabs", async () =>
+            {
+                foreach (var other in _tabs.Where(t => t != tab).ToList())
+                {
+                    await CloseTabAsync(other.Session);
+                }
+            }, enabled: _tabs.Count > 1));
+        };
+        return menu;
+    }
+
+    /// <summary>What applies to any session: fill the screen, open it again alongside, or start it over.</summary>
+    IEnumerable<Control> TabActions(SessionTab tab)
+    {
+        yield return MenuItemFor("Full screen", () =>
+        {
+            SelectTab(tab);
+            EnterFullScreen();
+        }, "Ctrl+Alt+Pause", tab.Session.State == SessionState.Connected);
+        yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
+        yield return MenuItemFor("Reconnect", async () =>
+        {
+            await CloseTabAsync(tab.Session);
+            await tab.Origin.Reconnect();
+        });
+    }
+
+    /// <param name="shortcut">Shown beside the item (the key itself is handled elsewhere), in KeyGesture form.</param>
+    static MenuItem MenuItemFor(string header, Action? click, string? shortcut = null, bool enabled = true)
+    {
+        var item = new MenuItem { Header = header, IsEnabled = enabled };
+        if (shortcut is not null)
+        {
+            item.InputGesture = KeyGesture.Parse(shortcut.Replace("Cmd", "Meta"));
+        }
+
+        if (click is not null)
+        {
+            item.Click += (_, _) => click();
+        }
+
+        return item;
+    }
+
+    async Task SaveScreenshotAsync(SessionTab tab, RemoteFrameView desktop)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = "Save screenshot",
+            SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.png",
+            DefaultExtension = "png",
+            FileTypeChoices = [new Avalonia.Platform.Storage.FilePickerFileType("PNG image") { Patterns = ["*.png"] }],
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var stream = await file.OpenWriteAsync();
+            desktop.SaveScreenshot(stream);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the screenshot", e.Message);
         }
     }
+
+    async Task SaveOutputAsync(SessionTab tab, TerminalView terminal)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = "Save session output",
+            SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.txt",
+            DefaultExtension = "txt",
+            FileTypeChoices = [new Avalonia.Platform.Storage.FilePickerFileType("Text") { Patterns = ["*.txt", "*.log"] }],
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var stream = await file.OpenWriteAsync();
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteAsync(terminal.AllText());
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the output", e.Message);
+        }
+    }
+
+    static string SafeFileName(string name) =>
+        string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '-' : c));
 
     /// <summary>
     /// The starting desktop size, in remote pixels, filling the session area. The view corrects it with

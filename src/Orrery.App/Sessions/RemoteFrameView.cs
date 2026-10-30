@@ -109,6 +109,58 @@ public sealed class RemoteFrameView : Panel
 
     public IFrameBufferSession Session { get; }
 
+    bool _viewOnly;
+
+    /// <summary>
+    /// Shows the remote screen without sending keys, clicks or the wheel. Keys then reach Orrery's own
+    /// shortcuts instead.
+    /// </summary>
+    public bool ViewOnly
+    {
+        get => _viewOnly;
+        set
+        {
+            if (value == _viewOnly)
+            {
+                return;
+            }
+
+            _viewOnly = value;
+            ReleaseAllKeys();
+            UpdateKeyCapture();
+        }
+    }
+
+    /// <summary>Whether there's a picture to save yet.</summary>
+    public bool HasFrame => _bitmap is not null;
+
+    /// <summary>Writes the remote screen as it is now, as a PNG.</summary>
+    public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream);
+
+    /// <summary>Presses the keys in order on the remote computer, then lets them go in reverse.</summary>
+    public void SendKeys(RemoteKeyCombo combo)
+    {
+        if (Session.State != SessionState.Connected)
+        {
+            return;
+        }
+
+        foreach (var key in combo.Keys) Send(key, pressed: true);
+        foreach (var key in combo.Keys.Reverse()) Send(key, pressed: false);
+
+        void Send(RemoteKey key, bool pressed)
+        {
+            if (Session is IKeysymInput keysyms)
+            {
+                keysyms.SendKeysym(key.Keysym, pressed);
+            }
+            else
+            {
+                Session.SendKey(key.Scancode, pressed);
+            }
+        }
+    }
+
     void ShowState(SessionState state, string? message)
     {
         _status.IsVisible = state != SessionState.Connected;
@@ -194,6 +246,11 @@ public sealed class RemoteFrameView : Panel
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        if (_viewOnly)
+        {
+            return;
+        }
+
         // Swallow every key so Tab, arrows and shortcuts go to the remote machine, not Avalonia focus.
         e.Handled = true;
         if (Session is IKeysymInput keysyms)
@@ -219,6 +276,11 @@ public sealed class RemoteFrameView : Panel
 
     protected override void OnKeyUp(KeyEventArgs e)
     {
+        if (_viewOnly)
+        {
+            return;
+        }
+
         e.Handled = true;
         if (Session is IKeysymInput keysyms)
         {
@@ -236,6 +298,11 @@ public sealed class RemoteFrameView : Panel
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        if (_viewOnly)
+        {
+            return;
+        }
+
         // Scale by what's on screen, which covers both zoom and a shrunk-to-fit desktop.
         var p = e.GetPosition(_image);
         double width = _image.Bounds.Width, height = _image.Bounds.Height;
@@ -249,6 +316,10 @@ public sealed class RemoteFrameView : Panel
     {
         base.OnPointerWheelChanged(e);
         e.Handled = true;
+        if (_viewOnly)
+        {
+            return;
+        }
 
         // Avalonia reports notches (fractions from precision touchpads); RDP wants 120 per notch.
         // Keep the remainder so slow touchpad scrolling still adds up.
@@ -268,7 +339,7 @@ public sealed class RemoteFrameView : Panel
     {
         base.OnPointerPressed(e);
         Focus();
-        if (ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
+        if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
         {
             Session.SendPointerButton(button, pressed: true);
             e.Handled = true;
@@ -278,7 +349,7 @@ public sealed class RemoteFrameView : Panel
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
+        if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
         {
             Session.SendPointerButton(button, pressed: false);
             e.Handled = true;
@@ -352,7 +423,6 @@ public sealed class RemoteFrameView : Panel
         }
     }
 
-    /// <summary>The Windows key goes to the remote side only while this session has the keyboard.</summary>
     /// <summary>
     /// The Windows key goes to the remote side while this session has the keyboard. Window activation isn't
     /// checked here: Avalonia raises Activated and GotFocus before IsActive turns true, so returning to the
@@ -360,7 +430,7 @@ public sealed class RemoteFrameView : Panel
     /// </summary>
     void UpdateKeyCapture()
     {
-        if (IsFocused && Session.State == SessionState.Connected && _topLevel?.TryGetPlatformHandle()?.Handle is { } window)
+        if (IsFocused && !_viewOnly && Session.State == SessionState.Connected && _topLevel?.TryGetPlatformHandle()?.Handle is { } window)
         {
             WindowsKeyHook.Capture(_windowsKey, window);
         }

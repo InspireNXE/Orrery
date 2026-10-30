@@ -81,4 +81,6 @@ static class Icons
     public const string Close = "M6 6l12 12 M18 6L6 18";
     public const string Search = "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M20 20l-3.5-3.5";
     public const string Terminal = "M4 17l6-5-6-5 M12 19h8";
+    public const string More = "M5 12h.01 M12 12h.01 M19 12h.01";
+    public const string FullScreen = "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5";
 }

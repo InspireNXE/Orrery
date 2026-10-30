@@ -7,6 +7,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Orrery.Core.Sessions;
+using Orrery.Core.Settings;
 using Orrery.Core.Terminal;
 
 namespace Orrery.App.Sessions;
@@ -17,7 +18,6 @@ namespace Orrery.App.Sessions;
 /// </summary>
 public sealed class TerminalView : Control
 {
-    const double FontSize = 14;
     const int WheelLines = 3;
     static readonly TimeSpan ResizeDelay = TimeSpan.FromMilliseconds(120);
 
@@ -44,6 +44,7 @@ public sealed class TerminalView : Control
     readonly TerminalEmulator _terminal;
     readonly DispatcherTimer _resizeTimer;
     readonly Dictionary<uint, IBrush> _brushes = [];
+    double _fontSize = AppSettings.DefaultTerminalFontSize;
     double _cellWidth, _cellHeight, _baseline;
     bool _renderQueued;
     int _scrollOffset; // Lines scrolled back from the bottom.
@@ -90,6 +91,33 @@ public sealed class TerminalView : Control
     /// <summary>The remote shell set its window title (on the UI thread).</summary>
     public event EventHandler<string>? TitleChanged;
 
+    /// <summary>
+    /// Ctrl+= or Ctrl+wheel up (+1), Ctrl+- or Ctrl+wheel down (-1), Ctrl+0 (0, back to the default).
+    /// The window applies the new size to every terminal, so they stay alike.
+    /// </summary>
+    public event EventHandler<int>? TextSizeRequested;
+
+    /// <summary>The terminal's size in character cells.</summary>
+    public (int Columns, int Rows) GridSize => (_terminal.Columns, _terminal.Rows);
+
+    /// <summary>Text size in points. Changing it keeps the view's size and re-flows the rows and columns.</summary>
+    public double TextSize
+    {
+        get => _fontSize;
+        set
+        {
+            if (value == _fontSize)
+            {
+                return;
+            }
+
+            _fontSize = value;
+            MeasureCell();
+            FitToSize(Bounds.Size);
+            InvalidateVisual();
+        }
+    }
+
     void ShowState(SessionState state, string? message)
     {
         var target = $"{Session.Target.Host}:{Session.Target.Port}";
@@ -114,7 +142,7 @@ public sealed class TerminalView : Control
 
     void MeasureCell()
     {
-        var sample = new FormattedText("MMMMMMMMMM", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Regular, FontSize, Brushes.White);
+        var sample = new FormattedText("MMMMMMMMMM", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Regular, _fontSize, Brushes.White);
         _cellWidth = sample.WidthIncludingTrailingWhitespace / 10;
         _cellHeight = Math.Ceiling(sample.Height);
         _baseline = sample.Baseline;
@@ -136,8 +164,18 @@ public sealed class TerminalView : Control
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
-        int columns = Math.Max(2, (int)(e.NewSize.Width / _cellWidth));
-        int rows = Math.Max(1, (int)(e.NewSize.Height / _cellHeight));
+        FitToSize(e.NewSize);
+    }
+
+    void FitToSize(Size size)
+    {
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            return;
+        }
+
+        int columns = Math.Max(2, (int)(size.Width / _cellWidth));
+        int rows = Math.Max(1, (int)(size.Height / _cellHeight));
         if (columns == _terminal.Columns && rows == _terminal.Rows)
         {
             return;
@@ -229,7 +267,7 @@ public sealed class TerminalView : Control
                     _ => Regular,
                 };
                 var brush = style.Flags.HasFlag(CellFlags.Faint) ? new SolidColorBrush(fg, 0.6) : BrushFor(fg);
-                context.DrawText(new FormattedText(content, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, FontSize, brush),
+                context.DrawText(new FormattedText(content, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, _fontSize, brush),
                     new Point(rect.X, y));
             }
 
@@ -331,6 +369,14 @@ public sealed class TerminalView : Control
         if (copyCombo) { e.Handled = true; _ = CopyAsync(); return; }
         if (pasteCombo) { e.Handled = true; _ = PasteAsync(); return; }
 
+        // Text size: Ctrl+=, Ctrl+-, Ctrl+0 (Cmd on macOS), as in most terminals.
+        if (mods == (mac ? KeyModifiers.Meta : KeyModifiers.Control) && TextSizeStep(e.Key) is { } step)
+        {
+            e.Handled = true;
+            TextSizeRequested?.Invoke(this, step);
+            return;
+        }
+
         // Shift+PageUp/PageDown scroll the history locally.
         if (shift && !ctrl && e.Key is Key.PageUp or Key.PageDown)
         {
@@ -373,6 +419,14 @@ public sealed class TerminalView : Control
             Send(e.Text);
         }
     }
+
+    static int? TextSizeStep(Key key) => key switch
+    {
+        Key.OemPlus or Key.Add => 1,
+        Key.OemMinus or Key.Subtract => -1,
+        Key.D0 or Key.NumPad0 => 0,
+        _ => null,
+    };
 
     static TerminalKey? SpecialKey(Key key) => key switch
     {
@@ -424,6 +478,16 @@ public sealed class TerminalView : Control
     {
         base.OnPointerWheelChanged(e);
         e.Handled = true;
+        if (e.KeyModifiers == (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control))
+        {
+            if (e.Delta.Y != 0)
+            {
+                TextSizeRequested?.Invoke(this, Math.Sign(e.Delta.Y));
+            }
+
+            return;
+        }
+
         if (Reporting(e))
         {
             // Each notch is one wheel "button" press for the program.
@@ -595,7 +659,7 @@ public sealed class TerminalView : Control
         }
     }
 
-    bool HasSelection => _selectionStart is not null && _selectionEnd is not null && _selectionStart != _selectionEnd;
+    public bool HasSelection => _selectionStart is not null && _selectionEnd is not null && _selectionStart != _selectionEnd;
 
     ((int Row, int Column)? Start, (int Row, int Column)? End) OrderedSelection()
     {
@@ -620,7 +684,8 @@ public sealed class TerminalView : Control
         InvalidateVisual();
     }
 
-    async Task CopyAsync()
+    /// <summary>Copies the selection, if there is one, and clears it.</summary>
+    public async Task CopyAsync()
     {
         var (start, end) = OrderedSelection();
         if (start is not { } s || end is not { } e || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
@@ -632,7 +697,8 @@ public sealed class TerminalView : Control
         ClearSelection();
     }
 
-    async Task PasteAsync()
+    /// <summary>Types the clipboard text into the session.</summary>
+    public async Task PasteAsync()
     {
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard || await clipboard.TryGetTextAsync() is not { Length: > 0 } text)
         {
@@ -640,6 +706,16 @@ public sealed class TerminalView : Control
         }
 
         Send(TerminalKeys.Paste(text, _terminal.BracketedPaste));
+    }
+
+    /// <summary>Everything in the scrollback and on screen, as plain text.</summary>
+    public string AllText() => _terminal.AllText();
+
+    public void ClearScrollback()
+    {
+        _scrollOffset = 0;
+        ClearSelection();
+        _terminal.ClearScrollback();
     }
 
     protected override void OnGotFocus(GotFocusEventArgs e)
