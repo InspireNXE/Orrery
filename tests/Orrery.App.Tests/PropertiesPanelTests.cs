@@ -78,7 +78,7 @@ public class PropertiesPanelTests
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
 
-        var clipboard = window.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Share the clipboard (RDP)"));
+        var clipboard = window.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Share the clipboard"));
         Assert.False(clipboard.IsChecked); // Inherited from the folder.
         Assert.False(clipboard.IsEnabled);
 

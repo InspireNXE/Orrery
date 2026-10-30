@@ -36,6 +36,32 @@ sealed class TestRfbServer : IAsyncDisposable
     public ConcurrentQueue<(bool Down, uint Keysym)> Keys { get; } = new();
     public ConcurrentQueue<(byte Mask, int X, int Y)> Pointer { get; } = new();
     public ConcurrentQueue<string> Log { get; } = new();
+    public ConcurrentQueue<string> ClientClipboard { get; } = new();
+    public ConcurrentQueue<int> Encodings { get; } = new();
+
+    readonly SemaphoreSlim _writeLock = new(1, 1);
+    Stream? _stream;
+
+    /// <summary>Sends ServerCutText: the server's clipboard changed (Latin-1, as RFC 6143 says).</summary>
+    public async Task SendClipboardAsync(string text)
+    {
+        var bytes = Encoding.Latin1.GetBytes(text);
+        var message = new byte[] { 3, 0, 0, 0 }.Concat(BigEndian((uint)bytes.Length)).Concat(bytes).ToArray();
+        await WriteAsync(message, _cts.Token);
+    }
+
+    async Task WriteAsync(byte[] bytes, CancellationToken token)
+    {
+        await _writeLock.WaitAsync(token);
+        try
+        {
+            await _stream!.WriteAsync(bytes, token);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
 
     /// <summary>The picture: red left half, blue right half, and a green pixel at (5, 7).</summary>
     public static (byte R, byte G, byte B) PixelAt(int x, int y) =>
@@ -84,6 +110,7 @@ sealed class TestRfbServer : IAsyncDisposable
             init.AddRange(BigEndian((uint)name.Length));
             init.AddRange(name);
             await stream.WriteAsync(init.ToArray(), token);
+            _stream = stream;
 
             while (!token.IsCancellationRequested)
             {
@@ -99,13 +126,18 @@ sealed class TestRfbServer : IAsyncDisposable
                         break;
                     case 2: // SetEncodings
                         var head = await ReadExactAsync(stream, 3, token);
-                        await ReadExactAsync(stream, 4 * BinaryPrimitives.ReadUInt16BigEndian(head.AsSpan(1)), token);
+                        var encodings = await ReadExactAsync(stream, 4 * BinaryPrimitives.ReadUInt16BigEndian(head.AsSpan(1)), token);
+                        for (int i = 0; i < encodings.Length; i += 4)
+                        {
+                            Encodings.Enqueue(BinaryPrimitives.ReadInt32BigEndian(encodings.AsSpan(i)));
+                        }
+
                         break;
                     case 3: // FramebufferUpdateRequest: send the whole picture once; incremental requests get nothing.
                         var request = await ReadExactAsync(stream, 9, token);
                         if (request[0] == 0)
                         {
-                            await stream.WriteAsync(RawUpdate(), token);
+                            await WriteAsync(RawUpdate(), token);
                         }
                         break;
                     case 4: // KeyEvent
@@ -118,7 +150,8 @@ sealed class TestRfbServer : IAsyncDisposable
                         break;
                     case 6: // ClientCutText
                         var cut = await ReadExactAsync(stream, 7, token);
-                        await ReadExactAsync(stream, (int)BinaryPrimitives.ReadUInt32BigEndian(cut.AsSpan(3)), token);
+                        var text = await ReadExactAsync(stream, (int)BinaryPrimitives.ReadUInt32BigEndian(cut.AsSpan(3)), token);
+                        ClientClipboard.Enqueue(Encoding.Latin1.GetString(text));
                         break;
                     default:
                         Log.Enqueue($"unexpected message {type}");

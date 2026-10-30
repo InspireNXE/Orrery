@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -37,6 +39,9 @@ public sealed class RemoteFrameView : Panel
     readonly Dictionary<PhysicalKey, uint> _keysymsDown = [];
     readonly Action<bool, bool> _windowsKey;
 
+    // The clipboard text last exchanged with a VNC server, so a change isn't sent back where it came from.
+    string? _lastClipboard;
+
     readonly TextBlock _status = new()
     {
         HorizontalAlignment = HorizontalAlignment.Center,
@@ -71,6 +76,17 @@ public sealed class RemoteFrameView : Panel
         Session = session;
         _zoom = zoom;
         _windowsKey = OnWindowsKey;
+        if (session is IClipboardSession clipboardSession)
+        {
+            clipboardSession.RemoteClipboardChanged += (_, text) => Dispatcher.UIThread.Post(async () =>
+            {
+                _lastClipboard = text;
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+                {
+                    await clipboard.SetTextAsync(text);
+                }
+            });
+        }
         Focusable = true;
         ClipToBounds = true;
         Background = SurfaceBrush;
@@ -108,6 +124,7 @@ public sealed class RemoteFrameView : Panel
         UpdateKeyCapture();
         if (state == SessionState.Connected)
         {
+            _ = SendLocalClipboardAsync();
             Focus();
             ScheduleResize(); // The view may have changed size while connecting.
         }
@@ -282,6 +299,34 @@ public sealed class RemoteFrameView : Panel
     {
         base.OnGotFocus(e);
         UpdateKeyCapture();
+        _ = SendLocalClipboardAsync();
+    }
+
+    /// <summary>
+    /// VNC: hands the local clipboard to the server when the session gets the keyboard, if it changed since
+    /// the last exchange. There's no portable "clipboard changed" event, and this is when a paste can follow.
+    /// </summary>
+    async Task SendLocalClipboardAsync()
+    {
+        if (Session is not IClipboardSession clipboardSession || Session.State != SessionState.Connected
+            || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        {
+            return;
+        }
+
+        try
+        {
+            if (await clipboard.TryGetTextAsync() is { Length: > 0 } text && text != _lastClipboard)
+            {
+                _lastClipboard = text;
+                clipboardSession.SendClipboard(text);
+            }
+        }
+        catch (Exception e) when (e is COMException or InvalidOperationException)
+        {
+            // Another app holds the clipboard open; the next focus tries again.
+            System.Diagnostics.Trace.TraceWarning($"Couldn't read the clipboard: {e.Message}");
+        }
     }
 
     protected override void OnLostFocus(RoutedEventArgs e)
@@ -298,7 +343,14 @@ public sealed class RemoteFrameView : Panel
         ReleaseAllKeys();
     }
 
-    void OnWindowActivated(object? sender, EventArgs e) => UpdateKeyCapture();
+    void OnWindowActivated(object? sender, EventArgs e)
+    {
+        UpdateKeyCapture();
+        if (IsFocused)
+        {
+            _ = SendLocalClipboardAsync();
+        }
+    }
 
     /// <summary>The Windows key goes to the remote side only while this session has the keyboard.</summary>
     /// <summary>

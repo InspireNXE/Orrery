@@ -25,7 +25,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
-    readonly CheckBox _clipboard = new() { Content = "Share the clipboard (RDP)" };
+    readonly CheckBox _clipboard = new() { Content = "Share the clipboard" };
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect;
