@@ -52,6 +52,10 @@ public sealed class TerminalView : Control
     (int Row, int Column)? _selectionStart, _selectionEnd;
     bool _selecting;
 
+    // A text cursor for selecting; the plain arrow while a program has the mouse (Shift brings selection back).
+    static readonly Cursor TextCursor = new(StandardCursorType.Ibeam);
+    static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
+
     // Mouse reporting (htop, tmux, vim): the button held down, and the cell last reported while moving.
     TerminalMouseButton _reportedButton = TerminalMouseButton.None;
     (int Column, int Row)? _lastReportedCell;
@@ -61,7 +65,7 @@ public sealed class TerminalView : Control
         Session = session;
         Focusable = true;
         ClipToBounds = true;
-        Cursor = new Cursor(StandardCursorType.Ibeam);
+        Cursor = TextCursor;
         MeasureCell();
 
         _terminal = new TerminalEmulator(80, 24);
@@ -298,9 +302,25 @@ public sealed class TerminalView : Control
 
     // ---- Keyboard ----
 
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        base.OnKeyUp(e);
+        UpdatePointerCursor(e.KeyModifiers);
+    }
+
+    void UpdatePointerCursor(KeyModifiers modifiers)
+    {
+        var cursor = _terminal.MouseTracking != MouseTracking.None && !modifiers.HasFlag(KeyModifiers.Shift) ? ArrowCursor : TextCursor;
+        if (Cursor != cursor)
+        {
+            Cursor = cursor;
+        }
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        UpdatePointerCursor(e.KeyModifiers);
         var mods = e.KeyModifiers;
         bool mac = OperatingSystem.IsMacOS();
         bool ctrl = mods.HasFlag(KeyModifiers.Control), alt = mods.HasFlag(KeyModifiers.Alt), shift = mods.HasFlag(KeyModifiers.Shift);
@@ -472,6 +492,7 @@ public sealed class TerminalView : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        UpdatePointerCursor(e.KeyModifiers);
         if (Reporting(e) && !_selecting)
         {
             if (TerminalMouse.Wants(_terminal.MouseTracking, TerminalMouseEvent.Motion, _reportedButton))
