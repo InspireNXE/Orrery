@@ -25,6 +25,7 @@ sealed class PortableSetupWindow : Window
     readonly TextBlock _message;
     readonly Button _continue;
     bool _acceptUnsavedChoice;
+    string? _acceptedOpenFolder;
 
     public PortableSetupWindow(string appDirectory, PlatformFolders folders)
     {
@@ -50,7 +51,7 @@ sealed class PortableSetupWindow : Window
         _message = new TextBlock { TextWrapping = TextWrapping.Wrap, IsVisible = false };
         _continue = new Button { Content = "Continue", Padding = new Thickness(18, 6), IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right };
         _continue.Classes.Add("accent");
-        _continue.Click += (_, _) => TryContinue();
+        _continue.Click += async (_, _) => await TryContinueAsync();
 
         var customRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Margin = new Thickness(28, 0, 0, 0) };
         customRow.Children.Add(_customPath);
@@ -107,7 +108,7 @@ sealed class PortableSetupWindow : Window
         }
     }
 
-    void TryContinue()
+    async Task TryContinueAsync()
     {
         var choice = _withApp.IsChecked == true ? PortableDataChoice.WithApp
             : _userProfile.IsChecked == true ? PortableDataChoice.UserProfile
@@ -132,6 +133,16 @@ sealed class PortableSetupWindow : Window
             return;
         }
 
+        if (location.DataDir != _acceptedOpenFolder && OpenFolderWarning(choice, location.DataDir) is { } warning)
+        {
+            if (!await Dialogs.ConfirmAsync(this, "Other people can change this folder", warning, "Use anyway"))
+            {
+                return;
+            }
+
+            _acceptedOpenFolder = location.DataDir;
+        }
+
         if (!_acceptUnsavedChoice && !PortableMarker.For(choice, storedCustomPath).TrySave(_appDirectory))
         {
             ShowMessage($"Orrery can't save this choice in {_appDirectory}, so it will ask again next time. Your data will still be saved.", WarningBrush);
@@ -141,6 +152,22 @@ sealed class PortableSetupWindow : Window
         }
 
         Completed?.Invoke(location);
+    }
+
+    /// <summary>
+    /// Null unless other users of this computer could change the chosen folder. With the app, they could then also
+    /// replace Orrery itself, which no ACL on the data folder prevents.
+    /// </summary>
+    string? OpenFolderWarning(PortableDataChoice choice, string dataDir)
+    {
+        if (choice == PortableDataChoice.WithApp && FolderAccess.IsOpenToOthers(_appDirectory))
+        {
+            return $"{FolderAccess.OpenToOthersWarning} They could also replace Orrery itself.\n\n{_appDirectory}";
+        }
+
+        return choice != PortableDataChoice.UserProfile && FolderAccess.IsOpenToOthers(dataDir)
+            ? $"{FolderAccess.OpenToOthersWarning}\n\n{dataDir}"
+            : null;
     }
 
     void ShowMessage(string text, IBrush brush)

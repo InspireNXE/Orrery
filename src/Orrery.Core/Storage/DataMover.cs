@@ -48,6 +48,13 @@ public static class DataMover
     }
 
     /// <summary>
+    /// A warning to confirm before moving to <paramref name="target"/>, or null. Call it after <see cref="CheckTarget"/>,
+    /// which creates a missing target closed to other users, so only a folder the user already had can be open.
+    /// </summary>
+    public static string? WarnAboutTarget(string target) =>
+        FolderAccess.IsOpenToOthers(target) ? FolderAccess.OpenToOthersWarning : null;
+
+    /// <summary>
     /// Copies and verifies Orrery's files, then records <paramref name="source"/> in the copy so the restart
     /// can offer to delete it. On any failure the partial copy is removed and the exception rethrown.
     /// </summary>
@@ -66,7 +73,7 @@ public static class DataMover
             {
                 var relative = Path.GetRelativePath(source, file);
                 var destination = Path.Combine(target, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                PrivateStorage.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Copy(file, destination);
                 if (!Hash(file).AsSpan().SequenceEqual(Hash(destination)))
                 {

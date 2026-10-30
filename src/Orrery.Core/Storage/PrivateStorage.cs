@@ -3,8 +3,9 @@ namespace Orrery.Core.Storage;
 /// <summary>
 /// Owner-only modes for what Orrery writes on Linux and macOS (0600 files, 0700 folders), so another
 /// user on the machine can't read the vault, the saved credentials or the connection list. .NET would
-/// otherwise create files 0666 and folders 0777 before the umask. Windows has no Unix modes; every
-/// method here does nothing there (folder permissions on Windows are a separate concern).
+/// otherwise create files 0666 and folders 0777 before the umask. Windows has no Unix modes: there
+/// <see cref="CreateDirectory"/> gives new folders a protected ACL (<see cref="FolderAccess"/>) and the
+/// other methods do nothing.
 /// </summary>
 public static class PrivateStorage
 {
@@ -24,12 +25,15 @@ public static class PrivateStorage
         return options;
     }
 
-    /// <summary>Creates <paramref name="path"/> and any missing parents, owner-only on Linux and macOS.</summary>
+    /// <summary>
+    /// Creates <paramref name="path"/> and any missing parents, owner-only on Linux and macOS and closed to
+    /// other users on Windows. A folder that already exists is left alone.
+    /// </summary>
     public static void CreateDirectory(string path)
     {
         if (OperatingSystem.IsWindows())
         {
-            Directory.CreateDirectory(path);
+            FolderAccess.CreateProtected(path);
         }
         else
         {
