@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orrery.Protocols.Vnc", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orrery.Protocols.Vnc.Tests", "tests\Orrery.Protocols.Vnc.Tests\Orrery.Protocols.Vnc.Tests.csproj", "{6B3BD357-57DE-4331-9804-7F0B8F8CA499}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orrery.Protocols.Ssh.Tests", "tests\Orrery.Protocols.Ssh.Tests\Orrery.Protocols.Ssh.Tests.csproj", "{D15F58CF-8EE2-404F-95C6-70987A5418AC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -129,6 +131,18 @@ Global
 		{6B3BD357-57DE-4331-9804-7F0B8F8CA499}.Release|x64.Build.0 = Release|Any CPU
 		{6B3BD357-57DE-4331-9804-7F0B8F8CA499}.Release|x86.ActiveCfg = Release|Any CPU
 		{6B3BD357-57DE-4331-9804-7F0B8F8CA499}.Release|x86.Build.0 = Release|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Debug|x64.Build.0 = Debug|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Debug|x86.Build.0 = Debug|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Release|x64.ActiveCfg = Release|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Release|x64.Build.0 = Release|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Release|x86.ActiveCfg = Release|Any CPU
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -142,5 +156,6 @@ Global
 		{69E78285-BFB8-4AF0-BDE4-67D79D8887EE} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{92A1722A-6719-4A5E-B69E-4234300C4A25} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{6B3BD357-57DE-4331-9804-7F0B8F8CA499} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{D15F58CF-8EE2-404F-95C6-70987A5418AC} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

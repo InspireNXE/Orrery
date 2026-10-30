@@ -82,8 +82,7 @@ public class PropertiesPanelTests
         Assert.False(clipboard.IsChecked); // Inherited from the folder.
         Assert.False(clipboard.IsEnabled);
 
-        var inherit = window.GetVisualDescendants().OfType<CheckBox>()
-            .Where(c => Equals(c.Content, "Inherit")).Last();
+        var inherit = InheritBoxFor(clipboard);
         inherit.IsChecked = false;
         clipboard.IsChecked = true;
         Assert.True(panel.TrySave());
@@ -123,6 +122,34 @@ public class PropertiesPanelTests
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From defaults for all connections");
+    }
+
+    /// <summary>The Inherit box in the same row as <paramref name="editor"/>.</summary>
+    static CheckBox InheritBoxFor(Control editor) =>
+        ((Control)editor.Parent!).GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Inherit"));
+
+    [AvaloniaFact]
+    public async Task The_ssh_agent_setting_is_on_by_default_and_can_be_turned_off()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var agent = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content is string text && text.StartsWith("Use SSH agent"));
+        Assert.True(agent.IsChecked);
+        Assert.True(SettingsResolver.Resolve(entry).UseSshAgent.Value);
+
+        InheritBoxFor(agent).IsChecked = false;
+        agent.IsChecked = false;
+        Assert.True(panel.TrySave());
+
+        Assert.False(entry.Settings.UseSshAgent);
+        Assert.False(SettingsResolver.Resolve(entry).UseSshAgent.Value);
     }
 
     sealed class EmptyCredentialStore : ICredentialStore

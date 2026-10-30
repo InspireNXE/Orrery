@@ -47,6 +47,9 @@ public sealed class InheritableSettings
     /// <summary>Copy and paste between this computer and the remote one (RDP, VNC). Null inherits; on by default.</summary>
     public bool? ShareClipboard { get; set; }
 
+    /// <summary>SSH: log in with the running agent's keys (Pageant, OpenSSH agent) when there's no saved credential. On by default.</summary>
+    public bool? UseSshAgent { get; set; }
+
     public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
 }
 

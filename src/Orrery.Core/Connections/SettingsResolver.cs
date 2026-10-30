@@ -12,7 +12,8 @@ public sealed record ResolvedSettings(
     Resolved<Guid?> CredentialId,
     Resolved<string?> Username,
     Resolved<string?> Domain,
-    Resolved<bool> ShareClipboard);
+    Resolved<bool> ShareClipboard,
+    Resolved<bool> UseSshAgent);
 
 public static class SettingsResolver
 {
@@ -34,7 +35,8 @@ public static class SettingsResolver
             credential,
             FindString(node, s => s.Username),
             FindString(node, s => s.Domain),
-            Find(node, s => s.ShareClipboard) is { } clip ? new Resolved<bool>(clip.Value!.Value, clip.Source) : new Resolved<bool>(true, null));
+            Find(node, s => s.ShareClipboard) is { } clip ? new Resolved<bool>(clip.Value!.Value, clip.Source) : new Resolved<bool>(true, null),
+            Find(node, s => s.UseSshAgent) is { } agent ? new Resolved<bool>(agent.Value!.Value, agent.Source) : new Resolved<bool>(true, null));
     }
 
     /// <summary>What <paramref name="node"/> would get if it inherited everything, i.e. its parent's values.</summary>

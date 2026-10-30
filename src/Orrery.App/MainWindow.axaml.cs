@@ -23,6 +23,7 @@ using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
+using Orrery.Protocols.Ssh.Agent;
 using Orrery.Protocols.Vnc;
 
 namespace Orrery.App;
@@ -500,7 +501,8 @@ public partial class MainWindow : Window
         }
     }
 
-    async Task ConnectAsync(ConnectionEntry entry)
+    /// <param name="skipAgent">Ask for a login even if an SSH agent is running: its keys were just refused.</param>
+    async Task ConnectAsync(ConnectionEntry entry, bool skipAgent = false)
     {
         if (_properties.Node == entry && !_properties.TrySave())
         {
@@ -540,6 +542,15 @@ public partial class MainWindow : Window
                 }
             }
 
+            // SSH with no saved credential: the agent's keys, if it has any, without asking for a password.
+            if (password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipAgent
+                && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
+            {
+                StartSshWithAgent(entry.Name, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
+                    whenRefused: () => ConnectAsync(entry, skipAgent: true));
+                return;
+            }
+
             if (password is null)
             {
                 var prompt = await new ConnectPromptWindow(_credentials, entry.Name, $"{entry.Host}:{resolved.Port.Value}", username, domain, offerRemember: true)
@@ -571,9 +582,16 @@ public partial class MainWindow : Window
         }
     }
 
-    async Task ConnectDirectAsync(QuickConnectChoice choice)
+    async Task ConnectDirectAsync(QuickConnectChoice choice, bool skipAgent = false)
     {
         var host = choice.Host!;
+        if (choice.Protocol == Protocol.Ssh && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
+        {
+            StartSshWithAgent(host, new ConnectionTarget(host, choice.Port, choice.Username, null),
+                whenRefused: () => ConnectDirectAsync(choice, skipAgent: true));
+            return;
+        }
+
         var prompt = await new ConnectPromptWindow(_credentials, host, $"{host}:{choice.Port}", choice.Username, null, offerRemember: false)
             .ShowDialog<ConnectPromptResult?>(this);
         if (prompt is null)
@@ -619,6 +637,41 @@ public partial class MainWindow : Window
         UpdateVaultButton();
     }
 
+    /// <summary>Whether an SSH agent is running and holds at least one key. Never throws.</summary>
+    static Task<bool> AgentHasKeysAsync() => Task.Run(() =>
+    {
+        try
+        {
+            return SshAgentClient.Find()?.ListIdentities().Count > 0;
+        }
+        catch (Exception e)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Couldn't reach the SSH agent: {e.Message}");
+            return false;
+        }
+    });
+
+    /// <summary>
+    /// Logs in with the agent's keys alone. If the server refuses them all, the tab closes and
+    /// <paramref name="whenRefused"/> asks for a login the usual way.
+    /// </summary>
+    void StartSshWithAgent(string title, ConnectionTarget target, Func<Task> whenRefused)
+    {
+        var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24);
+        session.StateChanged += (_, e) =>
+        {
+            if (e.State == SessionState.Failed && session.AuthenticationRejected)
+            {
+                Dispatcher.UIThread.Post(async () =>
+                {
+                    await CloseTabAsync(session);
+                    await whenRefused();
+                });
+            }
+        };
+        AddTab(new TerminalView(session), session, title);
+    }
+
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
     async Task StartSshAsync(string title, ConnectionTarget target, string password, Credential? saved)
     {
@@ -658,16 +711,22 @@ public partial class MainWindow : Window
             Tag = session,
         };
 
-        close.Click += async (_, _) =>
-        {
-            _sessions.Items.Remove(tab);
-            UpdateEmptyState();
-            await session.DisposeAsync();
-        };
+        close.Click += async (_, _) => await CloseTabAsync(session);
 
         _sessions.Items.Add(tab);
         _sessions.SelectedItem = tab;
         UpdateEmptyState();
+    }
+
+    async Task CloseTabAsync(IConnectionSession session)
+    {
+        if (_sessions.Items.OfType<TabItem>().FirstOrDefault(t => t.Tag == session) is { } tab)
+        {
+            _sessions.Items.Remove(tab);
+            UpdateEmptyState();
+        }
+
+        await session.DisposeAsync();
     }
 
     /// <summary>
