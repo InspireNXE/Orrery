@@ -35,6 +35,7 @@ public sealed class RemoteFrameView : Panel
     // VNC takes keysyms; the keysym sent on key down is remembered so the release matches it, even if
     // Shift changed what the key types in between.
     readonly Dictionary<PhysicalKey, uint> _keysymsDown = [];
+    readonly Action<bool, bool> _windowsKey;
 
     readonly TextBlock _status = new()
     {
@@ -69,6 +70,7 @@ public sealed class RemoteFrameView : Panel
     {
         Session = session;
         _zoom = zoom;
+        _windowsKey = OnWindowsKey;
         Focusable = true;
         ClipToBounds = true;
         Background = SurfaceBrush;
@@ -103,6 +105,7 @@ public sealed class RemoteFrameView : Panel
             _ => string.Empty,
         };
 
+        UpdateKeyCapture();
         if (state == SessionState.Connected)
         {
             Focus();
@@ -275,14 +278,52 @@ public sealed class RemoteFrameView : Panel
         _ => null,
     };
 
+    protected override void OnGotFocus(GotFocusEventArgs e)
+    {
+        base.OnGotFocus(e);
+        UpdateKeyCapture();
+    }
+
     protected override void OnLostFocus(RoutedEventArgs e)
     {
         base.OnLostFocus(e);
+        UpdateKeyCapture();
         ReleaseAllKeys();
     }
 
     // Switching windows keeps this control focused inside its window, so OnLostFocus doesn't fire.
-    void OnWindowDeactivated(object? sender, EventArgs e) => ReleaseAllKeys();
+    void OnWindowDeactivated(object? sender, EventArgs e)
+    {
+        UpdateKeyCapture();
+        ReleaseAllKeys();
+    }
+
+    void OnWindowActivated(object? sender, EventArgs e) => UpdateKeyCapture();
+
+    /// <summary>The Windows key goes to the remote side only while this session has the keyboard.</summary>
+    void UpdateKeyCapture()
+    {
+        if (IsFocused && _topLevel is WindowBase { IsActive: true } && Session.State == SessionState.Connected)
+        {
+            WindowsKeyHook.Capture(_windowsKey);
+        }
+        else
+        {
+            WindowsKeyHook.Release(_windowsKey);
+        }
+    }
+
+    void OnWindowsKey(bool right, bool pressed)
+    {
+        if (Session is IKeysymInput keysyms)
+        {
+            keysyms.SendKeysym(right ? 0xFFECu : 0xFFEBu, pressed); // Super_R / Super_L
+        }
+        else
+        {
+            Session.SendKey(right ? (ushort)0xE05C : (ushort)0xE05B, pressed);
+        }
+    }
 
     void ReleaseAllKeys()
     {
@@ -329,6 +370,7 @@ public sealed class RemoteFrameView : Panel
             if (_topLevel is WindowBase window)
             {
                 window.Deactivated += OnWindowDeactivated;
+                window.Activated += OnWindowActivated;
             }
         }
 
@@ -343,12 +385,14 @@ public sealed class RemoteFrameView : Panel
     {
         base.OnDetachedFromVisualTree(e);
         _resizeTimer.Stop();
+        WindowsKeyHook.Release(_windowsKey);
         if (_topLevel is not null)
         {
             _topLevel.ScalingChanged -= OnScalingChanged;
             if (_topLevel is WindowBase window)
             {
                 window.Deactivated -= OnWindowDeactivated;
+                window.Activated -= OnWindowActivated;
             }
 
             _topLevel = null;
