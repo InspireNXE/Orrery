@@ -30,17 +30,22 @@ static class WindowsKeyHook
     static IntPtr _hook;
 
     // Read on the hook thread, set on the UI thread.
-    static volatile Action<bool, bool>? _target;
+    static volatile Capturer? _capturer;
 
-    /// <summary>Sends the Windows keys to <paramref name="target"/> (right key?, pressed?) on the UI thread until <see cref="Release"/>.</summary>
-    public static void Capture(Action<bool, bool> target)
+    sealed record Capturer(Action<bool, bool> Target, IntPtr Window);
+
+    /// <summary>
+    /// Sends the Windows keys to <paramref name="target"/> (right key?, pressed?) on the UI thread, whenever
+    /// <paramref name="window"/> is the foreground window, until <see cref="Release"/>.
+    /// </summary>
+    public static void Capture(Action<bool, bool> target, IntPtr window)
     {
         if (!OperatingSystem.IsWindows())
         {
             return;
         }
 
-        _target = target;
+        _capturer = new Capturer(target, window);
         lock (Gate)
         {
             // Installed once, then left in place: an idle hook just passes keys along.
@@ -51,9 +56,12 @@ static class WindowsKeyHook
     /// <summary>Stops capturing, if <paramref name="target"/> is the one capturing.</summary>
     public static void Release(Action<bool, bool> target)
     {
+        if (_capturer is { } current && current.Target == target)
+        {
 #pragma warning disable CS0420 // Interlocked works on the volatile field directly.
-        Interlocked.CompareExchange(ref _target, null, target);
+            Interlocked.CompareExchange(ref _capturer, null, current);
 #pragma warning restore CS0420
+        }
     }
 
     static Thread StartHookThread()
@@ -85,8 +93,10 @@ static class WindowsKeyHook
 
     static IntPtr OnKey(int code, IntPtr message, IntPtr data)
     {
-        if (code >= 0 && _target is { } target)
+        // Only while Orrery's window is in front: switching away doesn't always reach the view in time.
+        if (code >= 0 && _capturer is { } capturer && GetForegroundWindow() == capturer.Window)
         {
+            var target = capturer.Target;
             uint virtualKey = (uint)Marshal.ReadInt32(data);
             if (virtualKey is VK_LWIN or VK_RWIN)
             {
@@ -127,6 +137,9 @@ static class WindowsKeyHook
 
     [DllImport("user32.dll")]
     static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
