@@ -68,6 +68,18 @@ public sealed record ImportReport(
     IReadOnlyList<string> NotYetSupported,
     IReadOnlyList<string> Warnings)
 {
+    /// <summary>Lines each list keeps; the rest are counted in one "and N more" line.</summary>
+    public const int MaxListedLines = 500;
+
+    /// <summary>
+    /// <paramref name="lines"/> with anything past <see cref="MaxListedLines"/> folded into one "and N more"
+    /// line. A list already shortened that way (one line over) comes back as it is.
+    /// </summary>
+    public static IReadOnlyList<string> Shorten(IReadOnlyList<string> lines) =>
+        lines.Count <= MaxListedLines + 1 ? lines : [.. lines.Take(MaxListedLines), More(lines.Count - MaxListedLines)];
+
+    internal static string More(int count) => $"…and {count} more";
+
     /// <summary>A Markdown summary for the import folder. Never contains secrets.</summary>
     public string ToMarkdown(DateTimeOffset when)
     {
@@ -112,6 +124,21 @@ public static class MRemoteNgImporter
     const double SupportedConfVersion = 2.6;
     const long MaxFileCharacters = 64L * 1024 * 1024;
 
+    /// <summary>Most folders, connections and other nodes a file may hold.</summary>
+    public const int MaxNodes = 20_000;
+
+    /// <summary>Most distinct saved credentials one import may create.</summary>
+    public const int MaxCredentials = 5_000;
+
+    /// <summary>Largest <c>KdfIterations</c> accepted; mRemoteNG's own options go up to 50,000.</summary>
+    public const int MaxKdfIterations = 1_000_000;
+
+    /// <summary>
+    /// Most PBKDF2 rounds one import may run in all (rounds × values decrypted): 4,000 passwords at
+    /// mRemoteNG's highest setting, and a few minutes of work for a hostile file.
+    /// </summary>
+    public const long MaxTotalKdfIterations = 200_000_000;
+
     static readonly Dictionary<string, Protocol> ProtocolMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["RDP"] = Protocol.Rdp,
@@ -127,7 +154,11 @@ public static class MRemoteNgImporter
         return Import(stream, Path.GetFileName(path), masterPassword);
     }
 
-    public static ImportResult Import(Stream xml, string sourceName, string? masterPassword = null)
+    public static ImportResult Import(Stream xml, string sourceName, string? masterPassword = null) =>
+        Import(xml, sourceName, masterPassword, MaxTotalKdfIterations);
+
+    /// <summary>As <see cref="Import(Stream, string, string?)"/>, with a smaller decryption budget for tests.</summary>
+    internal static ImportResult Import(Stream xml, string sourceName, string? masterPassword, long kdfBudget)
     {
         var settings = new XmlReaderSettings
         {
@@ -167,23 +198,67 @@ public static class MRemoteNgImporter
         }
 
         int iterations = int.TryParse((string?)root.Attribute("KdfIterations"), out var k) && k > 0 ? k : 1000;
-        var password = ResolvePassword((string?)root.Attribute("Protected") ?? string.Empty, iterations, masterPassword);
+        if (iterations > MaxKdfIterations)
+        {
+            throw new ImportException($"This file's KdfIterations ({iterations:N0}) is far higher than mRemoteNG uses, so Orrery won't try to decrypt it.");
+        }
+
+        var crypto = new Decryptor(iterations, kdfBudget);
+        var password = ResolvePassword((string?)root.Attribute("Protected") ?? string.Empty, crypto, masterPassword);
 
         var nodes = root.Elements("Node");
         if (string.Equals((string?)root.Attribute("FullFileEncryption"), "true", StringComparison.OrdinalIgnoreCase))
         {
-            var inner = MRemoteNgCrypto.TryDecrypt(root.Value.Trim(), password, iterations)
+            var inner = crypto.TryDecrypt(root.Value.Trim(), password)
                 ?? throw new ImportException("The file's contents couldn't be decrypted.");
-            using var reader = XmlReader.Create(new StringReader($"<root>{inner}</root>"), settings);
-            nodes = XElement.Load(reader).Elements("Node");
+            try
+            {
+                using var reader = XmlReader.Create(new StringReader($"<root>{inner}</root>"), settings);
+                nodes = XElement.Load(reader).Elements("Node");
+            }
+            catch (XmlException e)
+            {
+                throw new ImportException($"The file's decrypted contents aren't readable XML: {e.Message}");
+            }
         }
 
-        return new Builder(sourceName, password, iterations).Build(nodes.Select(e => MNode.Parse(e, null)).ToList());
+        var topLevel = nodes.ToList();
+        CheckSize(topLevel);
+        return new Builder(sourceName, password, crypto).Build(topLevel.Select(e => MNode.Parse(e, null)).ToList());
     }
 
-    static string ResolvePassword(string protectedMarker, int iterations, string? masterPassword)
+    /// <summary>
+    /// Refuses a file with too many nodes, or folders nested deeper than Orrery keeps, before anything walks
+    /// it recursively. The import lands in a folder of its own, which takes one level.
+    /// </summary>
+    static void CheckSize(List<XElement> topLevel)
     {
-        if (protectedMarker.Length == 0 || MRemoteNgCrypto.TryDecrypt(protectedMarker, MRemoteNgCrypto.DefaultPassword, iterations) is not null)
+        int count = 0;
+        var pending = new Stack<(XElement Element, int Depth)>(topLevel.Select(e => (e, 1)));
+        while (pending.TryPop(out var item))
+        {
+            if (++count > MaxNodes)
+            {
+                throw new ImportException($"This file has more than {MaxNodes:N0} folders and connections, more than Orrery imports at once.");
+            }
+
+            bool container = string.Equals((string?)item.Element.Attribute("Type"), "Container", StringComparison.OrdinalIgnoreCase);
+            if (item.Depth > ConnectionTree.MaxFolderDepth || (container && item.Depth >= ConnectionTree.MaxFolderDepth))
+            {
+                throw new ImportException($"This file's folders are nested too deeply. Orrery keeps at most {ConnectionTree.MaxFolderDepth} levels, "
+                    + "including the folder the import goes into.");
+            }
+
+            foreach (var child in item.Element.Elements("Node"))
+            {
+                pending.Push((child, item.Depth + 1));
+            }
+        }
+    }
+
+    static string ResolvePassword(string protectedMarker, Decryptor crypto, string? masterPassword)
+    {
+        if (protectedMarker.Length == 0 || crypto.TryDecrypt(protectedMarker, MRemoteNgCrypto.DefaultPassword) is not null)
         {
             return MRemoteNgCrypto.DefaultPassword;
         }
@@ -193,9 +268,41 @@ public static class MRemoteNgImporter
             throw new MasterPasswordRequiredException(wrongPassword: false);
         }
 
-        return MRemoteNgCrypto.TryDecrypt(protectedMarker, masterPassword, iterations) is not null
+        return crypto.TryDecrypt(protectedMarker, masterPassword) is not null
             ? masterPassword
             : throw new MasterPasswordRequiredException(wrongPassword: true);
+    }
+
+    /// <summary>Decrypts at the file's KDF cost, and refuses once one import has spent its budget.</summary>
+    sealed class Decryptor(int iterations, long budget)
+    {
+        long _spent;
+
+        public string? TryDecrypt(string value, string password) =>
+            MRemoteNgCrypto.TryDecrypt(value, password, iterations, beforeKeyDerivation: () =>
+            {
+                if (_spent + iterations > budget)
+                {
+                    throw new ImportException("This file would take too long to decrypt: it holds more encrypted values than Orrery will work through at its KdfIterations setting.");
+                }
+
+                _spent += iterations;
+            });
+    }
+
+    /// <summary>A report list that keeps its first lines and only counts the rest.</summary>
+    sealed class ReportLines
+    {
+        readonly List<string> _lines = [];
+        int _more;
+
+        public void Add(string line)
+        {
+            if (_lines.Count < ImportReport.MaxListedLines) _lines.Add(line);
+            else _more++;
+        }
+
+        public IReadOnlyList<string> ToList() => _more == 0 ? _lines : [.. _lines, ImportReport.More(_more)];
     }
 
     /// <summary>One mRemoteNG node: its attributes as written, and mRemoteNG's inheritance rules.</summary>
@@ -206,7 +313,11 @@ public static class MRemoteNgImporter
         MNode(XElement element, MNode? parent)
         {
             Parent = parent;
-            _attributes = element.Attributes().ToDictionary(a => a.Name.LocalName, a => a.Value, StringComparer.Ordinal);
+            // Settings are plain attributes. Namespace declarations and namespaced attributes can repeat a
+            // setting's local name (xmlns:Name, p:Name), so they're left out.
+            _attributes = element.Attributes()
+                .Where(a => !a.IsNamespaceDeclaration && a.Name.Namespace == XNamespace.None)
+                .ToDictionary(a => a.Name.LocalName, a => a.Value, StringComparer.Ordinal);
             Children = element.Elements("Node").Select(e => Parse(e, this)).ToList();
         }
 
@@ -230,14 +341,16 @@ public static class MRemoteNgImporter
         public string Path => Parent is null ? Name : $"{Parent.Path} / {Name}";
     }
 
-    sealed class Builder(string sourceName, string password, int iterations)
+    sealed class Builder(string sourceName, string password, Decryptor crypto)
     {
         readonly ConnectionTree _tree = new(new ConnectionFolder { Name = $"Imported from mRemoteNG ({DateTime.Now:yyyy-MM-dd})" });
         readonly Dictionary<(string, string, string), Credential> _credentials = [];
+        readonly HashSet<string> _credentialNames = new(StringComparer.Ordinal);
+        readonly Dictionary<string, int> _nextSuffix = new(StringComparer.Ordinal);
         readonly Dictionary<string, int> _protocols = [];
         readonly Dictionary<string, int> _unsupported = [];
-        readonly List<string> _skipped = [];
-        readonly List<string> _warnings = [];
+        readonly ReportLines _skipped = new();
+        readonly ReportLines _warnings = new();
         int _folders, _connections, _merged;
 
         public ImportResult Build(List<MNode> topLevel)
@@ -248,9 +361,9 @@ public static class MRemoteNgImporter
             }
 
             var report = new ImportReport(sourceName, _folders, _connections, _credentials.Count, _merged,
-                _protocols, _skipped,
+                _protocols, _skipped.ToList(),
                 _unsupported.OrderByDescending(u => u.Value).Select(u => $"{u.Key}: {u.Value} connection{(u.Value == 1 ? "" : "s")}").ToList(),
-                _warnings);
+                _warnings.ToList());
             return new ImportResult(_tree.Root, _credentials.Values.ToList(), report);
         }
 
@@ -347,7 +460,7 @@ public static class MRemoteNgImporter
                 return;
             }
 
-            if (MRemoteNgCrypto.TryDecrypt(encrypted, password, iterations) is not { Length: > 0 } secret)
+            if (crypto.TryDecrypt(encrypted, password) is not { Length: > 0 } secret)
             {
                 _warnings.Add($"{node.Path}: the saved password couldn't be decrypted, so it wasn't imported.");
                 return;
@@ -361,6 +474,11 @@ public static class MRemoteNgImporter
             }
             else
             {
+                if (_credentials.Count >= MaxCredentials)
+                {
+                    throw new ImportException($"This file has more than {MaxCredentials:N0} different saved passwords, more than Orrery imports at once.");
+                }
+
                 existing = new Credential(Guid.NewGuid(), CredentialName(username, domain), CredentialKind.Password,
                     Blank(username), Blank(domain), secret, Notes: "Imported from mRemoteNG");
                 _credentials[key] = existing;
@@ -372,12 +490,15 @@ public static class MRemoteNgImporter
         string CredentialName(string username, string domain)
         {
             var baseName = username.Length == 0 ? "Imported credential" : domain.Length == 0 ? username : $"{domain}\\{username}";
+            // Remembers where each base name's numbering got to, so a file of same-named credentials stays linear.
             var name = baseName;
-            for (int n = 2; _credentials.Values.Any(c => c.Name == name); n++)
+            int n = _nextSuffix.GetValueOrDefault(baseName, 2);
+            while (!_credentialNames.Add(name))
             {
-                name = $"{baseName} ({n})";
+                name = $"{baseName} ({n++})";
             }
 
+            _nextSuffix[baseName] = n;
             return name;
         }
 

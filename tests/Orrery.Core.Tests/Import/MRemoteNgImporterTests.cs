@@ -251,4 +251,131 @@ public class MRemoteNgImporterTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(evil));
         Assert.Throws<ImportException>(() => MRemoteNgImporter.Import(stream, "evil.xml"));
     }
+
+    // ---- Hostile files: each fails with ImportException and nothing else ----
+
+    /// <summary>A file whose root says what it's told; no password marker means mRemoteNG's default key.</summary>
+    static XDocument Crafted(object content, string kdfIterations = "1000", bool fullFile = false)
+    {
+        var file = File(Array.Empty<XElement>());
+        file.Root!.SetAttributeValue("KdfIterations", kdfIterations);
+        file.Root.SetAttributeValue("Protected", "");
+        file.Root.SetAttributeValue("FullFileEncryption", fullFile ? "true" : "false");
+        file.Root.Add(content);
+        return file;
+    }
+
+    static XElement Nested(int containers)
+    {
+        var node = Node("leaf", "Connection", Conn("RDP", "3389"));
+        for (int i = containers; i > 0; i--)
+        {
+            node = Node($"level {i}", "Container", node);
+        }
+
+        return node;
+    }
+
+    public static TheoryData<XAttribute> NamespacedNames() => new()
+    {
+        new XAttribute(XNamespace.Xmlns + "Name", "urn:x"),
+        new XAttribute(XNamespace.Get("urn:x") + "Name", "other"),
+    };
+
+    [Theory]
+    [MemberData(nameof(NamespacedNames))]
+    public void A_namespaced_attribute_with_a_setting_name_is_ignored(XAttribute extra)
+    {
+        var result = Import(Crafted(Node("n", "Connection", Conn("RDP", "3389"), extra)));
+        Assert.Equal("n", Assert.Single(result.Root.Children).Name);
+    }
+
+    [Theory]
+    [InlineData("<!DOCTYPE x [<!ENTITY a \"aaaa\">]><Node Name=\"&a;\" Type=\"Connection\" />")]
+    [InlineData("<Node Name=\"unclosed\" Type=\"Connection\"")]
+    public void An_encrypted_body_that_is_not_readable_xml_is_refused(string body)
+    {
+        var file = Crafted(MRemoteNgCrypto.Encrypt(body, MRemoteNgCrypto.DefaultPassword, 1000), fullFile: true);
+        Assert.Throws<ImportException>(() => Import(file));
+    }
+
+    [Fact]
+    public void Folders_nested_deeper_than_orrery_allows_are_refused()
+    {
+        Assert.Throws<ImportException>(() => Import(Crafted(Nested(61))));
+    }
+
+    [Fact]
+    public void Folders_nested_to_the_limit_still_import()
+    {
+        var result = Import(Crafted(Nested(59)));
+        Assert.Equal(59, result.Report.Folders);
+        Assert.Equal(1, result.Report.Connections);
+    }
+
+    [Fact]
+    public void Thousands_of_nested_folders_are_refused_before_anything_recurses()
+    {
+        Assert.Throws<ImportException>(() => Import(Crafted(Nested(2_000))));
+    }
+
+    [Fact]
+    public void A_file_with_too_many_nodes_is_refused()
+    {
+        var nodes = Enumerable.Range(0, 21_000).Select(i => new XElement("Node",
+            new XAttribute("Name", $"n{i}"), new XAttribute("Type", "Connection"), new XAttribute("Protocol", "RDP"), new XAttribute("Hostname", "h")));
+        Assert.Throws<ImportException>(() => Import(Crafted(nodes)));
+    }
+
+    [Fact]
+    public void A_key_derivation_cost_beyond_any_real_file_is_refused()
+    {
+        Assert.Throws<ImportException>(() => Import(Crafted(Node("n", "Connection", Conn("RDP", "3389")), kdfIterations: "2147483647")));
+    }
+
+    [Fact]
+    public void A_file_with_too_many_distinct_passwords_is_refused()
+    {
+        var nodes = Enumerable.Range(0, 5_001).Select(i => Node($"n{i}", "Connection", Conn("RDP", "3389"),
+            new XAttribute("Username", $"user{i}"), new XAttribute("Password", MRemoteNgCrypto.Encrypt($"pw{i}", MRemoteNgCrypto.DefaultPassword, 1))));
+        Assert.Throws<ImportException>(() => Import(Crafted(nodes, kdfIterations: "1")));
+    }
+
+    [Fact]
+    public void Long_report_lists_keep_the_first_500_lines_and_count_the_rest()
+    {
+        var nodes = Enumerable.Range(0, 600).Select(i => Node($"raw{i}", "Connection", Conn("RAW", "9000")));
+        var skipped = Import(Crafted(nodes)).Report.Skipped;
+
+        Assert.Equal(501, skipped.Count);
+        Assert.Contains("raw499", skipped[499]);
+        Assert.Contains("100 more", skipped[500]);
+    }
+
+    [Fact]
+    public void Credentials_with_the_same_name_get_numbered_without_clashing()
+    {
+        var result = Import(Crafted(new[]
+        {
+            Node("a", "Connection", Conn("RDP", "3389"), new XAttribute("Username", "u"), new XAttribute("Password", Pw("one"))),
+            Node("b", "Connection", Conn("RDP", "3389"), new XAttribute("Username", "u (2)"), new XAttribute("Password", Pw("two"))),
+            Node("c", "Connection", Conn("RDP", "3389"), new XAttribute("Username", "u"), new XAttribute("Password", Pw("three"))),
+            Node("d", "Connection", Conn("RDP", "3389"), new XAttribute("Username", "u"), new XAttribute("Password", Pw("four"))),
+        }));
+
+        Assert.Equal(["u", "u (2)", "u (3)", "u (4)"], result.Credentials.Select(c => c.Name).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Decrypting_stops_once_the_whole_import_would_cost_too_much()
+    {
+        var nodes = Enumerable.Range(0, 20).Select(i => Node($"n{i}", "Connection", Conn("RDP", "3389"),
+            new XAttribute("Username", $"user{i}"), new XAttribute("Password", Pw($"pw{i}"))));
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(Crafted(nodes).ToString()));
+
+        // Twenty passwords at 1000 rounds each need 20,000; allow half.
+        var e = Assert.Throws<ImportException>(() => MRemoteNgImporter.Import(stream, "test.xml", masterPassword: null, kdfBudget: 10_000));
+        Assert.Contains("too long to decrypt", e.Message);
+        Assert.True(MRemoteNgImporter.MaxTotalKdfIterations >= 4_000L * 50_000);
+    }
 }

@@ -3,4 +3,7 @@
     <PackageReference Include="BouncyCastle.Cryptography" Version="$(BouncyCastleVersion)" />
     <PackageReference Include="NSec.Cryptography" Version="26.4.0" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orrery.Core.Tests" />
+  </ItemGroup>
 </Project>

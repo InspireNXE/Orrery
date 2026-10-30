@@ -95,6 +95,47 @@ public sealed class KeychainCredentialStore(string indexPath, ISecretBackend bac
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Writes each secret, then the index once. If a write fails, the secrets this call added are removed
+    /// again and the index is left alone; a secret it replaced for an existing id isn't put back.
+    /// </summary>
+    public Task SaveAllAsync(IReadOnlyList<Credential> credentials)
+    {
+        lock (_lock)
+        {
+            var index = LoadIndex();
+            var known = index.Select(c => c.Id).ToHashSet();
+            var added = new List<Guid>();
+            try
+            {
+                foreach (var credential in credentials)
+                {
+                    WriteSecret(credential.Id, new SecretBlob(credential.Secret, credential.Passphrase));
+                    if (!known.Contains(credential.Id))
+                    {
+                        added.Add(credential.Id);
+                    }
+                }
+
+                var ids = credentials.Select(c => c.Id).ToHashSet();
+                index.RemoveAll(c => ids.Contains(c.Id));
+                index.AddRange(credentials.Select(c => c.Summary));
+                SaveIndex(index);
+            }
+            catch
+            {
+                foreach (var id in added)
+                {
+                    backend.Delete(KeyPrefix + id);
+                }
+
+                throw;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task DeleteAsync(Guid id)
     {
         lock (_lock)

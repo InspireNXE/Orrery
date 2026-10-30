@@ -32,7 +32,12 @@ public static class MRemoteNgCrypto
     const int KeyBits = 256;
 
     /// <returns>The plaintext, or null if the password is wrong or the value isn't in this format.</returns>
-    public static string? TryDecrypt(string value, string password, int iterations)
+    public static string? TryDecrypt(string value, string password, int iterations) =>
+        TryDecrypt(value, password, iterations, beforeKeyDerivation: null);
+
+    /// <param name="beforeKeyDerivation">Called just before the costly PBKDF2 step, which a value that isn't
+    /// in this format never reaches. The importer uses it to keep a budget; it may throw to stop.</param>
+    internal static string? TryDecrypt(string value, string password, int iterations, Action? beforeKeyDerivation)
     {
         if (string.IsNullOrEmpty(value))
         {
@@ -58,6 +63,7 @@ public static class MRemoteNgCrypto
         var nonce = data[SaltSize..(SaltSize + NonceSize)];
         var ciphertext = data[(SaltSize + NonceSize)..];
 
+        beforeKeyDerivation?.Invoke();
         var cipher = new GcmBlockCipher(new AesEngine());
         cipher.Init(false, new AeadParameters(DeriveKey(password, salt, iterations), MacBits, nonce, salt));
         var output = new byte[cipher.GetOutputSize(ciphertext.Length)];

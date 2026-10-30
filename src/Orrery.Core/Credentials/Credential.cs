@@ -60,5 +60,12 @@ public interface ICredentialStore
     Task<IReadOnlyList<CredentialSummary>> ListAsync();
     Task<Credential?> GetAsync(Guid id);
     Task SaveAsync(Credential credential);
+
+    /// <summary>
+    /// Saves many at once (an import) with one rewrite of the store's file. If it fails, credentials that
+    /// weren't in the store before aren't left in it.
+    /// </summary>
+    Task SaveAllAsync(IReadOnlyList<Credential> credentials);
+
     Task DeleteAsync(Guid id);
 }

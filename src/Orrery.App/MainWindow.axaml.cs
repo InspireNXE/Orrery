@@ -296,7 +296,7 @@ public partial class MainWindow : Window
         {
             _connectionStore.Save(_tree);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
             _ = Dialogs.ShowMessageAsync(this, "Couldn't save your connections", e.Message);
         }
@@ -400,6 +400,12 @@ public partial class MainWindow : Window
             }
             else if (DraggedNode(e) is { } node && DropTarget(e, node) is { } target)
             {
+                if (!ConnectionTree.CanPlace(node, target.Parent))
+                {
+                    _ = Dialogs.ShowMessageAsync(this, "Can't move this folder there", TooDeepMessage);
+                    return;
+                }
+
                 _properties.TrySave();
                 _tree.Move(node, target.Parent, target.Index);
                 Select(node.Id);
@@ -750,10 +756,18 @@ public partial class MainWindow : Window
     void OnNewFolderClick(object? sender, RoutedEventArgs e) =>
         AddAndEdit(new ConnectionFolder { Name = "New folder" });
 
+    static readonly string TooDeepMessage = $"Folders can be nested at most {ConnectionTree.MaxFolderDepth} levels deep.";
+
     void AddAndEdit(ConnectionNode node)
     {
-        _properties.TrySave();
         var parent = TargetFolder();
+        if (!ConnectionTree.CanPlace(node, parent))
+        {
+            _ = Dialogs.ShowMessageAsync(this, "Can't add a folder here", TooDeepMessage);
+            return;
+        }
+
+        _properties.TrySave();
         parent.Expanded = true;
         _filter.Text = string.Empty;
         _tree.Add(node, parent);
@@ -1542,6 +1556,14 @@ public partial class MainWindow : Window
                 await Dialogs.ShowMessageAsync(this, "Couldn't import this file", e.Message);
                 return;
             }
+            catch (Exception e)
+            {
+                // The importer means to fail only as above; anything else is a bug, not a reason to exit.
+                System.Diagnostics.Trace.TraceError($"Importing {path} failed: {e}");
+                await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
+                    "Orrery couldn't read this file. It may be damaged, or not an mRemoteNG connections file.");
+                return;
+            }
         }
 
         int already = result.CountAlreadyIn(_tree);
@@ -1566,13 +1588,12 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                foreach (var credential in result.Credentials)
-                {
-                    await _credentials.SaveAsync(credential);
-                }
+                // One rewrite of the vault or index, off the UI thread; the stores finish synchronously.
+                var credentials = result.Credentials;
+                await Task.Run(() => _credentials.SaveAllAsync(credentials));
             }
         }
-        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             await Dialogs.ShowMessageAsync(this, "Couldn't save the imported credentials", $"{e.Message}\n\nNothing was imported.");
             return;
