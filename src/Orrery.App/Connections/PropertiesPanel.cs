@@ -20,7 +20,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBlock _path = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBox _name = new(), _host = new() { FontFamily = Dialogs.MonoFont };
     readonly TextBox _notes = new() { AcceptsReturn = true, Height = 72, TextWrapping = TextWrapping.Wrap };
-    readonly Control _hostField;
+    readonly Control _hostField, _nameField, _notesField;
     readonly ComboBox _protocol = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
@@ -61,6 +61,8 @@ sealed class PropertiesPanel : UserControl
         _clipboardRow = new InheritRow("Clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value));
 
         _hostField = Dialogs.Field("Host", _host);
+        _nameField = Dialogs.Field("Name", _name);
+        _notesField = Dialogs.Field("Notes", _notes);
 
         var save = new Button { Content = "Save", Padding = new Thickness(16, 6) };
         save.Classes.Add("accent");
@@ -83,7 +85,7 @@ sealed class PropertiesPanel : UserControl
             Children =
             {
                 new StackPanel { Spacing = 2, Children = { _title, _path } },
-                Dialogs.Field("Name", _name),
+                _nameField,
                 _hostField,
                 _protocolRow.View,
                 _portRow.View,
@@ -91,7 +93,7 @@ sealed class PropertiesPanel : UserControl
                 _usernameRow.View,
                 _domainRow.View,
                 _clipboardRow.View,
-                Dialogs.Field("Notes", _notes),
+                _notesField,
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, revert, _connect } },
             },
@@ -140,8 +142,13 @@ sealed class PropertiesPanel : UserControl
             var own = node.Settings;
             var inherited = SettingsResolver.ResolveInherited(node);
 
-            _title.Text = string.IsNullOrWhiteSpace(node.Name) ? "(unnamed)" : node.Name;
-            _path.Text = node.Path is { Length: > 0 } path ? path : "Top level";
+            // The root folder isn't in the list; editing it sets the defaults everything else inherits.
+            bool defaults = node.Parent is null;
+            _title.Text = defaults ? "Defaults for all connections" : string.IsNullOrWhiteSpace(node.Name) ? "(unnamed)" : node.Name;
+            _path.Text = defaults ? "Used by every folder and connection that doesn't set its own. Inherit means Orrery's default."
+                : node.Path is { Length: > 0 } path ? path : "Top level";
+            _path.TextWrapping = defaults ? TextWrapping.Wrap : TextWrapping.NoWrap;
+            _nameField.IsVisible = _notesField.IsVisible = !defaults;
             _name.Text = node.Name;
             _hostField.IsVisible = _connect.IsVisible = node is ConnectionEntry;
             _host.Text = (node as ConnectionEntry)?.Host;
@@ -280,7 +287,7 @@ sealed class PropertiesPanel : UserControl
     }
 
     static string Describe<T>(Resolved<T> resolved) =>
-        resolved.Source is { } source ? $"From {(source.Parent is null ? "top level" : source.Name)}" : "Default";
+        resolved.Source is { } source ? source.Parent is null ? "From defaults for all connections" : $"From {source.Name}" : "Orrery's default";
 
     /// <summary>A label, an "Inherit" box, the editor, and where the inherited value comes from.</summary>
     sealed class InheritRow

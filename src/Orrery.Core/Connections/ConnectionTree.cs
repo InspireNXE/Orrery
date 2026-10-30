@@ -101,6 +101,51 @@ public sealed class ConnectionTree
         NotifyChanged();
     }
 
+    /// <summary>
+    /// Copies a connection or a whole folder, placing the copy right after the original with " (copy)" on
+    /// its name. Copies get new ids and lose their import source, so a later re-import doesn't take them
+    /// for the originals. Saved credentials are shared by id, not copied.
+    /// </summary>
+    public ConnectionNode Duplicate(ConnectionNode node)
+    {
+        if (node == Root)
+        {
+            throw new InvalidOperationException("The root folder can't be duplicated.");
+        }
+
+        var copy = Copy(node);
+        copy.Name = $"{node.Name} (copy)";
+        var parent = node.Parent!;
+        Insert(copy, parent, parent.ChildList.IndexOf(node) + 1);
+        NotifyChanged();
+        return copy;
+    }
+
+    static ConnectionNode Copy(ConnectionNode node)
+    {
+        ConnectionNode copy = node switch
+        {
+            ConnectionEntry entry => new ConnectionEntry { Host = entry.Host },
+            ConnectionFolder folder => new ConnectionFolder { Expanded = folder.Expanded },
+            _ => throw new NotSupportedException(node.GetType().Name),
+        };
+        copy.Name = node.Name;
+        copy.Notes = node.Notes;
+        copy.Settings = node.Settings.Clone();
+
+        if (node is ConnectionFolder source && copy is ConnectionFolder target)
+        {
+            foreach (var child in source.ChildList)
+            {
+                var childCopy = Copy(child);
+                target.ChildList.Add(childCopy);
+                childCopy.Parent = target;
+            }
+        }
+
+        return copy;
+    }
+
     public void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
     static void Insert(ConnectionNode node, ConnectionFolder parent, int? index)

@@ -210,4 +210,35 @@ public class ConnectionModelTests : IDisposable
             Directory.Delete(_dir, recursive: true);
         }
     }
+
+    [Fact]
+    public void Duplicate_copies_a_folder_deeply_right_after_the_original()
+    {
+        var tree = ConnectionTree.Empty();
+        var credential = Guid.NewGuid();
+        var folder = new ConnectionFolder { Name = "Prod", Settings = new InheritableSettings { Port = 3390, CredentialId = credential } };
+        var web = new ConnectionEntry { Name = "web", Host = "web.example", Notes = "front", ImportSourceId = "mremoteng:1" };
+        var after = new ConnectionEntry { Name = "after" };
+        tree.Add(folder, tree.Root);
+        tree.Add(after, tree.Root);
+        tree.Add(web, folder);
+
+        var copy = Assert.IsType<ConnectionFolder>(tree.Duplicate(folder));
+
+        Assert.Equal(["Prod", "Prod (copy)", "after"], tree.Root.Children.Select(c => c.Name));
+        Assert.NotEqual(folder.Id, copy.Id);
+        Assert.Equal(3390, copy.Settings.Port);
+        Assert.Equal(credential, copy.Settings.CredentialId);
+
+        var webCopy = Assert.IsType<ConnectionEntry>(Assert.Single(copy.Children));
+        Assert.Equal(("web", "web.example", "front"), (webCopy.Name, webCopy.Host, webCopy.Notes));
+        Assert.NotEqual(web.Id, webCopy.Id);
+        Assert.Null(webCopy.ImportSourceId);
+        Assert.Same(copy, webCopy.Parent);
+        Assert.Equal(3390, SettingsResolver.Resolve(webCopy).Port.Value);
+
+        // The copy's settings are its own.
+        copy.Settings.Port = 4000;
+        Assert.Equal(3390, folder.Settings.Port);
+    }
 }
