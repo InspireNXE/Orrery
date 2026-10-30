@@ -47,3 +47,4 @@ Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). 
 ## Owner decisions
 
 - 2026-10-30: profile confirmed as written, including its accepted risks.
+- 2026-10-30: packet 02 (S-2), option A. The VNC client allows only None and classic VNC auth.
