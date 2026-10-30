@@ -137,7 +137,7 @@ public sealed class TerminalView : Control
 
         if (state == SessionState.Connected)
         {
-            Dispatcher.UIThread.Post(() => Focus());
+            Dispatcher.UIThread.Post(() => SessionFocus.TakeIfFree(this));
         }
     }
 
