@@ -130,6 +130,25 @@ public class VaultFileStoreTests : IDisposable
         Assert.DoesNotContain("Sup3r-Secret!", Sample().ToString());
     }
 
+    [Fact]
+    public async Task Changing_the_master_password_keeps_the_credentials()
+    {
+        var credential = new Credential(Guid.NewGuid(), "admin", CredentialKind.Password, "root", null, "dummy-secret");
+        using (var store = NewStore())
+        {
+            await store.UnlockAsync("first password");
+            await store.SaveAsync(credential);
+            await Assert.ThrowsAsync<WrongVaultPasswordException>(() => store.ChangePasswordAsync("not it", "second password"));
+            await store.ChangePasswordAsync("first password", "second password");
+            Assert.Equal(credential, await store.GetAsync(credential.Id));
+        }
+
+        using var reopened = NewStore();
+        await Assert.ThrowsAsync<WrongVaultPasswordException>(() => reopened.UnlockAsync("first password"));
+        await reopened.UnlockAsync("second password");
+        Assert.Equal(credential, await reopened.GetAsync(credential.Id));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

@@ -180,6 +180,79 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         }
     }
 
+    /// <summary>
+    /// Sets a new master password. Only the data key is re-wrapped (under a fresh salt, with the current KDF
+    /// settings) and the contents re-encrypted with the same data key, so saved credentials are untouched.
+    /// The current password is checked against the file, not taken on trust from an unlocked vault.
+    /// </summary>
+    /// <exception cref="WrongVaultPasswordException"><paramref name="currentPassword"/> doesn't open the vault.</exception>
+    public async Task ChangePasswordAsync(string currentPassword, string newPassword)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(currentPassword);
+        ArgumentException.ThrowIfNullOrEmpty(newPassword);
+        if (IsLocked)
+        {
+            await UnlockAsync(currentPassword);
+        }
+
+        await Task.Run(() =>
+        {
+            KdfBlock oldKdf;
+            CipherBlock wrapped;
+            lock (_lock)
+            {
+                if (_file is null || _dataKey is null)
+                {
+                    throw new VaultLockedException();
+                }
+
+                (oldKdf, wrapped) = (_file.Kdf, _file.WrappedKey);
+            }
+
+            byte[]? dataKeyBytes;
+            using (var oldKek = DeriveKeyEncryptionKey(currentPassword, oldKdf))
+            {
+                dataKeyBytes = Aead.Decrypt(oldKek, Convert.FromBase64String(wrapped.Nonce),
+                    AssociatedData(oldKdf, "key"), Convert.FromBase64String(wrapped.Ciphertext));
+            }
+
+            if (dataKeyBytes is null)
+            {
+                throw new WrongVaultPasswordException();
+            }
+
+            try
+            {
+                var kdf = new KdfBlock(KdfName, _kdfForNewVaults.MemoryKiB, _kdfForNewVaults.Iterations, 1,
+                    Convert.ToBase64String(RandomNumberGenerator.GetBytes(SaltSize)));
+                using var kek = DeriveKeyEncryptionKey(newPassword, kdf);
+                var nonce = RandomNumberGenerator.GetBytes(Aead.NonceSize);
+                var rewrapped = Aead.Encrypt(kek, nonce, AssociatedData(kdf, "key"), dataKeyBytes);
+
+                lock (_lock)
+                {
+                    // Save re-encrypts the contents, which are bound to the new salt.
+                    var previous = _file!;
+                    _file = previous with { Kdf = kdf, WrappedKey = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(rewrapped)) };
+                    try
+                    {
+                        Unlocked();
+                        Save();
+                    }
+                    catch
+                    {
+                        _file = previous;
+                        throw;
+                    }
+                }
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(dataKeyBytes);
+            }
+        });
+    }
+
     public void Lock()
     {
         lock (_lock)
