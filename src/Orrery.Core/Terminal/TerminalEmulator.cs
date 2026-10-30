@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 namespace Orrery.Core.Terminal;
@@ -16,6 +17,9 @@ public sealed class TerminalEmulator
 {
     const int MaxParams = 32;
     const int MaxOscLength = 4096;
+    const int MaxIntermediates = 4;
+    const int MaxRepeat = 65535;
+    const int FeedSlice = 4096;
 
     readonly Decoder _utf8 = new UTF8Encoding(false, false).GetDecoder();
     readonly char[] _charBuffer = new char[8192];
@@ -45,6 +49,7 @@ public sealed class TerminalEmulator
     int _currentParam = -1;
     char _prefix;
     readonly StringBuilder _intermediates = new();
+    bool _intermediatesOverflow;
     readonly StringBuilder _osc = new();
 
     public TerminalEmulator(int columns, int rows, int maxScrollback = 5000)
@@ -171,22 +176,32 @@ public sealed class TerminalEmulator
     {
         string? title = null;
         bool bell = false;
+        string previousTitle;
+        int bells;
         lock (SyncRoot)
         {
-            var previousTitle = Title;
-            int bells = _bellCount;
-            while (data.Length > 0)
+            previousTitle = Title;
+            bells = _bellCount;
+        }
+
+        // The lock is taken per slice so a big chunk can't stall the UI thread, which renders under it.
+        while (data.Length > 0)
+        {
+            int take = Math.Min(data.Length, FeedSlice);
+            lock (SyncRoot)
             {
-                int take = Math.Min(data.Length, _charBuffer.Length / 2);
                 int chars = _utf8.GetChars(data[..take], _charBuffer, flush: false);
                 for (int i = 0; i < chars; i++)
                 {
                     Process(_charBuffer[i]);
                 }
-
-                data = data[take..];
             }
 
+            data = data[take..];
+        }
+
+        lock (SyncRoot)
+        {
             if (Title != previousTitle) title = Title;
             bell = _bellCount != bells;
         }
@@ -274,7 +289,7 @@ public sealed class TerminalEmulator
 
             case State.EscapeIntermediate:
                 if (cp < 0x20) { if (cp == 0x1B) StartEscape(); else Control(cp); }
-                else if (cp is >= 0x20 and <= 0x2F) _intermediates.Append((char)cp);
+                else if (cp is >= 0x20 and <= 0x2F) AddIntermediate((char)cp);
                 else { EscapeWithIntermediate(cp); _state = State.Ground; }
                 break;
 
@@ -311,6 +326,17 @@ public sealed class TerminalEmulator
     {
         _state = State.Escape;
         _intermediates.Clear();
+        _intermediatesOverflow = false;
+    }
+
+    /// <summary>
+    /// Real sequences have at most two intermediates. Past a small limit nothing more is kept (a host could
+    /// otherwise grow the buffer without bound) and the sequence is ignored at its final byte.
+    /// </summary>
+    void AddIntermediate(char c)
+    {
+        if (_intermediates.Length < MaxIntermediates) _intermediates.Append(c);
+        else _intermediatesOverflow = true;
     }
 
     void Control(int cp)
@@ -341,6 +367,7 @@ public sealed class TerminalEmulator
                 _currentParam = -1;
                 _prefix = '\0';
                 _intermediates.Clear();
+                _intermediatesOverflow = false;
                 break;
             case ']':
                 _state = State.Osc;
@@ -350,7 +377,7 @@ public sealed class TerminalEmulator
                 _state = State.IgnoreString;
                 break;
             case '(' or ')' or '*' or '+' or '#' or '%' or ' ':
-                _intermediates.Append((char)cp);
+                AddIntermediate((char)cp);
                 _state = State.EscapeIntermediate;
                 break;
             case '7': SaveCursor(ref _saved); break;
@@ -367,6 +394,7 @@ public sealed class TerminalEmulator
 
     void EscapeWithIntermediate(int cp)
     {
+        if (_intermediatesOverflow) return;
         var intermediate = _intermediates.Length > 0 ? _intermediates[0] : '\0';
         switch (intermediate)
         {
@@ -406,7 +434,7 @@ public sealed class TerminalEmulator
 
         if (c is >= ' ' and <= '/')
         {
-            _intermediates.Append(c);
+            AddIntermediate(c);
             return;
         }
 
@@ -432,6 +460,7 @@ public sealed class TerminalEmulator
 
     void DispatchCsi(char final)
     {
+        if (_intermediatesOverflow) return;
         var intermediate = _intermediates.ToString();
         if (_prefix == '?')
         {
@@ -478,7 +507,10 @@ public sealed class TerminalEmulator
             case 'X': EraseChars(P(0)); break;
             case 'Z': BackTab(P(0)); break;
             case 'a': MoveCursor(_cx + P(0), _cy); break;
-            case 'b': for (int i = 0; i < Math.Min(P(0), 65535); i++) Print(_lastPrinted); break;
+            case 'b':
+                // More than one screenful has no visible effect beyond scrolling, so don't spend time on it.
+                for (int i = 0; i < Math.Min(P(0), Math.Min(MaxRepeat, Columns * Rows)); i++) Print(_lastPrinted);
+                break;
             case 'c': if (P0(0) == 0) _pendingReplies.Add("\u001b[?62;22c"); break;
             case 'd': CursorPosition(P(0), 1, keepColumn: true); break;
             case 'e': MoveCursor(_cx, _cy + P(0)); break;
@@ -532,9 +564,12 @@ public sealed class TerminalEmulator
             _wrapPending = false;
         }
 
-        if (width == 2 && Columns < 2)
+        // Auto-wrap is off and a wide character doesn't fit in the last column: there is no room for its
+        // second cell, so print a width-1 replacement instead of writing past the margin.
+        if (width == 2 && _cx + 1 >= Columns)
         {
-            return;
+            cp = 0xFFFD;
+            width = 1;
         }
 
         var line = Screen[_cy];
@@ -1017,9 +1052,10 @@ public sealed class TerminalEmulator
             rows = Math.Max(1, rows);
             if (columns == Columns && rows == Rows) return;
 
+            // Scrollback first: growing the main screen pulls lines back out of it, and they must already fit.
+            foreach (var line in _scrollback) line.Resize(columns, CellStyle.Default);
             ResizeScreen(_main, columns, rows, cursorOnThis: !_altActive);
             ResizeScreen(_alt, columns, rows, cursorOnThis: _altActive);
-            foreach (var line in _scrollback) line.Resize(columns, CellStyle.Default);
 
             Columns = columns;
             Rows = rows;
@@ -1031,6 +1067,9 @@ public sealed class TerminalEmulator
             var tabs = _tabs;
             ResetTabs();
             Array.Copy(tabs, _tabs, Math.Min(tabs.Length, _tabs.Length));
+
+            Debug.Assert(_main.Count == rows && _alt.Count == rows, "Both screens have Rows lines.");
+            Debug.Assert(_main.Concat(_alt).Concat(_scrollback).All(l => l.Length == columns), "Every line is Columns wide.");
         }
 
         Updated?.Invoke();
@@ -1085,11 +1124,17 @@ public sealed class TerminalEmulator
     ];
 }
 
-/// <summary>How many cells a code point takes: 0 for combining marks, 2 for East Asian wide and emoji.</summary>
+/// <summary>How many cells a code point takes: 0 for combining marks and C1 controls, 2 for East Asian wide and emoji.</summary>
 public static class CharWidth
 {
     public static int Of(int cp)
     {
+        // C1 controls (U+0080-U+009F) draw nothing; kept out of cells so they can't reach copied or saved text.
+        if (cp is >= 0x80 and <= 0x9F)
+        {
+            return 0;
+        }
+
         if (cp is >= 0x0300 and <= 0x036F or >= 0x200B and <= 0x200F or >= 0xFE00 and <= 0xFE0F
             or >= 0x20D0 and <= 0x20FF or >= 0x1AB0 and <= 0x1AFF or >= 0x1DC0 and <= 0x1DFF or 0x200D)
         {

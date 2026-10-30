@@ -266,7 +266,39 @@ public class TerminalEmulatorTests
     {
         Assert.Equal("\u0003", TerminalKeys.ControlCharacter('c'));
         Assert.Equal("\u001b[200~a\rb\u001b[201~", TerminalKeys.Paste("a\r\nb", bracketed: true));
-        Assert.Equal("x", TerminalKeys.Paste("x\u001b[201~", bracketed: true)[6..7]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Paste_cannot_re_form_the_end_marker_or_smuggle_controls(bool bracketed)
+    {
+        // Stripping "ESC[201~" once leaves "ESC[201~" behind when it was nested inside another copy.
+        var pasted = TerminalKeys.Paste("a\u001b[2\u001b[201~01~rm -rf /\r\n\tb\u0003\u0000\u007fc", bracketed);
+
+        if (bracketed)
+        {
+            Assert.StartsWith("\u001b[200~", pasted);
+            Assert.EndsWith("\u001b[201~", pasted);
+            Assert.Equal(1, CountOf(pasted, "\u001b[201~"));
+            Assert.Equal(2, pasted.Count(c => c == '\u001b'));
+        }
+        else
+        {
+            Assert.DoesNotContain('\u001b', pasted);
+        }
+
+        // Everything else is kept: printable text, CR (from LF too) and tab.
+        Assert.Contains("a[2[201~01~rm -rf /\r\tbc", pasted);
+        Assert.DoesNotContain('\u0003', pasted);
+        Assert.DoesNotContain('\u0000', pasted);
+    }
+
+    static int CountOf(string text, string needle)
+    {
+        int count = 0;
+        for (int i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = text.IndexOf(needle, i + 1, StringComparison.Ordinal)) count++;
+        return count;
     }
 
     [Theory]
@@ -309,5 +341,130 @@ public class TerminalEmulatorTests
 
         Assert.Equal(0, t.ScrollbackCount);
         Assert.Equal(["c", "d"], Screen(t));
+    }
+
+    // ---- Limits on what a host can make the emulator do ----
+
+    [Fact]
+    public void Wide_character_in_the_last_column_without_auto_wrap_stays_inside_the_screen()
+    {
+        var t = new TerminalEmulator(80, 24);
+        t.Feed($"{Esc}[?7l{Esc}[1;80H中");
+
+        var line = t.ScreenLine(0);
+        Assert.Equal(80, line.Length);
+        // No room for two cells: a width-1 replacement goes in the last cell and the cursor stays put.
+        Assert.Equal(0xFFFD, line.Cells[79].CodePoint);
+        Assert.Equal(79, t.CursorX);
+        Assert.Equal(0, t.CursorY);
+        Assert.False(line.Wrapped);
+    }
+
+    [Fact]
+    public void Growing_both_dimensions_leaves_every_line_the_new_width()
+    {
+        var t = new TerminalEmulator(80, 24, 5000);
+        for (int i = 0; i < 40; i++) t.Feed($"line {i}\r\n");
+
+        t.Resize(120, 30);
+
+        for (int row = 0; row < t.ScrollbackCount + t.Rows; row++)
+        {
+            Assert.Equal(120, t.LineAt(row).Length);
+        }
+
+        // These used to index past the 80-cell lines pulled back from scrollback.
+        t.Feed($"{Esc}[1;100Hx");
+        Assert.Equal('x', t.ScreenLine(0).Cells[99].CodePoint);
+        t.Feed($"{Esc}#8{Esc}[1;100H{Esc}[2P{Esc}[1;1H中");
+        Assert.Equal(120, t.ScreenLine(0).Length);
+    }
+
+    [Fact]
+    public void Resizing_keeps_the_alternate_screen_the_new_size_too()
+    {
+        var t = new TerminalEmulator(80, 24, 5000);
+        t.Feed($"{Esc}[?1049h");
+        t.Resize(120, 30);
+        t.Feed($"{Esc}[?1049l");
+
+        Assert.All(Enumerable.Range(0, t.Rows), row => Assert.Equal(120, t.ScreenLine(row).Length));
+    }
+
+    static int IntermediateLength(TerminalEmulator t) =>
+        ((System.Text.StringBuilder)typeof(TerminalEmulator)
+            .GetField("_intermediates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(t)!).Length;
+
+    [Fact]
+    public void Endless_escape_intermediates_are_not_buffered_and_the_sequence_is_ignored()
+    {
+        var t = Term(columns: 20);
+        t.Feed($"{Esc}(");
+        t.Feed(new string(' ', 1024 * 1024));
+        Assert.True(IntermediateLength(t) <= 8);
+
+        // The final byte of the over-long sequence does nothing, so this isn't line drawing...
+        t.Feed("0q");
+        Assert.Equal("q", Row(t, 0));
+
+        // ...and a normal sequence afterwards still works.
+        t.Feed($"{Esc}(0q");
+        Assert.Equal("q─", Row(t, 0));
+    }
+
+    [Fact]
+    public void Endless_csi_intermediates_are_not_buffered()
+    {
+        var t = Term(columns: 20);
+        t.Feed($"{Esc}[");
+        t.Feed(new string(' ', 1024 * 1024));
+        Assert.True(IntermediateLength(t) <= 8);
+
+        t.Feed("m");
+        t.Feed("ok");
+        Assert.Equal("ok", Row(t, 0));
+    }
+
+    [Fact]
+    public void Repeat_character_is_clamped_to_one_screenful()
+    {
+        var t = new TerminalEmulator(80, 24, 5000);
+        t.Feed($"x{Esc}[65535b");
+
+        Assert.True(t.AllText().Count(c => c == 'x') <= 80 * 24 + 1);
+        Assert.True(t.ScrollbackCount <= 24);
+    }
+
+    [Fact]
+    public void Feeding_in_slices_still_reports_title_bell_and_replies_once()
+    {
+        var t = Term(columns: 20);
+        var titles = new List<string>();
+        var replies = new List<string>();
+        int bells = 0;
+        t.TitleChanged += titles.Add;
+        t.Reply += replies.Add;
+        t.Bell += () => bells++;
+
+        // Well over one slice, with the events spread across it.
+        t.Feed($"{Esc}]0;first\u0007" + new string('a', 6000) + "\u0007" + new string('b', 6000) + $"{Esc}[5n");
+
+        Assert.Equal(["first"], titles);
+        Assert.Equal(["\u001b[0n"], replies);
+        Assert.Equal(1, bells);
+    }
+
+    [Fact]
+    public void C1_control_code_points_never_reach_a_cell()
+    {
+        var t = Term(columns: 20);
+        t.Feed("a\u009bb\u009dc\u0085d");
+
+        Assert.Equal("abcd", Row(t, 0));
+        var all = t.AllText();
+        Assert.DoesNotContain('\u009b', all);
+        Assert.DoesNotContain('\u009d', all);
+        Assert.DoesNotContain('\u0085', all);
     }
 }
