@@ -26,7 +26,8 @@ sealed class PropertiesPanel : UserControl
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
     readonly CheckBox _clipboard = new() { Content = "Share the clipboard" };
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow;
+    readonly CheckBox _sshAgent = new() { Content = "Use SSH agent keys (Pageant, OpenSSH agent)" };
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect;
     readonly ScrollViewer _editorView;
@@ -59,6 +60,7 @@ sealed class PropertiesPanel : UserControl
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
         _clipboardRow = new InheritRow("Clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value));
+        _sshAgentRow = new InheritRow("SSH agent", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
@@ -93,6 +95,7 @@ sealed class PropertiesPanel : UserControl
                 _usernameRow.View,
                 _domainRow.View,
                 _clipboardRow.View,
+                _sshAgentRow.View,
                 _notesField,
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { save, revert, _connect } },
@@ -108,7 +111,8 @@ sealed class PropertiesPanel : UserControl
         _protocol.SelectionChanged += (_, _) => MarkDirty();
         _credential.ChoiceChanged += (_, _) => MarkDirty();
         _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow })
+        _sshAgent.IsCheckedChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -182,6 +186,9 @@ sealed class PropertiesPanel : UserControl
             _clipboardRow.Load(own.ShareClipboard is null, Describe(inherited.ShareClipboard));
             _clipboard.IsChecked = own.ShareClipboard ?? inherited.ShareClipboard.Value;
 
+            _sshAgentRow.Load(own.UseSshAgent is null, Describe(inherited.UseSshAgent));
+            _sshAgent.IsChecked = own.UseSshAgent ?? inherited.UseSshAgent.Value;
+
             Content = _editorView;
         }
         finally
@@ -239,6 +246,7 @@ sealed class PropertiesPanel : UserControl
             Username = _usernameRow.Inherit.IsChecked == true ? null : _username.Text?.Trim() ?? string.Empty,
             Domain = _domainRow.Inherit.IsChecked == true ? null : _domain.Text?.Trim() ?? string.Empty,
             ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
+            UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
         };
         _node.Name = name;
         _node.Notes = string.IsNullOrWhiteSpace(_notes.Text) ? null : _notes.Text.Trim();

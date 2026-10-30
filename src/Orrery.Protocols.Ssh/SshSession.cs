@@ -3,12 +3,16 @@ using System.Text;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Renci.SshNet;
+using Orrery.Protocols.Ssh.Agent;
 using Renci.SshNet.Common;
 
 namespace Orrery.Protocols.Ssh;
 
-/// <summary>How to log in: a password (also answers keyboard-interactive prompts) or a private key.</summary>
-public sealed record SshLogin(string Username, string? Password, string? PrivateKey = null, string? Passphrase = null);
+/// <summary>
+/// How to log in: a password (also answers keyboard-interactive prompts) or a private key, after the SSH
+/// agent's keys when <see cref="UseAgent"/> is set. A null password means don't try one.
+/// </summary>
+public sealed record SshLogin(string Username, string? Password, string? PrivateKey = null, string? Passphrase = null, bool UseAgent = false);
 
 /// <summary>
 /// An interactive shell over SSH.NET with an xterm-256color pty. The host key is checked during key
@@ -35,6 +39,9 @@ public sealed class SshSession : ITerminalSession
 
     public ConnectionTarget Target { get; }
     public SessionState State { get; private set; } = SessionState.Connecting;
+
+    /// <summary>True when the server turned down every way of logging in that was tried.</summary>
+    public bool AuthenticationRejected { get; private set; }
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
     public event Action<byte[]>? DataReceived;
@@ -88,9 +95,20 @@ public sealed class SshSession : ITerminalSession
             lock (_lock) _shell = shell;
             SetState(SessionState.Connected);
         }
+        catch (NoLoginMethodException e)
+        {
+            AuthenticationRejected = true;
+            Fail(e.Message);
+        }
         catch (SshAuthenticationException)
         {
-            Fail("The username or password was rejected.");
+            AuthenticationRejected = true;
+            Fail(login switch
+            {
+                { UseAgent: true, Password: null, PrivateKey: null } => "The server didn't accept any of the SSH agent's keys.",
+                { PrivateKey: not null } => "The server didn't accept the key.",
+                _ => "The username or password was rejected.",
+            });
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
@@ -120,24 +138,57 @@ public sealed class SshSession : ITerminalSession
 
     static AuthenticationMethod[] AuthenticationMethods(SshLogin login)
     {
+        var methods = new List<AuthenticationMethod>();
+        if (login.UseAgent && AgentKeys() is { Length: > 0 } agentKeys)
+        {
+            methods.Add(new PrivateKeyAuthenticationMethod(login.Username, agentKeys));
+        }
+
         if (login.PrivateKey is { Length: > 0 } key)
         {
             using var stream = new MemoryStream(Encoding.UTF8.GetBytes(key));
             var keyFile = string.IsNullOrEmpty(login.Passphrase) ? new PrivateKeyFile(stream) : new PrivateKeyFile(stream, login.Passphrase);
-            return [new PrivateKeyAuthenticationMethod(login.Username, keyFile)];
+            methods.Add(new PrivateKeyAuthenticationMethod(login.Username, keyFile));
+        }
+        else if (login.Password is { } password)
+        {
+            var interactive = new KeyboardInteractiveAuthenticationMethod(login.Username);
+            interactive.AuthenticationPrompt += (_, e) =>
+            {
+                foreach (var prompt in e.Prompts)
+                {
+                    prompt.Response = password;
+                }
+            };
+            methods.Add(new PasswordAuthenticationMethod(login.Username, password));
+            methods.Add(interactive);
         }
 
-        var password = login.Password ?? string.Empty;
-        var interactive = new KeyboardInteractiveAuthenticationMethod(login.Username);
-        interactive.AuthenticationPrompt += (_, e) =>
+        if (methods.Count == 0)
         {
-            foreach (var prompt in e.Prompts)
-            {
-                prompt.Response = password;
-            }
-        };
+            throw new NoLoginMethodException();
+        }
 
-        return [new PasswordAuthenticationMethod(login.Username, password), interactive];
+        return [.. methods];
+    }
+
+    /// <summary>The running agent's keys, or none when there's no agent or it can't be reached.</summary>
+    static IPrivateKeySource[] AgentKeys()
+    {
+        try
+        {
+            if (SshAgentClient.Find() is not { } agent)
+            {
+                return [];
+            }
+
+            return [.. agent.ListIdentities().Select(identity => new AgentKeySource(agent, identity))];
+        }
+        catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException or System.Net.Sockets.SocketException or System.ComponentModel.Win32Exception)
+        {
+            Trace.TraceWarning($"Couldn't use the SSH agent: {e.Message}");
+            return [];
+        }
     }
 
     public void Send(ReadOnlySpan<byte> data)
@@ -227,3 +278,6 @@ public sealed class SshSession : ITerminalSession
         StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
     }
 }
+
+/// <summary>Nothing to log in with: the agent had no keys (or went away) and there's no password or key.</summary>
+sealed class NoLoginMethodException() : SshAuthenticationException("The SSH agent has no keys, and there's no password to try.");

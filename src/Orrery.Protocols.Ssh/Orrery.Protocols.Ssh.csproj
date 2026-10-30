@@ -3,4 +3,7 @@
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <ProjectReference Include="..\Orrery.Core\Orrery.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orrery.Protocols.Ssh.Tests" />
+  </ItemGroup>
 </Project>
