@@ -24,6 +24,7 @@ Nothing here has run yet.
 | 16 | [Focus on connect](16-focus-on-connect.md) | Mechanical | S-30 | 06, 15 (file) | sonnet-low | Ready after 06 and 15 |
 | 17 | [BouncyCastle pin](17-bouncycastle-pin.md) | Mechanical | S-34 | — | sonnet-low | Ready |
 | 18 | [IronRDP upgrade](18-ironrdp-upgrade.md) | Mechanical | S-7 | 01 | sonnet-low | Blocked: no package with the fixes yet |
+| 19 | [NuGet lock files](19-nuget-lock-files.md) | Mechanical | owner request | 17 | sonnet-medium | Ready after 17 |
 
 "(file)" means the packets don't need each other's results but edit the same files, so they run one after the other.
 
@@ -37,14 +38,12 @@ Runners are the agents in `.claude/agents/packet-*.md`, chosen by how much judge
   sends or stores credentials (02, 12, 13), deleting files (03), and the trust stores' folder access (05).
 - **opus-medium:** Guided packets that need judgement across several files: threading in the SSH session (06), and import
   across Core, App and the credential store interface (10).
-- **sonnet-medium:** Mechanical packets that touch several files or need new tests (04, 07, 09, 11, 14, 15).
+- **sonnet-medium:** Mechanical packets that touch several files or need new tests (04, 07, 09, 11, 14, 15, 19).
 - **sonnet-low:** Mechanical packets that change a few lines in one place (08, 16, 17, 18).
 
 ## Owner decisions
 
-Open:
-1. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
-   plus a repo `nuget.config` with source mapping? Not packeted yet.
+Open: none.
 
 Decided:
 - 2026-10-30: profile confirmed as written, including its accepted risks.
@@ -52,6 +51,7 @@ Decided:
 - 2026-10-30: packet 05, option A. Protected ACLs on folders Orrery creates, plus a warning for open folders.
 - 2026-10-30: packet 12, option A. New data key on every master password change.
 - 2026-10-30: lower-integrity processes of the same user count as crossing a boundary. S-28 is High.
+- 2026-10-30: lock files and source mapping, yes. Packet 19.
 
 ## Orchestrator
 
@@ -73,10 +73,10 @@ exactly.
 
 ### Order and concurrency
 Run these four chains side by side, at most four workers at once. Within a chain, one packet at a time, in order:
-- A, remote frames: 01, 09, 15, then 02 when answered (it edits `VncSession.cs` after 01).
-- B, storage and the main window: 03, 04, 10, 11, then 05 and 12 when answered.
+- A, remote frames: 01, 09, 15, 02 (02 edits `VncSession.cs` after 01).
+- B, storage and the main window: 03, 04, 05, 10, 11, 12 (05 after 04 and 12 after 11, which share files).
 - C, SSH: 06, 13, 14.
-- D, independent: 07, 08, 17.
+- D, independent: 07, 08, 17, 19 (19 after 17).
 Packet 16 goes last, after 06 and 15 are both Done. Packet 18 waits for its upstream package.
 
 Two packets that edit the same file never run at once. If a worker's plan or report shows it touching a file another

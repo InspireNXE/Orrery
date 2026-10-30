@@ -29,13 +29,12 @@ programs outside the repo, mostly in the session scratchpad, to construct failin
 edited or built during the pass. Unverified finder and verifier notes are kept in
 `%LOCALAPPDATA%\orrery-audit\2026-10\raw\` (outside the repo).
 
-Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). Worker agents:
+Packets: `packets/00-README.md` (19 packets, written 2026-10-30, none run yet). Worker agents:
 `.claude/agents/packet-{opus-high,opus-medium,sonnet-medium,sonnet-low}.md`.
 
 ## Waiting on the owner
 
-1. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked
-   mode, plus a repo `nuget.config` with package source mapping? Not packeted yet.
+Nothing.
 
 ## Owner decisions
 
@@ -46,3 +45,4 @@ Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). 
 - 2026-10-30: packet 12 (S-9), option A. A master password change also replaces the vault's data key.
 - 2026-10-30: lower-integrity processes of the same user (a sandboxed browser renderer) count as crossing a
   boundary. Added to the profile; S-28 raised from Low to High (counts now 1 Critical, 4 High, 15 Medium, 14 Low).
+- 2026-10-30: lock files in locked mode and a repo `nuget.config` with source mapping, yes. Packet 19.
