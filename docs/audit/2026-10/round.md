@@ -29,6 +29,9 @@ programs outside the repo, mostly in the session scratchpad, to construct failin
 edited or built during the pass. Unverified finder and verifier notes are kept in
 `%LOCALAPPDATA%\orrery-audit\2026-10\raw\` (outside the repo).
 
+Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). Worker agents:
+`.claude/agents/packet-{opus-high,opus-medium,sonnet-medium,sonnet-low}.md`.
+
 ## Waiting on the owner
 
 1. **Lower-integrity processes.** Should a low-integrity process of the same user, such as a sandboxed browser
