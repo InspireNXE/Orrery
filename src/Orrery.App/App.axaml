@@ -238,6 +238,9 @@
     <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot">
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="MinHeight" Value="30" />
+      <!-- Every row keeps the selected row's edge, transparent, so selecting one doesn't shift its text. -->
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="2,0,0,0" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot:pointerover">
       <Setter Property="Background" Value="#1A1D23" />
@@ -261,6 +264,28 @@
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ ContentPresenter#PART_Header">
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+
+    <!-- Lists in the side panel (credentials, recent) match the connection tree's rows. -->
+    <Style Selector="ListBox.side ListBoxItem">
+      <Setter Property="Padding" Value="10,2,8,2" />
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="2,0,0,0" />
+      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+    </Style>
+    <Style Selector="ListBox.side ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1A1D23" />
+      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+    </Style>
+    <Style Selector="ListBox.side ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="ListBox.side ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#262C38" />
     </Style>
 
     <Style Selector="ToolTip">

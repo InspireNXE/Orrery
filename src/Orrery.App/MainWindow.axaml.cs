@@ -60,8 +60,13 @@ public partial class MainWindow : Window
     readonly StackPanel _sessionActions;
     readonly TextBlock _sessionAddress, _sessionDetail, _sessionCount;
     readonly Controls.StrokeIcon _sessionLock;
-    readonly Border _connectionsPanel, _dimmer;
-    readonly Button _connectionsRailButton, _importDropZone;
+    readonly Border _sidePanel, _propertiesHost, _dimmer;
+    readonly Button _importDropZone;
+    readonly Dictionary<string, (Button RailButton, Control View)> _sides;
+    readonly RecentConnections _recent;
+    readonly RecentPanel _recentPanel;
+    readonly CredentialsView _credentialsView;
+    string _side = "connections";
     readonly Button _lockVault;
     readonly MenuItem _connectMenuItem, _duplicateMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
@@ -105,8 +110,14 @@ public partial class MainWindow : Window
         _sessionDetail = this.FindControl<TextBlock>("SessionDetail")!;
         _sessionLock = this.FindControl<Controls.StrokeIcon>("SessionLock")!;
         _sessionCount = this.FindControl<TextBlock>("SessionCountText")!;
-        _connectionsPanel = this.FindControl<Border>("ConnectionsPanel")!;
-        _connectionsRailButton = this.FindControl<Button>("ConnectionsRailButton")!;
+        _sidePanel = this.FindControl<Border>("SidePanel")!;
+        _propertiesHost = this.FindControl<Border>("PropertiesHost")!;
+        _sides = new()
+        {
+            ["connections"] = (this.FindControl<Button>("ConnectionsRailButton")!, this.FindControl<Control>("ConnectionsSide")!),
+            ["credentials"] = (this.FindControl<Button>("CredentialsRailButton")!, this.FindControl<Control>("CredentialsSide")!),
+            ["recent"] = (this.FindControl<Button>("RecentRailButton")!, this.FindControl<Control>("RecentSide")!),
+        };
         _importDropZone = this.FindControl<Button>("ImportDropZone")!;
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
@@ -127,7 +138,11 @@ public partial class MainWindow : Window
         _credentials = CredentialStores.For(location, _settingsStore.Load());
         if (_credentials is VaultFileStore vault)
         {
-            vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(UpdateVaultButton);
+            vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(() =>
+            {
+                UpdateVaultButton();
+                _credentialsView?.ShowLocked();
+            });
         }
 
         _connectionStore = ConnectionStore.In(location);
@@ -143,7 +158,21 @@ public partial class MainWindow : Window
 
         _properties = new PropertiesPanel(_tree, _credentials);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
-        this.FindControl<Border>("PropertiesHost")!.Child = _properties;
+        _propertiesHost.Child = _properties;
+
+        _credentialsView = new CredentialsView(_credentials, async () =>
+        {
+            bool unlocked = await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this);
+            UpdateVaultButton();
+            return unlocked;
+        });
+        _credentialsView.Changed += async (_, _) => await _properties.ShowAsync(_properties.Node);
+        this.FindControl<ContentControl>("CredentialsSide")!.Content = _credentialsView.List;
+
+        _recent = RecentConnections.In(location);
+        _recentPanel = new RecentPanel(_recent);
+        _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
+        this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
 
         WireTree();
         WireTitleBar();
@@ -374,27 +403,66 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Leaves room for the system's window buttons: on the right on Windows, on the left on macOS. Where the
-    /// window keeps its own title bar (most Linux desktops), none is needed.
+    /// window keeps its own title bar (most Linux desktops), none is needed. Both side columns stay equal
+    /// so quick connect is centred on the window.
     /// </summary>
     void FitTitleBarToCaptionButtons()
     {
-        var captionSpace = this.FindControl<Border>("CaptionSpace")!;
-        var brand = this.FindControl<Control>("Brand")!;
+        var columns = this.FindControl<Grid>("TitleBarGrid")!.ColumnDefinitions;
+        double side = 160;
         if (!IsExtendedIntoWindowDecorations)
         {
-            captionSpace.Width = 16;
+            side = 120;
         }
         else if (OperatingSystem.IsMacOS())
         {
-            captionSpace.Width = 16;
-            brand.Margin = new Thickness(80, 0, 16, 0);
+            side = 180;
+            this.FindControl<Control>("Brand")!.Margin = new Thickness(80, 0, 16, 0);
         }
+
+        columns[0].Width = columns[2].Width = new GridLength(side);
     }
 
-    void OnToggleConnectionsClick(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// The rail switches the side panel between connections, credentials and recent. Clicking the open
+    /// one hides the panel, as in VS Code. Credentials edit in the right-hand pane, like connections.
+    /// </summary>
+    async void OnRailClick(object? sender, RoutedEventArgs e)
     {
-        _connectionsPanel.IsVisible = !_connectionsPanel.IsVisible;
-        _connectionsRailButton.Classes.Set("active", _connectionsPanel.IsVisible);
+        if ((sender as Control)?.Tag is not string side)
+        {
+            return;
+        }
+
+        if (side == _side && _sidePanel.IsVisible)
+        {
+            _sidePanel.IsVisible = false;
+            _sides[side].RailButton.Classes.Set("active", false);
+            return;
+        }
+
+        _properties.TrySave();
+        _side = side;
+        _sidePanel.IsVisible = true;
+        foreach (var (name, (button, view)) in _sides)
+        {
+            button.Classes.Set("active", name == side);
+            view.IsVisible = name == side;
+        }
+
+        _propertiesHost.Child = side == "credentials" ? _credentialsView.Editor : _properties;
+        switch (side)
+        {
+            case "credentials":
+                await _credentialsView.ShowAsync();
+                break;
+            case "recent":
+                _recentPanel.Refresh();
+                break;
+            default:
+                await _properties.ShowAsync(SelectedNode);
+                break;
+        }
     }
 
     ConnectionNode? SelectedNode => (_treeView.SelectedItem as NodeViewModel)?.Node;
@@ -836,6 +904,8 @@ public partial class MainWindow : Window
             }
         };
 
+        _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
+            session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
         _sessionHost.Children.Add(view);
@@ -971,7 +1041,7 @@ public partial class MainWindow : Window
     void UpdateSessionChrome()
     {
         _emptyState.IsVisible = _tabs.Count == 0;
-        _sessionCount.Text = _tabs.Count == 1 ? "1 session open" : $"{_tabs.Count} sessions open";
+        _sessionCount.Text = _tabs.Count switch { 0 => "No sessions open", 1 => "1 session open", var n => $"{n} sessions open" };
         UpdateTreeStatus();
     }
 
@@ -1130,24 +1200,26 @@ public partial class MainWindow : Window
 
     // ---- Credentials ----
 
-    async void OnManageCredentialsClick(object? sender, RoutedEventArgs e)
-    {
-        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
-        {
-            return;
-        }
-
-        await new CredentialsWindow(_credentials).ShowDialog(this);
-        UpdateVaultButton();
-        await _properties.ShowAsync(_properties.Node);
-    }
-
     async void OnLockVaultClick(object? sender, RoutedEventArgs e)
     {
         _properties.TrySave();
         _credentials.Lock();
         UpdateVaultButton();
+        _credentialsView.ShowLocked();
         await _properties.ShowAsync(_properties.Node);
+    }
+
+    /// <summary>A saved connection opens with its current settings; one since deleted, or a typed host, opens directly.</summary>
+    async Task OpenRecentAsync(RecentConnection recent)
+    {
+        if (recent.EntryId is { } id && _tree.Find(id) is ConnectionEntry entry)
+        {
+            await ConnectAsync(entry);
+        }
+        else
+        {
+            await ConnectDirectAsync(new QuickConnectChoice(null, recent.Host, recent.Port, recent.Protocol, recent.Username));
+        }
     }
 
     // ---- Settings ----
