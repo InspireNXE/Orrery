@@ -9,7 +9,7 @@ namespace Orrery.App.Controls;
 static class Pane
 {
     static readonly IBrush FooterBrush = new SolidColorBrush(Color.Parse("#101216")).ToImmutable();
-    static readonly IBrush LineBrush = new SolidColorBrush(Color.Parse("#23272F")).ToImmutable();
+    public static readonly IBrush LineBrush = new SolidColorBrush(Color.Parse("#23272F")).ToImmutable();
 
     /// <summary>A titled group of fields, headed like the mockup's inspector.</summary>
     public static Control Section(string title, params Control[] children)

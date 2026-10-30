@@ -62,6 +62,8 @@ public partial class MainWindow : Window
     readonly Controls.StrokeIcon _sessionLock;
     readonly Border _sidePanel, _propertiesHost, _dimmer;
     readonly Button _importDropZone;
+    readonly ContentControl _settingsHost;
+    readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
     readonly RecentPanel _recentPanel;
@@ -119,6 +121,8 @@ public partial class MainWindow : Window
             ["recent"] = (this.FindControl<Button>("RecentRailButton")!, this.FindControl<Control>("RecentSide")!),
         };
         _importDropZone = this.FindControl<Button>("ImportDropZone")!;
+        _settingsHost = this.FindControl<ContentControl>("SettingsHost")!;
+        _settingsRailButton = this.FindControl<Button>("SettingsRailButton")!;
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
@@ -520,6 +524,10 @@ public partial class MainWindow : Window
         }
 
         _treeEmptyState.IsVisible = _tree.Root.Children.Count == 0;
+
+        // Importing is a one-off, so the drop zone only offers it while there's nothing here yet. Settings
+        // keeps an Import button, and an mRemoteNG file can still be dropped onto the tree.
+        _importDropZone.IsVisible = _treeEmptyState.IsVisible;
         UpdateTreeStatus();
         if (SelectedNode != _properties.Node)
         {
@@ -646,7 +654,7 @@ public partial class MainWindow : Window
         else if (e.Key == Key.OemComma && e.KeyModifiers == modifier)
         {
             e.Handled = true;
-            _ = OpenSettingsAsync();
+            OpenSettings();
         }
     }
 
@@ -909,6 +917,11 @@ public partial class MainWindow : Window
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
         _sessionHost.Children.Add(view);
+        if (_settingsHost.IsVisible)
+        {
+            CloseSettings();
+        }
+
         SelectTab(tab);
         UpdateSessionChrome();
     }
@@ -1091,7 +1104,9 @@ public partial class MainWindow : Window
         }
     }
 
-    async void OnImportClick(object? sender, RoutedEventArgs e)
+    async void OnImportClick(object? sender, RoutedEventArgs e) => await ChooseImportFileAsync();
+
+    async Task ChooseImportFileAsync()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
         {
@@ -1224,21 +1239,46 @@ public partial class MainWindow : Window
 
     // ---- Settings ----
 
-    async void OnSettingsClick(object? sender, RoutedEventArgs e) => await OpenSettingsAsync();
-
-    async Task OpenSettingsAsync()
+    void OnSettingsClick(object? sender, RoutedEventArgs e)
     {
-        var window = new SettingsWindow(_location, _settingsStore, _credentials, () =>
+        if (_settingsHost.IsVisible)
+        {
+            CloseSettings();
+        }
+        else
+        {
+            OpenSettings();
+        }
+    }
+
+    /// <summary>Shows the settings page over the sessions and the inspector.</summary>
+    void OpenSettings()
+    {
+        if (!_settingsHost.IsVisible)
         {
             _properties.TrySave();
-            SaveNow();
-            return Task.CompletedTask;
-        });
-
-        if (await window.ShowDialog<SettingsOutcome?>(this) is SettingsOutcome.Restart restart)
-        {
-            App.Restart(restart.Arguments);
+            var view = new SettingsView(_location, _settingsStore, _credentials, () =>
+            {
+                _properties.TrySave();
+                SaveNow();
+                return Task.CompletedTask;
+            }, ChooseImportFileAsync);
+            view.CloseRequested += (_, _) => CloseSettings();
+            view.RestartRequested += (_, arguments) => App.Restart(arguments);
+            _settingsHost.Content = view;
+            _settingsHost.IsVisible = true;
+            _settingsRailButton.Classes.Set("active", true);
         }
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => (_settingsHost.Content as Control)?.Focus(), Avalonia.Threading.DispatcherPriority.Background);
+    }
+
+    void CloseSettings()
+    {
+        _settingsHost.IsVisible = false;
+        _settingsHost.Content = null;
+        _settingsRailButton.Classes.Set("active", false);
+        _currentTab?.View.Focus();
     }
 
     async Task OfferToDeleteOldCopyAsync(string oldDataDir)

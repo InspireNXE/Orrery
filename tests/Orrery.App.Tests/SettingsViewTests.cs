@@ -10,7 +10,7 @@ using Xunit;
 
 namespace Orrery.App.Tests;
 
-public class SettingsWindowTests : IDisposable
+public class SettingsViewTests : IDisposable
 {
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -21,7 +21,8 @@ public class SettingsWindowTests : IDisposable
         var settings = AppSettingsStore.In(location);
         using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
 
-        var window = new SettingsWindow(location, settings, vault, () => Task.CompletedTask);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask);
+        var window = new Window { Content = view };
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
