@@ -16,7 +16,8 @@ public static class DataLocationResolver
         var marker = PortableMarker.TryLoad(appDirectory);
         if (marker is null)
         {
-            return new StartupStorage.Ready(new DataLocation(StorageMode.Installed, folders.Config, folders.Cache, folders.Logs));
+            var dataDir = InstalledLocationPointer.TryLoad(folders.Config)?.DataDir ?? folders.Config;
+            return new StartupStorage.Ready(new DataLocation(StorageMode.Installed, dataDir, folders.Cache, folders.Logs));
         }
 
         return marker.Choice is { } choice

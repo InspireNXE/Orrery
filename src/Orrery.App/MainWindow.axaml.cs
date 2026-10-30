@@ -14,10 +14,12 @@ using Orrery.App.Import;
 using Orrery.Core.Import;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
+using Orrery.App.Settings;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
+using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
@@ -31,6 +33,8 @@ public partial class MainWindow : Window
     static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(500);
 
     readonly DataLocation _location;
+    readonly AppSettingsStore _settingsStore;
+    readonly string? _movedFrom;
     readonly ConnectionStore _connectionStore;
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
@@ -57,10 +61,13 @@ public partial class MainWindow : Window
     {
     }
 
-    public MainWindow(DataLocation location)
+    /// <param name="movedFrom">The previous data folder, when Orrery restarted after Move data.</param>
+    public MainWindow(DataLocation location, string? movedFrom = null)
     {
         AvaloniaXamlLoader.Load(this);
         _location = location;
+        _movedFrom = movedFrom;
+        _settingsStore = AppSettingsStore.In(location);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"{(location.Mode == StorageMode.Portable ? "Portable" : "Installed")} · {location.DataDir}";
@@ -85,7 +92,7 @@ public partial class MainWindow : Window
             prompt => Dispatcher.UIThread.InvokeAsync(
                 () => new HostKeyPromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
 
-        _credentials = CredentialStores.For(location);
+        _credentials = CredentialStores.For(location, _settingsStore.Load());
         if (_credentials is VaultFileStore vault)
         {
             vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(UpdateVaultButton);
@@ -116,6 +123,10 @@ public partial class MainWindow : Window
             if (_startupWarning is not null)
             {
                 await Dialogs.ShowMessageAsync(this, "Your connections couldn't be loaded", _startupWarning);
+            }
+            else if (_movedFrom is not null)
+            {
+                await OfferToDeleteOldCopyAsync(_movedFrom);
             }
             else
             {
@@ -433,6 +444,11 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             _ = OpenQuickConnectAsync();
+        }
+        else if (e.Key == Key.OemComma && e.KeyModifiers == modifier)
+        {
+            e.Handled = true;
+            _ = OpenSettingsAsync();
         }
     }
 
@@ -779,6 +795,44 @@ public partial class MainWindow : Window
         _credentials.Lock();
         UpdateVaultButton();
         await _properties.ShowAsync(_properties.Node);
+    }
+
+    // ---- Settings ----
+
+    async void OnSettingsClick(object? sender, RoutedEventArgs e) => await OpenSettingsAsync();
+
+    async Task OpenSettingsAsync()
+    {
+        var window = new SettingsWindow(_location, _settingsStore, _credentials, () =>
+        {
+            _properties.TrySave();
+            SaveNow();
+            return Task.CompletedTask;
+        });
+
+        if (await window.ShowDialog<SettingsOutcome?>(this) is SettingsOutcome.Restart restart)
+        {
+            App.Restart(restart.Arguments);
+        }
+    }
+
+    async Task OfferToDeleteOldCopyAsync(string oldDataDir)
+    {
+        if (!Directory.Exists(oldDataDir) || DataMover.SamePath(oldDataDir, _location.DataDir)
+            || !await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
+                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}", "Delete old copy"))
+        {
+            return;
+        }
+
+        try
+        {
+            DataMover.DeleteOldCopy(oldDataDir);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't delete all of the old copy", $"{e.Message}\n\nWhat's left is in {oldDataDir}.");
+        }
     }
 
     void UpdateVaultButton() => _lockVault.IsVisible = _credentials is VaultFileStore && !_credentials.IsLocked;
