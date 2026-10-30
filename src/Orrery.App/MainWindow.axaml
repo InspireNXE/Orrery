@@ -68,6 +68,7 @@
           <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
             <TextBlock x:Name="SessionCountText" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
             <TextBlock x:Name="StorageText" FontSize="11" Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" MaxWidth="700" />
+            <TextBlock x:Name="DataAccessText" FontSize="11" IsVisible="False" />
           </StackPanel>
         </DockPanel>
       </Border>

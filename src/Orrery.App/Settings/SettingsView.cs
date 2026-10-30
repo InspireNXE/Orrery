@@ -164,6 +164,12 @@ sealed class SettingsView : UserControl
             return;
         }
 
+        if (DataMover.WarnAboutTarget(target) is { } warning
+            && !await Dialogs.ConfirmAsync(Owner, "Other people can change this folder", $"{warning}\n\n{target}", "Use anyway"))
+        {
+            return;
+        }
+
         if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
                 $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it.",
                 "Move and restart"))

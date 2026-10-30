@@ -105,6 +105,16 @@ public partial class MainWindow : Window
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";
         ToolTip.SetTip(storageText, location.DataDir);
+        if (FolderAccess.IsOpenToOthers(location.DataDir))
+        {
+            // Said once, at start-up; it doesn't stop anything.
+            var accessText = this.FindControl<TextBlock>("DataAccessText")!;
+            accessText.Text = "Other people who use this computer can change the data folder";
+            accessText.Foreground = Dialogs.WarningBrush;
+            accessText.IsVisible = true;
+            ToolTip.SetTip(accessText, $"{location.DataDir}\n\nOrrery's saved hosts and trusted keys live here, so someone else could change them. "
+                + "Settings › Move data can move them to a folder only you can use.");
+        }
         this.FindControl<TextBlock>("ModeText")!.Text = location.Mode == StorageMode.Portable ? "Portable" : "Installed";
         if (OperatingSystem.IsMacOS())
         {
