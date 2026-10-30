@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Renci.SshNet;
 using Renci.SshNet.Security;
 
@@ -40,9 +41,22 @@ sealed class AgentHostAlgorithm(string name, SshAgentClient agent, AgentIdentity
 {
     public override byte[] Data => identity.PublicKey;
 
-    public override byte[] Sign(byte[] data) =>
-        agent.Sign(identity.PublicKey, data, flags)
-        ?? throw new Renci.SshNet.Common.SshException($"The SSH agent declined to sign with \"{identity.Comment}\".");
+    public override byte[] Sign(byte[] data)
+    {
+        byte[]? signature;
+        try
+        {
+            signature = agent.Sign(identity.PublicKey, data, flags);
+        }
+        catch (Exception e) when (e is Win32Exception or UnauthorizedAccessException or ArgumentException)
+        {
+            // SSH.NET lets an exception from here out of Connect unchanged, and the session only handles
+            // I/O-type errors; anything else would leave it connecting forever.
+            throw new IOException($"The SSH agent couldn't sign: {e.Message}", e);
+        }
+
+        return signature ?? throw new Renci.SshNet.Common.SshException($"The SSH agent declined to sign with \"{identity.Comment}\".");
+    }
 
     // Only the server verifies.
     public override bool VerifySignature(byte[] data, byte[] signature) => throw new NotSupportedException();
