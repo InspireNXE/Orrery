@@ -6,6 +6,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Orrery.App.Storage;
 using Orrery.Core.Storage;
 
@@ -19,11 +20,22 @@ public partial class App : Application
 
     DataFolderLock? _dataLock;
     string[] _args = [];
+    bool _errorShown;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // A backstop only: each session should still contain its own failures. Without it an exception
+        // escaping an async void handler on the UI thread ends the process, and every open session with it.
+        // AppDomain.UnhandledException is left alone, since those can't be recovered.
+        Dispatcher.UIThread.UnhandledException += OnUiThreadUnhandledException;
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Trace.TraceError($"Unobserved task exception: {e.Exception}");
+            e.SetObserved();
+        };
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.Exit += (_, _) => _dataLock?.Dispose();
@@ -53,6 +65,31 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    void OnUiThreadUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        Trace.TraceError($"Unhandled exception on the UI thread: {e.Exception}");
+        e.Handled = true;
+
+        // One message at a time, so a fault that repeats doesn't stack up windows.
+        if (_errorShown)
+        {
+            return;
+        }
+
+        _errorShown = true;
+        var window = Dialogs.MessageWindow("Something went wrong",
+            "Orrery hit an unexpected error and carried on. Open sessions may need reconnecting.");
+        window.Closed += (_, _) => _errorShown = false;
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { IsVisible: true } owner })
+        {
+            window.ShowDialog(owner);
+        }
+        else
+        {
+            window.Show();
+        }
     }
 
     Window OpenMainWindow(DataLocation location)

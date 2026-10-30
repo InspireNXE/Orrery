@@ -84,9 +84,23 @@ public sealed class RemoteFrameView : Panel
             clipboardSession.RemoteClipboardChanged += (_, text) => Dispatcher.UIThread.Post(async () =>
             {
                 _lastClipboard = text;
-                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+                var write = SetClipboardText ?? (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard
+                    ? t => clipboard.SetTextAsync(t)
+                    : null);
+                if (write is null)
                 {
-                    await clipboard.SetTextAsync(text);
+                    return;
+                }
+
+                try
+                {
+                    await write(text);
+                }
+                catch (Exception e) when (e is COMException or InvalidOperationException)
+                {
+                    // Another app holds the clipboard open. A server can send cut text as often as it likes, and
+                    // an exception here would end the app, so the next change tries again.
+                    System.Diagnostics.Trace.TraceWarning($"Couldn't write the clipboard: {e.Message}");
                 }
             });
         }
@@ -111,6 +125,9 @@ public sealed class RemoteFrameView : Panel
     }
 
     public IFrameBufferSession Session { get; }
+
+    /// <summary>Replaces the write to the local clipboard, which tests can't make fail: IClipboard can't be implemented outside Avalonia.</summary>
+    internal Func<string, Task>? SetClipboardText { get; set; }
 
     bool _viewOnly;
 
