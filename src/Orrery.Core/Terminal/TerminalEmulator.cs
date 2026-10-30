@@ -68,6 +68,12 @@ public sealed class TerminalEmulator
     public bool CursorKeysApplication { get; private set; }
     public bool KeypadApplication { get; private set; }
     public bool BracketedPaste { get; private set; }
+
+    /// <summary>Which mouse events the program wants reported (htop, tmux, vim with mouse=a).</summary>
+    public MouseTracking MouseTracking { get; private set; }
+
+    /// <summary>Mode 1006: report the mouse as ESC[&lt;b;x;yM, which has no position limit.</summary>
+    public bool MouseSgr { get; private set; }
     public bool AlternateScreen => _altActive;
     public string Title { get; private set; } = string.Empty;
 
@@ -803,8 +809,20 @@ public sealed class TerminalEmulator
                 case 1048: if (on) SaveCursor(ref _saved); else RestoreCursor(_saved); break;
                 case 1049: SwitchScreen(on, saveCursor: true, clear: on); break;
                 case 2004: BracketedPaste = on; break;
+                case 9: SetMouseTracking(MouseTracking.Press, on); break;
+                case 1000: SetMouseTracking(MouseTracking.Normal, on); break;
+                case 1002: SetMouseTracking(MouseTracking.ButtonMotion, on); break;
+                case 1003: SetMouseTracking(MouseTracking.AnyMotion, on); break;
+                case 1006: MouseSgr = on; break;
             }
         }
+    }
+
+    // Turning a mode on replaces the current one; turning off only clears it if it's the one in force.
+    void SetMouseTracking(MouseTracking mode, bool on)
+    {
+        if (on) MouseTracking = mode;
+        else if (MouseTracking == mode) MouseTracking = MouseTracking.None;
     }
 
     void SwitchScreen(bool alternate, bool saveCursor, bool clear)
@@ -861,6 +879,8 @@ public sealed class TerminalEmulator
         _cx = _cy = 0;
         _wrapPending = false;
         BracketedPaste = false;
+        MouseTracking = MouseTracking.None;
+        MouseSgr = false;
         _newLineMode = false;
         ResetTabs();
         Title = string.Empty;

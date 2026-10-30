@@ -52,6 +52,10 @@ public sealed class TerminalView : Control
     (int Row, int Column)? _selectionStart, _selectionEnd;
     bool _selecting;
 
+    // Mouse reporting (htop, tmux, vim): the button held down, and the cell last reported while moving.
+    TerminalMouseButton _reportedButton = TerminalMouseButton.None;
+    (int Column, int Row)? _lastReportedCell;
+
     public TerminalView(ITerminalSession session)
     {
         Session = session;
@@ -400,6 +404,19 @@ public sealed class TerminalView : Control
     {
         base.OnPointerWheelChanged(e);
         e.Handled = true;
+        if (Reporting(e))
+        {
+            // Each notch is one wheel "button" press for the program.
+            int notches = (int)Math.Round(e.Delta.Y);
+            if (notches == 0 && e.Delta.Y != 0) notches = Math.Sign(e.Delta.Y);
+            for (int i = 0; i < Math.Abs(notches); i++)
+            {
+                Report(TerminalMouseEvent.Press, notches > 0 ? TerminalMouseButton.WheelUp : TerminalMouseButton.WheelDown, e);
+            }
+
+            return;
+        }
+
         int lines = (int)Math.Round(e.Delta.Y * WheelLines);
         if (lines == 0) return;
 
@@ -426,6 +443,16 @@ public sealed class TerminalView : Control
         base.OnPointerPressed(e);
         Focus();
         var point = e.GetCurrentPoint(this);
+        if (Reporting(e) && ToMouseButton(point.Properties.PointerUpdateKind) is { } button)
+        {
+            ClearSelection();
+            _reportedButton = button;
+            e.Pointer.Capture(this);
+            Report(TerminalMouseEvent.Press, button, e);
+            e.Handled = true;
+            return;
+        }
+
         if (point.Properties.IsLeftButtonPressed)
         {
             _selectionStart = _selectionEnd = CellAt(point.Position);
@@ -445,6 +472,16 @@ public sealed class TerminalView : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        if (Reporting(e) && !_selecting)
+        {
+            if (TerminalMouse.Wants(_terminal.MouseTracking, TerminalMouseEvent.Motion, _reportedButton))
+            {
+                Report(TerminalMouseEvent.Motion, _reportedButton, e);
+            }
+
+            return;
+        }
+
         if (_selecting)
         {
             _selectionEnd = CellAt(e.GetPosition(this));
@@ -455,6 +492,19 @@ public sealed class TerminalView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (_reportedButton != TerminalMouseButton.None && ToMouseButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) == _reportedButton)
+        {
+            var button = _reportedButton;
+            _reportedButton = TerminalMouseButton.None;
+            e.Pointer.Capture(null);
+            if (_terminal.MouseTracking != MouseTracking.None)
+            {
+                Report(TerminalMouseEvent.Release, button, e);
+            }
+
+            return;
+        }
+
         if (_selecting)
         {
             _selecting = false;
@@ -465,6 +515,54 @@ public sealed class TerminalView : Control
             }
         }
     }
+
+    /// <summary>
+    /// True when the program asked for the mouse. Shift keeps it for local selection and copy and paste,
+    /// as in xterm.
+    /// </summary>
+    bool Reporting(PointerEventArgs e) =>
+        _terminal.MouseTracking != MouseTracking.None && !e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+    void Report(TerminalMouseEvent kind, TerminalMouseButton button, PointerEventArgs e)
+    {
+        if (!TerminalMouse.Wants(_terminal.MouseTracking, kind, button))
+        {
+            return;
+        }
+
+        var position = e.GetPosition(this);
+        int column = Math.Clamp((int)(position.X / _cellWidth), 0, _terminal.Columns - 1);
+        int row = Math.Clamp((int)(position.Y / _cellHeight), 0, _terminal.Rows - 1);
+
+        // Moving within one cell says nothing new.
+        if (kind == TerminalMouseEvent.Motion && _lastReportedCell == (column, row))
+        {
+            return;
+        }
+
+        _lastReportedCell = (column, row);
+        var mods = e.KeyModifiers;
+        var terminalMods = (mods.HasFlag(KeyModifiers.Alt) ? TerminalModifiers.Alt : 0) | (mods.HasFlag(KeyModifiers.Control) ? TerminalModifiers.Control : 0);
+        if (TerminalMouse.Encode(kind, button, column, row, terminalMods, _terminal.MouseSgr, _terminal.MouseTracking == MouseTracking.Press) is { } bytes)
+        {
+            // The program sees the live screen, so follow it.
+            if (_scrollOffset != 0)
+            {
+                _scrollOffset = 0;
+                InvalidateVisual();
+            }
+
+            Session.Send(bytes);
+        }
+    }
+
+    static TerminalMouseButton? ToMouseButton(PointerUpdateKind kind) => kind switch
+    {
+        PointerUpdateKind.LeftButtonPressed or PointerUpdateKind.LeftButtonReleased => TerminalMouseButton.Left,
+        PointerUpdateKind.MiddleButtonPressed or PointerUpdateKind.MiddleButtonReleased => TerminalMouseButton.Middle,
+        PointerUpdateKind.RightButtonPressed or PointerUpdateKind.RightButtonReleased => TerminalMouseButton.Right,
+        _ => null,
+    };
 
     (int Row, int Column) CellAt(Point position)
     {
