@@ -143,6 +143,47 @@ public class ConnectionModelTests : IDisposable
     }
 
     [Fact]
+    public void Older_algorithms_are_off_by_default_and_follow_the_nearest_folder_that_sets_them()
+    {
+        var (_, production, _, web01) = Sample();
+        var resolved = SettingsResolver.Resolve(web01);
+        Assert.False(resolved.AllowLegacySsh.Value);
+        Assert.True(resolved.AllowLegacySsh.IsDefault);
+
+        production.Settings.AllowLegacySsh = true;
+        resolved = SettingsResolver.Resolve(web01);
+        Assert.True(resolved.AllowLegacySsh.Value);
+        Assert.Same(production, resolved.AllowLegacySsh.Source);
+
+        web01.Settings.AllowLegacySsh = false;
+        Assert.False(SettingsResolver.Resolve(web01).AllowLegacySsh.Value);
+        Assert.True(SettingsResolver.ResolveInherited(web01).AllowLegacySsh.Value);
+    }
+
+    [Fact]
+    public void A_connections_file_saved_before_the_older_algorithms_setting_loads_with_it_off_and_keeps_it_once_set()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "connections.json");
+        File.WriteAllText(path, """
+            {"schemaVersion":1,"root":{"type":"folder","name":"Connections","id":"00000000-0000-0000-0000-000000000001","children":[
+              {"type":"connection","name":"old","id":"00000000-0000-0000-0000-000000000002","host":"old.example","settings":{"protocol":"ssh","useSshAgent":false}}]}}
+            """);
+        var store = new ConnectionStore(path, Path.Combine(_dir, "backups"));
+
+        var tree = store.Load();
+        var entry = Assert.IsType<ConnectionEntry>(tree.Root.Children.Single());
+        Assert.Null(entry.Settings.AllowLegacySsh);
+        Assert.False(SettingsResolver.Resolve(entry).AllowLegacySsh.Value);
+        Assert.False(entry.Settings.UseSshAgent);
+
+        entry.Settings.AllowLegacySsh = true;
+        store.Save(tree);
+        Assert.Contains("\"allowLegacySsh\": true", File.ReadAllText(path));
+        Assert.True(SettingsResolver.Resolve(store.Load().Find(entry.Id)!).AllowLegacySsh.Value);
+    }
+
+    [Fact]
     public void Missing_file_loads_an_empty_tree()
     {
         var store = new ConnectionStore(Path.Combine(_dir, "connections.json"), Path.Combine(_dir, "backups"));

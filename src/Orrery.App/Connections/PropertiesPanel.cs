@@ -31,7 +31,8 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _username = new(), _domain = new();
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow;
+    readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -61,6 +62,9 @@ sealed class PropertiesPanel : UserControl
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
         ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
+        _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);
+        ToolTip.SetTip(_sshLegacyRow.View, "SSH: also accept SHA-1, CBC and 3DES algorithms.");
+        var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
@@ -89,7 +93,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Header(_tile, _title, _path),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
-                Pane.Section("Options", _clipboardRow.View, _sshAgentRow.View),
+                Pane.Section("Options", _clipboardRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 _notesField,
             },
         };
@@ -116,7 +120,8 @@ sealed class PropertiesPanel : UserControl
         _credential.ChoiceChanged += (_, _) => MarkDirty();
         _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
         _sshAgent.IsCheckedChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow })
+        _sshLegacy.IsCheckedChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -195,6 +200,9 @@ sealed class PropertiesPanel : UserControl
             _sshAgentRow.Load(own.UseSshAgent is null, Describe(inherited.UseSshAgent));
             _sshAgent.IsChecked = own.UseSshAgent ?? inherited.UseSshAgent.Value;
 
+            _sshLegacyRow.Load(own.AllowLegacySsh is null, Describe(inherited.AllowLegacySsh));
+            _sshLegacy.IsChecked = own.AllowLegacySsh ?? inherited.AllowLegacySsh.Value;
+
             Content = _editorView;
         }
         finally
@@ -253,6 +261,7 @@ sealed class PropertiesPanel : UserControl
             Domain = _domainRow.Inherit.IsChecked == true ? null : _domain.Text?.Trim() ?? string.Empty,
             ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
             UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
+            AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
         };
         _node.Name = name;
         _node.Notes = string.IsNullOrWhiteSpace(_notes.Text) ? null : _notes.Text.Trim();
