@@ -108,4 +108,20 @@ public class TerminalViewMouseTests
         Assert.NotSame(textCursor, tracking);
         Assert.Same(textCursor, withShift);
     }
+
+    [AvaloniaFact]
+    public void Releasing_outside_the_terminal_still_reports_the_release()
+    {
+        var (window, session) = Open();
+        session.Output("[?1002;1006h");
+        Dispatcher.UIThread.RunJobs();
+        session.Sent.Clear();
+
+        window.MouseDown(new Avalonia.Point(50, 200), MouseButton.Left);
+        window.MouseMove(new Avalonia.Point(50, -40), RawInputModifiers.LeftMouseButton); // Dragged above the window.
+        window.MouseUp(new Avalonia.Point(50, -40), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.EndsWith("m", session.Sent.Last());
+    }
 }

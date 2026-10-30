@@ -20,8 +20,31 @@ public enum TerminalModifiers
 /// <summary>What xterm sends for special keys. Printable text is sent as typed (UTF-8).</summary>
 public static class TerminalKeys
 {
-    public static string Encode(TerminalKey key, TerminalModifiers modifiers, bool cursorKeysApplication)
+    /// <param name="shellPrompt">
+    /// True on the main screen, where a shell's line editor is usually reading. Ctrl with arrows, Backspace
+    /// and Delete then sends the word commands every line editor binds by default (bash, zsh, fish:
+    /// ESC b, ESC f, ESC DEL, ESC d), since the xterm sequences for Ctrl+arrow often aren't bound.
+    /// Full-screen programs get xterm's sequences, with ^W for Ctrl+Backspace (an ESC would end vim's insert mode).
+    /// </param>
+    public static string Encode(TerminalKey key, TerminalModifiers modifiers, bool cursorKeysApplication, bool shellPrompt = false)
     {
+        if (modifiers == TerminalModifiers.Control)
+        {
+            string? word = (key, shellPrompt) switch
+            {
+                (TerminalKey.Left, true) => "b",
+                (TerminalKey.Right, true) => "f",
+                (TerminalKey.Backspace, true) => "",
+                (TerminalKey.Delete, true) => "d",
+                (TerminalKey.Backspace, false) => "",
+                _ => null,
+            };
+            if (word is not null)
+            {
+                return word;
+            }
+        }
+
         // xterm's modifier parameter: 1 + Shift(1) + Alt(2) + Control(4).
         int mod = 1 + (int)modifiers;
         bool modified = modifiers != TerminalModifiers.None;
