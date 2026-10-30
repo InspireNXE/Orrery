@@ -32,11 +32,11 @@ public static class TerminalKeys
         {
             string? word = (key, shellPrompt) switch
             {
-                (TerminalKey.Left, true) => "b",
-                (TerminalKey.Right, true) => "f",
-                (TerminalKey.Backspace, true) => "",
-                (TerminalKey.Delete, true) => "d",
-                (TerminalKey.Backspace, false) => "",
+                (TerminalKey.Left, true) => "\u001bb",
+                (TerminalKey.Right, true) => "\u001bf",
+                (TerminalKey.Backspace, true) => "\u001b\u007f",
+                (TerminalKey.Delete, true) => "\u001bd",
+                (TerminalKey.Backspace, false) => "\u0017",
                 _ => null,
             };
             if (word is not null)
