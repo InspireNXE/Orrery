@@ -50,3 +50,4 @@ Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). 
 - 2026-10-30: packet 02 (S-2), option A. The VNC client allows only None and classic VNC auth.
 - 2026-10-30: packet 05 (S-4), option A. Protected ACLs on folders Orrery creates, plus a warning for folders open to
   other users.
+- 2026-10-30: packet 12 (S-9), option A. A master password change also replaces the vault's data key.
