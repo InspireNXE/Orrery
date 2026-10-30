@@ -1,13 +1,16 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Principal;
 
 namespace Orrery.Protocols.Ssh.Tests;
 
 /// <summary>
 /// A window named "Pageant" that answers WM_COPYDATA requests the way Pageant does, passing them to a
-/// <see cref="FakeAgent"/>. It records who owns each shared-memory block, which real Pageant checks.
+/// <see cref="FakeAgent"/>. It records who owns each shared-memory block, which real Pageant checks, and
+/// can hang in its message handler like a stuck or fake Pageant.
 /// </summary>
+[SupportedOSPlatform("windows")]
 sealed class FakePageant : IDisposable
 {
     const int WM_COPYDATA = 0x004A, WM_CLOSE = 0x0010;
@@ -16,6 +19,7 @@ sealed class FakePageant : IDisposable
     readonly FakeAgent _agent;
     readonly Thread _thread;
     readonly ManualResetEventSlim _ready = new();
+    readonly ManualResetEventSlim _released = new(initialState: true);
     readonly WndProc _proc;
     IntPtr _window;
 
@@ -30,6 +34,11 @@ sealed class FakePageant : IDisposable
         _thread.Start();
         _ready.Wait(TimeSpan.FromSeconds(5));
     }
+
+    /// <summary>From now on, every request waits in the handler until <see cref="Release"/>.</summary>
+    public void Hang() => _released.Reset();
+
+    public void Release() => _released.Set();
 
     void Run()
     {
@@ -58,6 +67,7 @@ sealed class FakePageant : IDisposable
             return DefWindowProc(window, message, wParam, lParam);
         }
 
+        _released.Wait();
         var copyData = Marshal.PtrToStructure<CopyDataStruct>(lParam);
         if (copyData.Id != CopyDataId)
         {
@@ -104,6 +114,7 @@ sealed class FakePageant : IDisposable
 
     public void Dispose()
     {
+        Release();
         PostMessage(_window, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
         _thread.Join(TimeSpan.FromSeconds(5));
         UnregisterClass("Pageant", GetModuleHandle(null));

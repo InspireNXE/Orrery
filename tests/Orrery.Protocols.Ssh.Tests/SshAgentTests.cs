@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using Orrery.Protocols.Ssh.Agent;
@@ -113,7 +115,102 @@ public class SshAgentTests : IDisposable
         Assert.Equal(2, keys.Count);
         Assert.True(ServerAccepts("ecdsa-sha2-nistp256", keys[1].PublicKey, data, signature));
         using var me = WindowsIdentity.GetCurrent();
-        Assert.All(pageant.BlockOwners, owner => Assert.Equal(me.User!.Value, owner));
+        var mySid = me.User!.Value;
+        Assert.All(pageant.BlockOwners, owner => Assert.Equal(mySid, owner));
+    }
+
+    [Fact]
+    public void A_string_length_near_int_max_is_a_cut_short_reply()
+    {
+        // At position 8, the old check's 8 + length wrapped negative and slicing threw ArgumentOutOfRangeException.
+        byte[] data = [0, 0, 0, 1, 0x7F, 0xFF, 0xFF, 0xF8, 1, 2, 3, 4];
+        var reader = new WireReader(data);
+        reader.UInt32();
+
+        Assert.Throws<IOException>(() => reader.String());
+    }
+
+    [Fact]
+    public async Task A_silent_agent_fails_the_listing_within_the_timeout()
+    {
+        var client = ServeOnPipe();
+        client.ListTimeout = TimeSpan.FromMilliseconds(300);
+        _agent.Silent = true;
+
+        var listing = Task.Run(client.ListIdentities);
+
+        Assert.True(await Task.WhenAny(listing, Task.Delay(TimeSpan.FromSeconds(5))) == listing, "ListIdentities is still waiting on the agent.");
+        await Assert.ThrowsAsync<TimeoutException>(() => listing);
+    }
+
+    [Fact]
+    public async Task A_hung_pageant_times_out_and_does_not_block_later_requests()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Pageant is Windows-only.
+        }
+
+        Environment.SetEnvironmentVariable("SSH_AUTH_SOCK", null);
+        using var pageant = new FakePageant(_agent);
+        var client = SshAgentClient.Find();
+        Assert.NotNull(client);
+        Assert.Equal("Pageant", client.Description);
+        client.ListTimeout = TimeSpan.FromMilliseconds(300);
+
+        pageant.Hang();
+        try
+        {
+            var first = Task.Run(client.ListIdentities);
+            Assert.True(await Task.WhenAny(first, Task.Delay(TimeSpan.FromSeconds(5))) == first, "The first request is still waiting on Pageant.");
+            await Assert.ThrowsAsync<TimeoutException>(() => first);
+
+            var second = Task.Run(client.ListIdentities);
+            Assert.True(await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(5))) == second, "The second request is blocked behind the first.");
+            await Assert.ThrowsAsync<TimeoutException>(() => second);
+        }
+        finally
+        {
+            pageant.Release();
+        }
+
+        Assert.Equal(2, client.ListIdentities().Count);
+    }
+
+    [Fact]
+    public void Errors_while_signing_surface_as_io_errors()
+    {
+        // SSH.NET lets an exception from Sign out of Connect unchanged, and the session only handles I/O-type errors.
+        var client = new SshAgentClient(_agent, "fake agent");
+        var algorithm = new AgentKeySource(client, client.ListIdentities()[0]).HostKeyAlgorithms.First();
+
+        _agent.Fault = new Win32Exception(5);
+        Assert.IsType<Win32Exception>(Assert.Throws<IOException>(() => algorithm.Sign([1, 2, 3])).InnerException);
+
+        _agent.Fault = new UnauthorizedAccessException();
+        Assert.IsType<UnauthorizedAccessException>(Assert.Throws<IOException>(() => algorithm.Sign([1, 2, 3])).InnerException);
+    }
+
+    [Fact]
+    public async Task An_agent_run_by_this_user_passes_the_owner_check_and_another_account_does_not()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // The owner check is for Windows pipes and windows.
+        }
+
+        var name = "orrery-test-owner-" + Guid.NewGuid().ToString("N");
+        using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var accepted = server.WaitForConnectionAsync();
+        using var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.None, TokenImpersonationLevel.Identification);
+        pipe.Connect(TimeSpan.FromSeconds(5));
+
+        AgentOwner.CheckPipe(pipe.SafePipeHandle);
+        Assert.True(AgentOwner.IsTrusted((uint)Environment.ProcessId, allowSystem: false));
+        // A pipe owned by another account can't be made here; the System process (pid 4) stands in for one, as
+        // Pageant's window owner would be checked.
+        Assert.False(AgentOwner.IsTrusted(4, allowSystem: false));
+        await accepted.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]

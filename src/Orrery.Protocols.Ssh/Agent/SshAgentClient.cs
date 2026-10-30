@@ -1,6 +1,9 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net.Sockets;
+using System.Runtime.Versioning;
+using System.Security.Principal;
 using System.Text;
 
 namespace Orrery.Protocols.Ssh.Agent;
@@ -8,16 +11,20 @@ namespace Orrery.Protocols.Ssh.Agent;
 /// <summary>A key the agent holds: the public key in SSH wire format, its type ("ssh-ed25519") and comment.</summary>
 public sealed record AgentIdentity(byte[] PublicKey, string KeyType, string Comment);
 
-/// <summary>Carries one agent request and returns the reply, both including the 4-byte length prefix.</summary>
+/// <summary>
+/// Carries one agent request and returns the reply, both including the 4-byte length prefix. Throws
+/// <see cref="TimeoutException"/> when the agent takes longer than <c>timeout</c>.
+/// </summary>
 public interface IAgentTransport
 {
-    byte[] Exchange(byte[] request);
+    byte[] Exchange(byte[] request, TimeSpan timeout);
 }
 
 /// <summary>
 /// Talks to an SSH agent (draft-miller-ssh-agent): lists its keys and asks it to sign, so private keys stay
 /// inside the agent. Finds the agent the way OpenSSH does: <c>SSH_AUTH_SOCK</c>, then on Windows the
-/// OpenSSH agent's pipe, then Pageant.
+/// OpenSSH agent's pipe, then Pageant. On Windows an agent is only used when this user or SYSTEM runs it
+/// (see <see cref="AgentOwner"/>).
 /// </summary>
 public sealed class SshAgentClient(IAgentTransport transport, string description)
 {
@@ -27,6 +34,12 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
 
     /// <summary>Where the agent was found, for messages ("Windows OpenSSH agent", "Pageant").</summary>
     public string Description { get; } = description;
+
+    /// <summary>How long the agent may take to list its keys.</summary>
+    internal TimeSpan ListTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>How long the agent may take to sign; some ask the user first.</summary>
+    internal TimeSpan SignTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
     /// <summary>The running agent, or null when there isn't one.</summary>
     public static SshAgentClient? Find()
@@ -38,9 +51,9 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
 
         if (OperatingSystem.IsWindows())
         {
-            if (File.Exists($@"\\.\pipe\{WindowsOpenSshPipe}"))
+            if (IsTrustedPipe(WindowsOpenSshPipe))
             {
-                return new SshAgentClient(new StreamTransport(() => OpenPipe(WindowsOpenSshPipe)), "Windows OpenSSH agent");
+                return new SshAgentClient(new StreamTransport(OpenWindowsOpenSshPipe), "Windows OpenSSH agent");
             }
 
             if (PageantTransport.IsRunning())
@@ -54,7 +67,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
 
     public IReadOnlyList<AgentIdentity> ListIdentities()
     {
-        var reply = Request([RequestIdentities]);
+        var reply = Request([RequestIdentities], ListTimeout);
         if (reply[0] != IdentitiesAnswer)
         {
             throw new IOException("The SSH agent didn't list its keys.");
@@ -85,7 +98,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
         request.String(data);
         request.UInt32(flags);
 
-        var reply = Request(request.ToArray());
+        var reply = Request(request.ToArray(), SignTimeout);
         return reply[0] switch
         {
             SignResponse => new WireReader(reply.AsSpan(1).ToArray()).String(),
@@ -94,13 +107,37 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
         };
     }
 
-    byte[] Request(byte[] body)
+    /// <summary>
+    /// Whether the pipe exists and its server passes the owner check. That takes one connection, opened at
+    /// identification level and closed without sending anything; when it fails, Pageant is tried next.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    static bool IsTrustedPipe(string name)
+    {
+        if (!AgentOwner.PipeExists(name))
+        {
+            return false;
+        }
+
+        try
+        {
+            OpenPipe(name).Dispose();
+            return true;
+        }
+        catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning($"Not using the SSH agent pipe {name}: {e.Message}");
+            return false;
+        }
+    }
+
+    byte[] Request(byte[] body, TimeSpan timeout)
     {
         var message = new byte[4 + body.Length];
         BinaryPrimitives.WriteUInt32BigEndian(message, (uint)body.Length);
         body.CopyTo(message, 4);
 
-        var reply = transport.Exchange(message);
+        var reply = transport.Exchange(message, timeout);
         if (reply.Length < 5 || BinaryPrimitives.ReadUInt32BigEndian(reply) != reply.Length - 4)
         {
             throw new IOException("The SSH agent's reply was cut short.");
@@ -130,12 +167,21 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
         }
     }
 
+    [SupportedOSPlatform("windows")]
+    static Stream OpenWindowsOpenSshPipe() => OpenPipe(WindowsOpenSshPipe);
+
+    /// <summary>
+    /// Connects at identification level, so the server can't act as this user, and checks who the server is
+    /// before anything is sent. Asynchronous, so a read that takes too long can be cancelled.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
     static Stream OpenPipe(string name)
     {
-        var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut);
+        var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification);
         try
         {
             pipe.Connect(ConnectTimeout);
+            AgentOwner.CheckPipe(pipe.SafePipeHandle);
             return pipe;
         }
         catch
@@ -148,14 +194,29 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
     /// <summary>One connection per request: the OpenSSH agent and SSH_AUTH_SOCK sockets.</summary>
     sealed class StreamTransport(Func<Stream> open) : IAgentTransport
     {
-        public byte[] Exchange(byte[] request)
+        public byte[] Exchange(byte[] request, TimeSpan timeout)
         {
             using var stream = open();
-            stream.Write(request);
-            stream.Flush();
+            using var cancel = new CancellationTokenSource(timeout);
+            try
+            {
+                // Pipes don't support ReadTimeout, so the timeout cancels the reads instead. Only ever
+                // called from background threads, so waiting here can't deadlock.
+                return ExchangeAsync(stream, request, cancel.Token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+            {
+                throw new TimeoutException("The SSH agent didn't answer in time.");
+            }
+        }
+
+        static async Task<byte[]> ExchangeAsync(Stream stream, byte[] request, CancellationToken cancel)
+        {
+            await stream.WriteAsync(request, cancel);
+            await stream.FlushAsync(cancel);
 
             var length = new byte[4];
-            stream.ReadExactly(length);
+            await stream.ReadExactlyAsync(length, cancel);
             int size = (int)BinaryPrimitives.ReadUInt32BigEndian(length);
             if (size is <= 0 or > 256 * 1024)
             {
@@ -164,7 +225,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
 
             var reply = new byte[4 + size];
             length.CopyTo(reply, 0);
-            stream.ReadExactly(reply.AsSpan(4));
+            await stream.ReadExactlyAsync(reply.AsMemory(4), cancel);
             return reply;
         }
     }
@@ -201,7 +262,7 @@ sealed class WireReader(byte[] data)
 
     public uint UInt32()
     {
-        if (_position + 4 > data.Length) throw new IOException("The SSH agent's reply was cut short.");
+        if (data.Length - _position < 4) throw new IOException("The SSH agent's reply was cut short.");
         uint value = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(_position));
         _position += 4;
         return value;
@@ -210,7 +271,8 @@ sealed class WireReader(byte[] data)
     public byte[] String()
     {
         int length = (int)UInt32();
-        if (length < 0 || _position + length > data.Length) throw new IOException("The SSH agent's reply was cut short.");
+        // Compared this way round so a length near int.MaxValue can't wrap.
+        if (length < 0 || length > data.Length - _position) throw new IOException("The SSH agent's reply was cut short.");
         var value = data[_position..(_position + length)];
         _position += length;
         return value;

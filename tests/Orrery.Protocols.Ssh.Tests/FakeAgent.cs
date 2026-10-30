@@ -3,19 +3,27 @@ using System.IO.Pipes;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using Orrery.Protocols.Ssh.Agent;
 
 namespace Orrery.Protocols.Ssh.Tests;
 
 /// <summary>
 /// An SSH agent for tests (draft-miller-ssh-agent): holds a dummy RSA key and a dummy ECDSA P-256 key,
-/// lists them, and signs. It can serve over a named pipe, or answer messages handed to it directly.
+/// lists them, and signs. It can serve over a named pipe, answer messages handed to it directly, or be
+/// the transport itself.
 /// </summary>
-sealed class FakeAgent : IDisposable
+sealed class FakeAgent : IAgentTransport, IDisposable
 {
     public readonly RSA Rsa = RSA.Create(2048);
     public readonly ECDsa Ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     public readonly List<uint> SignFlags = [];
     public bool RefuseSigning { get; set; }
+
+    /// <summary>On the pipe, read requests but never answer, like a hung agent.</summary>
+    public bool Silent { get; set; }
+
+    /// <summary>As a transport, throw this instead of answering.</summary>
+    public Exception? Fault { get; set; }
 
     readonly CancellationTokenSource _cts = new();
 
@@ -68,6 +76,8 @@ sealed class FakeAgent : IDisposable
         return [.. BigEndian((uint)bytes.Length), .. bytes];
     }
 
+    byte[] IAgentTransport.Exchange(byte[] request, TimeSpan timeout) => Fault is { } fault ? throw fault : Handle(request);
+
     byte[] SignRsa(byte[] data, uint flags)
     {
         var (name, hash) = flags switch
@@ -114,6 +124,11 @@ sealed class FakeAgent : IDisposable
                         var message = new byte[4 + BinaryPrimitives.ReadUInt32BigEndian(length)];
                         length.CopyTo(message, 0);
                         await connection.ReadExactlyAsync(message.AsMemory(4), _cts.Token);
+                        if (Silent)
+                        {
+                            await Task.Delay(Timeout.Infinite, _cts.Token);
+                        }
+
                         await connection.WriteAsync(Handle(message), _cts.Token);
                         await connection.FlushAsync(_cts.Token);
                     }
