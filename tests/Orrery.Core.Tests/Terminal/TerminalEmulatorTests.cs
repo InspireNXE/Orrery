@@ -268,4 +268,24 @@ public class TerminalEmulatorTests
         Assert.Equal("\u001b[200~a\rb\u001b[201~", TerminalKeys.Paste("a\r\nb", bracketed: true));
         Assert.Equal("x", TerminalKeys.Paste("x\u001b[201~", bracketed: true)[6..7]);
     }
+
+    [Theory]
+    [InlineData(TerminalKey.Left, true, "b")]
+    [InlineData(TerminalKey.Right, true, "f")]
+    [InlineData(TerminalKey.Backspace, true, "")]
+    [InlineData(TerminalKey.Delete, true, "d")]
+    [InlineData(TerminalKey.Left, false, "[1;5D")]   // Full-screen programs: xterm's sequence.
+    [InlineData(TerminalKey.Right, false, "[1;5C")]
+    [InlineData(TerminalKey.Backspace, false, "")]   // ^W: delete the word before the cursor (vim).
+    [InlineData(TerminalKey.Delete, false, "[3;5~")]
+    public void Ctrl_word_keys_suit_the_shell_prompt_or_the_full_screen_program(TerminalKey key, bool shellPrompt, string expected)
+    {
+        Assert.Equal(expected, TerminalKeys.Encode(key, TerminalModifiers.Control, cursorKeysApplication: false, shellPrompt));
+    }
+
+    [Fact]
+    public void Ctrl_shift_arrows_keep_the_xterm_sequence_at_the_prompt()
+    {
+        Assert.Equal("[1;6D", TerminalKeys.Encode(TerminalKey.Left, TerminalModifiers.Control | TerminalModifiers.Shift, false, shellPrompt: true));
+    }
 }

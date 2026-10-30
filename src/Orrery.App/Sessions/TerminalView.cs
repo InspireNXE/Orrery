@@ -343,7 +343,7 @@ public sealed class TerminalView : Control
         if (SpecialKey(e.Key) is { } special)
         {
             e.Handled = true;
-            Send(TerminalKeys.Encode(special, terminalMods, _terminal.CursorKeysApplication));
+            Send(TerminalKeys.Encode(special, terminalMods, _terminal.CursorKeysApplication, shellPrompt: !_terminal.AlternateScreen));
             return;
         }
 
