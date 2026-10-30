@@ -67,7 +67,8 @@ public partial class MainWindow : Window
     readonly Button _sidePanelToggle, _inspectorToggle;
     readonly Control _titleBar, _rail, _statusBar, _tabStripBar;
     readonly Border _fullScreenBar, _fullScreenHotZone;
-    readonly TextBlock _fullScreenTitle;
+    readonly TextBlock _fullScreenTitle, _fullScreenHint;
+    KeyGesture _fullScreenShortcut;
 
     // Full screen hides every pane and bar; these are what to put back.
     bool _fullScreen;
@@ -142,6 +143,8 @@ public partial class MainWindow : Window
         _fullScreenBar = this.FindControl<Border>("FullScreenBar")!;
         _fullScreenHotZone = this.FindControl<Border>("FullScreenHotZone")!;
         _fullScreenTitle = this.FindControl<TextBlock>("FullScreenTitle")!;
+        _fullScreenHint = this.FindControl<TextBlock>("FullScreenHint")!;
+        _fullScreenShortcut = Input.FullScreenShortcut.FromSettings(_settingsStore.Load().FullScreenShortcut);
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
@@ -547,11 +550,12 @@ public partial class MainWindow : Window
 
     void WireFullScreen()
     {
-        // Ctrl+Alt+Break, as in Remote Desktop Connection. Caught on the way down, before a session
-        // swallows it; Windows reports Ctrl+Break as Cancel.
+        // The full-screen shortcut (Ctrl+Alt+Enter unless changed in Settings), caught on the way down before
+        // a session swallows it. Not while Settings is recording a new one.
         AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Key is Key.Pause or Key.Cancel && e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            if (Input.FullScreenShortcut.Matches(_fullScreenShortcut, e.Key, e.KeyModifiers)
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true })
             {
                 e.Handled = true;
                 if (_fullScreen)
@@ -568,6 +572,7 @@ public partial class MainWindow : Window
         _fullScreenHotZone.PointerEntered += (_, _) =>
         {
             _fullScreenTitle.Text = _currentTab?.Origin.Title;
+            _fullScreenHint.Text = $"{Input.FullScreenShortcut.Describe(_fullScreenShortcut)} to leave";
             _fullScreenBar.IsVisible = true;
         };
         _fullScreenBar.PointerExited += (_, _) => _fullScreenBar.IsVisible = false;
@@ -575,7 +580,7 @@ public partial class MainWindow : Window
 
     void OnExitFullScreenClick(object? sender, RoutedEventArgs e) => ExitFullScreen();
 
-    /// <summary>The current session fills the screen; everything else hides until Ctrl+Alt+Break.</summary>
+    /// <summary>The current session fills the screen; everything else hides until the full-screen shortcut.</summary>
     void EnterFullScreen()
     {
         if (_fullScreen || _currentTab is not { } tab)
@@ -1203,7 +1208,7 @@ public partial class MainWindow : Window
             var fullScreen = new Button { Content = Controls.StrokeIcon.Create(Controls.Icons.FullScreen, 15) };
             fullScreen.Classes.Add("icon");
             fullScreen.Classes.Add("small");
-            ToolTip.SetTip(fullScreen, "Full screen (Ctrl+Alt+Break)");
+            ToolTip.SetTip(fullScreen, $"Full screen ({Input.FullScreenShortcut.Describe(_fullScreenShortcut)})");
             Avalonia.Automation.AutomationProperties.SetName(fullScreen, "Full screen");
             fullScreen.Click += (_, _) => EnterFullScreen();
             _sessionActions.Children.Add(fullScreen);
@@ -1328,7 +1333,7 @@ public partial class MainWindow : Window
         {
             SelectTab(tab);
             EnterFullScreen();
-        }, "Ctrl+Alt+Pause", tab.Session.State == SessionState.Connected);
+        }, Input.FullScreenShortcut.Format(_fullScreenShortcut), tab.Session.State == SessionState.Connected);
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
         yield return MenuItemFor("Reconnect", async () =>
         {
@@ -1639,6 +1644,11 @@ public partial class MainWindow : Window
                 return Task.CompletedTask;
             }, ChooseImportFileAsync);
             view.CloseRequested += (_, _) => CloseSettings();
+            view.FullScreenShortcutChanged += (_, shortcut) =>
+            {
+                _fullScreenShortcut = shortcut;
+                UpdateSessionToolbar();
+            };
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;

@@ -2,11 +2,13 @@ using System.Diagnostics;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
+using Orrery.App.Input;
 using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
@@ -90,6 +92,7 @@ sealed class SettingsView : UserControl
                             StorageSection(),
                             CredentialsSection(),
                             RemoteDesktopSection(),
+                            KeyboardSection(),
                             ImportSection(),
                             AboutSection(),
                         },
@@ -103,6 +106,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>The close button or Esc.</summary>
     public event EventHandler? CloseRequested;
+
+    /// <summary>A new full-screen shortcut was saved.</summary>
+    public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -422,6 +428,52 @@ sealed class SettingsView : UserControl
             zoom,
             Note("Remote desktops don't learn this display's scaling, so without this their text is as small as at 100%. "
                 + "Enlarged, text is crisp at 200% and slightly soft at 125% or 150%. Applies to new connections."));
+    }
+
+    // ---- Keyboard ----
+
+    Control KeyboardSection()
+    {
+        var recorder = new ShortcutRecorder(FullScreenShortcut.FromSettings(_settings.FullScreenShortcut));
+        var reset = new Button { Content = "Use the default" };
+        var problem = Note(string.Empty);
+        problem.Foreground = Dialogs.DangerBrush;
+        problem.IsVisible = false;
+
+        void Save(KeyGesture shortcut)
+        {
+            recorder.StopRecording();
+            recorder.Gesture = shortcut;
+            problem.IsVisible = false;
+            reset.IsEnabled = !FullScreenShortcut.SameAs(shortcut, FullScreenShortcut.Default);
+            _settings = _settings with { FullScreenShortcut = FullScreenShortcut.ToSettings(shortcut) };
+            if (TrySaveSettings())
+            {
+                FullScreenShortcutChanged?.Invoke(this, shortcut);
+            }
+        }
+
+        // A shortcut that fails the checks is explained and not kept; the recorder keeps listening for another.
+        recorder.Recorded += (_, shortcut) =>
+        {
+            if (FullScreenShortcut.Problem(shortcut) is { } why)
+            {
+                problem.Text = $"{FullScreenShortcut.Describe(shortcut)} can't be used: {why}";
+                problem.IsVisible = true;
+                return;
+            }
+
+            Save(shortcut);
+        };
+        reset.Click += (_, _) => Save(FullScreenShortcut.Default);
+        reset.IsEnabled = !FullScreenShortcut.SameAs(recorder.Gesture, FullScreenShortcut.Default);
+
+        return Section("Keyboard",
+            Row("Full screen on and off", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { recorder, reset } }),
+            problem,
+            Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
+                + "and can't be a key the system, Orrery or typing in a session already uses. "
+                + "Full screen can always be left from the bar at the top edge of the screen too."));
     }
 
     // ---- Import ----

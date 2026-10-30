@@ -264,7 +264,7 @@
             CornerRadius="0,0,10,10" Padding="14,6,8,6">
       <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock x:Name="FullScreenTitle" VerticalAlignment="Center" FontWeight="SemiBold" />
-        <TextBlock Text="Ctrl+Alt+Break to leave" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
+        <TextBlock x:Name="FullScreenHint" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
         <Button Content="Exit full screen" Click="OnExitFullScreenClick" />
       </StackPanel>
     </Border>

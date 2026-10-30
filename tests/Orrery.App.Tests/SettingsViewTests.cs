@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -13,6 +15,35 @@ namespace Orrery.App.Tests;
 public class SettingsViewTests : IDisposable
 {
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
+
+    [AvaloniaFact]
+    public void Records_a_full_screen_shortcut_and_refuses_one_that_types_a_character()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask);
+        KeyGesture? changed = null;
+        view.FullScreenShortcutChanged += (_, shortcut) => changed = shortcut;
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var recorder = Assert.Single(window.GetVisualDescendants().OfType<ShortcutRecorder>());
+        recorder.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(recorder.IsRecording);
+
+        window.KeyPressQwerty(PhysicalKey.Q, RawInputModifiers.Control | RawInputModifiers.Alt);
+        Assert.True(recorder.IsRecording);
+        Assert.Null(changed);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("Ctrl+Alt+Q can't be used") == true);
+
+        window.KeyPressQwerty(PhysicalKey.Home, RawInputModifiers.Control | RawInputModifiers.Alt);
+        Assert.False(recorder.IsRecording);
+        Assert.Equal(Key.Home, changed?.Key);
+        Assert.Equal("Ctrl+Alt+Home", settings.Load().FullScreenShortcut);
+        window.Close();
+    }
 
     [AvaloniaFact]
     public void Shows_the_data_folder_and_saves_a_new_auto_lock_time()
