@@ -29,8 +29,58 @@ programs outside the repo, mostly in the session scratchpad, to construct failin
 edited or built during the pass. Unverified finder and verifier notes are kept in
 `%LOCALAPPDATA%\orrery-audit\2026-10\raw\` (outside the repo).
 
-Packets: `packets/00-README.md` (19 packets, written 2026-10-30, none run yet). Worker agents:
+Packets: `packets/00-README.md` (19 packets, written 2026-10-30; 18 run the same day, packet 18 blocked). Worker agents:
 `.claude/agents/packet-{opus-high,opus-medium,sonnet-medium,sonnet-low}.md`.
+
+## Packet runs
+
+The `packet-*` agents weren't loaded in the session that ran them (they were added mid-session), so each worker was a
+general-purpose agent given the same instructions, model, effort and worktree isolation.
+
+Until packet 13, `dotnet build Orrery.sln` on `main` showed 5 CA1416 warnings in `tests/Orrery.Protocols.Ssh.Tests`
+(`FakePageant.cs`, `SshAgentTests.cs`). They predated the packets; the baseline's "0 warnings" came from an incremental
+build. Packet 13 fixed them.
+
+| Packet | Commit | Findings closed | Tests after |
+|---|---|---|---|
+| 07 | dae4adb | S-10 (emulator), S-11, S-12, S-13, S-20, S-21 | 260 |
+| 08 | 98428ab | S-14, S-10 (Telnet) | 262 |
+| 17 | a63bbe5 | S-34 | 262 |
+| 01 | f521420 | S-1, S-6, S-7 (our part) | 272 |
+| 06 | 22b8fff | S-5, S-24, S-22 | 280 |
+| 19 | 106b0b3 | owner request (lock files, source mapping) | 280 |
+| 09 | 3556946 | S-15, S-16, backstop | 281 |
+| 03 | 85e5762 | S-3 | 292 |
+| 15 | 9a146ff | S-29, NLA and fail-closed notes | 309 |
+| 16 | b6adf83 | S-30 | 313 |
+| 04 | e5fb86c | S-8, S-4 (temp file) | 318 (+6 Unix-only, skipped on Windows: not run) |
+| 02 | a6d36a2 | S-2 | 325 (+6 skipped) |
+| 05 | ced2fb5 | S-4 | 335 (+6 skipped) |
+| 13 | 6067c61 | S-25, S-26, S-27, S-28 | 340 (+6 skipped); build now 0 warnings |
+| 14 | 73eef43 | S-23 | 353 (+6 skipped) |
+| 10 | a6a7711 | S-17, S-18, S-19, S-33 | 374 (+6 skipped) |
+| 11 | fbcf720 | S-31, S-32 | 399 (+6 skipped) |
+| 12 | 1f0d711 | S-9 | 401 (+6 skipped) |
+
+Final run on `main` at 1f0d711: `dotnet build Orrery.sln --no-incremental` 0 warnings, 0 errors; `dotnet test Orrery.sln`
+401 passed, 6 skipped, 0 failed (Core 272 + 6 skipped, App 77, Ssh 27, Vnc 18, Telnet 7). The 6 skipped are Unix-only
+file-mode tests (packet 04), not run on Windows. Every finding except S-7's IronRDP part (packet 18) is closed.
+
+Not run, owner to check:
+- a real SSH server with `yes | head -c 2G` leaves memory flat (06), and a legacy-only SSH server needs the new switch (14);
+- a real RDP session connects, resizes and shares the clipboard, and a non-NLA server is refused (01, 09, 15);
+- a real VNC server still connects with classic auth (01, 02);
+- Move data and "Delete old copy" between two real folders, and the open-folder warnings on screen (03, 05);
+- Linux or macOS file modes on a fresh data folder, and the 6 skipped tests (04);
+- `build/Build-Installer.ps1` and the osx/arm64 publishes with locked restore (19).
+
+Follow-ups noted by workers, not packeted:
+- PuTTY 0.75+ offers a per-user named pipe; switching Pageant to it would avoid shared memory entirely (13).
+- 8.3 short names aren't expanded in Move data's containment check; moving back into the default installed folder is
+  refused because it isn't empty (03, both predate the round).
+- `TerminalKeys.Paste` doesn't strip C1 characters (07).
+- RDP `BuildConfig` doesn't cap the initial desktop size it requests at 8192 (01).
+- VNC errors for an unsupported login method come through in the library's wording (02).
 
 ## Waiting on the owner
 
