@@ -214,13 +214,18 @@ public partial class MainWindow : Window
         Opened += async (_, _) =>
         {
             FitTitleBarToCaptionButtons();
+
+            // Move data leaves this in the new folder; it's only good for the first start there.
+            var pendingCleanup = PendingCleanup.TryLoad(_location.DataDir);
+            PendingCleanup.Clear(_location.DataDir);
+
             if (_startupWarning is not null)
             {
                 await Dialogs.ShowMessageAsync(this, "Your connections couldn't be loaded", _startupWarning);
             }
             else if (_movedFrom is not null)
             {
-                await OfferToDeleteOldCopyAsync(_movedFrom);
+                await OfferToDeleteOldCopyAsync(_movedFrom, pendingCleanup);
             }
             else
             {
@@ -1666,22 +1671,42 @@ public partial class MainWindow : Window
         _currentTab?.View.Focus();
     }
 
-    async Task OfferToDeleteOldCopyAsync(string oldDataDir)
+    /// <summary>
+    /// Offers to delete the old copy after Move data, but only when the new folder's pending-cleanup record names
+    /// the same folder as <c>--moved-from</c> and that folder doesn't overlap the one in use.
+    /// </summary>
+    async Task OfferToDeleteOldCopyAsync(string oldDataDir, PendingCleanup? pending)
     {
-        if (!Directory.Exists(oldDataDir) || DataMover.SamePath(oldDataDir, _location.DataDir)
-            || !await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
-                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}", "Delete old copy"))
+        var problem = pending is null || !DataMover.SamePath(pending.OldDataDir, oldDataDir)
+            ? "Move data didn't record it."
+            : DataMover.CheckOldCopy(oldDataDir, _location.DataDir);
+        if (problem is not null)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Not offering to delete {oldDataDir}: {problem}");
+            return;
+        }
+
+        if (!await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
+                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.", "Delete old copy"))
         {
             return;
         }
 
+        IReadOnlyList<string> left;
         try
         {
-            DataMover.DeleteOldCopy(oldDataDir);
+            left = DataMover.DeleteOldCopy(oldDataDir);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             await Dialogs.ShowMessageAsync(this, "Couldn't delete all of the old copy", $"{e.Message}\n\nWhat's left is in {oldDataDir}.");
+            return;
+        }
+
+        if (left.Count > 0)
+        {
+            await Dialogs.ShowMessageAsync(this, "Some files were left in the old folder",
+                $"{left.Count} {(left.Count == 1 ? "file or folder that wasn't Orrery's was" : "files or folders that weren't Orrery's were")} left in place in\n{oldDataDir}");
         }
     }
 
