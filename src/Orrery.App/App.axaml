@@ -138,6 +138,12 @@
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />
       <Setter Property="Foreground" Value="{StaticResource OrreryAccent}" />
     </Style>
+    <!-- Small square icon buttons beside the tabs and in the session toolbar. -->
+    <Style Selector="Button.small">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
     <Style Selector="Button.rail">
       <Setter Property="Width" Value="44" />
       <Setter Property="Height" Value="44" />

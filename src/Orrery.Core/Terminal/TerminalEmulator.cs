@@ -120,6 +120,53 @@ public sealed class TerminalEmulator
         }
     }
 
+    /// <summary>
+    /// The scrollback and the screen as plain text, trailing blanks trimmed from each line and from the end.
+    /// For saving a session's output.
+    /// </summary>
+    public string AllText()
+    {
+        lock (SyncRoot)
+        {
+            var lines = new List<string>();
+            var current = new StringBuilder();
+            for (int row = 0; row < _scrollback.Count + Rows; row++)
+            {
+                var line = LineAt(row);
+                current.Append(line.Text());
+                if (!line.Wrapped)
+                {
+                    lines.Add(current.ToString().TrimEnd());
+                    current.Clear();
+                }
+            }
+
+            if (current.Length > 0)
+            {
+                lines.Add(current.ToString().TrimEnd());
+            }
+
+            int count = lines.Count;
+            while (count > 0 && lines[count - 1].Length == 0)
+            {
+                count--;
+            }
+
+            return string.Join(Environment.NewLine, lines.Take(count));
+        }
+    }
+
+    /// <summary>Forgets the lines scrolled off the top; the screen stays as it is.</summary>
+    public void ClearScrollback()
+    {
+        lock (SyncRoot)
+        {
+            _scrollback.Clear();
+        }
+
+        Updated?.Invoke();
+    }
+
     public void Feed(ReadOnlySpan<byte> data)
     {
         string? title = null;

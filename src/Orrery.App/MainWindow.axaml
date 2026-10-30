@@ -61,7 +61,7 @@
       </Border>
 
       <!-- Status bar -->
-      <Border DockPanel.Dock="Bottom" Height="26" Padding="14,0"
+      <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Height="26" Padding="14,0"
               BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,1,0,0">
         <DockPanel>
           <TextBlock x:Name="ModeText" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource OrreryMuted}" VerticalAlignment="Center" />
@@ -72,10 +72,10 @@
         </DockPanel>
       </Border>
 
-      <Grid ColumnDefinitions="52,Auto,*,Auto">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto">
 
         <!-- Activity rail -->
-        <Border BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0" Padding="0,10">
+        <Border x:Name="Rail" Width="52" BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0" Padding="0,10">
           <DockPanel>
             <StackPanel DockPanel.Dock="Bottom" Spacing="4" HorizontalAlignment="Center">
               <Button x:Name="LockVaultButton" Classes="icon rail" Click="OnLockVaultClick" IsVisible="False"
@@ -198,6 +198,18 @@
         <DockPanel Grid.Column="2">
           <Border DockPanel.Dock="Top" x:Name="TabStripBar" Background="{StaticResource OrreryPanel}"
                   BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1" Padding="10,8,10,0">
+            <DockPanel>
+              <!-- Hide or show the panes on either side, for more room for the session. -->
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" Margin="8,0,0,4" VerticalAlignment="Center">
+                <Button x:Name="SidePanelToggle" Classes="icon small" Click="OnToggleSidePanelClick"
+                        AutomationProperties.Name="Toggle side panel">
+                  <c:StrokeIcon Width="16" Height="16" Data="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M9 4v16" />
+                </Button>
+                <Button x:Name="InspectorToggle" Classes="icon small" Click="OnToggleInspectorClick"
+                        AutomationProperties.Name="Toggle settings pane">
+                  <c:StrokeIcon Width="16" Height="16" Data="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M15 4v16" />
+                </Button>
+              </StackPanel>
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
               <StackPanel Orientation="Horizontal" Spacing="2">
                 <StackPanel x:Name="TabStrip" Orientation="Horizontal" Spacing="2" VerticalAlignment="Bottom" />
@@ -207,6 +219,7 @@
                 </Button>
               </StackPanel>
             </ScrollViewer>
+            </DockPanel>
           </Border>
 
           <Border DockPanel.Dock="Top" x:Name="SessionToolbar" IsVisible="False" Padding="14,7"
@@ -243,6 +256,18 @@
         <ContentControl Grid.Column="2" Grid.ColumnSpan="2" x:Name="SettingsHost" IsVisible="False" />
       </Grid>
     </DockPanel>
+
+    <!-- Full screen: the session fills the screen, and this bar slides in when the pointer reaches the top. -->
+    <Border x:Name="FullScreenHotZone" Height="6" VerticalAlignment="Top" Background="Transparent" IsVisible="False" />
+    <Border x:Name="FullScreenBar" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,0,0,0"
+            Background="{StaticResource OrreryPanel}" BorderBrush="{StaticResource OrreryControlBorder}" BorderThickness="1,0,1,1"
+            CornerRadius="0,0,10,10" Padding="14,6,8,6">
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <TextBlock x:Name="FullScreenTitle" VerticalAlignment="Center" FontWeight="SemiBold" />
+        <TextBlock Text="Ctrl+Alt+Break to leave" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
+        <Button Content="Exit full screen" Click="OnExitFullScreenClick" />
+      </StackPanel>
+    </Border>
 
     <!-- Dims the window while the quick connect palette is open. -->
     <Border x:Name="Dimmer" Background="#9E050608" IsVisible="False" />

@@ -40,6 +40,17 @@ public sealed record AppSettings
     [JsonIgnore]
     public bool ZoomRemoteDesktops => RemoteDesktopZoom ?? true;
 
+    /// <summary>The side panel (connections, credentials, recent) is showing. Null is open.</summary>
+    public bool? SidePanelOpen { get; init; }
+
+    /// <summary>The right-hand pane (connection settings, credential editor) is showing. Null is open.</summary>
+    public bool? InspectorOpen { get; init; }
+
+    /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
+    public double? TerminalFontSize { get; init; }
+
+    public const double DefaultTerminalFontSize = 14;
+
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;

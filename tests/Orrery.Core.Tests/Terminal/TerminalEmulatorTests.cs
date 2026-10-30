@@ -288,4 +288,26 @@ public class TerminalEmulatorTests
     {
         Assert.Equal("\u001b[1;6D", TerminalKeys.Encode(TerminalKey.Left, TerminalModifiers.Control | TerminalModifiers.Shift, false, shellPrompt: true));
     }
+
+    [Fact]
+    public void All_text_joins_wrapped_lines_and_drops_trailing_blank_lines()
+    {
+        var t = Term(columns: 5, rows: 3);
+        t.Feed("one\r\ntwo\r\nabcdefg\r\n");
+
+        Assert.Equal(string.Join(Environment.NewLine, "one", "two", "abcdefg"), t.AllText());
+    }
+
+    [Fact]
+    public void Clearing_the_scrollback_keeps_the_screen()
+    {
+        var t = Term(rows: 2);
+        t.Feed("a\r\nb\r\nc\r\nd");
+        Assert.Equal(2, t.ScrollbackCount);
+
+        t.ClearScrollback();
+
+        Assert.Equal(0, t.ScrollbackCount);
+        Assert.Equal(["c", "d"], Screen(t));
+    }
 }
