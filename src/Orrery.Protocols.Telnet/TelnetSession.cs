@@ -17,6 +17,8 @@ public sealed class TelnetSession : ITerminalSession
     const byte TerminalTypeIs = 0, TerminalTypeSend = 1;
     const string TerminalType = "XTERM-256COLOR";
     static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
+    // We only answer TTYPE and NAWS, which are a few bytes; a longer subnegotiation is dropped.
+    const int MaxSubnegotiation = 4 * 1024;
 
     // Options we'll do on our side when asked, and ones we'll let the server do.
     static readonly HashSet<byte> OursAllowed = [OptBinary, OptSuppressGoAhead, OptTerminalType, OptWindowSize];
@@ -104,6 +106,12 @@ public sealed class TelnetSession : ITerminalSession
         {
             Trace.TraceWarning($"Telnet session to {Target.Host} ended: {e.Message}");
             SetState(State == SessionState.Connected ? SessionState.Disconnected : SessionState.Failed, e.Message);
+        }
+        catch (Exception e)
+        {
+            // From a DataReceived handler or the parser. Report it here so it doesn't sit unobserved in _run.
+            Trace.TraceError($"Telnet session to {Target.Host} failed: {e}");
+            SetState(SessionState.Failed, "The Telnet session stopped because of an internal error.");
         }
     }
 
@@ -207,7 +215,15 @@ public sealed class TelnetSession : ITerminalSession
         client?.Dispose();
         if (_run is not null)
         {
-            await _run;
+            try
+            {
+                await _run;
+            }
+            catch (Exception e)
+            {
+                // The read loop has already reported how it ended.
+                Trace.TraceWarning($"Telnet read loop for {Target.Host} ended with {e.GetType().Name}: {e.Message}");
+            }
         }
 
         SetState(SessionState.Disconnected);
@@ -240,7 +256,7 @@ public sealed class TelnetSession : ITerminalSession
 
         Mode _mode;
         byte _verb;
-        bool _lastWasCr;
+        bool _lastWasCr, _subTooLong;
         readonly List<byte> _sub = [];
 
         public (byte[] Data, byte[] Replies) Feed(ReadOnlySpan<byte> input)
@@ -268,7 +284,7 @@ public sealed class TelnetSession : ITerminalSession
                         {
                             case Iac: data.Add(Iac); _mode = Mode.Data; break;
                             case Will or Wont or Do or Dont: _verb = b; _mode = Mode.Option; break;
-                            case Sb: _sub.Clear(); _mode = Mode.Sub; break;
+                            case Sb: _sub.Clear(); _subTooLong = false; _mode = Mode.Sub; break;
                             default: _mode = Mode.Data; break; // NOP, GA, AYT and friends need nothing.
                         }
                         break;
@@ -282,21 +298,39 @@ public sealed class TelnetSession : ITerminalSession
                         _mode = Mode.SubCommand;
                         break;
                     case Mode.Sub:
-                        _sub.Add(b);
+                        AddSub(b);
                         break;
 
                     case Mode.SubCommand when b == Se:
-                        replies.AddRange(session.SubNegotiation(_sub));
+                        // One that ran past the cap is dropped unanswered, and parsing carries on from here.
+                        if (!_subTooLong)
+                        {
+                            replies.AddRange(session.SubNegotiation(_sub));
+                        }
+
+                        _sub.Clear();
                         _mode = Mode.Data;
                         break;
                     case Mode.SubCommand:
-                        _sub.Add(b); // IAC IAC inside a subnegotiation is a literal 255.
+                        AddSub(b); // IAC IAC inside a subnegotiation is a literal 255.
                         _mode = Mode.Sub;
                         break;
                 }
             }
 
             return ([.. data], [.. replies]);
+        }
+
+        void AddSub(byte b)
+        {
+            if (_sub.Count < MaxSubnegotiation)
+            {
+                _sub.Add(b);
+            }
+            else
+            {
+                _subTooLong = true;
+            }
         }
     }
 

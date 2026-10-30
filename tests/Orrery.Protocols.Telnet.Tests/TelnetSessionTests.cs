@@ -172,4 +172,44 @@ public class TelnetSessionTests
 
         Assert.False(string.IsNullOrWhiteSpace(await failed.Task.WaitAsync(Wait)));
     }
+
+    [Fact]
+    public async Task A_subnegotiation_that_never_ends_is_capped_and_dropped()
+    {
+        var (server, session, output) = await ConnectAsync();
+        await using var _ = server;
+        await using var __ = session;
+
+        // IAC SB TTYPE SEND, then 1 MiB of filler before the IAC SE: far past any real subnegotiation.
+        var filler = new byte[1024 * 1024];
+        Array.Fill(filler, (byte)'z');
+        await server.SendAsync([Iac, Sb, 24, 1, .. filler, Iac, Se, .. "after"u8.ToArray()]);
+
+        var until = DateTime.UtcNow + Wait;
+        while (DateTime.UtcNow < until) { lock (output) if (output.Count >= 5) break; await Task.Delay(20); }
+        lock (output) Assert.Equal("after"u8.ToArray(), output);
+        Assert.Equal(SessionState.Connected, session.State);
+        Assert.False(Contains(server.Received, [Iac, Sb, 24, 0]), "an oversized subnegotiation is dropped, not answered");
+
+        // The parser is back in the data state, so an ordinary subnegotiation still works.
+        await server.SendAsync(Iac, Sb, 24, 1, Iac, Se);
+        Assert.True(await server.ReceivedAsync([Iac, Sb, 24, 0, .. "XTERM-256COLOR"u8.ToArray(), Iac, Se]));
+    }
+
+    [Fact]
+    public async Task A_handler_that_throws_fails_the_session_and_disconnecting_stays_quiet()
+    {
+        var (server, session, _) = await ConnectAsync();
+        await using var _ = server;
+        var failed = new TaskCompletionSource<string?>();
+        session.StateChanged += (_, e) => { if (e.State == SessionState.Failed) failed.TrySetResult(e.Message); };
+        session.DataReceived += _ => throw new InvalidOperationException("the terminal broke");
+
+        await server.SendAsync("hello"u8.ToArray());
+
+        Assert.False(string.IsNullOrWhiteSpace(await failed.Task.WaitAsync(Wait)));
+        Assert.Equal(SessionState.Failed, session.State);
+        await session.DisconnectAsync();
+        await session.DisposeAsync();
+    }
 }
