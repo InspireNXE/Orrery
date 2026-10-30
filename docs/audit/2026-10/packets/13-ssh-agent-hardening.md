@@ -72,8 +72,8 @@ before editing.
 ## Verify
 - The new tests fail on `main` where they can, and pass after.
 - `dotnet test Orrery.sln` green.
-- Report the owner-decision dependency: if the owner rules lower-integrity processes out of scope, S-28 stays Low, but
-  these changes are still worth having.
+- Lower-integrity processes of the same user are in scope (owner decision 2026-10-30), so S-28 is High. The probes
+  for S-25, S-27 and S-28 should use a low-integrity child process as the attacker where they can.
 
 ## Do not touch
 - SSH.NET's algorithm lists (packet 14) and the stream reader and writer (packet 06).

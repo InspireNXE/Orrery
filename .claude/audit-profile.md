@@ -31,7 +31,8 @@ connects to, files it imports, other local users and processes, and anyone who g
   - Builds and installers aren't code-signed; the owner has no certificates.
   - A user who can already run code as the same OS user can read whatever that user can (keychain items
     while unlocked, process memory). Findings must cross a real boundary: another user, a remote host,
-    an imported file, a stolen data folder, a locked vault.
+    an imported file, a stolen data folder, a locked vault, or a lower-integrity process of the same user
+    (a sandboxed browser renderer, for example; owner decision 2026-10-30).
 
 ## Modules
 | Module | Path | Notes |
