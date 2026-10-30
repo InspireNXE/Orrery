@@ -153,6 +153,31 @@ public class PropertiesPanelTests
         Assert.False(SettingsResolver.Resolve(entry).UseSshAgent.Value);
     }
 
+    [AvaloniaFact]
+    public async Task The_older_algorithms_setting_is_off_by_default_and_can_be_turned_on()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var legacy = window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "AllowLegacySsh");
+        Assert.False(legacy.IsChecked);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Allow older, weaker algorithms");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Only for old devices that can't connect otherwise");
+
+        InheritBoxFor(legacy).IsChecked = false;
+        legacy.IsChecked = true;
+        Assert.True(panel.TrySave());
+
+        Assert.True(entry.Settings.AllowLegacySsh);
+        Assert.True(SettingsResolver.Resolve(entry).AllowLegacySsh.Value);
+    }
+
     sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;

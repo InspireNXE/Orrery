@@ -30,16 +30,18 @@ public sealed class SshSession : ITerminalSession
     static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     readonly HostKeyValidator _hostKeys;
+    readonly bool _allowLegacy;
     readonly object _lock = new();
     SshClient? _client;
     ShellStream? _shell;
     ShellPump? _pump;
     int _columns, _rows;
 
-    SshSession(ConnectionTarget target, HostKeyValidator hostKeys, int columns, int rows)
+    SshSession(ConnectionTarget target, HostKeyValidator hostKeys, int columns, int rows, bool allowLegacy)
     {
         Target = target;
         _hostKeys = hostKeys;
+        _allowLegacy = allowLegacy;
         (_columns, _rows) = (columns, rows);
     }
 
@@ -52,10 +54,13 @@ public sealed class SshSession : ITerminalSession
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
     public event Action<byte[]>? DataReceived;
 
-    /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
-    public static SshSession Start(ConnectionTarget target, SshLogin login, HostKeyValidator hostKeys, int columns, int rows)
+    /// <summary>
+    /// Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>. SHA-1, CBC and 3DES
+    /// are only negotiated when <paramref name="allowLegacy"/> is set.
+    /// </summary>
+    public static SshSession Start(ConnectionTarget target, SshLogin login, HostKeyValidator hostKeys, int columns, int rows, bool allowLegacy = false)
     {
-        var session = new SshSession(target, hostKeys, columns, rows);
+        var session = new SshSession(target, hostKeys, columns, rows, allowLegacy);
         _ = Task.Run(() => session.Run(login));
         return session;
     }
@@ -68,6 +73,7 @@ public sealed class SshSession : ITerminalSession
             {
                 Timeout = ConnectTimeout,
             };
+            SshAlgorithms.Apply(info, _allowLegacy);
 
             var client = new SshClient(info) { KeepAliveInterval = KeepAlive };
             bool hostKeyRejected = false;
@@ -78,7 +84,7 @@ public sealed class SshSession : ITerminalSession
                     .GetAwaiter().GetResult();
                 hostKeyRejected = !e.CanTrust;
             };
-            client.ErrorOccurred += (_, e) => Fail(e.Exception.Message);
+            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception));
 
             lock (_lock) _client = client;
             try
@@ -122,9 +128,12 @@ public sealed class SshSession : ITerminalSession
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Trace.TraceError($"SSH session to {Target.Host} failed: {e}");
-            Fail(e.Message);
+            Fail(Describe(e));
         }
     }
+
+    // SSH.NET may report the same failure through ErrorOccurred and by throwing; whichever lands first is shown.
+    string Describe(Exception e) => e is SshConnectionException connection ? SshAlgorithms.ExplainFailure(connection, _allowLegacy) : e.Message;
 
     /// <summary>Checks a private key (OpenSSH, PEM or PuTTY format) and its passphrase. Null when it's usable.</summary>
     public static string? ValidatePrivateKey(string key, string? passphrase)

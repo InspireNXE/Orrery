@@ -924,7 +924,7 @@ public partial class MainWindow : Window
                 && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
             {
                 StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
-                    whenRefused: () => ConnectAsync(entry, skipAgent: true));
+                    whenRefused: () => ConnectAsync(entry, skipAgent: true), resolved.AllowLegacySsh.Value);
                 return;
             }
 
@@ -951,7 +951,7 @@ public partial class MainWindow : Window
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value);
+            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -989,12 +989,12 @@ public partial class MainWindow : Window
     }
 
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
-        bool shareClipboard = true)
+        bool shareClipboard = true, bool allowLegacySsh = false)
     {
         switch (origin.Protocol)
         {
             case Protocol.Ssh:
-                return StartSshAsync(origin, target, password, saved);
+                return StartSshAsync(origin, target, password, saved, allowLegacySsh);
             case Protocol.Vnc:
                 StartVnc(origin, target, password, shareClipboard);
                 return Task.CompletedTask;
@@ -1045,9 +1045,9 @@ public partial class MainWindow : Window
     /// Logs in with the agent's keys alone. If the server refuses them all, the tab closes and
     /// <paramref name="whenRefused"/> asks for a login the usual way.
     /// </summary>
-    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused)
+    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, bool allowLegacySsh = false)
     {
-        var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24);
+        var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24, allowLegacySsh);
         session.StateChanged += (_, e) =>
         {
             if (e.State == SessionState.Failed && session.AuthenticationRejected)
@@ -1063,7 +1063,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
-    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved)
+    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh)
     {
         if (string.IsNullOrWhiteSpace(target.Username))
         {
@@ -1075,7 +1075,7 @@ public partial class MainWindow : Window
             ? new SshLogin(target.Username, null, saved.Secret, saved.Passphrase)
             : new SshLogin(target.Username, password);
 
-        var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24);
+        var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh);
         AddTab(NewTerminalView(session), session, origin);
         UpdateVaultButton();
     }

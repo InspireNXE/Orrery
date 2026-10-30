@@ -50,6 +50,9 @@ public sealed class InheritableSettings
     /// <summary>SSH: log in with the running agent's keys (Pageant, OpenSSH agent) when there's no saved credential. On by default.</summary>
     public bool? UseSshAgent { get; set; }
 
+    /// <summary>SSH: also accept SHA-1, CBC and 3DES algorithms, for old devices that offer nothing newer. Off by default.</summary>
+    public bool? AllowLegacySsh { get; set; }
+
     public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
 }
 
