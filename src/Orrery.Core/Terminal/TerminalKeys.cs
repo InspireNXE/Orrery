@@ -107,10 +107,15 @@ public static class TerminalKeys
         _ => null,
     };
 
-    /// <summary>Wraps pasted text for bracketed-paste mode and strips anything that could end the bracket early.</summary>
+    /// <summary>
+    /// Turns line breaks into CR and removes every control character except tab and CR: ESC (so the text can't
+    /// end the bracket early or start a sequence of its own), the rest of C0, and DEL. Then, for bracketed-paste
+    /// mode, wraps it in the start and end markers. Stripping is the same in both modes.
+    /// </summary>
     public static string Paste(string text, bool bracketed)
     {
         text = text.Replace("\r\n", "\r").Replace('\n', '\r');
-        return bracketed ? $"\u001b[200~{text.Replace("\u001b[201~", string.Empty)}\u001b[201~" : text;
+        text = string.Concat(text.Where(c => c is '\t' or '\r' || (c >= ' ' && c != '\u007f')));
+        return bracketed ? $"\u001b[200~{text}\u001b[201~" : text;
     }
 }
