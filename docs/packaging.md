@@ -48,6 +48,25 @@ standard text with its copyright line. `build/licenses/<package id>.txt` adds te
 separately (IronRDP's MIT licence, the Inter font's OFL), with their source named. The script fails if a shipped
 package has no licence text it can find, so a new dependency can't ship unacknowledged.
 
+## Package versions and lock files
+
+Every project keeps a `packages.lock.json` beside its `.csproj`, recording the exact version and content hash of each
+package it restores, transitive ones and the self-contained runtime packs for every platform in
+`<RuntimeIdentifiers>` in `Directory.Build.props` included. `nuget.config` clears the machine's package sources and uses
+nuget.org only, with every package mapped to it.
+
+Changing a package (adding, removing or bumping one, including the `AvaloniaVersion`, `IronRdpVersion` and
+`BouncyCastleVersion` properties in `Directory.Build.props`) needs this, with the updated `packages.lock.json` files
+in the same commit:
+
+```powershell
+dotnet restore Orrery.sln --force-evaluate
+```
+
+Ordinary restores update the lock files as needed. Builds with `-p:OrreryLockedRestore=true` (the packaging scripts
+pass it) or `ContinuousIntegrationBuild=true` restore in locked mode and fail with NU1004 if the packages no longer
+match the lock files. To check by hand: `dotnet restore Orrery.sln --locked-mode`.
+
 ## Icons and wizard art
 
 `python build/generate-art.py` (needs Pillow) redraws `src/Orrery.App/Assets/orrery.{png,ico,icns}` and

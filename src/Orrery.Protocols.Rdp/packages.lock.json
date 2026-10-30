@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "BouncyCastle.Cryptography": {
+        "type": "Transitive",
+        "resolved": "2.7.0",
+        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      },
+      "NSec.Cryptography": {
+        "type": "Transitive",
+        "resolved": "26.4.0",
+        "contentHash": "0vsCtY5f+YgQROiWNqzgWp+l2pddfk9FkWoGV/bEo0MuEYPKlJWuoA8aOfO6qp3f+EnObKE3zSJhn1PspJeJVg==",
+        "dependencies": {
+          "libsodium": "[1.0.22, 1.0.23)"
+        }
+      },
+      "orrery.core": {
+        "type": "Project",
+        "dependencies": {
+          "BouncyCastle.Cryptography": "[2.7.0, )",
+          "NSec.Cryptography": "[26.4.0, )"
+        }
+      }
+    },
+    "net10.0/linux-arm64": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      }
+    },
+    "net10.0/linux-x64": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      }
+    },
+    "net10.0/osx-arm64": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      }
+    },
+    "net10.0/osx-x64": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      }
+    },
+    "net10.0/win-arm64": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      }
+    },
+    "net10.0/win-x64": {
+      "Devolutions.IronRdp": {
+        "type": "Direct",
+        "requested": "[2026.10.29, )",
+        "resolved": "2026.10.29",
+        "contentHash": "sGIcvuPcDgVMIuVnTC0sBCDWUHmlJng3eUNNSj08U/nS37U6sCqDQdK/5/W/tdylXTVmDGywY+WtNUDG/uz2zA=="
+      },
+      "libsodium": {
+        "type": "Transitive",
+        "resolved": "1.0.22",
+        "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
+      }
+    }
+  }
+}
