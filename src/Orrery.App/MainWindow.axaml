@@ -82,7 +82,7 @@
                       ToolTip.Tip="Lock the vault" AutomationProperties.Name="Lock the vault">
                 <c:StrokeIcon Width="20" Height="20" Data="M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4" />
               </Button>
-              <Button Classes="icon rail" Click="OnSettingsClick" ToolTip.Tip="Settings (Ctrl+,)" AutomationProperties.Name="Settings">
+              <Button x:Name="SettingsRailButton" Classes="icon rail" Click="OnSettingsClick" ToolTip.Tip="Settings (Ctrl+,)" AutomationProperties.Name="Settings">
                 <c:StrokeIcon Width="20" Height="20" Data="M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
               </Button>
             </StackPanel>
@@ -238,6 +238,9 @@
         <Border Grid.Column="3" x:Name="PropertiesHost" Width="320"
                 Background="{StaticResource OrreryPanel}"
                 BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0" />
+
+        <!-- Settings: a page over the sessions and the inspector; sessions keep running underneath. -->
+        <ContentControl Grid.Column="2" Grid.ColumnSpan="2" x:Name="SettingsHost" IsVisible="False" />
       </Grid>
     </DockPanel>
 

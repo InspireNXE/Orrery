@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
@@ -12,28 +13,25 @@ using Orrery.Core.Storage;
 
 namespace Orrery.App.Settings;
 
-/// <summary>What the main window must do after Settings closes.</summary>
-abstract record SettingsOutcome
-{
-    /// <summary>Restart with these extra arguments, after the data or credential store changed underneath.</summary>
-    public sealed record Restart(string[] Arguments) : SettingsOutcome;
-}
-
 /// <summary>
-/// Storage (where the data folder is, Move data…), credentials (which store, when the vault locks) and
-/// About. Changes that swap files out from under the running app end in a restart rather than a live switch.
+/// The settings page, shown in the main window over the sessions: storage (where the data folder is,
+/// Move data…), credentials (which store, when the vault locks), import and About. Changes that swap files
+/// out from under the running app end in <see cref="RestartRequested"/> rather than a live switch.
 /// </summary>
-sealed class SettingsWindow : Window
+sealed class SettingsView : UserControl
 {
     static readonly (string Label, int Minutes)[] AutoLockChoices =
     [
         ("5 minutes", 5), ("15 minutes", 15), ("30 minutes", 30), ("1 hour", 60), ("4 hours", 240), ("Never", 0),
     ];
 
+    static readonly IBrush PageBrush = new SolidColorBrush(Color.Parse("#0E1014")).ToImmutable();
+
     readonly DataLocation _location;
     readonly AppSettingsStore _settingsStore;
     readonly ICredentialStore _credentials;
     readonly Func<Task> _saveEverything;
+    readonly Func<Task> _import;
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
@@ -42,43 +40,83 @@ sealed class SettingsWindow : Window
     bool _loading = true;
 
     /// <param name="saveEverything">Writes pending edits to disk, so a copy of the data folder is complete.</param>
-    public SettingsWindow(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything)
+    /// <param name="import">Asks for an mRemoteNG file and imports it.</param>
+    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import)
     {
         _location = location;
         _settingsStore = settingsStore;
         _credentials = credentials;
         _saveEverything = saveEverything;
+        _import = import;
         _settings = settingsStore.Load();
 
-        Title = "Orrery settings";
-        Width = 560;
-        SizeToContent = SizeToContent.Height;
-        CanResize = false;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = Dialogs.PanelBrush;
+        var close = new Button { Content = StrokeIcon.Create(Icons.Close, 14), Width = 28, Height = 28 };
+        close.Classes.Add("icon");
+        ToolTip.SetTip(close, "Close settings (Esc)");
+        Avalonia.Automation.AutomationProperties.SetName(close, "Close settings");
+        close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
-        var close = new Button { Content = "Close", IsCancel = true, IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(16, 6) };
-        close.Click += (_, _) => Close(null);
-
-        Content = new ScrollViewer
+        Background = PageBrush;
+        Content = new DockPanel
         {
-            Content = new StackPanel
+            Children =
             {
-                Margin = new Thickness(24),
-                Spacing = 20,
-                Children =
+                Pane.Docked(new Border
                 {
-                    new TextBlock { Text = "Settings", FontSize = 18, FontWeight = FontWeight.SemiBold },
-                    StorageSection(),
-                    CredentialsSection(),
-                    RemoteDesktopSection(),
-                    AboutSection(),
-                    close,
+                    Background = Dialogs.PanelBrush,
+                    BorderBrush = Pane.LineBrush,
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    Height = 42,
+                    Padding = new Thickness(32, 0, 12, 0),
+                    Child = new DockPanel
+                    {
+                        Children =
+                        {
+                            Pane.Docked(close, Dock.Right),
+                            new TextBlock { Text = "Settings", FontSize = 15, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center },
+                        },
+                    },
+                }, Dock.Top),
+                new ScrollViewer
+                {
+                    Content = new StackPanel
+                    {
+                        Margin = new Thickness(32, 24, 32, 32),
+                        MaxWidth = 600,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        Spacing = 28,
+                        Children =
+                        {
+                            StorageSection(),
+                            CredentialsSection(),
+                            RemoteDesktopSection(),
+                            ImportSection(),
+                            AboutSection(),
+                        },
+                    },
                 },
             },
         };
 
         _loading = false;
+    }
+
+    /// <summary>The close button or Esc.</summary>
+    public event EventHandler? CloseRequested;
+
+    /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
+    public event EventHandler<string[]>? RestartRequested;
+
+    Window Owner => (Window)TopLevel.GetTopLevel(this)!;
+
+    protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key == Avalonia.Input.Key.Escape && !e.Handled)
+        {
+            e.Handled = true;
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     // ---- Storage ----
@@ -104,7 +142,7 @@ sealed class SettingsWindow : Window
 
     async Task MoveDataAsync()
     {
-        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        var folders = await Owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             Title = "Choose an empty folder for Orrery's data",
             AllowMultiple = false,
@@ -116,11 +154,11 @@ sealed class SettingsWindow : Window
 
         if (DataMover.CheckTarget(_location.DataDir, target) is { } problem)
         {
-            await Dialogs.ShowMessageAsync(this, "Can't move the data there", problem);
+            await Dialogs.ShowMessageAsync(Owner, "Can't move the data there", problem);
             return;
         }
 
-        if (!await Dialogs.ConfirmAsync(this, "Move Orrery's data?",
+        if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
                 $"Orrery will copy its data to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nThe old folder is kept until you choose to delete it.",
                 "Move and restart"))
         {
@@ -134,18 +172,18 @@ sealed class SettingsWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            await Dialogs.ShowMessageAsync(this, "Couldn't move the data", $"{e.Message}\n\nNothing changed; Orrery still uses\n{_location.DataDir}");
+            await Dialogs.ShowMessageAsync(Owner, "Couldn't move the data", $"{e.Message}\n\nNothing changed; Orrery still uses\n{_location.DataDir}");
             return;
         }
 
         if (!PointAt(target, out var error))
         {
-            await Dialogs.ShowMessageAsync(this, "Couldn't switch to the new folder",
+            await Dialogs.ShowMessageAsync(Owner, "Couldn't switch to the new folder",
                 $"The data was copied to {target}, but Orrery couldn't record the new location:\n{error}\n\nOrrery still uses\n{_location.DataDir}");
             return;
         }
 
-        Close(new SettingsOutcome.Restart(["--moved-from", _location.DataDir]));
+        RestartRequested?.Invoke(this, ["--moved-from", _location.DataDir]);
     }
 
     /// <summary>Portable mode records the folder in the marker beside the app; installed mode in a pointer file.</summary>
@@ -220,9 +258,9 @@ sealed class SettingsWindow : Window
             var change = new Button { Content = "Change master password…" };
             change.Click += async (_, _) =>
             {
-                if (await new ChangeMasterPasswordWindow(vault).ShowDialog<bool>(this))
+                if (await new ChangeMasterPasswordWindow(vault).ShowDialog<bool>(Owner))
                 {
-                    await Dialogs.ShowMessageAsync(this, "Master password changed", "Use the new password the next time you unlock the vault.");
+                    await Dialogs.ShowMessageAsync(Owner, "Master password changed", "Use the new password the next time you unlock the vault.");
                 }
             };
             section.Children.Add(change);
@@ -280,14 +318,14 @@ sealed class SettingsWindow : Window
     async Task<bool> TrySwitchStoreAsync(CredentialStoreKind from, CredentialStoreKind to)
     {
         string fromName = StoreName(from), toName = StoreName(to);
-        if (!await Dialogs.ConfirmAsync(this, $"Switch to {toName}?",
+        if (!await Dialogs.ConfirmAsync(Owner, $"Switch to {toName}?",
                 $"Orrery will copy your saved credentials from {fromName} to {toName}, then restart to use it. Open sessions will close.",
                 "Copy and restart"))
         {
             return false;
         }
 
-        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, Owner))
         {
             return false;
         }
@@ -295,7 +333,7 @@ sealed class SettingsWindow : Window
         var target = CredentialStores.Create(_location, to, _settings.AutoLockAfter);
         try
         {
-            if (!await VaultUnlockWindow.EnsureUnlockedAsync(target, this))
+            if (!await VaultUnlockWindow.EnsureUnlockedAsync(target, Owner))
             {
                 return false;
             }
@@ -307,7 +345,7 @@ sealed class SettingsWindow : Window
             }
             catch (Exception e) when (e is IOException or InvalidDataException or InvalidOperationException or System.ComponentModel.Win32Exception)
             {
-                await Dialogs.ShowMessageAsync(this, "Couldn't copy the credentials", $"{e.Message}\n\nOrrery keeps using {fromName}.");
+                await Dialogs.ShowMessageAsync(Owner, "Couldn't copy the credentials", $"{e.Message}\n\nOrrery keeps using {fromName}.");
                 return false;
             }
 
@@ -317,7 +355,7 @@ sealed class SettingsWindow : Window
                 return false;
             }
 
-            if (copied.Count > 0 && await Dialogs.ConfirmAsync(this, $"Remove the originals from {fromName}?",
+            if (copied.Count > 0 && await Dialogs.ConfirmAsync(Owner, $"Remove the originals from {fromName}?",
                     $"{copied.Count} credential{(copied.Count == 1 ? " was" : "s were")} copied to {toName} and checked. Keeping the originals leaves a second copy of each password in {fromName}.",
                     "Remove originals"))
             {
@@ -329,7 +367,7 @@ sealed class SettingsWindow : Window
             (target as IDisposable)?.Dispose();
         }
 
-        Close(new SettingsOutcome.Restart([]));
+        RestartRequested?.Invoke(this, []);
         return true;
     }
 
@@ -344,7 +382,7 @@ sealed class SettingsWindow : Window
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            await Dialogs.ShowMessageAsync(this, "Some originals weren't removed", $"{e.Message}\n\nThe copies are safe. You can remove what's left from {storeName} by hand.");
+            await Dialogs.ShowMessageAsync(Owner, "Some originals weren't removed", $"{e.Message}\n\nThe copies are safe. You can remove what's left from {storeName} by hand.");
         }
     }
 
@@ -364,7 +402,7 @@ sealed class SettingsWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            _ = Dialogs.ShowMessageAsync(this, "Couldn't save settings", e.Message);
+            _ = Dialogs.ShowMessageAsync(Owner, "Couldn't save settings", e.Message);
             return false;
         }
     }
@@ -386,6 +424,17 @@ sealed class SettingsWindow : Window
                 + "Enlarged, text is crisp at 200% and slightly soft at 125% or 150%. Applies to new connections."));
     }
 
+    // ---- Import ----
+
+    Control ImportSection()
+    {
+        var import = new Button { Content = "Import from mRemoteNG…" };
+        import.Click += async (_, _) => await _import();
+        return Section("Import",
+            import,
+            Note("Choose an mRemoteNG confCons.xml to add its connections. You can also drop the file onto the connections list."));
+    }
+
     // ---- About ----
 
     static Control AboutSection()
@@ -401,7 +450,7 @@ sealed class SettingsWindow : Window
     static StackPanel Section(string title, params Control[] children)
     {
         var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Dialogs.MutedBrush });
+        panel.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
         panel.Children.AddRange(children);
         return panel;
     }
