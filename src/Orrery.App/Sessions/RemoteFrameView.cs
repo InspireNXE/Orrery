@@ -203,7 +203,7 @@ public sealed class RemoteFrameView : Panel
         if (state == SessionState.Connected)
         {
             _ = SendLocalClipboardAsync();
-            Focus();
+            SessionFocus.TakeIfFree(this);
             ScheduleResize(); // The view may have changed size while connecting.
         }
     }
