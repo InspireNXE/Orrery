@@ -827,7 +827,7 @@ public partial class MainWindow : Window
         }
 
         int already = result.CountAlreadyIn(_tree);
-        var storeName = _credentials is VaultFileStore ? "your vault" : "Windows Credential Manager";
+        var storeName = (_credentials as KeychainCredentialStore)?.BackendName ?? "your vault";
         var choice = await new ImportPreviewWindow(result, already, storeName).ShowDialog<ImportChoice?>(this);
         if (choice is null)
         {

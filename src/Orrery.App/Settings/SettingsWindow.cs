@@ -187,19 +187,19 @@ sealed class SettingsWindow : Window
 
         if (CredentialStores.CanUseOsKeychain(_location))
         {
-            _storeChoice.Items.Add(new ComboBoxItem { Content = "Windows Credential Manager", Tag = CredentialStoreKind.OsKeychain });
+            _storeChoice.Items.Add(new ComboBoxItem { Content = Capitalised(KeychainName), Tag = CredentialStoreKind.OsKeychain });
             _storeChoice.Items.Add(new ComboBoxItem { Content = "Encrypted vault file (master password)", Tag = CredentialStoreKind.VaultFile });
             _storeChoice.SelectedIndex = current == CredentialStoreKind.OsKeychain ? 0 : 1;
             _storeChoice.SelectionChanged += async (_, _) => await SwitchStoreAsync();
             section.Children.Add(Row("Saved credentials are kept in", _storeChoice));
-            section.Children.Add(Note("Credential Manager is protected by your Windows sign-in. The vault file is one encrypted file you can back up or move, opened with a master password."));
+            section.Children.Add(Note($"{Capitalised(KeychainName)} is protected by your login on this computer. The vault file is one encrypted file you can back up or move, opened with a master password."));
         }
         else
         {
             section.Children.Add(Row("Saved credentials are kept in", new TextBlock { Text = "Encrypted vault file (master password)" }));
             section.Children.Add(Note(_location.Mode == StorageMode.Portable
                 ? "Portable copies always use the vault file, because the system keychain stays on this computer."
-                : "Support for this system's keychain is coming; until then saved credentials use the vault file."));
+                : "There's no system keyring available here (on Linux, the Secret Service: GNOME Keyring or KWallet), so saved credentials use the vault file."));
         }
 
         int minutes = _settings.AutoLockMinutes ?? AppSettings.DefaultAutoLockMinutes;
@@ -239,7 +239,7 @@ sealed class SettingsWindow : Window
         _autoLock.IsEnabled = kind == CredentialStoreKind.VaultFile;
         _autoLockNote.Text = kind == CredentialStoreKind.VaultFile
             ? "Open sessions keep running when the vault locks."
-            : "Applies only to the vault file. Credential Manager unlocks with your Windows sign-in.";
+            : $"Applies only to the vault file. {Capitalised(KeychainName)} unlocks with your login.";
     }
 
     void SaveAutoLock()
@@ -349,7 +349,11 @@ sealed class SettingsWindow : Window
     }
 
     static string StoreName(CredentialStoreKind kind) =>
-        kind == CredentialStoreKind.OsKeychain ? "Windows Credential Manager" : "the vault file";
+        kind == CredentialStoreKind.OsKeychain ? KeychainName : "the vault file";
+
+    static string KeychainName => CredentialStores.OsKeychain?.Name ?? "the system keychain";
+
+    static string Capitalised(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     bool TrySaveSettings()
     {
