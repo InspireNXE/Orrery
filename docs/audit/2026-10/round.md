@@ -34,15 +34,8 @@ Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). 
 
 ## Waiting on the owner
 
-1. **Lower-integrity processes.** Should a low-integrity process of the same user, such as a sandboxed browser
-   renderer, count as crossing a boundary? The profile lists "another local user" but not this. The answer sets the
-   severity of S-28 (Low or High) and part of S-25 and S-27.
-2. **VNC security types (S-2).** The recommended fix allows only None and classic VNC auth, as upstream does. That
-   drops VeNCrypt, TLS and RealVNC RA2 support until they can be wired to the certificate prompt. The alternative is
-   keeping them and validating certificates and keys now, which is more work and still leaves the clear-text sub-types to block.
-3. **Master password change (S-9).** A fresh data key on every change means editing design doc §3.3. Agree?
-4. **Windows folder access (S-4).** Should Orrery set a protected ACL on folders it creates, warn on folders the
-   user picks, or both?
+1. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked
+   mode, plus a repo `nuget.config` with package source mapping? Not packeted yet.
 
 ## Owner decisions
 
@@ -51,3 +44,5 @@ Packets: `packets/00-README.md` (18 packets, written 2026-10-30, none run yet). 
 - 2026-10-30: packet 05 (S-4), option A. Protected ACLs on folders Orrery creates, plus a warning for folders open to
   other users.
 - 2026-10-30: packet 12 (S-9), option A. A master password change also replaces the vault's data key.
+- 2026-10-30: lower-integrity processes of the same user (a sandboxed browser renderer) count as crossing a
+  boundary. Added to the profile; S-28 raised from Low to High (counts now 1 Critical, 4 High, 15 Medium, 14 Low).

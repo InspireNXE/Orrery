@@ -43,9 +43,7 @@ Runners are the agents in `.claude/agents/packet-*.md`, chosen by how much judge
 ## Owner decisions
 
 Open:
-1. **Scope of lower-integrity processes.** Should a low-integrity process of the same user (a browser sandbox) count as
-   crossing a boundary? It sets S-28's severity (Low or High). Packet 13 is worth running either way.
-2. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
+1. **Lock files.** Packet 17 only fixes the BouncyCastle pin. Should restores use `packages.lock.json` with locked mode,
    plus a repo `nuget.config` with source mapping? Not packeted yet.
 
 Decided:
@@ -53,6 +51,7 @@ Decided:
 - 2026-10-30: packet 02, option A. Only None and classic VNC auth.
 - 2026-10-30: packet 05, option A. Protected ACLs on folders Orrery creates, plus a warning for open folders.
 - 2026-10-30: packet 12, option A. New data key on every master password change.
+- 2026-10-30: lower-integrity processes of the same user count as crossing a boundary. S-28 is High.
 
 ## Orchestrator
 

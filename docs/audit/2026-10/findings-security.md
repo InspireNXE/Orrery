@@ -5,7 +5,7 @@ profile. A separate verifier then tried to disprove every claim, and most verifi
 construct the failing input. Line numbers are at `58e9c72`. Claims the verifiers disproved are in
 `rejected-security.md`.
 
-Counts: 1 Critical, 3 High, 15 Medium, 15 Low (34). Of those, 31 are CONFIRMED and 3 are PLAUSIBLE.
+Counts: 1 Critical, 4 High, 15 Medium, 14 Low (34). Of those, 31 are CONFIRMED and 3 are PLAUSIBLE.
 
 ## Cross-cutting: nothing catches an unhandled exception
 
@@ -423,7 +423,7 @@ Rule: none
 Fix direction: Use `SendMessageTimeout` and read timeouts, and check the Pageant window's owning process before sending.
 
 ### S-28: A low-integrity process can pre-create Orrery's Pageant shared-memory block and read the sign request
-Severity: Low (High if Pageant accepts the block; see the owner decision)      Verdict: PLAUSIBLE
+Severity: High (lower-integrity processes are in scope, owner decision 2026-10-30)      Verdict: PLAUSIBLE
 Where: src/Orrery.Protocols.Ssh/Agent/PageantTransport.cs:44-51, 63, 69, 80-88
 Failure: A low-integrity process of the same user (a sandboxed browser renderer, for example) creates
 `PageantRequest{threadid:x8}` before Orrery does -> Orrery writes its sign request into the attacker's section. If
