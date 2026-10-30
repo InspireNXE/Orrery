@@ -15,5 +15,6 @@
   <PropertyGroup>
     <AvaloniaVersion>11.3.22</AvaloniaVersion>
     <IronRdpVersion>2026.10.29</IronRdpVersion>
+    <BouncyCastleVersion>2.7.0</BouncyCastleVersion>
   </PropertyGroup>
 </Project>
