@@ -23,6 +23,7 @@ using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
+using Orrery.Protocols.Vnc;
 
 namespace Orrery.App;
 
@@ -483,10 +484,10 @@ public partial class MainWindow : Window
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
-        if (protocol is not (Protocol.Rdp or Protocol.Ssh))
+        if (protocol is not (Protocol.Rdp or Protocol.Ssh or Protocol.Vnc))
         {
             await Dialogs.ShowMessageAsync(this, $"{ProtocolInfo.Label(protocol)} isn't supported yet",
-                "Orrery can open RDP and SSH connections for now. VNC and Telnet are on the way.");
+                "Orrery can open RDP, SSH and VNC connections for now. Telnet is on the way.");
             return;
         }
 
@@ -531,14 +532,7 @@ public partial class MainWindow : Window
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            if (protocol == Protocol.Ssh)
-            {
-                await StartSshAsync(entry.Name, target, password, saved);
-            }
-            else
-            {
-                StartRdp(entry.Name, target, password);
-            }
+            await StartSessionAsync(protocol, entry.Name, target, password, saved);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -557,15 +551,31 @@ public partial class MainWindow : Window
         }
 
         var target = new ConnectionTarget(host, choice.Port, prompt.Username, prompt.Domain);
-        if (choice.Protocol == Protocol.Ssh)
+        var saved = prompt.CredentialId is { } id ? await _credentials.GetAsync(id) : null;
+        await StartSessionAsync(choice.Protocol, host, target, prompt.Password, saved);
+    }
+
+    Task StartSessionAsync(Protocol protocol, string title, ConnectionTarget target, string password, Credential? saved)
+    {
+        switch (protocol)
         {
-            var saved = prompt.CredentialId is { } id ? await _credentials.GetAsync(id) : null;
-            await StartSshAsync(host, target, prompt.Password, saved);
+            case Protocol.Ssh:
+                return StartSshAsync(title, target, password, saved);
+            case Protocol.Vnc:
+                StartVnc(title, target, password);
+                return Task.CompletedTask;
+            default:
+                StartRdp(title, target, password);
+                return Task.CompletedTask;
         }
-        else
-        {
-            StartRdp(host, target, prompt.Password);
-        }
+    }
+
+    /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
+    void StartVnc(string title, ConnectionTarget target, string password)
+    {
+        var session = VncSession.Start(target, password);
+        AddTab(new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session, title);
+        UpdateVaultButton();
     }
 
     void StartRdp(string title, ConnectionTarget target, string password)
