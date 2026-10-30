@@ -27,12 +27,15 @@ sealed class SessionTab
     static readonly IBrush AccentBrush = new SolidColorBrush(Color.Parse("#5B9DFF")).ToImmutable();
 
     readonly Ellipse _dot = new() { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center };
+    // The current tab's top edge: drawn over the tab's own outline (hence the -1 margin) so it
+    // follows the rounded corners instead of sitting inside them.
     readonly Border _accent = new()
     {
-        Height = 2,
-        VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(-1, -1, -1, 0),
+        BorderThickness = new Thickness(0, 2, 0, 0),
         CornerRadius = new CornerRadius(8, 8, 0, 0),
-        Background = AccentBrush,
+        BorderBrush = AccentBrush,
+        IsHitTestVisible = false,
         IsVisible = false,
     };
 
@@ -65,6 +68,8 @@ sealed class SessionTab
 
         Header = new Button
         {
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
             Content = new Grid
             {
                 Children =
