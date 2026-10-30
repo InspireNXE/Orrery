@@ -44,6 +44,9 @@ public sealed class InheritableSettings
 
     public string? Domain { get; set; }
 
+    /// <summary>Copy and paste between this computer and the remote one (RDP). Null inherits; on by default.</summary>
+    public bool? ShareClipboard { get; set; }
+
     public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
 }
 

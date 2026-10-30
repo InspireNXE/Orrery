@@ -63,6 +63,35 @@ public class PropertiesPanelTests
         Assert.DoesNotContain("alice", texts);
     }
 
+    [AvaloniaFact]
+    public async Task Turning_off_the_clipboard_for_a_connection_is_saved()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers", Settings = new InheritableSettings { ShareClipboard = false } };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example" };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 900 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var clipboard = window.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Share the clipboard (RDP)"));
+        Assert.False(clipboard.IsChecked); // Inherited from the folder.
+        Assert.False(clipboard.IsEnabled);
+
+        var inherit = window.GetVisualDescendants().OfType<CheckBox>()
+            .Where(c => Equals(c.Content, "Inherit")).Last();
+        inherit.IsChecked = false;
+        clipboard.IsChecked = true;
+        Assert.True(panel.TrySave());
+
+        Assert.True(entry.Settings.ShareClipboard);
+        Assert.True(SettingsResolver.Resolve(entry).ShareClipboard.Value);
+    }
+
     sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;
