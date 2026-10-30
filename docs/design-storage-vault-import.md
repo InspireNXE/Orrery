@@ -156,6 +156,8 @@ Two implementations:
 
 Offering the vault file in installed mode as well gives users one encrypted file to back up and move.
 
+As built: `KeychainCredentialStore` keeps the index and talks to an `ISecretBackend` per OS: `WindowsCredentialBackend` (Credential Manager), `MacKeychainBackend` (Security.framework generic passwords, service "Orrery", account `orrery:<id>`) and `LinuxSecretServiceBackend` (libsecret's `…v_sync` calls, schema `org.orrery.Credential`, attribute `key`). On Linux the backend is only used when a Secret Service answers; otherwise installed mode falls back to the vault file. The macOS and Linux backends compile and follow the documented APIs but haven't been run on those systems yet.
+
 ### 3.3 Vault file format
 
 ```
