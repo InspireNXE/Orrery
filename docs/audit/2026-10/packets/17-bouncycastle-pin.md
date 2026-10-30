@@ -27,4 +27,4 @@ doesn't touch the affected code.
 - `dotnet test Orrery.sln` green (the import crypto tests in particular).
 
 ## Do not touch
-- Other package versions. Lock files and NuGet source mapping are a separate owner decision (see the README).
+- Other package versions. Lock files and NuGet source mapping are packet 19, which runs after this one.

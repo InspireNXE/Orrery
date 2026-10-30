@@ -27,7 +27,9 @@ Even after them, upstream still accepts 32766x32766 and about 4 GiB of reassembl
 
 ## Changes
 1. Bump `IronRdpVersion`. Fix any API changes the new package needs, keeping behaviour the same.
-2. Confirm in the new native DLL that #2084's error text ("negotiated desktop size ... is outside the supported range")
+2. If packet 19 has merged, run `dotnet restore Orrery.sln --force-evaluate` and commit the updated
+   `packages.lock.json` files with the bump.
+3. Confirm in the new native DLL that #2084's error text ("negotiated desktop size ... is outside the supported range")
    is present.
 
 ## Verify
