@@ -6,6 +6,9 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Authors>Steven Downer</Authors>
+    <Company>InspireNXE</Company>
+    <Copyright>Copyright (c) 2026 InspireNXE</Copyright>
   </PropertyGroup>
 
   <PropertyGroup>
