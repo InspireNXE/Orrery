@@ -98,7 +98,7 @@ public class TerminalViewMouseTests
         window.MouseMove(new Avalonia.Point(5, 5));
         var textCursor = view.Cursor;
 
-        session.Output("[?1000h");
+        session.Output("\u001b[?1000h");
         Dispatcher.UIThread.RunJobs();
         window.MouseMove(new Avalonia.Point(6, 6));
         var tracking = view.Cursor;
@@ -113,7 +113,7 @@ public class TerminalViewMouseTests
     public void Releasing_outside_the_terminal_still_reports_the_release()
     {
         var (window, session) = Open();
-        session.Output("[?1002;1006h");
+        session.Output("\u001b[?1002;1006h");
         Dispatcher.UIThread.RunJobs();
         session.Sent.Clear();
 
