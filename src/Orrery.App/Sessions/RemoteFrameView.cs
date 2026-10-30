@@ -301,11 +301,16 @@ public sealed class RemoteFrameView : Panel
     void OnWindowActivated(object? sender, EventArgs e) => UpdateKeyCapture();
 
     /// <summary>The Windows key goes to the remote side only while this session has the keyboard.</summary>
+    /// <summary>
+    /// The Windows key goes to the remote side while this session has the keyboard. Window activation isn't
+    /// checked here: Avalonia raises Activated and GotFocus before IsActive turns true, so returning to the
+    /// window would never re-capture. The hook checks that this window is in front at each key instead.
+    /// </summary>
     void UpdateKeyCapture()
     {
-        if (IsFocused && _topLevel is WindowBase { IsActive: true } && Session.State == SessionState.Connected)
+        if (IsFocused && Session.State == SessionState.Connected && _topLevel?.TryGetPlatformHandle()?.Handle is { } window)
         {
-            WindowsKeyHook.Capture(_windowsKey);
+            WindowsKeyHook.Capture(_windowsKey, window);
         }
         else
         {
