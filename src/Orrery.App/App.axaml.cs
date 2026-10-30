@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -12,7 +13,12 @@ namespace Orrery.App;
 
 public partial class App : Application
 {
+    const string RestartedFlag = "--restarted";
+    const string MovedFromFlag = "--moved-from";
+    static readonly TimeSpan RestartLockWait = TimeSpan.FromSeconds(15);
+
     DataFolderLock? _dataLock;
+    string[] _args = [];
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -21,6 +27,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.Exit += (_, _) => _dataLock?.Dispose();
+            _args = desktop.Args ?? [];
 
             var appDirectory = DataLocationResolver.AppDirectory(AppContext.BaseDirectory);
             var folders = PlatformFolders.ForCurrentOs();
@@ -53,6 +60,14 @@ public partial class App : Application
         try
         {
             _dataLock = DataFolderLock.TryAcquire(location.DataDir);
+
+            // After a restart the previous process may still be closing and holding the folder.
+            var waitUntil = DateTime.UtcNow + RestartLockWait;
+            while (_dataLock is null && _args.Contains(RestartedFlag) && DateTime.UtcNow < waitUntil)
+            {
+                Thread.Sleep(200);
+                _dataLock = DataFolderLock.TryAcquire(location.DataDir);
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -66,7 +81,44 @@ public partial class App : Application
                 $"Another copy of Orrery is using this data folder:\n{location.DataDir}");
         }
 
-        return new MainWindow(location);
+        int moved = Array.IndexOf(_args, MovedFromFlag);
+        return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null);
+    }
+
+    /// <summary>
+    /// Starts a new Orrery and shuts this one down. The new process waits for the data folder lock, which
+    /// this one releases on exit.
+    /// </summary>
+    public static void Restart(params string[] arguments)
+    {
+        if (Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop || Environment.ProcessPath is not { } exe)
+        {
+            return;
+        }
+
+        var start = new ProcessStartInfo(exe);
+        if (Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+            && Assembly.GetEntryAssembly()?.Location is { Length: > 0 } dll)
+        {
+            start.ArgumentList.Add(dll);
+        }
+
+        start.ArgumentList.Add(RestartedFlag);
+        foreach (var argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        try
+        {
+            Process.Start(start);
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Trace.TraceError($"Couldn't restart Orrery: {e}");
+        }
+
+        desktop.Shutdown();
     }
 
     static Window MessageWindow(string title, string body)

@@ -111,7 +111,7 @@ Resolved once in `Program.Main` and registered as a singleton. No other code com
 - **Schema versioning:** every JSON file carries `"schemaVersion"`. Migrations run on load, after a backup.
 
 ### 2.7 Changing location later
-Settings › Storage shows the current mode and path and offers **Move data…**. It copies the data, verifies it (hashes match), updates the marker file in portable mode, and then offers to delete the old copy. Switching between installed and portable is a different binary, so it means exporting and then importing, not moving.
+Settings › Storage shows the current mode and path and offers **Move data…**. It copies the data, verifies it (hashes match), updates the marker file in portable mode, and then offers to delete the old copy. Installed mode has no marker, so it writes `data-location.json` (`{"dataDir": "…"}`) into the default config folder instead; moving back to the default folder removes it. Cache and logs stay in their usual places. Orrery restarts after the move, then offers to delete the old copy. Switching between installed and portable is a different binary, so it means exporting and then importing, not moving.
 
 ---
 

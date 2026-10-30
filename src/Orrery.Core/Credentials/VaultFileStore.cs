@@ -36,8 +36,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     readonly string _path;
     readonly KdfSettings _kdfForNewVaults;
-    readonly TimeSpan? _autoLockAfter;
-    readonly Timer? _autoLockTimer;
+    readonly Timer _autoLockTimer;
     readonly object _lock = new();
 
     // Set while unlocked.
@@ -51,12 +50,12 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     {
         _path = path;
         _kdfForNewVaults = kdf ?? KdfSettings.Default;
-        _autoLockAfter = autoLockAfter;
-        if (autoLockAfter is not null)
-        {
-            _autoLockTimer = new Timer(_ => AutoLockIfIdle(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
-        }
+        AutoLockAfter = autoLockAfter;
+        _autoLockTimer = new Timer(_ => AutoLockIfIdle(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
+
+    /// <summary>How long the vault stays open while unused; null keeps it open until locked by hand.</summary>
+    public TimeSpan? AutoLockAfter { get; set; }
 
     /// <summary>Argon2id cost. Stored in the file, so it can be raised later without breaking old vaults.</summary>
     public sealed record KdfSettings(int MemoryKiB, int Iterations)
@@ -270,7 +269,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         bool locked = false;
         lock (_lock)
         {
-            if (_dataKey is not null && DateTime.UtcNow - _lastUsed > _autoLockAfter)
+            if (_dataKey is not null && DateTime.UtcNow - _lastUsed > AutoLockAfter)
             {
                 _dataKey.Dispose();
                 _dataKey = null;
@@ -311,7 +310,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     public void Dispose()
     {
-        _autoLockTimer?.Dispose();
+        _autoLockTimer.Dispose();
         Lock();
     }
 
