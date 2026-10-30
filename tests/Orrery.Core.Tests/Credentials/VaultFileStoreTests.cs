@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.Json.Nodes;
+using NSec.Cryptography;
 using Orrery.Core.Credentials;
 using Xunit;
 
@@ -278,6 +280,86 @@ public class VaultFileStoreTests : IDisposable
         await Assert.ThrowsAsync<WrongVaultPasswordException>(() => reopened.UnlockAsync("first password"));
         await reopened.UnlockAsync("second password");
         Assert.Equal(credential, await reopened.GetAsync(credential.Id));
+    }
+
+    [Fact]
+    public async Task An_old_copy_and_the_old_password_cannot_read_what_is_saved_after_a_password_change()
+    {
+        using var store = NewStore();
+        await store.UnlockAsync("first password");
+        await store.SaveAsync(Sample("before"));
+        var oldCopy = JsonNode.Parse(await File.ReadAllTextAsync(VaultPath))!;
+
+        await store.ChangePasswordAsync("first password", "second password");
+        await store.SaveAsync(Sample("after", "pw-ADDED-AFTER-CHANGE"));
+        var current = JsonNode.Parse(await File.ReadAllTextAsync(VaultPath))!;
+
+        // The old copy still opens with the old password; that can't be helped.
+        using var oldDataKey = VaultFormat.UnwrapDataKey(oldCopy, "first password");
+        Assert.NotNull(VaultFormat.DecryptPayload(oldCopy, oldDataKey));
+
+        // But its data key must not open anything written since, whichever salt the payload is bound to.
+        Assert.Null(VaultFormat.DecryptPayload(current, oldDataKey));
+        Assert.Null(VaultFormat.DecryptPayload(current, oldDataKey, kdfFrom: oldCopy));
+    }
+
+    [Fact]
+    public async Task A_password_change_that_cannot_be_written_leaves_the_old_password_and_credentials_working()
+    {
+        using var store = NewStore();
+        await store.UnlockAsync("first password");
+        var earlier = Sample("earlier");
+        await store.SaveAsync(earlier);
+
+        // A folder where the vault file should be makes the write fail.
+        File.Delete(VaultPath);
+        Directory.CreateDirectory(VaultPath);
+        await Assert.ThrowsAnyAsync<Exception>(() => store.ChangePasswordAsync("first password", "second password"));
+        Directory.Delete(VaultPath);
+
+        // The open store still saves under the old password and data key.
+        Assert.False(store.IsLocked);
+        Assert.Equal(earlier, await store.GetAsync(earlier.Id));
+        var later = Sample("later");
+        await store.SaveAsync(later);
+
+        using var reopened = NewStore();
+        await Assert.ThrowsAsync<WrongVaultPasswordException>(() => reopened.UnlockAsync("second password"));
+        await reopened.UnlockAsync("first password");
+        Assert.Equal(earlier, await reopened.GetAsync(earlier.Id));
+        Assert.Equal(later, await reopened.GetAsync(later.Id));
+    }
+
+    /// <summary>Reads a vault file by its format (design doc §3.3), without the store, as an attacker with a copy would.</summary>
+    static class VaultFormat
+    {
+        static readonly AeadAlgorithm Aead = AeadAlgorithm.XChaCha20Poly1305;
+
+        public static Key UnwrapDataKey(JsonNode file, string password)
+        {
+            var kdf = file["kdf"]!;
+            var parameters = new Argon2Parameters
+            {
+                DegreeOfParallelism = kdf["parallelism"]!.GetValue<int>(),
+                MemorySize = kdf["memoryKiB"]!.GetValue<int>(),
+                NumberOfPasses = kdf["iterations"]!.GetValue<int>(),
+            };
+            using var kek = PasswordBasedKeyDerivationAlgorithm.Argon2id(parameters).DeriveKey(
+                password, Convert.FromBase64String(kdf["salt"]!.GetValue<string>()), Aead);
+            var dataKeyBytes = Decrypt(kek, file["wrappedKey"]!, AssociatedData(kdf, "key"));
+            Assert.NotNull(dataKeyBytes);
+            return Key.Import(Aead, dataKeyBytes, KeyBlobFormat.RawSymmetricKey);
+        }
+
+        public static byte[]? DecryptPayload(JsonNode file, Key dataKey, JsonNode? kdfFrom = null) =>
+            Decrypt(dataKey, file["payload"]!, AssociatedData((kdfFrom ?? file)["kdf"]!, "payload"));
+
+        static byte[]? Decrypt(Key key, JsonNode block, byte[] associatedData) =>
+            Aead.Decrypt(key, Convert.FromBase64String(block["nonce"]!.GetValue<string>()), associatedData,
+                Convert.FromBase64String(block["ct"]!.GetValue<string>()));
+
+        static byte[] AssociatedData(JsonNode kdf, string part) => Encoding.UTF8.GetBytes(
+            $"orrery-vault|v1|{kdf["alg"]}|m={kdf["memoryKiB"]}|t={kdf["iterations"]}|p={kdf["parallelism"]}|salt={kdf["salt"]}|{part}");
     }
 
     public void Dispose()
