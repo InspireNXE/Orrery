@@ -15,6 +15,8 @@ namespace Orrery.Protocols.Rdp;
 public sealed class RdpSession : IFrameBufferSession
 {
     const int BytesPerPixel = 4;
+    const uint ClipboardWaitMs = 1000;
+    static readonly TimeSpan ClipboardTimeoutsInterval = TimeSpan.FromSeconds(5);
 
     readonly object _stageLock = new();
     readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -27,6 +29,8 @@ public sealed class RdpSession : IFrameBufferSession
     byte[] _frame = [];
     bool _pointerSoftwareRendering;
     Task? _readLoop;
+    Task? _clipboardLoop;
+    WinCliprdr? _clipboard;
 
     readonly ServerCertificateValidator _certificateValidator;
 
@@ -46,11 +50,26 @@ public sealed class RdpSession : IFrameBufferSession
 
     /// <summary>
     /// Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.
+    /// Call on the UI thread: on Windows the shared clipboard is created here, and pasting files from the
+    /// remote machine needs that thread's single-threaded apartment.
     /// </summary>
     public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight,
-        ServerCertificateValidator certificateValidator)
+        ServerCertificateValidator certificateValidator, bool shareClipboard = true)
     {
         var session = new RdpSession(target, certificateValidator);
+        if (shareClipboard && OperatingSystem.IsWindows())
+        {
+            try
+            {
+                session._clipboard = WinCliprdr.NewWithFileTransfer(true);
+            }
+            catch (Exception e)
+            {
+                // A session without a shared clipboard is still useful.
+                Trace.TraceError($"Couldn't set up the RDP clipboard: {e.Message}");
+            }
+        }
+
         session._readLoop = Task.Run(() => session.RunAsync(password, desktopWidth, desktopHeight));
         return session;
     }
@@ -61,7 +80,7 @@ public sealed class RdpSession : IFrameBufferSession
         try
         {
             var config = BuildConfig(Target, password, desktopWidth, desktopHeight);
-            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, _certificateValidator, token);
+            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, _certificateValidator, _clipboard?.BackendFactory(), token);
             _framed = new Framed<Stream>(framed.GetInner().Item1);
 
             lock (_stageLock)
@@ -75,6 +94,10 @@ public sealed class RdpSession : IFrameBufferSession
 
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
+            if (_clipboard is not null)
+            {
+                _clipboardLoop = Task.Run(() => ClipboardLoopAsync(_clipboard, token));
+            }
 
             await ReadLoopAsync(token);
             SetState(SessionState.Disconnected);
@@ -104,6 +127,51 @@ public sealed class RdpSession : IFrameBufferSession
             {
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Forwards local clipboard changes and paste requests to the server. The wait wakes at least every
+    /// second, and timeouts are driven every few seconds so stale clipboard locks and file transfers expire.
+    /// </summary>
+    async Task ClipboardLoopAsync(WinCliprdr clipboard, CancellationToken token)
+    {
+        var sinceTimeouts = Stopwatch.StartNew();
+        while (!token.IsCancellationRequested && State == SessionState.Connected)
+        {
+            try
+            {
+                // Not disposed: SubmitClipboardMessage hands it to IronRDP, as in IronRDP's own example.
+                var message = clipboard.NextClipboardMessageTimeout(ClipboardWaitMs);
+                if (message is not null)
+                {
+                    await SubmitClipboardAsync(() => _activeStage!.SubmitClipboardMessage(message), token);
+                }
+
+                if (sinceTimeouts.Elapsed >= ClipboardTimeoutsInterval)
+                {
+                    sinceTimeouts.Restart();
+                    await SubmitClipboardAsync(() => _activeStage!.DriveClipboardTimeouts(), token);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (IronRdpException e)
+            {
+                // Only this clipboard operation failed; the session goes on.
+                Trace.TraceWarning($"RDP clipboard operation failed: {e.Message}");
+            }
+        }
+    }
+
+    async Task SubmitClipboardAsync(Func<VecU8> submit, CancellationToken token)
+    {
+        using var frame = WithStageLock(submit);
+        if (frame.Size > 0)
+        {
+            await WriteAsync(ToBytes(frame), token);
         }
     }
 
@@ -376,6 +444,11 @@ public sealed class RdpSession : IFrameBufferSession
         {
             await _readLoop;
         }
+
+        if (_clipboardLoop is not null)
+        {
+            await _clipboardLoop;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -386,6 +459,10 @@ public sealed class RdpSession : IFrameBufferSession
             _image?.Dispose();
             _image = null;
         }
+
+        // The loop has ended, so nothing is waiting on the clipboard any more.
+        _clipboard?.Dispose();
+        _clipboard = null;
 
         _cts.Dispose();
         _writeLock.Dispose();
