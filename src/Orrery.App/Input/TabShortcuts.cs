@@ -89,7 +89,7 @@ static class TabShortcuts
     }
 
     /// <summary>
-    /// Where a tab dragged to <paramref name="x"/> lands: the number of other tabs whose middle is left of it.
+    /// Where a tab whose leading edge is dragged to <paramref name="x"/> lands: the number of other tabs whose middle is left of it.
     /// <paramref name="middles"/> are every tab's middle, in order, including the dragged one at <paramref name="dragged"/>.
     /// </summary>
     public static int DropIndex(IReadOnlyList<double> middles, int dragged, double x) =>
