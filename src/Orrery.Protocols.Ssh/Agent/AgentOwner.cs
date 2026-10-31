@@ -22,10 +22,13 @@ static class AgentOwner
     const string SystemSid = "S-1-5-18";
     const string OpenSshAgentService = "ssh-agent";
 
-    /// <summary>Throws unless the pipe's server is a process <see cref="IsTrusted"/> accepts. Call before sending anything.</summary>
-    public static void CheckPipe(SafePipeHandle pipe)
+    /// <summary>
+    /// Throws unless the pipe's server is a process <see cref="IsTrusted"/> accepts. Call before sending anything.
+    /// Pageant is never SYSTEM, so its pipe is checked without <paramref name="allowSystem"/>.
+    /// </summary>
+    public static void CheckPipe(SafePipeHandle pipe, bool allowSystem = true)
     {
-        if (!GetNamedPipeServerProcessId(pipe, out var processId) || !IsTrusted(processId, allowSystem: true))
+        if (!GetNamedPipeServerProcessId(pipe, out var processId) || !IsTrusted(processId, allowSystem))
         {
             throw new IOException("The SSH agent pipe belongs to another account.");
         }
