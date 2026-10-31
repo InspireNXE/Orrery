@@ -65,14 +65,6 @@ sealed class ImportPreviewWindow : Window
                 },
                 new TextBlock { Text = protocols, Foreground = Dialogs.MutedBrush, IsVisible = protocols.Length > 0 },
                 new TextBlock { Text = credentials, TextWrapping = TextWrapping.Wrap },
-                new TextBlock
-                {
-                    Text = "Only RDP connections can be opened for now; SSH, VNC and Telnet connections are kept for when they're supported.",
-                    Foreground = Dialogs.MutedBrush,
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
-                    IsVisible = report.Protocols.Keys.Any(k => k != "RDP"),
-                },
                 new ScrollViewer { MaxHeight = 220, Content = details, IsVisible = details.Children.Count > 0 },
                 Dialogs.Label("Put them"),
                 newFolder,
