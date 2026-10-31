@@ -28,28 +28,26 @@ public class HostGroupListTests
         return (tree, lab, sub, host, vmA, vmB, web, other);
     }
 
-    [Theory]
-    [InlineData(0.1, "Before")]
-    [InlineData(0.5, "Into")]
-    [InlineData(0.9, "After")]
-    public void A_connection_row_splits_in_three_for_a_connection_that_can_be_its_guest(double fraction, string position)
+    [Fact]
+    public void A_connection_row_splits_in_three_for_a_connection_that_can_be_its_guest()
     {
-        var expected = Enum.Parse<DropPosition>(position);
-        var (tree, lab, _, _, _, _, web, other) = Sample();
+        var (tree, lab, sub, _, _, _, web, other) = Sample();
 
-        var plan = TreeDrop.Plan(tree.Root, other, web, fraction)!;
+        var before = TreeDrop.Plan(tree.Root, other, web, 0.1)!;
+        Assert.Null(before.Host);
+        Assert.Same(lab, before.Folder);
+        Assert.Equal(1, before.Index);
+        Assert.Equal((DropPosition.Before, (ConnectionNode)web), (before.Position, before.Mark));
 
-        Assert.Equal(expected, plan.Position);
-        if (expected == DropPosition.Into)
-        {
-            Assert.Same(web, plan.Host);
-        }
-        else
-        {
-            Assert.Null(plan.Host);
-            Assert.Same(lab, plan.Folder);
-            Assert.Equal(expected == DropPosition.Before ? 1 : 2, plan.Index);
-        }
+        var into = TreeDrop.Plan(tree.Root, other, web, 0.5)!;
+        Assert.Same(web, into.Host);
+        Assert.Equal((DropPosition.Into, (ConnectionNode)web), (into.Position, into.Mark));
+
+        // After web-01 is the same gap as before Sub, so the line goes on Sub.
+        var after = TreeDrop.Plan(tree.Root, other, web, 0.9)!;
+        Assert.Null(after.Host);
+        Assert.Equal(2, after.Index);
+        Assert.Equal((DropPosition.Before, (ConnectionNode)sub), (after.Position, after.Mark));
     }
 
     [Fact]
@@ -70,6 +68,7 @@ public class HostGroupListTests
         var guest = TreeDrop.Plan(tree.Root, other, host, 0.9)!;
         Assert.Same(host, guest.Host);
         Assert.Equal(0, guest.Index);
+        Assert.Equal((DropPosition.Before, (ConnectionNode)host.Guests.First()), (guest.Position, guest.Mark));
 
         // Rows that can't be guests can only go before an open host.
         var folder = TreeDrop.Plan(tree.Root, sub, host, 0.9)!;
@@ -94,12 +93,43 @@ public class HostGroupListTests
         Assert.Equal(1, before.Index);
         Assert.Equal(DropPosition.Before, before.Position);
 
-        var after = TreeDrop.Plan(tree.Root, vmA, vmB, 0.8)!;
+        var after = TreeDrop.Plan(tree.Root, other, vmA, 0.8)!;
         Assert.Same(host, after.Host);
-        Assert.Equal(2, after.Index);
+        Assert.Equal(1, after.Index);
+        Assert.Equal((DropPosition.Before, (ConnectionNode)vmB), (after.Position, after.Mark));
 
         Assert.Null(TreeDrop.Plan(tree.Root, sub, vmA, 0.5));
         Assert.Null(TreeDrop.Plan(tree.Root, host, vmA, 0.5));
+    }
+
+    [Fact]
+    public void The_gap_below_a_groups_last_row_is_outside_the_group_before_the_next_row()
+    {
+        var (tree, lab, sub, host, vmA, vmB, web, other) = Sample();
+
+        // Below hv-01's last guest: after hv-01 in Lab, so before web-01.
+        var plan = TreeDrop.Plan(tree.Root, vmA, vmB, 0.8)!;
+        Assert.Null(plan.Host);
+        Assert.Same(lab, plan.Folder);
+        Assert.Equal(1, plan.Index);
+        Assert.Equal((DropPosition.Before, (ConnectionNode)web), (plan.Position, plan.Mark));
+
+        // Folders and hosts fit there too, since it's outside the host.
+        Assert.Same(lab, TreeDrop.Plan(tree.Root, sub, vmB, 0.8)!.Folder);
+
+        // With hv-01 last in Lab, that gap also ends Lab: after Lab at the top level.
+        tree.Remove(web);
+        tree.Remove(sub);
+        plan = TreeDrop.Plan(tree.Root, vmA, vmB, 0.8)!;
+        Assert.Same(tree.Root, plan.Folder);
+        Assert.Equal(1, plan.Index);
+        Assert.Equal((DropPosition.Before, (ConnectionNode)other), (plan.Position, plan.Mark));
+
+        // At the very end there's no next row, so the line goes under the last row shown.
+        tree.Remove(other);
+        plan = TreeDrop.Plan(tree.Root, vmA, vmB, 0.8)!;
+        Assert.Equal(1, plan.Index);
+        Assert.Equal((DropPosition.After, (ConnectionNode)vmB), (plan.Position, plan.Mark));
     }
 
     [Fact]

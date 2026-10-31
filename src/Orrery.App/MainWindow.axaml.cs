@@ -454,18 +454,18 @@ public partial class MainWindow : Window
         {
             if (!new Rect(_treeView.Bounds.Size).Contains(e.GetPosition(_treeView)))
             {
-                ShowDrop(null, null);
+                ShowDrop(null);
             }
         });
 
         _treeView.AddHandler(DragDrop.DropEvent, async (_, e) =>
         {
-            ShowDrop(null, null);
+            ShowDrop(null);
             if (DroppedImportFile(e) is { } file)
             {
                 await ImportAsync(file);
             }
-            else if (DraggedNodes(e) is { Count: > 0 } nodes && PlanDrop(e, nodes, out var dropRow) is { } plan)
+            else if (DraggedNodes(e) is { Count: > 0 } nodes && PlanDrop(e, nodes) is { } plan)
             {
                 if (plan.Host is null && !nodes.All(n => ConnectionTree.CanPlace(n, plan.Folder)))
                 {
@@ -935,24 +935,22 @@ public partial class MainWindow : Window
     {
         if (DroppedImportFile(e) is not null)
         {
-            ShowDrop(null, null);
+            ShowDrop(null);
             e.DragEffects = DragDropEffects.Copy;
             return;
         }
 
-        TreeViewItem? item = null;
-        var plan = DraggedNodes(e) is { Count: > 0 } nodes ? PlanDrop(e, nodes, out item) : null;
-        ShowDrop(plan is null ? null : item, plan?.Position);
+        var plan = DraggedNodes(e) is { Count: > 0 } nodes ? PlanDrop(e, nodes) : null;
+        ShowDrop(plan);
         e.DragEffects = plan is not null ? DragDropEffects.Move : DragDropEffects.None;
     }
 
-    /// <summary>Where <paramref name="dragged"/> would go if dropped now, and the row under the pointer.</summary>
-    DropPlan? PlanDrop(DragEventArgs e, IReadOnlyList<ConnectionNode> dragged, out TreeViewItem? item)
+    /// <summary>Where <paramref name="dragged"/> would go if dropped now.</summary>
+    DropPlan? PlanDrop(DragEventArgs e, IReadOnlyList<ConnectionNode> dragged)
     {
-        item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(includeSelf: true);
+        var item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(includeSelf: true);
         if (item?.DataContext is not NodeViewModel target)
         {
-            item = null;
             return TreeDrop.Plan(_tree.Root, dragged, null, 0);
         }
 
@@ -962,33 +960,11 @@ public partial class MainWindow : Window
         return TreeDrop.Plan(_tree.Root, dragged, target.Node, fraction);
     }
 
-    /// <summary>Marks the row a drop would go before, after or into; null clears the mark.</summary>
-    void ShowDrop(TreeViewItem? item, DropPosition? position)
+    /// <summary>Marks the row the plan names (TreeDrop decides which); null clears the mark.</summary>
+    void ShowDrop(DropPlan? plan)
     {
-        // After a row is the same place as before its next sibling, so that gap gets one line, on the lower
-        // row; it doesn't hop between the two rows. After the last row in a folder or among a host's guests is
-        // the end of that group, the same as dropping into it, so the group's row lights up instead. Only the
-        // last row at the top level draws an after line.
-        if (position == DropPosition.After && item is { IsExpanded: true } && item.ContainerFromIndex(0) is TreeViewItem first)
-        {
-            // An open host's row: its lower edge is before its first guest (TreeDrop).
-            item = first;
-            position = DropPosition.Before;
-        }
-        else if (position == DropPosition.After && item is not null && ItemsControl.ItemsControlFromItemContainer(item) is { } list)
-        {
-            if (list.ContainerFromIndex(list.IndexFromContainer(item) + 1) is TreeViewItem next)
-            {
-                item = next;
-                position = DropPosition.Before;
-            }
-            else if (list is TreeViewItem group)
-            {
-                item = group;
-                position = DropPosition.Into;
-            }
-        }
-
+        var item = plan?.Mark is { } mark && FindRow(mark.Id) is { } markRow ? _treeView.TreeContainerFromItem(markRow) as TreeViewItem : null;
+        var position = plan?.Position;
         if (_dropRow is not null && _dropRow != item)
         {
             _dropRow.Classes.Remove("drop-before");
