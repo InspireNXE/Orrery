@@ -110,7 +110,7 @@ public class VaultAutoLockTests : IDisposable
         var resources = Application.Current!.Resources;
         foreach (var (key, color) in new[]
         {
-            ("OrreryAccent", "#5B9DFF"), ("OrreryBackground", "#0E1014"), ("OrreryBorder", "#23272F"), ("OrreryControlBorder", "#2A2F38"),
+            ("OrreryAccent", "#5B9DFF"), ("OrreryConnected", "#5FD38D"), ("OrreryBackground", "#0E1014"), ("OrreryBorder", "#23272F"), ("OrreryControlBorder", "#2A2F38"),
             ("OrreryFolder", "#E0B45A"), ("OrreryMuted", "#9AA3B2"), ("OrreryPanel", "#14161B"), ("OrrerySoftText", "#C3C9D3"), ("OrreryText", "#E6E8EC"),
         })
         {

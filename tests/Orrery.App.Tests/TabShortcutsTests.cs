@@ -79,4 +79,17 @@ public class TabShortcutsTests
         double[] middles = [50, 150, 250];
         Assert.Equal(expected, TabShortcuts.DropIndex(middles, dragged, x));
     }
+
+    [Fact]
+    public void Tabs_a_dragged_tab_passes_step_into_its_old_place()
+    {
+        // Tab 1 of five held over place 3: tabs 2 and 3 step left, the rest stay.
+        Assert.Equal([0, 0, -1, -1, 0], Enumerable.Range(0, 5).Select(i => TabShortcuts.Shift(i, 1, 3)));
+
+        // Tab 3 held over place 0: tabs 0 to 2 step right.
+        Assert.Equal([1, 1, 1, 0, 0], Enumerable.Range(0, 5).Select(i => TabShortcuts.Shift(i, 3, 0)));
+
+        // Not moved yet: nothing steps aside.
+        Assert.All(Enumerable.Range(0, 5), i => Assert.Equal(0, TabShortcuts.Shift(i, 2, 2)));
+    }
 }
