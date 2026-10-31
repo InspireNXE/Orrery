@@ -64,6 +64,31 @@ static class Dialogs
         return window.ShowDialog<string?>(owner);
     }
 
+    /// <summary>
+    /// Asks for a line of text, such as a new name, starting with <paramref name="initial"/> selected. Null if
+    /// cancelled; OK is disabled while the text is blank.
+    /// </summary>
+    public static Task<string?> PromptTextAsync(Window owner, string title, string label, string initial, string confirmLabel)
+    {
+        var box = new TextBox { Text = initial };
+        var ok = new Button { Content = confirmLabel, IsDefault = true, IsEnabled = !string.IsNullOrWhiteSpace(initial) };
+        ok.Classes.Add("accent");
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, ok } };
+
+        var window = Shell(title, buttons);
+        ((StackPanel)window.Content!).Children.Insert(1, Field(label, box));
+        box.TextChanged += (_, _) => ok.IsEnabled = !string.IsNullOrWhiteSpace(box.Text);
+        ok.Click += (_, _) => window.Close(box.Text!.Trim());
+        cancel.Click += (_, _) => window.Close(null);
+        window.Opened += (_, _) =>
+        {
+            box.Focus();
+            box.SelectAll();
+        };
+        return window.ShowDialog<string?>(owner);
+    }
+
     static Window Shell(string title, Control buttons) => new()
     {
         Title = "Orrery",

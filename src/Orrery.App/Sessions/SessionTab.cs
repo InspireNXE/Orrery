@@ -20,6 +20,9 @@ namespace Orrery.App.Sessions;
 sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func<Task> Reconnect, bool AutoReconnect = false)
 {
     public Func<(Control View, IConnectionSession Session)>? Restart { get; init; }
+
+    /// <summary>SSH: a file browser (SFTP) instead of a terminal.</summary>
+    public bool Files { get; init; }
 }
 
 /// <summary>
@@ -56,7 +59,7 @@ sealed class SessionTab
         var title = new TextBlock { Text = origin.Title, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 200, TextTrimming = TextTrimming.CharacterEllipsis };
         var protocol = new TextBlock
         {
-            Text = ProtocolInfo.Label(origin.Protocol),
+            Text = origin.Files ? "SFTP" : ProtocolInfo.Label(origin.Protocol),
             FontFamily = Dialogs.MonoFont,
             FontSize = 10,
             Foreground = ProtocolStyle.Foreground(origin.Protocol),

@@ -15,9 +15,6 @@ namespace Orrery.Protocols.Ssh;
 /// </summary>
 public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostKeys) : ISessionRoute
 {
-    static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
-    static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
-
     readonly object _lock = new();
     readonly List<SshClient> _clients = [];
     bool _closed;
@@ -60,20 +57,8 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         bool hostKeyRejected = false;
         try
         {
-            var info = new ConnectionInfo(host, port, hop.Login.Username, SshSession.AuthenticationMethods(hop.Login))
-            {
-                Timeout = ConnectTimeout,
-            };
-            SshAlgorithms.Apply(info, hop.AllowLegacy);
-
-            var client = new SshClient(info) { KeepAliveInterval = KeepAlive };
-            client.HostKeyReceived += (_, e) =>
-            {
-                // Checked against the jump host's real name, not the loopback address it's reached through.
-                e.CanTrust = hostKeys.ValidateAsync(hop.Target.Host, hop.Target.Port, e.HostKeyName, e.FingerPrintSHA256)
-                    .GetAwaiter().GetResult();
-                hostKeyRejected = !e.CanTrust;
-            };
+            var client = new SshClient(SshSession.ConnectionInfoFor(host, port, hop.Login, hop.AllowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
+            SshSession.CheckHostKey(client, hostKeys, hop.Target, () => hostKeyRejected = true);
             // A hop that drops later breaks the connections through it, which their sessions report.
             client.ErrorOccurred += (_, e) => Trace.TraceWarning($"{where}{e.Exception.Message}");
 

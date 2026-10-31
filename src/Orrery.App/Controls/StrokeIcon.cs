@@ -83,4 +83,12 @@ static class Icons
     public const string Terminal = "M4 17l6-5-6-5 M12 19h8";
     public const string More = "M5 12h.01 M12 12h.01 M19 12h.01";
     public const string FullScreen = "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5";
+    public const string File = "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";
+    public const string Up = "M12 19V5 M5 12l7-7 7 7";
+    public const string Refresh = "M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7";
+    public const string Upload = "M12 15V3 M7 8l5-5 5 5 M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4";
+    public const string Download = "M12 3v12 M7 10l5 5 5-5 M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4";
+    public const string FolderPlus = "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M12 10v6 M9 13h6";
+    public const string Rename = "M4 20h4L19 9l-4-4L4 16z M14 6l4 4";
+    public const string Trash = "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13";
 }
