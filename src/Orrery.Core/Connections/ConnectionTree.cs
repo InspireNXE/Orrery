@@ -82,18 +82,76 @@ public sealed class ConnectionTree
         }
 
         var oldParent = node.Parent!;
-        int oldIndex = oldParent.ChildList.IndexOf(node);
-        oldParent.ChildList.RemoveAt(oldIndex);
+        bool wasGuest = (node as ConnectionEntry)?.GuestOf is not null;
+        int oldIndex = Detach(node);
 
         // Removing first shifts later siblings up by one.
-        if (index is { } i && oldParent == parent && oldIndex < i)
+        if (index is { } i && !wasGuest && oldParent == parent && oldIndex < i)
         {
             index = i - 1;
         }
 
-        node.Parent = null;
         Insert(node, parent, index);
         NotifyChanged();
+    }
+
+    /// <summary>Adds a new connection as a guest of <paramref name="host"/>, at <paramref name="index"/> among its guests (end when null).</summary>
+    public void AddGuest(ConnectionEntry guest, ConnectionEntry host, int? index = null)
+    {
+        if (guest.Parent is not null || guest.GuestOf is not null)
+        {
+            throw new InvalidOperationException("The connection is already in a tree; use MoveToHost.");
+        }
+
+        CheckGuest(guest, host);
+        InsertGuest(guest, host, index);
+        NotifyChanged();
+    }
+
+    /// <summary>Makes a connection already in the tree a guest of <paramref name="host"/>, or moves it among the host's guests.</summary>
+    public void MoveToHost(ConnectionEntry guest, ConnectionEntry host, int? index = null)
+    {
+        CheckGuest(guest, host);
+        bool sameHost = guest.GuestOf == host;
+        int oldIndex = Detach(guest);
+        if (index is { } i && sameHost && oldIndex < i)
+        {
+            index = i - 1;
+        }
+
+        InsertGuest(guest, host, index);
+        NotifyChanged();
+    }
+
+    /// <summary>Turns a guest back into a plain connection, right after its host in the host's folder.</summary>
+    public void MoveOutOfHost(ConnectionEntry guest)
+    {
+        var host = guest.GuestOf ?? throw new InvalidOperationException("The connection isn't a guest.");
+        var folder = host.Parent!;
+        Move(guest, folder, folder.ChildList.IndexOf(host) + 1);
+    }
+
+    static void CheckGuest(ConnectionEntry guest, ConnectionEntry host)
+    {
+        if (guest == host)
+        {
+            throw new InvalidOperationException("A connection can't be its own guest.");
+        }
+
+        if (host.GuestOf is not null)
+        {
+            throw new InvalidOperationException("A guest can't have guests of its own.");
+        }
+
+        if (guest.IsHost)
+        {
+            throw new InvalidOperationException("A host can't become a guest; move its guests out first.");
+        }
+
+        if (host.Parent is null)
+        {
+            throw new InvalidOperationException("The host isn't in a tree.");
+        }
     }
 
     public void Remove(ConnectionNode node)
@@ -103,8 +161,11 @@ public sealed class ConnectionTree
             throw new InvalidOperationException("The root folder can't be removed.");
         }
 
-        node.Parent?.ChildList.Remove(node);
-        node.Parent = null;
+        if (node.Parent is not null)
+        {
+            Detach(node);
+        }
+
         NotifyChanged();
     }
 
@@ -139,8 +200,9 @@ public sealed class ConnectionTree
 
     /// <summary>
     /// Copies a connection or a whole folder, placing the copy right after the original with " (copy)" on
-    /// its name. Copies get new ids and lose their import source, so a later re-import doesn't take them
-    /// for the originals. Saved credentials are shared by id, not copied.
+    /// its name; a host's copy has copies of its guests, and a guest's copy stays with the same host. Copies
+    /// get new ids and lose their import source, so a later re-import doesn't take them for the originals.
+    /// Saved credentials are shared by id, not copied.
     /// </summary>
     public ConnectionNode Duplicate(ConnectionNode node)
     {
@@ -151,8 +213,16 @@ public sealed class ConnectionTree
 
         var copy = Copy(node);
         copy.Name = $"{node.Name} (copy)";
-        var parent = node.Parent!;
-        Insert(copy, parent, parent.ChildList.IndexOf(node) + 1);
+        if (node is ConnectionEntry { GuestOf: { } host } guest)
+        {
+            InsertGuest((ConnectionEntry)copy, host, host.GuestList!.IndexOf(guest) + 1);
+        }
+        else
+        {
+            var parent = node.Parent!;
+            Insert(copy, parent, parent.ChildList.IndexOf(node) + 1);
+        }
+
         NotifyChanged();
         return copy;
     }
@@ -178,6 +248,17 @@ public sealed class ConnectionTree
                 childCopy.Parent = target;
             }
         }
+        else if (node is ConnectionEntry { GuestList: { } guests } original && copy is ConnectionEntry host)
+        {
+            host.GuestsCollapsed = original.GuestsCollapsed;
+            host.GuestList = [];
+            foreach (var guest in guests)
+            {
+                var guestCopy = (ConnectionEntry)Copy(guest);
+                host.GuestList.Add(guestCopy);
+                guestCopy.GuestOf = host;
+            }
+        }
 
         return copy;
     }
@@ -189,6 +270,46 @@ public sealed class ConnectionTree
         var children = parent.ChildList;
         children.Insert(Math.Clamp(index ?? children.Count, 0, children.Count), node);
         node.Parent = parent;
+        foreach (var guest in (node as ConnectionEntry)?.Guests ?? [])
+        {
+            guest.Parent = parent;
+        }
+    }
+
+    static void InsertGuest(ConnectionEntry guest, ConnectionEntry host, int? index)
+    {
+        var guests = host.GuestList ??= [];
+        guests.Insert(Math.Clamp(index ?? guests.Count, 0, guests.Count), guest);
+        guest.Parent = host.Parent;
+        guest.GuestOf = host;
+    }
+
+    /// <summary>
+    /// Takes a node out of its folder, or out of its host's guests (a host left with none stops being one).
+    /// Returns where it was in that list.
+    /// </summary>
+    static int Detach(ConnectionNode node)
+    {
+        int index;
+        if (node is ConnectionEntry { GuestOf: { } host } guest)
+        {
+            index = host.GuestList!.IndexOf(guest);
+            host.GuestList.RemoveAt(index);
+            if (host.GuestList.Count == 0)
+            {
+                host.GuestList = null;
+            }
+
+            guest.GuestOf = null;
+        }
+        else
+        {
+            index = node.Parent!.ChildList.IndexOf(node);
+            node.Parent.ChildList.RemoveAt(index);
+        }
+
+        node.Parent = null;
+        return index;
     }
 
     static void Relink(ConnectionFolder folder)
@@ -199,6 +320,29 @@ public sealed class ConnectionTree
             if (child is ConnectionFolder nested)
             {
                 Relink(nested);
+            }
+            else if (child is ConnectionEntry { GuestList: { } guests } host)
+            {
+                if (guests.Count == 0)
+                {
+                    host.GuestList = null;
+                }
+
+                foreach (var guest in guests)
+                {
+                    if (guest is null)
+                    {
+                        throw new InvalidDataException($"\"{host.Name}\" has an empty guest, so the file may be damaged.");
+                    }
+
+                    if (guest.IsHost)
+                    {
+                        throw new InvalidDataException($"\"{guest.Name}\", a guest of \"{host.Name}\", has guests of its own. Orrery keeps one level.");
+                    }
+
+                    guest.Parent = folder;
+                    guest.GuestOf = host;
+                }
             }
         }
     }

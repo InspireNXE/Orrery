@@ -13,7 +13,14 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 {
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
 
-    const int SchemaVersion = 1;
+    // 2 added hosts' guests. A tree without hosts is still written as 1, so older builds keep reading it; one
+    // with hosts is written as 2, which they refuse instead of loading it and dropping the guests on save.
+    const int SchemaVersion = 2;
+    const int SchemaVersionWithoutHosts = 1;
+
+    /// <summary>The schema a file holding <paramref name="root"/> needs: the oldest that can hold it.</summary>
+    internal static int SchemaFor(ConnectionFolder root) =>
+        root.Descendants().OfType<ConnectionEntry>().Any(e => e.IsHost) ? SchemaVersion : SchemaVersionWithoutHosts;
 
     // Each folder level costs two JSON levels (the folder and its children), so the default of 64 stops at
     // about 30 folders. This leaves room for ConnectionTree.MaxFolderDepth with plenty to spare.
@@ -53,7 +60,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             Backup();
         }
 
-        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(new FileModel(SchemaVersion, tree.Root), JsonOptions));
+        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(new FileModel(SchemaFor(tree.Root), tree.Root), JsonOptions));
     }
 
     void Backup()

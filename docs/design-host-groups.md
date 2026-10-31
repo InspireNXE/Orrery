@@ -1,6 +1,6 @@
 # Orrery design: host groups
 
-Status: **Draft**, 2026-10-31
+Status: **Agreed**, 2026-10-31 (owner's answers in §9)
 Scope: letting a connection hold other connections ("guests"), so a host and what runs on it show as one item.
 
 ---
@@ -10,7 +10,7 @@ Scope: letting a connection hold other connections ("guests"), so a host and wha
 **Goals**
 - A hypervisor and its VMs, a jump box and what's behind it, or an appliance and its interfaces show as one row that expands, instead of a folder plus a connection with the same name.
 - The host row stays a connection: double-click connects to the host.
-- Guests take the host's login and route by default, the way connections take their folder's.
+- Guests take the host's route and session policy (jump host, clipboard, reconnect), the way connections take their folder's. Not its login.
 - Files without hosts stay readable by older Orrery builds.
 
 **Non-goals**
@@ -26,15 +26,15 @@ A **host** is any connection with at least one guest. There's no "is a host" fla
 
 ```
 ConnectionEntry
-  + Guests: List<ConnectionEntry>?      // null when there are none; stored nested under the host
-  + GuestsExpanded: bool                // the row's expand state, like ConnectionFolder.Expanded
+  + Guests: IReadOnlyList<ConnectionEntry>   // changed only through ConnectionTree; stored nested under the host as "guests", left out when empty
+  + GuestsCollapsed: bool                    // the row's expand state; written only when true, so ordinary connections don't carry it
   + [JsonIgnore] GuestOf: ConnectionEntry?   // set for a guest, null otherwise
 ```
 
 - A guest's **`Parent` is its host's folder**, not the host. `Parent` stays a `ConnectionFolder`, so `Ancestors()`, folder depth and every walk up to the folders work unchanged. `GuestOf` is the extra link.
 - **`ConnectionFolder.Descendants()` also returns guests**, each right after its host. Search, Ctrl+K, the jump-host picker, `AllConnections()`, counts, re-import detection and export then pick them up with no changes of their own.
 - **`Path` includes the host** for a guest ("Prod / hv-01"), so typing the host's name in search or Ctrl+K finds its guests, and export warnings and the CSV folder column show where a guest is.
-- **Invariants**, enforced by `ConnectionTree`: a guest has no guests; a guest's `Parent` equals `GuestOf.Parent`; folders are never guests.
+- **Invariants**, enforced by `ConnectionTree`: a guest has no guests; a guest's `Parent` equals `GuestOf.Parent`; folders are never guests (the list is typed, so a file can't express one).
 
 **Alternatives considered**
 - *Any node can hold any node.* It makes `Parent` untyped and brings back every "what does dropping onto a connection mean" question at every level, for nesting nobody has asked for.
@@ -48,7 +48,7 @@ ConnectionEntry
 
 | Setting | Guest takes the host's? | Why |
 |---|---|---|
-| Saved credential, Username, Domain | Yes | VMs on a host usually share an admin login or domain |
+| Saved credential, Username, Domain | No (owner, 2026-10-31) | A guest's login is its own; could become an opt-in per host later |
 | Jump host | Yes | If the host is reached through a bastion, its guests usually are too |
 | Share clipboard, Reconnect if it drops | Yes | A policy for the whole machine |
 | Protocol, Port | No | An RDP guest under an SSH host is normal |
@@ -66,7 +66,7 @@ The split goes in one place, a `HostLevel` set of setting names beside `Inherita
 - A host gets the tree's expand arrow, plus the guest count after its protocol badge (the same muted number folders show).
 - Guests are indented under the host and look like ordinary connections.
 - The arrow expands and collapses. Double-click or Enter connects to the host, as for any connection. The arrow and the name never compete, which is the main risk with a row that both expands and connects.
-- `GuestsExpanded` is saved like a folder's `Expanded`. While filtering, hosts are force-expanded and the state isn't saved.
+- `GuestsCollapsed` is saved like a folder's `Expanded`. While filtering, hosts are force-expanded and the state isn't saved.
 
 **Filter**
 - A guest that matches shows its host row with just that guest.
@@ -88,7 +88,9 @@ The split goes in one place, a `HostLevel` set of setting names beside `Inherita
 The middle band is offered only when the dragged item is a connection without guests and the target isn't a guest. Otherwise the row keeps the half-and-half split. The row under the pointer is highlighted to show which drop it will get. Dragging a guest out to a folder, or before or after another row, makes it a plain connection there.
 
 **Delete and duplicate**
-- Deleting a host deletes its guests too, and the confirmation says so: "hv-01 and its 6 guests will be deleted." This matches deleting a folder. Keeping the guests is offered as an option only if the owner wants it (§9).
+- Deleting a host asks what happens to its guests:
+  - **Delete them too**: "hv-01 and its 6 guests will be deleted," the same as deleting a folder.
+  - **Keep them**: they become plain connections, placed in a folder chosen from a list: the host's own folder (selected first), any other existing folder, or the top level.
 - Duplicating a host copies its guests, with new ids, as duplicating a folder copies its contents.
 
 ---
@@ -103,9 +105,9 @@ The middle band is offered only when the dragged item is a connection without gu
 
 ## 6. Storage
 
-- `connections.json`: a host's `connection` object gets `"guests": [ … ]` (ordinary `connection` objects) and `"guestsExpanded"`.
+- `connections.json`: a host's `connection` object gets `"guests": [ … ]` (connection objects, without the `type` field since they can only be connections) and `"guestsCollapsed": true` when collapsed.
 - **Schema version.** An older Orrery would load the file, ignore `guests`, and drop them on its next save. So the store writes `schemaVersion: 2` only when the tree has at least one host, and 1 otherwise. Older builds already refuse a newer schema with "written by a newer version of Orrery", which is safe. A tree without hosts stays readable by them.
-- **Loading** checks the invariants: a guest with guests, or a folder inside `guests`, is a damaged file. Report it like other load errors; don't repair it silently.
+- **Loading** checks the invariants: a guest with guests, or an empty entry in `guests`, is a damaged file. Report it like other load errors; don't repair it silently.
 - Backups and Move data copy the file as it is, so they need no change.
 
 ---
@@ -126,7 +128,7 @@ The middle band is offered only when the dragged item is a connection without gu
 
 Phases. Each one builds, passes the tests and is committed on its own.
 
-1. **Core model and storage.** `ConnectionEntry.Guests`, `GuestOf` and `GuestsExpanded`; `ConnectionTree.AddGuest`, `MoveToHost` and `MoveOutOfHost`; `Remove`, `Duplicate`, `Find` and `Descendants` covering guests; `Path`; the conditional schema version with invariant checks on load.
+1. **Core model and storage.** `ConnectionEntry.Guests`, `GuestOf` and `GuestsCollapsed`; `ConnectionTree.AddGuest`, `MoveToHost` and `MoveOutOfHost`; `Remove`, `Duplicate`, `Find` and `Descendants` covering guests; `Path`; the conditional schema version with invariant checks on load.
    Tests: round trip with and without hosts (schema 1 vs 2); invariant violations refused; delete and duplicate a host; `Descendants` order.
 2. **Resolver.** The host step, the `HostLevel` set, and `Source` pointing at the host.
    Tests: each host-level setting inherited; each own setting skipping the host; a guest override; every setting classified.
@@ -141,9 +143,9 @@ Phases. Each one builds, passes the tests and is committed on its own.
 
 ---
 
-## 9. Open questions (owner)
+## 9. Decisions (owner, 2026-10-31)
 
-1. **Host-level settings.** Is the §3 split right? In particular, should Desktop size or Enlarge pass down too (VMs on one host often share a console size)?
-2. **Deleting a host.** Delete the guests with it (proposed), or offer "Keep guests" in the confirmation?
-3. **"Through its host" shortcut.** Later, the jump-host picker could offer "Through hv-01" for an SSH host's guests. Wanted, or leave it to the existing picker?
-4. **Collapsed host status.** Should a collapsed host show that one of its guests has an open session, for example a small dot on the count? Proposed for later.
+1. **Host-level settings.** Guests don't take the saved credential, username or domain. Jump host, clipboard and reconnect pass down as in §3. Desktop size and Enlarge stay per guest.
+2. **Deleting a host.** Offer both: delete the guests, or keep them and choose where they go (the host's folder, another existing folder, or the top level). See §4.
+3. **"Through its host" shortcut.** Yes, later: the jump-host picker offers "Through hv-01" for an SSH host's guests. Not part of phases 1 to 5.
+4. **Collapsed host status.** Yes, later: a collapsed host shows when one of its guests has an open session.
