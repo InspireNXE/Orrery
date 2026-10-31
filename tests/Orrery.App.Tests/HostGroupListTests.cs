@@ -63,6 +63,28 @@ public class HostGroupListTests
     }
 
     [Fact]
+    public void An_open_hosts_lower_edge_is_before_its_first_guest_not_after_the_group()
+    {
+        var (tree, lab, sub, host, _, _, _, other) = Sample();
+
+        var guest = TreeDrop.Plan(tree.Root, other, host, 0.9)!;
+        Assert.Same(host, guest.Host);
+        Assert.Equal(0, guest.Index);
+
+        // Rows that can't be guests can only go before an open host.
+        var folder = TreeDrop.Plan(tree.Root, sub, host, 0.9)!;
+        Assert.Null(folder.Host);
+        Assert.Equal(DropPosition.Before, folder.Position);
+        Assert.Equal(0, folder.Index);
+
+        host.GuestsCollapsed = true;
+        var closed = TreeDrop.Plan(tree.Root, other, host, 0.9)!;
+        Assert.Null(closed.Host);
+        Assert.Same(lab, closed.Folder);
+        Assert.Equal(1, closed.Index);
+    }
+
+    [Fact]
     public void A_guest_row_takes_connections_among_the_hosts_guests()
     {
         var (tree, lab, sub, host, vmA, vmB, _, other) = Sample();
