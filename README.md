@@ -1,8 +1,9 @@
 # Orrery
 
 Orrery is a remote connection manager for Windows, Linux and macOS. It keeps your RDP, SSH, VNC and Telnet
-connections in one tree, opens them in tabs, and stores their passwords in the system's own secret store. It is a
-rebuild of [mRemoteNG](https://mremoteng.org/) on Avalonia and .NET 10, and imports mRemoteNG's `confCons.xml`.
+connections in one tree, opens them in tabs, and stores their passwords in the system's own secret store. It is built on
+Avalonia and .NET 10, inspired by [mRemoteNG](https://mremoteng.org/), and imports mRemoteNG's `confCons.xml`.
+Orrery isn't affiliated with the mRemoteNG project.
 
 Version 0.1.0. Early days: the protocols work, but several things still need testing on real machines (see
 [Status](#status)).
