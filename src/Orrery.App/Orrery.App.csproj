@@ -26,4 +26,16 @@
     <ProjectReference Include="..\Orrery.Protocols.Vnc\Orrery.Protocols.Vnc.csproj" />
     <ProjectReference Include="..\Orrery.Protocols.Telnet\Orrery.Protocols.Telnet.csproj" />
   </ItemGroup>
+
+  <!-- Devolutions.IronRdp's build targets add its native library for every Windows (or Linux) runtime as content
+       under runtimes\<rid>\native\, by the building machine's OS rather than the target. A publish for one runtime
+       already puts that runtime's library beside the app, so these copies are never loaded: drop them (about 16 MB
+       of Windows DLLs in every Linux and macOS package built on Windows). Builds without a runtime keep them,
+       since that's where they're found. -->
+  <Target Name="DropUnusedIronRdpNatives" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RuntimeIdentifier)' != ''">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="$([System.String]::Copy('%(RelativePath)').Replace('\', '/').StartsWith('runtimes/')) And ('%(Filename)' == 'DevolutionsIronRdp' Or '%(Filename)' == 'libDevolutionsIronRdp')" />
+    </ItemGroup>
+  </Target>
 </Project>

@@ -89,6 +89,14 @@ portable zip and the AppImage, the machine needs:
 After unzipping the portable zip, `chmod +x Orrery` (zips made on Windows carry no Unix permissions). The first launch unpacks the
 native libraries to `~/.net/Orrery/<hash>`, or `$DOTNET_BUNDLE_EXTRACT_BASE_DIR` if it's set.
 
+## IronRDP native libraries
+
+Devolutions.IronRdp adds its native library for every Windows (or, on a Linux machine, Linux) runtime under
+`runtimes/<rid>/native/`, chosen by the machine doing the build, not the target. A publish for one runtime already
+puts that runtime's library beside the app, so `Orrery.App.csproj` drops those copies from every runtime-specific
+publish (`DropUnusedIronRdpNatives`). That saves about 16 MB in Linux and macOS packages built on Windows, and one
+unused DLL in Windows packages. Builds without a runtime, like `dotnet run`, keep them.
+
 ## Third-party notices
 
 `build/Generate-ThirdPartyNotices.ps1 -PublishDir <publish output>` writes `THIRD-PARTY-NOTICES.txt` from the
