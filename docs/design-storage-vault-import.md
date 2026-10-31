@@ -306,7 +306,9 @@ The report never contains secrets.
 - `extApps.xml` (external tools)
 - PuTTY registry sessions beyond recording the name
 
-> Export (2026-10-31): Orrery writes its own `.json` export (re-importable, new ids on import), a `confCons.xml` (ConfVersion 2.6, every node carries its own values, all `Inherit…` flags false, no passwords) and a CSV. Passwords and keys are never exported; a saved credential becomes its username and domain. See `src/Orrery.Core/Export/ConnectionExporter.cs`.
+> Export (2026-10-31): Orrery writes its own `.json` export (re-importable, new ids on import), a `confCons.xml` (ConfVersion 2.6, every node carries its own values, all `Inherit…` flags false) and a CSV. By default no passwords or keys go in; a saved credential becomes its username and domain. See `src/Orrery.Core/Export/ConnectionExporter.cs`.
+
+> Encrypted exports (2026-10-31): when what's exported uses saved credentials, the export can include their secrets, protected by a password chosen for that export (at least 8 characters). An Orrery `.json` export is then sealed as a whole (`orrery-connections-encrypted`: Argon2id at the vault's cost, XChaCha20-Poly1305, format and KDF settings bound in as associated data; host names aren't readable either) and carries the saved credentials themselves, which get new ids on import. A `confCons.xml` gets each connection's password in mRemoteNG's own encryption with that password as the master password (the `Protected` marker decrypts to `ThisIsProtected`, `KdfIterations` 10,000), so mRemoteNG asks for it; it has no field for SSH keys, so those are left out. CSV never carries secrets. See `src/Orrery.Core/Export/SealedExport.cs`.
 
 ### 4.9 Testing
 - **Fixtures:** generate `confCons.xml` files from real mRemoteNG builds (at least the current stable and the current nightly, plus one legacy-format version), each with a known master password and with the default password. Cover every protocol, nested inheritance, full-file encryption, Unicode names and an empty file. **Never commit real user files.**
