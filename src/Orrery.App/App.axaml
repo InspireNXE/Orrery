@@ -243,6 +243,20 @@
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot:pointerover">
       <Setter Property="Background" Value="#262C38" />
     </Style>
+    <!-- Where a dragged row will land: a line above or below the row, or the row lit up to go into it. -->
+    <Style Selector="TreeView#Tree TreeViewItem.drop-before /template/ Border#PART_LayoutRoot">
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="BorderThickness" Value="0,2,0,0" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem.drop-after /template/ Border#PART_LayoutRoot">
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="BorderThickness" Value="0,0,0,2" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem.drop-into /template/ Border#PART_LayoutRoot">
+      <Setter Property="Background" Value="#1A2433" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="BorderThickness" Value="2,0,0,0" />
+    </Style>
     <Style Selector="TreeView#Tree TreeViewItem /template/ ContentPresenter#PART_HeaderPresenter">
       <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
     </Style>
