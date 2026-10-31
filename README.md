@@ -47,7 +47,7 @@ A focused remote session receives keys first, so these go to the remote machine 
 | --- | --- |
 | Windows | `%APPDATA%\Orrery` (cache and logs under `%LOCALAPPDATA%\Orrery`) |
 | macOS | `~/Library/Application Support/Orrery` |
-| Linux | `~/.config/orrery` (XDG directories are respected) |
+| Linux | `~/.config/orrery` (XDG directories are respected; Linux has no installed package yet, so this applies only without `orrery.portable.json`) |
 
 A portable copy has an `orrery.portable.json` file beside the executable and asks on first launch where to keep its
 data.
@@ -72,7 +72,9 @@ build\Build-Installer.ps1                # Windows installer (needs Inno Setup 6
 
 Packages are self-contained, so the target machine needs no .NET runtime. Output goes to `artifacts/`. On Windows and
 Linux the portable app is a single executable; on macOS it is an `Orrery.app` bundle, not yet signed or notarised.
-[docs/packaging.md](docs/packaging.md) has the details, including third-party notices and lock files.
+Linux has portable zips only (no .deb, .rpm, AppImage or Flatpak yet); run `chmod +x Orrery` after unzipping, and the
+machine needs X11 (or XWayland), fontconfig and ICU. [docs/packaging.md](docs/packaging.md) has the details,
+including Linux requirements, third-party notices and lock files.
 
 ## Repository layout
 
