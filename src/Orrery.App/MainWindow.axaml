@@ -134,7 +134,7 @@
               </TextBox>
   
               <Grid>
-                <TreeView x:Name="Tree" Background="Transparent" DragDrop.AllowDrop="True" Padding="12,0">
+                <TreeView x:Name="Tree" Background="Transparent" DragDrop.AllowDrop="True" Padding="12,0" SelectionMode="Multiple">
                   <TreeView.Styles>
                     <Style Selector="TreeViewItem" x:DataType="vm:NodeViewModel">
                       <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />

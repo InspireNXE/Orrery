@@ -89,6 +89,10 @@ public partial class MainWindow : Window
     bool _rebuilding;
     Point? _dragStart;
     NodeViewModel? _dragRow;
+
+    // A plain press on a row that's part of a multi-selection keeps the selection, so the rows can be dragged
+    // together; released without a drag, the press selects just that row.
+    NodeViewModel? _pressedInSelection;
     TreeViewItem? _dropRow;
 
     // For the XAML previewer only.
@@ -356,11 +360,11 @@ public partial class MainWindow : Window
         {
             switch (e.Key)
             {
-                case Key.Delete when SelectedNode is { } node:
+                case Key.Delete when SelectedNodes() is { Count: > 0 } nodes:
                     e.Handled = true;
-                    await DeleteAsync(node);
+                    await DeleteAsync(nodes);
                     break;
-                case Key.D when e.KeyModifiers == (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control) && SelectedNode is { } original:
+                case Key.D when e.KeyModifiers == (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control) && SingleSelectedNode is { } original:
                     e.Handled = true;
                     Duplicate(original);
                     break;
@@ -368,20 +372,25 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     _properties.FocusName();
                     break;
-                case Key.Enter when SelectedNode is ConnectionEntry entry:
+                case Key.Enter when SelectedNodes().OfType<ConnectionEntry>().Any():
                     e.Handled = true;
-                    await ConnectAsync(entry);
+                    await ConnectSelectedAsync();
                     break;
             }
         };
 
+        // With several rows selected, Connect and Delete take them all; the rest need a single row.
         _treeView.ContextMenu!.Opening += (_, _) =>
         {
-            _connectMenuItem.IsEnabled = SelectedNode is ConnectionEntry;
-            _addGuestMenuItem.IsVisible = SelectedNode is ConnectionEntry { GuestOf: null };
-            _moveOutOfHostMenuItem.IsVisible = SelectedNode is ConnectionEntry { GuestOf: not null };
-            _duplicateMenuItem.IsEnabled = SelectedNode is not null;
-            _deleteMenuItem.IsEnabled = SelectedNode is not null;
+            var nodes = SelectedNodes();
+            int connections = nodes.OfType<ConnectionEntry>().Count();
+            _connectMenuItem.IsEnabled = connections > 0;
+            _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
+            _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
+            _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
+            _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
+            _deleteMenuItem.IsEnabled = nodes.Count > 0;
+            _deleteMenuItem.Header = nodes.Count > 1 ? $"Delete {nodes.Count} items" : "Delete";
         };
 
         // Drag a row onto a folder to move it in, or onto a connection to drop it before, after, or in as a guest (TreeDrop).
@@ -391,6 +400,15 @@ public partial class MainWindow : Window
             {
                 _dragStart = e.GetPosition(_treeView);
                 _dragRow = RowAt(e.Source);
+                _pressedInSelection = null;
+                if (_dragRow is { } row && e.KeyModifiers == KeyModifiers.None && e.ClickCount == 1
+                    && _treeView.SelectedItems.Count > 1 && _treeView.SelectedItems.Contains(row)
+                    && (e.Source as Visual)?.FindAncestorOfType<Avalonia.Controls.Primitives.ToggleButton>(includeSelf: true) is null)
+                {
+                    e.Handled = true;
+                    _pressedInSelection = row;
+                    _treeView.Focus();
+                }
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
@@ -408,12 +426,24 @@ public partial class MainWindow : Window
             }
 
             _dragStart = null;
+            _pressedInSelection = null;
+
+            // The whole selection when the dragged row is part of it, else just that row.
+            var rows = _treeView.SelectedItems.Contains(row) ? SelectedNodes() : [row.Node];
             var data = new DataTransfer();
-            data.Add(DataTransferItem.Create(DragFormat, row.Node.Id.ToString()));
+            data.Add(DataTransferItem.Create(DragFormat, string.Join(",", TreeDrop.Normalize(_tree.Root, rows).Select(n => n.Id))));
             await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        _treeView.AddHandler(PointerReleasedEvent, (_, _) => _dragStart = null, RoutingStrategies.Tunnel, handledEventsToo: true);
+        _treeView.AddHandler(PointerReleasedEvent, (_, _) =>
+        {
+            _dragStart = null;
+            if (_pressedInSelection is { } pressed)
+            {
+                _pressedInSelection = null;
+                _treeView.SelectedItem = pressed;
+            }
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         _treeView.AddHandler(DragDrop.DragOverEvent, (_, e) =>
         {
@@ -425,7 +455,7 @@ public partial class MainWindow : Window
             }
 
             TreeViewItem? item = null;
-            var plan = DraggedNode(e) is { } node ? PlanDrop(e, node, out item) : null;
+            var plan = DraggedNodes(e) is { Count: > 0 } nodes ? PlanDrop(e, nodes, out item) : null;
             ShowDrop(plan is null ? null : item, plan?.Position);
             e.DragEffects = plan is not null ? DragDropEffects.Move : DragDropEffects.None;
         });
@@ -439,9 +469,9 @@ public partial class MainWindow : Window
             {
                 await ImportAsync(file);
             }
-            else if (DraggedNode(e) is { } node && PlanDrop(e, node, out var dropRow) is { } plan)
+            else if (DraggedNodes(e) is { Count: > 0 } nodes && PlanDrop(e, nodes, out var dropRow) is { } plan)
             {
-                if (plan.Host is null && !ConnectionTree.CanPlace(node, plan.Folder))
+                if (plan.Host is null && !nodes.All(n => ConnectionTree.CanPlace(n, plan.Folder)))
                 {
                     _ = Dialogs.ShowMessageAsync(this, "Can't move this folder there", TooDeepMessage);
                     return;
@@ -451,14 +481,10 @@ public partial class MainWindow : Window
                 if (plan.Host is { } host)
                 {
                     host.GuestsCollapsed = false;
-                    _tree.MoveToHost((ConnectionEntry)node, host, plan.Index);
-                }
-                else
-                {
-                    _tree.Move(node, plan.Folder, plan.Index);
                 }
 
-                Select(node.Id);
+                TreeDrop.Apply(_tree, nodes, plan);
+                Select(nodes.Select(n => n.Id));
             }
         });
     }
@@ -893,14 +919,24 @@ public partial class MainWindow : Window
 
     ConnectionNode? SelectedNode => (_treeView.SelectedItem as NodeViewModel)?.Node;
 
+    /// <summary>The selected node when it's the only one selected.</summary>
+    ConnectionNode? SingleSelectedNode => _treeView.SelectedItems.Count == 1 ? SelectedNode : null;
+
+    /// <summary>Every selected row's node, the current one (shown in Properties) first.</summary>
+    List<ConnectionNode> SelectedNodes() =>
+        _treeView.SelectedItems.OfType<NodeViewModel>().Select(r => r.Node).OrderBy(n => n == SelectedNode ? 0 : 1).ToList();
+
     static NodeViewModel? RowAt(object? source) =>
         (source as Visual)?.FindAncestorOfType<TreeViewItem>(includeSelf: true)?.DataContext as NodeViewModel;
 
-    ConnectionNode? DraggedNode(DragEventArgs e) =>
-        e.DataTransfer.TryGetValue(DragFormat) is { } id && Guid.TryParse(id, out var guid) ? _tree.Find(guid) : null;
+    /// <summary>The rows being dragged, from their ids; empty for a drag from somewhere else.</summary>
+    List<ConnectionNode> DraggedNodes(DragEventArgs e) =>
+        e.DataTransfer.TryGetValue(DragFormat) is { } ids
+            ? ids.Split(',').Select(id => Guid.TryParse(id, out var guid) ? _tree.Find(guid) : null).OfType<ConnectionNode>().ToList()
+            : [];
 
     /// <summary>Where <paramref name="dragged"/> would go if dropped now, and the row under the pointer.</summary>
-    DropPlan? PlanDrop(DragEventArgs e, ConnectionNode dragged, out TreeViewItem? item)
+    DropPlan? PlanDrop(DragEventArgs e, IReadOnlyList<ConnectionNode> dragged, out TreeViewItem? item)
     {
         item = (e.Source as Visual)?.FindAncestorOfType<TreeViewItem>(includeSelf: true);
         if (item?.DataContext is not NodeViewModel target)
@@ -936,12 +972,12 @@ public partial class MainWindow : Window
 
     void RebuildTree()
     {
-        var selected = SelectedNode?.Id;
+        var selected = SelectedNodes().Select(n => n.Id).ToList();
         _rebuilding = true;
         try
         {
             _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, ScheduleSave);
-            _treeView.SelectedItem = selected is { } id ? FindRow(id) : null;
+            Select(selected);
         }
         finally
         {
@@ -983,6 +1019,16 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Selects these rows, the first becoming the current one; rows no longer shown are skipped.</summary>
+    void Select(IEnumerable<Guid> ids)
+    {
+        _treeView.SelectedItems.Clear();
+        foreach (var row in ids.Select(FindRow).OfType<NodeViewModel>())
+        {
+            _treeView.SelectedItems.Add(row);
+        }
+    }
+
     /// <summary>New items go in the selected folder, or beside the selected connection.</summary>
     ConnectionFolder TargetFolder() => SelectedNode switch
     {
@@ -1016,9 +1062,13 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
     }
 
-    async void OnConnectMenuClick(object? sender, RoutedEventArgs e)
+    async void OnConnectMenuClick(object? sender, RoutedEventArgs e) => await ConnectSelectedAsync();
+
+    /// <summary>Opens every selected connection, in list order; folders in the selection are skipped.</summary>
+    async Task ConnectSelectedAsync()
     {
-        if (SelectedNode is ConnectionEntry entry)
+        var selected = SelectedNodes().ToHashSet();
+        foreach (var entry in _tree.Root.Descendants().OfType<ConnectionEntry>().Where(selected.Contains).ToList())
         {
             await ConnectAsync(entry);
         }
@@ -1060,7 +1110,7 @@ public partial class MainWindow : Window
 
     void OnDuplicateMenuClick(object? sender, RoutedEventArgs e)
     {
-        if (SelectedNode is { } node)
+        if (SingleSelectedNode is { } node)
         {
             Duplicate(node);
         }
@@ -1078,9 +1128,39 @@ public partial class MainWindow : Window
 
     async void OnDeleteMenuClick(object? sender, RoutedEventArgs e)
     {
-        if (SelectedNode is { } node)
+        if (SelectedNodes() is { Count: > 0 } nodes)
         {
-            await DeleteAsync(node);
+            await DeleteAsync(nodes);
+        }
+    }
+
+    /// <summary>
+    /// One row goes through <see cref="DeleteAsync(ConnectionNode)"/>, which offers to keep a host's guests.
+    /// Several are confirmed once and go with everything in them, a host's guests included.
+    /// </summary>
+    async Task DeleteAsync(IReadOnlyList<ConnectionNode> selected)
+    {
+        var nodes = TreeDrop.Normalize(_tree.Root, selected);
+        if (nodes.Count == 1)
+        {
+            await DeleteAsync(nodes[0]);
+            return;
+        }
+
+        int inside = nodes.Sum(n => n switch
+        {
+            ConnectionFolder folder => folder.Descendants().Count(),
+            ConnectionEntry entry => entry.Guests.Count(),
+            _ => 0,
+        });
+        string body = $"{nodes.Count} items will be deleted" + (inside > 0 ? $", with the {inside} items in them." : ".");
+        if (await Dialogs.ConfirmAsync(this, $"Delete {nodes.Count} items?", body, "Delete"))
+        {
+            await _properties.ShowAsync(null);
+            foreach (var node in nodes)
+            {
+                _tree.Remove(node);
+            }
         }
     }
 
