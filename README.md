@@ -10,30 +10,30 @@ Version 0.1.0. Early days: the protocols work, but several things still need tes
 
 ## Features
 
-- **Protocols**: RDP (through [IronRDP](https://github.com/Devolutions/IronRDP)), SSH (SSH.NET), VNC
-  (MarcusW.VncClient) and Telnet.
-- **Jump hosts**: reach a machine through one or more saved SSH connections (like `ssh -J`). SSH goes through them
-  directly, and RDP, VNC and Telnet through an SSH tunnel Orrery opens and closes with the session. SSH connections
-  also take port forwards (`L`, `R`, `D`).
-- **SFTP file browser**: open an SSH connection's files in a tab beside its terminal (right-click it, or its tab,
-  and choose *Browse files*). Browse, upload (or drop files in), download, rename, delete and make folders, with
-  progress and Cancel. It uses the same login, agent keys and jump hosts as the terminal.
-- **Display quality**: per connection or folder, Balanced, Best look or Fastest. For RDP it picks the remote
-  desktop's visual effects (wallpaper, themes, font smoothing, desktop composition); for VNC, the JPEG quality the
-  server uses when it sends Tight (which needs TurboJPEG installed). HDR isn't possible over RDP or VNC, and RDP
-  can't follow your display scaling yet because IronRDP's .NET binding doesn't pass it on; *Enlarge to match
-  display scaling* enlarges the picture locally instead.
-- **Connection tree**: folders, drag and drop, multi-select (Ctrl- and Shift-click), filter, inherited settings,
-  and host groups (a host with its guest machines one level below it).
-- **Credentials**: kept in Windows Credential Manager, the macOS Keychain or the Linux Secret Service, or in an
-  encrypted vault file (Argon2id, XChaCha20-Poly1305) when there is no system store, in portable mode, or when you
-  choose it.
-- **Import**: mRemoteNG `confCons.xml` and Orrery `.json`.
-- **Export**: Orrery `.json`, mRemoteNG `confCons.xml` and CSV. Passwords and keys can go into the `.json` and
-  `confCons.xml` files, encrypted under a password you set; CSV never carries them.
-- **Installed or portable**: the installed copy keeps data in your profile; the portable copy keeps it wherever you
-  choose on first launch.
-- Dark-first interface.
+- RDP through [IronRDP](https://github.com/Devolutions/IronRDP), SSH through SSH.NET, VNC through
+  MarcusW.VncClient, and Telnet.
+- Jump hosts, like `ssh -J`: reach a machine through one or more saved SSH connections. SSH goes through them
+  directly. RDP, VNC and Telnet go through an SSH tunnel that Orrery opens and closes with the session. SSH
+  connections also take port forwards (`L`, `R`, `D`).
+- An SFTP file browser. Right-click an SSH connection or its tab and choose *Browse files* to open its files in a
+  tab beside the terminal. You can upload (or drop files in), download, rename, delete and make folders, with a
+  progress bar and Cancel. It uses the terminal's login, agent keys and jump hosts.
+- A display quality setting (Balanced, Best look or Fastest) for each connection or folder. For RDP it decides
+  which visual effects the remote desktop shows: wallpaper, themes, font smoothing and desktop composition. For VNC
+  it sets the JPEG quality the server uses when it sends Tight images, which needs TurboJPEG installed.
+- No HDR, because neither RDP nor VNC can carry it. RDP also can't follow your display scaling yet, since IronRDP's
+  .NET binding doesn't pass it on. *Enlarge to match display scaling* enlarges the picture on your side instead.
+- A connection tree with folders, drag and drop, multi-select (Ctrl- and Shift-click), a filter, inherited
+  settings, and host groups (a host with its guest machines one level below it).
+- Saved credentials kept in Windows Credential Manager, the macOS Keychain or the Linux Secret Service. When there's no
+  system store, in portable mode, or if you choose it, they go in an encrypted vault file (Argon2id,
+  XChaCha20-Poly1305) instead.
+- Import from mRemoteNG `confCons.xml` and Orrery `.json`.
+- Export to Orrery `.json`, mRemoteNG `confCons.xml` and CSV. The `.json` and `confCons.xml` files can include
+  passwords and keys, encrypted under a password you set. CSV never includes them.
+- Installed or portable. The installed copy keeps its data in your profile, and the portable copy keeps it wherever
+  you choose on first launch.
+- A dark-first interface.
 
 ## Keyboard shortcuts
 
@@ -51,7 +51,7 @@ On macOS, Cmd replaces Ctrl.
 | Ctrl+D | Duplicate |
 | Delete | Delete the selected rows |
 
-A focused remote session receives keys first, so these go to the remote machine while it has focus.
+While a remote session has focus it gets keys first, so these shortcuts go to the remote machine.
 
 ## Where data lives
 
@@ -82,8 +82,8 @@ To build everything this machine can, run:
 ./build/Build-All.ps1
 ```
 
-It runs the three scripts below in turn. If a tool is missing, that step is skipped with a warning instead of stopping
-the rest, and a summary at the end lists what was built and what wasn't. On Windows you get everything except the
+It runs the three scripts below in turn. If a tool is missing, it skips that step with a warning and carries on, then
+lists what was built and what wasn't. On Windows you get everything except the
 AppImage. Pass `-NfpmPath` or `-IsccPath` for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or
 `-SkipLinux` to leave a step out.
 
@@ -114,10 +114,10 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 
 ## Status
 
-Tested on Windows, including RDP resizing and clipboard and the installer. Still to be checked on real machines:
-Linux and macOS builds (including the .deb, .rpm and AppImage), ARM builds, and VNC authentication. The Windows
-executables aren't code-signed, so SmartScreen may warn on first launch and antivirus tools can flag the single-file
-executable as a false positive.
+Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
+the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, and VNC authentication. The
+Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
+single-file executable as a false positive.
 
 ## Licence and credits
 
@@ -137,5 +137,5 @@ It's built on open-source work, all under permissive licences (MIT, Apache 2.0, 
 
 Every package carries `THIRD-PARTY-NOTICES.txt`, generated from what that build actually ships, with each component's
 licence and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
-the libraries linked into it, including libfuse (LGPL 2.1). mRemoteNG is GPL-licensed: Orrery reads and writes its
-`confCons.xml` format, written from the file format, and contains none of mRemoteNG's code.
+the libraries linked into it, including libfuse (LGPL 2.1). mRemoteNG is GPL-licensed. Orrery reads and writes its
+`confCons.xml` files using code written from the file format alone, and contains none of mRemoteNG's code.
