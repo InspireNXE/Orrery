@@ -966,11 +966,16 @@ public partial class MainWindow : Window
     void ShowDrop(TreeViewItem? item, DropPosition? position)
     {
         // After a row is the same place as before its next sibling, so that gap gets one line, on the lower
-        // row; it doesn't hop between the two rows. It also lands below an expanded folder's or host's children,
-        // where the drop goes, not under its own row. After the last row in a folder or among a host's guests is
+        // row; it doesn't hop between the two rows. After the last row in a folder or among a host's guests is
         // the end of that group, the same as dropping into it, so the group's row lights up instead. Only the
         // last row at the top level draws an after line.
-        if (position == DropPosition.After && item is not null && ItemsControl.ItemsControlFromItemContainer(item) is { } list)
+        if (position == DropPosition.After && item is { IsExpanded: true } && item.ContainerFromIndex(0) is TreeViewItem first)
+        {
+            // An open host's row: its lower edge is before its first guest (TreeDrop).
+            item = first;
+            position = DropPosition.Before;
+        }
+        else if (position == DropPosition.After && item is not null && ItemsControl.ItemsControlFromItemContainer(item) is { } list)
         {
             if (list.ContainerFromIndex(list.IndexFromContainer(item) + 1) is TreeViewItem next)
             {

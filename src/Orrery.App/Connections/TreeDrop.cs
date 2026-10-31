@@ -77,6 +77,15 @@ static class TreeDrop
             return new DropPlan(parent, entry, null, DropPosition.Into);
         }
 
+        // An open host's guests sit right below its row, so the row's lower edge is before the first guest.
+        // After the whole group is below the last guest; rows that can't be guests can only go before it here.
+        if (after && entry is { IsHost: true, GuestsCollapsed: false })
+        {
+            return canBeGuests
+                ? new DropPlan(parent, entry, 0, DropPosition.After)
+                : new DropPlan(parent, null, parent.Children.ToList().IndexOf(entry), DropPosition.Before);
+        }
+
         return new DropPlan(parent, null, parent.Children.ToList().IndexOf(entry) + (after ? 1 : 0), after ? DropPosition.After : DropPosition.Before);
     }
 
