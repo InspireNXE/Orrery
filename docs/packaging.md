@@ -43,6 +43,24 @@ with the marker beside the bundle. The bundle isn't signed or notarised yet, so 
 Zip files carry no Unix permissions from Windows: on Linux and macOS, `chmod +x` the executable after unzipping, or
 build those packages on Linux or macOS.
 
+## Linux
+
+Linux has only the two portable zips, `linux-x64` and `linux-arm64`. There is no .deb, .rpm, AppImage or Flatpak
+yet, so nothing installs Orrery system-wide or runs it in installed mode (data in `~/.config/orrery`); that only
+happens if you delete `orrery.portable.json` from beside the executable. Neither build has been run on a real Linux
+machine yet.
+
+What the machine needs, beyond the zip:
+
+- **An X11 session.** Avalonia draws through X11; on Wayland it runs under XWayland.
+- **fontconfig and ICU** (`libfontconfig1` and `libicu` on Debian and Ubuntu, `fontconfig` and `libicu` on Fedora).
+  Globalization isn't set to invariant, so .NET won't start without ICU. Most desktop installs already have both.
+- **libsecret and a Secret Service** (GNOME Keyring or KWallet) to keep credentials in the system keyring. Without
+  them, or in portable mode, credentials go to the encrypted vault file.
+
+After unzipping, `chmod +x Orrery` (zips made on Windows carry no Unix permissions). The first launch unpacks the
+native libraries to `~/.net/Orrery/<hash>`, or `$DOTNET_BUNDLE_EXTRACT_BASE_DIR` if it's set.
+
 ## Third-party notices
 
 `build/Generate-ThirdPartyNotices.ps1 -PublishDir <publish output>` writes `THIRD-PARTY-NOTICES.txt` from the
