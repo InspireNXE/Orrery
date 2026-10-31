@@ -15,6 +15,12 @@ namespace Orrery.App.Connections;
 /// </summary>
 sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port, Protocol Protocol = Protocol.Rdp, string? Username = null, string? NewName = null)
 {
+    /// <summary>Open the saved connection's settings instead of connecting (Alt+Enter).</summary>
+    public bool Edit { get; init; }
+
+    /// <summary>Switch to this open session tab instead.</summary>
+    public int? SessionIndex { get; init; }
+
     static readonly (string Scheme, Protocol Protocol)[] Schemes =
         [("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet)];
 
@@ -72,10 +78,13 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
     }
 }
 
+/// <summary>A session tab, as quick connect lists it.</summary>
+sealed record OpenSession(string Title, string Address, Protocol Protocol);
+
 /// <summary>
-/// The Ctrl+K palette: type to find a saved connection by name, host or folder, enter
-/// <c>host[:port]</c> to connect directly, or make a new connection. Enter opens the highlighted row;
-/// arrows move; Esc or clicking elsewhere closes it.
+/// The Ctrl+K palette: type to find an open session or a saved connection, enter <c>host[:port]</c> to connect
+/// directly, or make a new connection. Enter opens the highlighted row and Alt+Enter a saved connection's
+/// settings; arrows move; Esc or clicking elsewhere closes it.
 /// </summary>
 sealed class QuickConnectWindow : Window
 {
@@ -90,6 +99,7 @@ sealed class QuickConnectWindow : Window
     static readonly IBrush SoftBrush = Brush("#C3C9D3");
 
     readonly ConnectionTree _tree;
+    readonly IReadOnlyList<OpenSession> _sessions;
     readonly TextBox _query = new()
     {
         Watermark = "Search connections, or type host, user@host, ssh://host:port",
@@ -105,9 +115,10 @@ sealed class QuickConnectWindow : Window
     int _selected = -1;
     bool _closing;
 
-    public QuickConnectWindow(ConnectionTree tree)
+    public QuickConnectWindow(ConnectionTree tree, IReadOnlyList<OpenSession>? sessions = null)
     {
         _tree = tree;
+        _sessions = sessions ?? [];
 
         Title = "Quick connect";
         Width = 620;
@@ -147,6 +158,7 @@ sealed class QuickConnectWindow : Window
             {
                 Hint("↑↓", "move"),
                 Hint("↵", "open"),
+                Hint("Alt+↵", "settings"),
                 Hint("Esc", "close"),
                 Hint("ssh:// rdp:// vnc:// telnet://", "pick a protocol"),
             },
@@ -214,6 +226,25 @@ sealed class QuickConnectWindow : Window
         _list.Children.Clear();
         _items.Clear();
 
+        // Already open: switching to it is likelier than opening it again.
+        if (query.Length > 0)
+        {
+            var open = _sessions
+                .Select((session, index) => (Session: session, Index: index))
+                .Where(x => x.Session.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                    || x.Session.Address.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                .Take(MaxResults)
+                .ToList();
+            if (open.Count > 0)
+            {
+                AddHeader("Open sessions");
+                foreach (var (session, index) in open)
+                {
+                    AddItem(SessionRow(session, query), new QuickConnectChoice(null, null, 0) { SessionIndex = index }, "Switch to");
+                }
+            }
+        }
+
         var saved = Rank(query).Take(MaxResults).ToList();
         if (saved.Count > 0)
         {
@@ -255,7 +286,7 @@ sealed class QuickConnectWindow : Window
         Select(_items.Count > 0 ? 0 : -1);
     }
 
-    /// <summary>Name prefix matches first, then other name, host or folder matches.</summary>
+    /// <summary>Best matches first; see <see cref="ConnectionSearch.Score"/>.</summary>
     IEnumerable<ConnectionEntry> Rank(string query)
     {
         var all = _tree.AllConnections();
@@ -272,15 +303,7 @@ sealed class QuickConnectWindow : Window
             .Select(x => x.Entry);
     }
 
-    static int Score(ConnectionEntry entry, string query)
-    {
-        const StringComparison ignoreCase = StringComparison.CurrentCultureIgnoreCase;
-        if (entry.Name.StartsWith(query, ignoreCase)) return 4;
-        if (entry.Host.StartsWith(query, ignoreCase)) return 3;
-        if (entry.Name.Contains(query, ignoreCase) || entry.Host.Contains(query, ignoreCase)) return 2;
-        if (entry.Path.Contains(query, ignoreCase)) return 1;
-        return 0;
-    }
+    static int Score(ConnectionEntry entry, string query) => ConnectionSearch.Score(entry, query);
 
     // ---- Rows ----
 
@@ -344,6 +367,23 @@ sealed class QuickConnectWindow : Window
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     MaxWidth = 260,
                 },
+            },
+        };
+    }
+
+    static Control SessionRow(OpenSession session, string query)
+    {
+        var name = new TextBlock { FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        name.Inlines = Highlight(session.Title, query);
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Children =
+            {
+                Badge(session.Protocol),
+                name,
+                new TextBlock { Text = session.Address, FontSize = 12, FontFamily = Dialogs.MonoFont, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 260 },
             },
         };
     }
@@ -469,6 +509,14 @@ sealed class QuickConnectWindow : Window
                 break;
             case Key.Up when count > 0:
                 Select((_selected - 1 + count) % count);
+                e.Handled = true;
+                break;
+            case Key.Enter when e.KeyModifiers == KeyModifiers.Alt:
+                if (_selected >= 0 && _items[_selected].Choice is { Entry: not null } saved)
+                {
+                    Finish(saved with { Edit = true });
+                }
+
                 e.Handled = true;
                 break;
             case Key.Enter:
