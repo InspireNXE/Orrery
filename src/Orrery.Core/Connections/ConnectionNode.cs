@@ -105,9 +105,13 @@ public abstract class ConnectionNode
     [JsonIgnore]
     public ConnectionFolder? Parent { get; internal set; }
 
-    /// <summary>Folder names from the root down to this node's parent, e.g. "Production / Web".</summary>
+    /// <summary>
+    /// Folder names from the root down to this node's parent, e.g. "Production / Web"; for a guest, its host's
+    /// name comes last ("Production / hv-01").
+    /// </summary>
     [JsonIgnore]
-    public string Path => string.Join(" / ", Ancestors().Reverse().Where(a => a.Parent is not null).Select(a => a.Name));
+    public string Path => string.Join(" / ", Ancestors().Reverse().Where(a => a.Parent is not null).Select(a => a.Name)
+        .Concat((this as ConnectionEntry)?.GuestOf is { } host ? [host.Name] : []));
 
     public IEnumerable<ConnectionFolder> Ancestors()
     {
@@ -135,7 +139,14 @@ public sealed class ConnectionFolder : ConnectionNode
         foreach (var child in ChildList)
         {
             yield return child;
-            if (child is ConnectionFolder folder)
+            if (child is ConnectionEntry { GuestList: { } guests })
+            {
+                foreach (var guest in guests)
+                {
+                    yield return guest;
+                }
+            }
+            else if (child is ConnectionFolder folder)
             {
                 foreach (var nested in folder.Descendants())
                 {
@@ -152,4 +163,28 @@ public sealed class ConnectionEntry : ConnectionNode
 
     /// <summary>SSH: ports to forward while the session is open. Null when there are none.</summary>
     public List<PortForward>? PortForwards { get; set; }
+
+    /// <summary>
+    /// Connections that run on this one, such as a hypervisor's VMs. Having any makes this a host. One level
+    /// only: a guest has no guests. A guest's <see cref="ConnectionNode.Parent"/> is its host's folder.
+    /// See docs/design-host-groups.md.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<ConnectionEntry> Guests => (IReadOnlyList<ConnectionEntry>?)GuestList ?? [];
+
+    // Changed only through ConnectionTree, which keeps the links right. Null when there are none, so it's left out of the file.
+    [JsonInclude]
+    [JsonPropertyName("guests")]
+    internal List<ConnectionEntry>? GuestList { get; set; }
+
+    /// <summary>The host this is a guest of; null for a connection that isn't a guest.</summary>
+    [JsonIgnore]
+    public ConnectionEntry? GuestOf { get; internal set; }
+
+    [JsonIgnore]
+    public bool IsHost => GuestList is { Count: > 0 };
+
+    /// <summary>The host's row is collapsed. Written only when true, so ordinary connections don't carry it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool GuestsCollapsed { get; set; }
 }
