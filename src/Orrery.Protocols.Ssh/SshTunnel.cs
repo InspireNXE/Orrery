@@ -54,11 +54,11 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
     SshClient Connect(SshHop hop, string host, int port)
     {
         string where = $"Jump host {hop.Target.Host}: ";
-        bool hostKeyRejected = false;
+        HostKeyCheck? hostKey = null;
         try
         {
             var client = new SshClient(SshSession.ConnectionInfoFor(host, port, hop.Login, hop.AllowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
-            SshSession.CheckHostKey(client, hostKeys, hop.Target, () => hostKeyRejected = true);
+            hostKey = HostKeyCheck.Attach(client, hostKeys, hop.Target);
             // A hop that drops later breaks the connections through it, which their sessions report.
             client.ErrorOccurred += (_, e) => Trace.TraceWarning($"{where}{e.Exception.Message}");
 
@@ -73,14 +73,14 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
                 _clients.Add(client);
             }
 
-            client.Connect();
+            hostKey.Connect(client);
             return client;
         }
         catch (Exception) when (IsClosed)
         {
             throw new OperationCanceledException();
         }
-        catch (SshConnectionException e) when (hostKeyRejected)
+        catch (SshConnectionException e) when (hostKey?.Rejected == true)
         {
             throw new RouteException($"The host key of jump host {hop.Target.Host} was not trusted.", e);
         }

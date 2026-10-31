@@ -57,7 +57,7 @@ public sealed class SftpSession : IConnectionSession
     {
         string host = Target.Host;
         int port = Target.Port;
-        bool hostKeyRejected = false;
+        HostKeyCheck? hostKey = null;
         try
         {
             if (_jumps.Count > 0)
@@ -73,7 +73,7 @@ public sealed class SftpSession : IConnectionSession
             }
 
             var client = new SftpClient(SshSession.ConnectionInfoFor(host, port, login, _allowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
-            SshSession.CheckHostKey(client, _hostKeys, Target, () => hostKeyRejected = true);
+            hostKey = HostKeyCheck.Attach(client, _hostKeys, Target);
             client.ErrorOccurred += (_, e) => Fail(SshSession.Describe(e.Exception, _allowLegacy));
             lock (_lock)
             {
@@ -86,7 +86,7 @@ public sealed class SftpSession : IConnectionSession
                 _client = client;
             }
 
-            client.Connect();
+            hostKey.Connect(client);
             HomeDirectory = client.WorkingDirectory;
             SetState(SessionState.Connected);
         }
@@ -98,7 +98,7 @@ public sealed class SftpSession : IConnectionSession
         {
             Fail(e.Message);
         }
-        catch (SshConnectionException) when (hostKeyRejected)
+        catch (SshConnectionException) when (hostKey?.Rejected == true)
         {
             Fail("The server's host key was not trusted.");
         }

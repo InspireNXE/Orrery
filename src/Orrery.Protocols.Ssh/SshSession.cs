@@ -148,11 +148,11 @@ public sealed class SshSession : ITerminalSession
     {
         var target = Target;
         bool allowLegacy = _allowLegacy;
-        bool hostKeyRejected = false;
+        HostKeyCheck? hostKey = null;
         try
         {
             var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = KeepAlive };
-            CheckHostKey(client, _hostKeys, target, () => hostKeyRejected = true);
+            hostKey = HostKeyCheck.Attach(client, _hostKeys, target);
             client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy));
 
             lock (_lock)
@@ -166,10 +166,10 @@ public sealed class SshSession : ITerminalSession
                 _client = client;
             }
 
-            client.Connect();
+            hostKey.Connect(client);
             return client;
         }
-        catch (SshConnectionException) when (hostKeyRejected)
+        catch (SshConnectionException) when (hostKey?.Rejected == true)
         {
             Fail("The server's host key was not trusted.");
         }
@@ -198,18 +198,6 @@ public sealed class SshSession : ITerminalSession
         SshAlgorithms.Apply(info, allowLegacy);
         return info;
     }
-
-    /// <summary>
-    /// Checks the host key <paramref name="client"/> is offered against <paramref name="target"/>'s real name, not
-    /// the loopback address it may be reached through, calling <paramref name="rejected"/> if it isn't trusted.
-    /// SSH.NET asks synchronously on its own thread; the prompt runs on the UI thread meanwhile.
-    /// </summary>
-    internal static void CheckHostKey(BaseClient client, HostKeyValidator hostKeys, ConnectionTarget target, Action rejected) =>
-        client.HostKeyReceived += (_, e) =>
-        {
-            e.CanTrust = hostKeys.ValidateAsync(target.Host, target.Port, e.HostKeyName, e.FingerPrintSHA256).GetAwaiter().GetResult();
-            if (!e.CanTrust) rejected();
-        };
 
     /// <summary>Why a login was turned down, by what was tried.</summary>
     internal static string Refusal(SshAuthenticationException e, SshLogin login) => e is NoLoginMethodException ? e.Message : login switch
