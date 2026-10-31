@@ -967,12 +967,21 @@ public partial class MainWindow : Window
     {
         // After a row is the same place as before its next sibling, so that gap gets one line, on the lower
         // row; it doesn't hop between the two rows. It also lands below an expanded folder's or host's children,
-        // where the drop goes, not under its own row. Only the last row in a list draws an after line.
-        if (position == DropPosition.After && item is not null && ItemsControl.ItemsControlFromItemContainer(item) is { } list
-            && list.ContainerFromIndex(list.IndexFromContainer(item) + 1) is TreeViewItem next)
+        // where the drop goes, not under its own row. After the last row in a folder or among a host's guests is
+        // the end of that group, the same as dropping into it, so the group's row lights up instead. Only the
+        // last row at the top level draws an after line.
+        if (position == DropPosition.After && item is not null && ItemsControl.ItemsControlFromItemContainer(item) is { } list)
         {
-            item = next;
-            position = DropPosition.Before;
+            if (list.ContainerFromIndex(list.IndexFromContainer(item) + 1) is TreeViewItem next)
+            {
+                item = next;
+                position = DropPosition.Before;
+            }
+            else if (list is TreeViewItem group)
+            {
+                item = group;
+                position = DropPosition.Into;
+            }
         }
 
         if (_dropRow is not null && _dropRow != item)
