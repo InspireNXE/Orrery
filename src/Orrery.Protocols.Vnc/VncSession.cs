@@ -55,13 +55,15 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
 
     readonly ILoggerFactory _logging;
     readonly bool _shareClipboard;
+    readonly ISessionRoute? _route;
 
-    VncSession(ConnectionTarget target, string password, bool shareClipboard, ILoggerFactory? logging)
+    VncSession(ConnectionTarget target, string password, bool shareClipboard, ILoggerFactory? logging, ISessionRoute? route)
     {
         Target = target;
         _password = password;
         _shareClipboard = shareClipboard;
         _logging = logging ?? NullLoggerFactory.Instance;
+        _route = route;
     }
 
     public ConnectionTarget Target { get; }
@@ -76,9 +78,10 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
     /// <param name="logging">The VNC library's own diagnostics; none when null.</param>
     /// <param name="shareClipboard">Exchange clipboard text with the server (RFB carries Latin-1 only).</param>
-    public static VncSession Start(ConnectionTarget target, string password, bool shareClipboard = true, ILoggerFactory? logging = null)
+    /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
+    public static VncSession Start(ConnectionTarget target, string password, bool shareClipboard = true, ILoggerFactory? logging = null, ISessionRoute? route = null)
     {
-        var session = new VncSession(target, password, shareClipboard, logging);
+        var session = new VncSession(target, password, shareClipboard, logging, route);
         session._connectTask = Task.Run(session.ConnectAsync);
         return session;
     }
@@ -87,10 +90,11 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     {
         try
         {
+            var (host, port) = await _route.DialAsync(Target, _cts.Token);
             var client = new VncClient(_logging, new ClosableImplementation(this));
             var parameters = new ConnectParameters
             {
-                TransportParameters = new TcpTransportParameters { Host = Target.Host, Port = Target.Port },
+                TransportParameters = new TcpTransportParameters { Host = host, Port = port },
                 AuthenticationHandler = new Authenticator(_password),
                 InitialRenderTarget = this,
                 InitialOutputHandler = this,
@@ -121,6 +125,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
 
     static string Describe(Exception e) => e switch
     {
+        RouteException route => route.Message,
         System.Net.Sockets.SocketException s => s.Message,
         _ when e.Message.Contains("auth", StringComparison.OrdinalIgnoreCase) => $"The server refused the login. {e.Message}",
         _ => e.Message,
@@ -449,6 +454,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
             _connection = null;
         }
 
+        _route?.Dispose();
         SetState(SessionState.Disconnected);
     }
 

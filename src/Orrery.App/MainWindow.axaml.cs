@@ -1316,24 +1316,21 @@ public partial class MainWindow : Window
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
         var origin = new SessionOrigin(entry.Name, protocol, entry.Id, () => ConnectAsync(entry), resolved.AutoReconnect.Value);
-        // Telnet has no login of its own: the server asks in the terminal.
-        if (protocol == Protocol.Telnet)
-        {
-            StartTelnet(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null));
-            return;
-        }
-
         try
         {
-            SshRoute? route = null;
-            if (protocol == Protocol.Ssh)
+            // SSH goes through its jump hosts itself; RDP, VNC and Telnet through a tunnel the jump hosts make.
+            if (await JumpHopsAsync(entry) is not { } jumps)
             {
-                if (await JumpHopsAsync(entry) is not { } jumps)
-                {
-                    return;
-                }
+                return;
+            }
 
-                route = new SshRoute(jumps, entry.PortForwards ?? []);
+            var route = new SshRoute(jumps, protocol == Protocol.Ssh ? entry.PortForwards ?? [] : []);
+
+            // Telnet has no login of its own: the server asks in the terminal.
+            if (protocol == Protocol.Telnet)
+            {
+                StartTelnet(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null), jumps);
+                return;
             }
 
             string? username = resolved.Username.Value, domain = resolved.Domain.Value, password = null;
@@ -1436,21 +1433,22 @@ public partial class MainWindow : Window
             case Protocol.Ssh:
                 return StartSshAsync(origin, target, password, saved, allowLegacySsh, route);
             case Protocol.Vnc:
-                StartVnc(origin, target, password, shareClipboard, enlarge);
+                StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps);
                 return Task.CompletedTask;
             default:
-                StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge);
+                StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge, route?.Jumps);
                 return Task.CompletedTask;
         }
     }
 
     /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
     /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
-    void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, bool? enlarge = null)
+    /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
+    void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, bool? enlarge = null, IReadOnlyList<SshHop>? jumps = null)
     {
         Open(origin, () =>
         {
-            var session = VncSession.Start(target, password, shareClipboard);
+            var session = VncSession.Start(target, password, shareClipboard, route: Tunnel(jumps));
             return (new RemoteFrameView(session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops), session);
         });
         UpdateVaultButton();
@@ -1458,23 +1456,31 @@ public partial class MainWindow : Window
 
     /// <param name="fixedSize">A desktop size to keep; null fits the session area and follows it.</param>
     /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
-    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null, bool? enlarge = null)
+    /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
+    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null, bool? enlarge = null,
+        IReadOnlyList<SshHop>? jumps = null)
     {
         Open(origin, () =>
         {
             bool zoom = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
             var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
-            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
+            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps));
             return (new RemoteFrameView(session, zoom) { FollowsViewSize = fixedSize is null }, session);
         });
         UpdateVaultButton();
     }
 
-    void StartTelnet(SessionOrigin origin, ConnectionTarget target) => Open(origin, () =>
+    void StartTelnet(SessionOrigin origin, ConnectionTarget target, IReadOnlyList<SshHop>? jumps = null) => Open(origin, () =>
     {
-        var session = TelnetSession.Start(target, 80, 24);
+        var session = TelnetSession.Start(target, 80, 24, Tunnel(jumps));
         return (NewTerminalView(session), session);
     });
+
+    /// <summary>
+    /// A new tunnel through <paramref name="jumps"/>, or none to connect directly. Made inside each session's
+    /// create function, so reconnecting opens a fresh one; the session disposes it.
+    /// </summary>
+    SshTunnel? Tunnel(IReadOnlyList<SshHop>? jumps) => jumps is { Count: > 0 } ? new SshTunnel(jumps, _hostKeyValidator) : null;
 
     /// <summary>
     /// Opens a session in a new tab. When it should reconnect by itself, <paramref name="create"/> is kept so it

@@ -24,8 +24,7 @@ public sealed record SshHop(ConnectionTarget Target, SshLogin Login, bool AllowL
 
 /// <summary>
 /// An interactive shell over SSH.NET with an xterm-256color pty. The host key is checked during key
-/// exchange, before any credentials are sent. Jump hosts are reached in order, each through a forward on
-/// the one before it that listens on loopback; each one's host key is checked against its own name.
+/// exchange, before any credentials are sent. Jump hosts are gone through with an <see cref="SshTunnel"/>.
 /// </summary>
 public sealed class SshSession : ITerminalSession
 {
@@ -39,7 +38,7 @@ public sealed class SshSession : ITerminalSession
     readonly IReadOnlyList<SshHop> _jumps;
     readonly IReadOnlyList<PortForward> _forwards;
     readonly object _lock = new();
-    readonly List<SshClient> _jumpClients = [];
+    SshTunnel? _tunnel;
     SshClient? _client;
     ShellStream? _shell;
     ShellPump? _pump;
@@ -84,26 +83,37 @@ public sealed class SshSession : ITerminalSession
     {
         try
         {
-            // Each jump host is reached through a loopback forward on the one before it, and the server through the last.
             string host = Target.Host;
             int port = Target.Port;
-            SshClient? through = null;
-            foreach (var hop in _jumps)
+            if (_jumps.Count > 0)
             {
-                var (hopHost, hopPort) = through is null ? (hop.Target.Host, hop.Target.Port) : Forward(through, hop.Target.Host, hop.Target.Port);
-                through = ConnectClient(hop.Target, hopHost, hopPort, hop.Login, hop.AllowLegacy, jump: true);
-                if (through is null)
+                var tunnel = new SshTunnel(_jumps, _hostKeys);
+                lock (_lock)
+                {
+                    if (_closing)
+                    {
+                        return;
+                    }
+
+                    _tunnel = tunnel;
+                }
+
+                try
+                {
+                    (host, port) = tunnel.Open(Target.Host, Target.Port);
+                }
+                catch (RouteException e)
+                {
+                    Fail(e.Message);
+                    return;
+                }
+                catch (OperationCanceledException)
                 {
                     return;
                 }
             }
 
-            if (through is not null)
-            {
-                (host, port) = Forward(through, Target.Host, Target.Port);
-            }
-
-            if (ConnectClient(Target, host, port, login, _allowLegacy, jump: false) is not { } client)
+            if (ConnectClient(host, port, login) is not { } client)
             {
                 return;
             }
@@ -131,12 +141,13 @@ public sealed class SshSession : ITerminalSession
     }
 
     /// <summary>
-    /// Connects and logs in to <paramref name="target"/>, dialling <paramref name="host"/>:<paramref name="port"/>
-    /// (a loopback forward when it's behind a jump host). Null, with the session failed, when it couldn't.
+    /// Connects and logs in to the server, dialling <paramref name="host"/>:<paramref name="port"/> (a loopback
+    /// forward when it's behind a jump host). Null, with the session failed, when it couldn't.
     /// </summary>
-    SshClient? ConnectClient(ConnectionTarget target, string host, int port, SshLogin login, bool allowLegacy, bool jump)
+    SshClient? ConnectClient(string host, int port, SshLogin login)
     {
-        string where = jump ? $"Jump host {target.Host}: " : string.Empty;
+        var target = Target;
+        bool allowLegacy = _allowLegacy;
         bool hostKeyRejected = false;
         try
         {
@@ -155,7 +166,7 @@ public sealed class SshSession : ITerminalSession
                     .GetAwaiter().GetResult();
                 hostKeyRejected = !e.CanTrust;
             };
-            client.ErrorOccurred += (_, e) => Fail(where + Describe(e.Exception, allowLegacy));
+            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy));
 
             lock (_lock)
             {
@@ -165,8 +176,7 @@ public sealed class SshSession : ITerminalSession
                     return null;
                 }
 
-                if (jump) _jumpClients.Add(client);
-                else _client = client;
+                _client = client;
             }
 
             client.Connect();
@@ -174,36 +184,30 @@ public sealed class SshSession : ITerminalSession
         }
         catch (SshConnectionException) when (hostKeyRejected)
         {
-            Fail(jump ? $"The host key of jump host {target.Host} was not trusted." : "The server's host key was not trusted.");
+            Fail("The server's host key was not trusted.");
         }
         catch (SshAuthenticationException e)
         {
-            // Only the server's own refusal sends the caller back to ask for a login; a jump host's is just reported.
-            AuthenticationRejected = !jump;
-            Fail(where + (e is NoLoginMethodException ? e.Message : login switch
-            {
-                { UseAgent: true, Password: null, PrivateKey: null } => "The server didn't accept any of the SSH agent's keys.",
-                { PrivateKey: not null } => "The server didn't accept the key.",
-                _ => "The username or password was rejected.",
-            }));
+            // The server's own refusal sends the caller back to ask for a login; a jump host's is only reported.
+            AuthenticationRejected = true;
+            Fail(Refusal(e, login));
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Trace.TraceError($"SSH connection to {target.Host} failed: {e}");
-            Fail(where + Describe(e, allowLegacy));
+            Fail(Describe(e, allowLegacy));
         }
 
         return null;
     }
 
-    /// <summary>A loopback port on this computer that reaches <paramref name="host"/>:<paramref name="port"/> from <paramref name="through"/>.</summary>
-    static (string Host, int Port) Forward(SshClient through, string host, int port)
+    /// <summary>Why a login was turned down, by what was tried.</summary>
+    internal static string Refusal(SshAuthenticationException e, SshLogin login) => e is NoLoginMethodException ? e.Message : login switch
     {
-        var forward = new ForwardedPortLocal(PortForward.Loopback, 0, host, (uint)port);
-        through.AddForwardedPort(forward);
-        forward.Start();
-        return (PortForward.Loopback, (int)forward.BoundPort);
-    }
+        { UseAgent: true, Password: null, PrivateKey: null } => "The server didn't accept any of the SSH agent's keys.",
+        { PrivateKey: not null } => "The server didn't accept the key.",
+        _ => "The username or password was rejected.",
+    };
 
     /// <summary>Opens the connection's port forwards, saying in the terminal which opened and which couldn't.</summary>
     void OpenForwards(SshClient client)
@@ -234,7 +238,7 @@ public sealed class SshSession : ITerminalSession
     void Notice(string text, bool warning = false) =>
         DataReceived?.Invoke(Encoding.UTF8.GetBytes($"\x1b[{(warning ? "33" : "90")}m» {text}\x1b[0m\r\n"));
     // SSH.NET may report the same failure through ErrorOccurred and by throwing; whichever lands first is shown.
-    static string Describe(Exception e, bool allowLegacy) => e is SshConnectionException connection ? SshAlgorithms.ExplainFailure(connection, allowLegacy) : e.Message;
+    internal static string Describe(Exception e, bool allowLegacy) => e is SshConnectionException connection ? SshAlgorithms.ExplainFailure(connection, allowLegacy) : e.Message;
 
     /// <summary>Checks a private key (OpenSSH, PEM or PuTTY format) and its passphrase. Null when it's usable.</summary>
     public static string? ValidatePrivateKey(string key, string? passphrase)
@@ -255,7 +259,7 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
-    static AuthenticationMethod[] AuthenticationMethods(SshLogin login)
+    internal static AuthenticationMethod[] AuthenticationMethods(SshLogin login)
     {
         var methods = new List<AuthenticationMethod>();
         if (login.UseAgent && AgentKeys() is { Length: > 0 } agentKeys)
@@ -347,14 +351,12 @@ public sealed class SshSession : ITerminalSession
         SshClient? client;
         ShellStream? shell;
         ShellPump? pump;
-        SshClient[] jumps;
+        SshTunnel? tunnel;
         lock (_lock)
         {
             _closing = true;
-            (client, shell, pump) = (_client, _shell, _pump);
-            (_client, _shell, _pump) = (null, null, null);
-            jumps = [.. _jumpClients];
-            _jumpClients.Clear();
+            (client, shell, pump, tunnel) = (_client, _shell, _pump, _tunnel);
+            (_client, _shell, _pump, _tunnel) = (null, null, null, null);
         }
 
         pump?.Stop();
@@ -373,19 +375,7 @@ public sealed class SshSession : ITerminalSession
             finally
             {
                 client?.Dispose();
-
-                // Innermost first: each one runs through the one before it.
-                foreach (var jump in jumps.Reverse())
-                {
-                    try
-                    {
-                        jump.Dispose();
-                    }
-                    catch (Exception e) when (e is SshException or ObjectDisposedException or IOException)
-                    {
-                        // Already gone.
-                    }
-                }
+                tunnel?.Dispose();
 
                 await WaitForAsync(pump);
                 SetState(SessionState.Disconnected);

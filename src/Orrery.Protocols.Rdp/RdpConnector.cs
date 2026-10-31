@@ -24,11 +24,13 @@ static class RdpConnector
     /// <summary>The largest single CredSSP reply accepted.</summary>
     const int MaxCredsspReply = 64 * 1024;
 
+    /// <param name="dial">Where to open the connection: the target itself, or a tunnel's local end. TLS, the
+    /// certificate check and CredSSP still use <paramref name="target"/>'s name.</param>
     public static async Task<(ConnectionResult Result, Framed<SslStream> Framed)> ConnectAsync(
-        Config config, ConnectionTarget target, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
+        Config config, ConnectionTarget target, (string Host, int Port) dial, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
         CancellationToken token)
     {
-        var tcp = await OpenTcpAsync(target.Host, target.Port, token);
+        var tcp = await OpenTcpAsync(dial.Host, dial.Port, token);
         var framed = new Framed<NetworkStream>(tcp.GetStream());
 
         var connector = ClientConnector.New(config, tcp.Client.LocalEndPoint!.ToString()!);
