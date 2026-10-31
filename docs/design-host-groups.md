@@ -56,7 +56,7 @@ ConnectionEntry
 
 For an "own" setting, the walk skips the host and goes straight to the folders, as now. In the Properties panel, a guest's Inherit hint reads "From hv-01" when the value comes from the host.
 
-The split goes in one place, a `HostLevel` set of setting names beside `InheritableSettings`, with a test that every setting is classified, so a new setting can't be left out silently (like the `FillFrom` test).
+The split goes in one place, `InheritableSettings.PassedToGuests` and `KeptByGuests`, with a test that every setting is in exactly one, so a new setting can't be left out silently (like the `FillFrom` test).
 
 ---
 

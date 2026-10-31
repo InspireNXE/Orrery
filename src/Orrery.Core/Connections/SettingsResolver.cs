@@ -26,36 +26,48 @@ public sealed record ResolvedSettings(
 
 public static class SettingsResolver
 {
-    /// <summary>Resolves every inheritable setting for <paramref name="node"/>, itself first, then up the tree.</summary>
-    public static ResolvedSettings Resolve(ConnectionNode node)
+    /// <summary>
+    /// Resolves every inheritable setting for <paramref name="node"/>: itself first, then, for a guest, its host
+    /// (only for <see cref="InheritableSettings.PassedToGuests"/>), then up the folders.
+    /// </summary>
+    public static ResolvedSettings Resolve(ConnectionNode node) => Resolve(node, includeSelf: true);
+
+    static ResolvedSettings Resolve(ConnectionNode node, bool includeSelf)
     {
-        var protocol = Find(node, s => s.Protocol) is { } p ? new Resolved<Protocol>(p.Value!.Value, p.Source) : new Resolved<Protocol>(Protocol.Rdp, null);
-        var port = Find(node, s => s.Port) is { } port0
+        var protocol = Find(node, includeSelf, nameof(InheritableSettings.Protocol), s => s.Protocol) is { } p
+            ? new Resolved<Protocol>(p.Value!.Value, p.Source)
+            : new Resolved<Protocol>(Protocol.Rdp, null);
+        var port = Find(node, includeSelf, nameof(InheritableSettings.Port), s => s.Port) is { } port0
             ? new Resolved<int>(port0.Value!.Value, port0.Source)
             : new Resolved<int>(ProtocolInfo.DefaultPort(protocol.Value), null);
 
-        var credential = Find(node, s => s.CredentialId) is { } c
+        var credential = Find(node, includeSelf, nameof(InheritableSettings.CredentialId), s => s.CredentialId) is { } c
             ? new Resolved<Guid?>(c.Value == InheritableSettings.NoCredential ? null : c.Value, c.Source)
             : new Resolved<Guid?>(null, null);
 
-        var jump = Find(node, s => s.JumpHostId) is { } j
+        var jump = Find(node, includeSelf, nameof(InheritableSettings.JumpHostId), s => s.JumpHostId) is { } j
             ? new Resolved<Guid?>(j.Value == InheritableSettings.NoJumpHost ? null : j.Value, j.Source)
             : new Resolved<Guid?>(null, null);
+
+        Resolved<bool> Flag(string setting, Func<InheritableSettings, bool?> select, bool fallback) =>
+            Find(node, includeSelf, setting, select) is { } found ? new Resolved<bool>(found.Value!.Value, found.Source) : new Resolved<bool>(fallback, null);
 
         return new ResolvedSettings(
             protocol,
             port,
             credential,
-            FindString(node, s => s.Username),
-            FindString(node, s => s.Domain),
-            Find(node, s => s.ShareClipboard) is { } clip ? new Resolved<bool>(clip.Value!.Value, clip.Source) : new Resolved<bool>(true, null),
-            Find(node, s => s.UseSshAgent) is { } agent ? new Resolved<bool>(agent.Value!.Value, agent.Source) : new Resolved<bool>(true, null),
-            Find(node, s => s.AllowLegacySsh) is { } legacy ? new Resolved<bool>(legacy.Value!.Value, legacy.Source) : new Resolved<bool>(false, null),
+            FindString(node, includeSelf, nameof(InheritableSettings.Username), s => s.Username),
+            FindString(node, includeSelf, nameof(InheritableSettings.Domain), s => s.Domain),
+            Flag(nameof(InheritableSettings.ShareClipboard), s => s.ShareClipboard, true),
+            Flag(nameof(InheritableSettings.UseSshAgent), s => s.UseSshAgent, true),
+            Flag(nameof(InheritableSettings.AllowLegacySsh), s => s.AllowLegacySsh, false),
             jump,
-            Find(node, s => s.AutoReconnect) is { } again ? new Resolved<bool>(again.Value!.Value, again.Source) : new Resolved<bool>(true, null),
-            FindString(node, s => s.DesktopSize),
+            Flag(nameof(InheritableSettings.AutoReconnect), s => s.AutoReconnect, true),
+            FindString(node, includeSelf, nameof(InheritableSettings.DesktopSize), s => s.DesktopSize),
             // No Orrery default here: the app's "Enlarge remote desktops" setting fills in, see ResolvedSettings.Enlarge.
-            Find(node, s => s.EnlargeRemoteDesktop) is { } enlarge ? new Resolved<bool?>(enlarge.Value, enlarge.Source) : new Resolved<bool?>(null, null));
+            Find(node, includeSelf, nameof(InheritableSettings.EnlargeRemoteDesktop), s => s.EnlargeRemoteDesktop) is { } enlarge
+                ? new Resolved<bool?>(enlarge.Value, enlarge.Source)
+                : new Resolved<bool?>(null, null));
     }
 
     /// <summary>
@@ -103,13 +115,31 @@ public static class SettingsResolver
 
     public const int MaxJumpHosts = 5;
 
-    /// <summary>What <paramref name="node"/> would get if it inherited everything, i.e. its parent's values.</summary>
-    public static ResolvedSettings ResolveInherited(ConnectionNode node) =>
-        node.Parent is { } parent ? Resolve(parent) : Resolve(new ConnectionFolder());
+    /// <summary>What <paramref name="node"/> would get if it inherited everything: its host's and folders' values.</summary>
+    public static ResolvedSettings ResolveInherited(ConnectionNode node) => Resolve(node, includeSelf: false);
 
-    static Resolved<T?>? Find<T>(ConnectionNode node, Func<InheritableSettings, T?> select) where T : struct
+    /// <summary>The nodes a setting is looked up on, nearest first.</summary>
+    static IEnumerable<ConnectionNode> Chain(ConnectionNode node, bool includeSelf, string setting)
     {
-        for (ConnectionNode? current = node; current is not null; current = current.Parent)
+        if (includeSelf)
+        {
+            yield return node;
+        }
+
+        if (node is ConnectionEntry { GuestOf: { } host } && InheritableSettings.PassedToGuests.Contains(setting))
+        {
+            yield return host;
+        }
+
+        for (var folder = node.Parent; folder is not null; folder = folder.Parent)
+        {
+            yield return folder;
+        }
+    }
+
+    static Resolved<T?>? Find<T>(ConnectionNode node, bool includeSelf, string setting, Func<InheritableSettings, T?> select) where T : struct
+    {
+        foreach (var current in Chain(node, includeSelf, setting))
         {
             if (select(current.Settings) is { } value)
             {
@@ -121,9 +151,9 @@ public static class SettingsResolver
     }
 
     // An empty string set on a node means "none", overriding a parent's value.
-    static Resolved<string?> FindString(ConnectionNode node, Func<InheritableSettings, string?> select)
+    static Resolved<string?> FindString(ConnectionNode node, bool includeSelf, string setting, Func<InheritableSettings, string?> select)
     {
-        for (ConnectionNode? current = node; current is not null; current = current.Parent)
+        foreach (var current in Chain(node, includeSelf, setting))
         {
             if (select(current.Settings) is { } value)
             {

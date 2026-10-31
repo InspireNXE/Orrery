@@ -205,6 +205,91 @@ public class HostGroupTests : IDisposable
         Assert.Throws<InvalidDataException>(() => Store().Load());
     }
 
+    [Fact]
+    public void Every_setting_is_either_passed_to_guests_or_kept_by_them()
+    {
+        var settings = typeof(InheritableSettings).GetProperties().Where(p => p.CanWrite).Select(p => p.Name).ToHashSet();
+
+        Assert.Empty(InheritableSettings.PassedToGuests.Intersect(InheritableSettings.KeptByGuests));
+        Assert.True(settings.SetEquals(InheritableSettings.PassedToGuests.Union(InheritableSettings.KeptByGuests)),
+            "Unclassified: " + string.Join(", ", settings.Except(InheritableSettings.PassedToGuests).Except(InheritableSettings.KeptByGuests)));
+    }
+
+    [Fact]
+    public void A_guest_takes_jump_host_clipboard_and_reconnect_from_its_host_before_its_folder()
+    {
+        var (tree, lab, host, vmA, _, other) = Sample();
+        var bastion = new ConnectionEntry { Name = "bastion", Host = "bastion.lab", Settings = { Protocol = Protocol.Ssh } };
+        tree.Add(bastion, tree.Root);
+        lab.Settings.ShareClipboard = true;
+        lab.Settings.AutoReconnect = true;
+        host.Settings.JumpHostId = bastion.Id;
+        host.Settings.ShareClipboard = false;
+        host.Settings.AutoReconnect = false;
+
+        var resolved = SettingsResolver.Resolve(vmA);
+        Assert.Equal(bastion.Id, resolved.JumpHostId.Value);
+        Assert.Same(host, resolved.JumpHostId.Source);
+        Assert.False(resolved.ShareClipboard.Value);
+        Assert.Same(host, resolved.ShareClipboard.Source);
+        Assert.False(resolved.AutoReconnect.Value);
+
+        // Not a guest, so the host's values don't reach it.
+        Assert.True(SettingsResolver.Resolve(other).ShareClipboard.Value);
+        Assert.Null(SettingsResolver.Resolve(other).JumpHostId.Value);
+
+        // The guest's own value wins; the folder's is used when the host sets nothing.
+        vmA.Settings.ShareClipboard = true;
+        Assert.True(SettingsResolver.Resolve(vmA).ShareClipboard.Value);
+        host.Settings.AutoReconnect = null;
+        Assert.Same(lab, SettingsResolver.Resolve(vmA).AutoReconnect.Source);
+
+        Assert.Equal([bastion], SettingsResolver.JumpChain(vmA, tree, out var error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void A_guest_keeps_its_own_login_protocol_and_display_settings_and_skips_the_host_for_them()
+    {
+        var (_, lab, host, vmA, _, _) = Sample();
+        lab.Settings.Domain = "LAB";
+        host.Settings.Protocol = Protocol.Ssh;
+        host.Settings.Port = 2222;
+        host.Settings.CredentialId = Guid.NewGuid();
+        host.Settings.Username = "root";
+        host.Settings.Domain = "HOST";
+        host.Settings.UseSshAgent = false;
+        host.Settings.AllowLegacySsh = true;
+        host.Settings.DesktopSize = "1280x720";
+        host.Settings.EnlargeRemoteDesktop = false;
+
+        var resolved = SettingsResolver.Resolve(vmA);
+        Assert.Equal(Protocol.Rdp, resolved.Protocol.Value);
+        Assert.Equal(3389, resolved.Port.Value);
+        Assert.Null(resolved.CredentialId.Value);
+        Assert.Null(resolved.Username.Value);
+        Assert.Equal("LAB", resolved.Domain.Value);
+        Assert.Same(lab, resolved.Domain.Source);
+        Assert.True(resolved.UseSshAgent.Value);
+        Assert.False(resolved.AllowLegacySsh.Value);
+        Assert.Null(resolved.DesktopSize.Value);
+        Assert.Null(resolved.EnlargeRemoteDesktop.Value);
+    }
+
+    [Fact]
+    public void What_a_guest_would_inherit_includes_its_host()
+    {
+        var (_, lab, host, vmA, _, _) = Sample();
+        lab.Settings.ShareClipboard = true;
+        host.Settings.ShareClipboard = false;
+        vmA.Settings.ShareClipboard = true;
+
+        var inherited = SettingsResolver.ResolveInherited(vmA);
+        Assert.False(inherited.ShareClipboard.Value);
+        Assert.Same(host, inherited.ShareClipboard.Source);
+        Assert.Same(lab, SettingsResolver.ResolveInherited(host).ShareClipboard.Source);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

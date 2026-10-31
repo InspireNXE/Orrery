@@ -71,6 +71,22 @@ public sealed class InheritableSettings
     public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
 
     /// <summary>
+    /// Settings a guest takes from its host before its folders: the route and the session policy for the
+    /// whole machine. See docs/design-host-groups.md §3.
+    /// </summary>
+    public static readonly IReadOnlySet<string> PassedToGuests = new HashSet<string>
+    {
+        nameof(JumpHostId), nameof(ShareClipboard), nameof(AutoReconnect),
+    };
+
+    /// <summary>Settings a guest never takes from its host, only from its folders: its login, protocol and display.</summary>
+    public static readonly IReadOnlySet<string> KeptByGuests = new HashSet<string>
+    {
+        nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
+        nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop),
+    };
+
+    /// <summary>
     /// Takes every value this one inherits (null) from <paramref name="parent"/>, so a node lifted out of its
     /// folder keeps what it had. Every setting is nullable, so new ones are covered without listing them.
     /// </summary>
