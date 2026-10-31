@@ -5,10 +5,9 @@
     zipped into artifacts/.
 
 .DESCRIPTION
-    Windows and Linux: Orrery-<version>-<rid>-portable.zip, with the app as a single executable, LICENSE,
-    THIRD-PARTY-NOTICES.txt and an empty orrery.portable.json, so the first launch asks where to keep its data
-    (docs/design-storage-vault-import.md §2.1). The executable unpacks its native libraries (Skia, HarfBuzz,
-    IronRDP) to a cache folder on first launch, since those can't load from inside it.
+    Windows and Linux: Orrery-<version>-<rid>-portable.zip, with the app as a single executable, its native
+    libraries (Skia, HarfBuzz, ANGLE, IronRDP, libsodium) beside it, LICENSE, THIRD-PARTY-NOTICES.txt and an empty
+    orrery.portable.json, so the first launch asks where to keep its data (docs/design-storage-vault-import.md §2.1).
 
     macOS: Orrery-<version>-<rid>-portable.zip holding Orrery.app (Info.plist, icon) with the marker beside it,
     since the marker belongs next to the bundle, never inside it. The bundle isn't signed or notarised, so
@@ -46,10 +45,13 @@ foreach ($rid in $Runtimes) {
     # The notices come from the ordinary publish's deps.json, which a single-file publish keeps inside the executable.
     # The analyzer is off because it would add the ILLink package, which isn't in the lock files; App.Restart
     # only reads Assembly.Location when run through dotnet, never from the single file.
+    # The bundle is neither compressed nor self-extracting: a packed executable that unpacks DLLs to a cache folder on
+    # first launch is what antivirus heuristics flag (Defender's Trojan:Script/Wacatac.B!ml on Edge downloads), so the
+    # native libraries ship beside the executable and the managed ones load straight from it.
     if ($rid -notlike 'osx-*') {
         $single = Join-Path $artifacts "publish/$rid-single"
         dotnet publish $project -c $Configuration -r $rid --self-contained true -o $single -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true `
-            -p:PublishSingleFile=true -p:EnableSingleFileAnalyzer=false -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+            -p:PublishSingleFile=true -p:EnableSingleFileAnalyzer=false -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false
         if ($LASTEXITCODE -ne 0) { throw "Publishing $rid as a single file failed." }
         Copy-Item (Join-Path $publish 'THIRD-PARTY-NOTICES.txt') $single
         $publish = $single

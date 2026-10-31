@@ -38,11 +38,12 @@ install folder, which would otherwise switch it to portable mode.
 
 Each writes `artifacts/Orrery-<version>-<rid>-portable.zip` with the app, `LICENSE`, `THIRD-PARTY-NOTICES.txt` and
 an empty `orrery.portable.json`, so the first launch asks where to keep the data
-([design doc](design-storage-vault-import.md) §2.2). On Windows and Linux the app is one executable (`Orrery.exe`,
-about 60 MB). Its native libraries (Skia, HarfBuzz, ANGLE, IronRDP, libsodium) can't load from inside it, so the
-first launch unpacks them to `%TEMP%\.net\Orrery\<hash>` (`~/.net/Orrery` on Linux); set
-`DOTNET_BUNDLE_EXTRACT_BASE_DIR` to put them elsewhere. The single-file analyzer is turned off for that publish,
-because it would add a package that isn't in the lock files. On macOS the zip holds `Orrery.app` (Info.plist and icon),
+([design doc](design-storage-vault-import.md) §2.2). On Windows and Linux the app is one executable (`Orrery.exe`)
+holding the managed code, with its native libraries (Skia, HarfBuzz, ANGLE, IronRDP, libsodium) beside it. The
+bundle is neither compressed nor self-extracting, so nothing is unpacked at launch: Windows Defender's cloud
+heuristics flagged the compressed, self-extracting build as `Trojan:Script/Wacatac.B!ml` when it was downloaded in
+Edge. Unsigned downloads can still be flagged until the executables are code-signed. The single-file analyzer is
+turned off for that publish, because it would add a package that isn't in the lock files. On macOS the zip holds `Orrery.app` (Info.plist and icon),
 with the marker beside the bundle. The bundle isn't signed or notarised yet, so macOS asks before the first launch.
 Zip files carry no Unix permissions from Windows: on Linux and macOS, `chmod +x` the executable after unzipping, or
 build those packages on Linux or macOS.
@@ -93,8 +94,7 @@ portable zip and the AppImage, the machine needs:
 - **libsecret and a Secret Service** (GNOME Keyring or KWallet) to keep credentials in the system keyring. Without
   them, or in portable mode, credentials go to the encrypted vault file.
 
-After unzipping the portable zip, `chmod +x Orrery` (zips made on Windows carry no Unix permissions). The first launch unpacks the
-native libraries to `~/.net/Orrery/<hash>`, or `$DOTNET_BUNDLE_EXTRACT_BASE_DIR` if it's set.
+After unzipping the portable zip, `chmod +x Orrery` (zips made on Windows carry no Unix permissions).
 
 ## IronRDP native libraries
 
