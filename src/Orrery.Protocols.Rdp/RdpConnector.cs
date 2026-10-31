@@ -170,7 +170,7 @@ static class RdpConnector
                 return;
             }
 
-            var pdu = await ReadTsRequestAsync(framed, token);
+            var pdu = await framed.ReadByHint(new CappedHint(hint), token);
             var decoded = sequence.DecodeServerMessage(pdu);
             if (decoded is null)
             {
@@ -182,21 +182,15 @@ static class RdpConnector
     }
 
     /// <summary>
-    /// Reads one CredSSP reply, which is a DER SEQUENCE. IronRDP's own <c>ReadByHint</c> keeps reading when the
-    /// length uses 3 or 4 bytes and has no size cap, so the length is read here and checked first.
+    /// IronRDP's hint for the next CredSSP reply, with a size cap. The hint knows each reply's format (a TsRequest, or
+    /// the 4-byte Early User Authorization Result under HYBRID_EX) but would keep buffering whatever length a server
+    /// claims.
     /// </summary>
-    static async Task<byte[]> ReadTsRequestAsync(Framed<SslStream> framed, CancellationToken token)
+    sealed class CappedHint(PduHint inner) : IPduHint
     {
-        var header = await framed.ReadExact(2, token);
-        var extra = DerSequence.ExtraLengthBytes(header[1]);
-        if (extra > 0)
-        {
-            header = [.. header, .. await framed.ReadExact((nuint)extra, token)];
-        }
-
-        var total = DerSequence.TotalSize(header, MaxCredsspReply);
-        var rest = total > header.Length ? await framed.ReadExact((nuint)(total - header.Length), token) : [];
-        return [.. header, .. rest];
+        public (bool, int)? FindSize(byte[] bytes) =>
+            CappedReply.FindSize(bytes, b => inner.FindSize(b) is { } found && found.IsSome() ? (long)found.Get() : null,
+                MaxCredsspReply) is { } size ? (true, size) : null;
     }
 
     /// <summary>Runs CredSSP's network requests, which go to a Kerberos KDC when one is used.</summary>
