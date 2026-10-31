@@ -551,7 +551,7 @@ public partial class MainWindow : Window
         _sidePanel.IsVisible = open;
         foreach (var (name, (button, _)) in _sides)
         {
-            button.Classes.Set("active", open && name == _side);
+            button.Classes.Set("active", open && name == _side && !_settingsHost.IsVisible);
         }
 
         ToolTip.SetTip(_sidePanelToggle, open ? "Hide the side panel (Ctrl+B)" : "Show the side panel (Ctrl+B)");
@@ -2038,6 +2038,13 @@ public partial class MainWindow : Window
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;
+
+            // Only Settings is lit while it's open; the side panel underneath is covered.
+            foreach (var (button, _) in _sides.Values)
+            {
+                button.Classes.Set("active", false);
+            }
+
             _settingsRailButton.Classes.Set("active", true);
         }
 
@@ -2049,6 +2056,7 @@ public partial class MainWindow : Window
         _settingsHost.IsVisible = false;
         _settingsHost.Content = null;
         _settingsRailButton.Classes.Set("active", false);
+        ShowSidePanel(_sidePanel.IsVisible, save: false);
         _currentTab?.View.Focus();
     }
 
