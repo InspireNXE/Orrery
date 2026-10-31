@@ -921,7 +921,7 @@ public partial class MainWindow : Window
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
-        var origin = new SessionOrigin(entry.Name, protocol, entry.Id, () => ConnectAsync(entry));
+        var origin = new SessionOrigin(entry.Name, protocol, entry.Id, () => ConnectAsync(entry), resolved.AutoReconnect.Value);
         // Telnet has no login of its own: the server asks in the terminal.
         if (protocol == Protocol.Telnet)
         {
@@ -1001,7 +1001,7 @@ public partial class MainWindow : Window
     async Task ConnectDirectAsync(QuickConnectChoice choice, bool skipAgent = false)
     {
         var host = choice.Host!;
-        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice));
+        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice), AutoReconnect: true);
         if (choice.Protocol == Protocol.Telnet)
         {
             StartTelnet(origin, new ConnectionTarget(host, choice.Port, choice.Username, null));
@@ -1046,24 +1046,40 @@ public partial class MainWindow : Window
     /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
     void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard)
     {
-        var session = VncSession.Start(target, password, shareClipboard);
-        AddTab(new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session, origin);
+        Open(origin, () =>
+        {
+            var session = VncSession.Start(target, password, shareClipboard);
+            return (new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session);
+        });
         UpdateVaultButton();
     }
 
     void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard)
     {
-        bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
-        var (width, height) = DesktopSizeForView(zoom);
-        var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
-        AddTab(new RemoteFrameView(session, zoom), session, origin);
+        Open(origin, () =>
+        {
+            bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
+            var (width, height) = DesktopSizeForView(zoom);
+            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
+            return (new RemoteFrameView(session, zoom), session);
+        });
         UpdateVaultButton();
     }
 
-    void StartTelnet(SessionOrigin origin, ConnectionTarget target)
+    void StartTelnet(SessionOrigin origin, ConnectionTarget target) => Open(origin, () =>
     {
         var session = TelnetSession.Start(target, 80, 24);
-        AddTab(NewTerminalView(session), session, origin);
+        return (NewTerminalView(session), session);
+    });
+
+    /// <summary>
+    /// Opens a session in a new tab. When it should reconnect by itself, <paramref name="create"/> is kept so it
+    /// can be opened again the same way, login included, without asking anything.
+    /// </summary>
+    void Open(SessionOrigin origin, Func<(Control View, IConnectionSession Session)> create)
+    {
+        var (view, session) = create();
+        AddTab(view, session, origin.AutoReconnect ? origin with { Restart = create } : origin);
     }
 
     /// <summary>Whether an SSH agent is running and holds at least one key. Never throws.</summary>
@@ -1086,20 +1102,23 @@ public partial class MainWindow : Window
     /// </summary>
     void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, bool allowLegacySsh = false, SshRoute? route = null)
     {
-        var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24, allowLegacySsh,
-            route?.Jumps, route?.Forwards);
-        session.StateChanged += (_, e) =>
+        Open(origin, () =>
         {
-            if (e.State == SessionState.Failed && session.AuthenticationRejected)
+            var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24, allowLegacySsh,
+                route?.Jumps, route?.Forwards);
+            session.StateChanged += (_, e) =>
             {
-                Dispatcher.UIThread.Post(async () =>
+                if (e.State == SessionState.Failed && session.AuthenticationRejected)
                 {
-                    await CloseTabAsync(session);
-                    await whenRefused();
-                });
-            }
-        };
-        AddTab(NewTerminalView(session), session, origin);
+                    Dispatcher.UIThread.Post(async () =>
+                    {
+                        await CloseTabAsync(session);
+                        await whenRefused();
+                    });
+                }
+            };
+            return (NewTerminalView(session), session);
+        });
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
@@ -1111,9 +1130,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        var session = SshSession.Start(target, SshLoginFor(target.Username, password, saved), _hostKeyValidator, 80, 24, allowLegacySsh,
-            route?.Jumps, route?.Forwards);
-        AddTab(NewTerminalView(session), session, origin);
+        var login = SshLoginFor(target.Username, password, saved);
+        Open(origin, () =>
+        {
+            var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh, route?.Jumps, route?.Forwards);
+            return (NewTerminalView(session), session);
+        });
         UpdateVaultButton();
     }
 
@@ -1228,24 +1250,12 @@ public partial class MainWindow : Window
 
     void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
-        var tab = new SessionTab(session, view, origin);
-        tab.Selected += (_, _) => SelectTab(tab);
-        tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
-        tab.Header.ContextMenu = TabMenu(tab);
-        tab.StateChanged += (_, _) =>
-        {
-            UpdateTreeStatus();
-            if (tab == _currentTab)
-            {
-                UpdateSessionToolbar();
-            }
-        };
-
+        var tab = NewTab(view, session, origin);
         _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
             session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
-        _sessionHost.Children.Add(view);
+        _sessionHost.Children.Add(tab.Host);
         if (_settingsHost.IsVisible)
         {
             CloseSettings();
@@ -1253,6 +1263,75 @@ public partial class MainWindow : Window
 
         SelectTab(tab);
         UpdateSessionChrome();
+    }
+
+    SessionTab NewTab(Control view, IConnectionSession session, SessionOrigin origin, int reconnectAttempt = 0)
+    {
+        var tab = new SessionTab(session, view, origin) { ReconnectAttempt = reconnectAttempt };
+        tab.Selected += (_, _) => SelectTab(tab);
+        tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
+        tab.Header.ContextMenu = TabMenu(tab);
+        tab.StateChanged += (_, _) =>
+        {
+            UpdateTreeStatus();
+            if (ShouldReconnect(tab))
+            {
+                BeginReconnect(tab);
+            }
+
+            if (tab == _currentTab)
+            {
+                UpdateSessionToolbar();
+            }
+        };
+        return tab;
+    }
+
+    // ---- Reconnecting by itself ----
+
+    static readonly TimeSpan[] ReconnectDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30)];
+
+    bool ShouldReconnect(SessionTab tab) => tab.WasCutOff && !tab.IsReconnecting && _tabs.Contains(tab);
+
+    void BeginReconnect(SessionTab tab)
+    {
+        // A try that got connected starts the count again.
+        int attempt = tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
+        if (attempt > ReconnectDelays.Length)
+        {
+            return;
+        }
+
+        tab.ShowReconnecting(attempt, ReconnectDelays.Length, ReconnectDelays[attempt - 1], () => _ = RestartTabAsync(tab, attempt));
+    }
+
+    /// <summary>Puts a new session, opened the same way, in place of <paramref name="old"/>.</summary>
+    async Task RestartTabAsync(SessionTab old, int attempt)
+    {
+        int index = _tabs.IndexOf(old);
+        if (index < 0 || old.Origin.Restart is not { } restart)
+        {
+            return;
+        }
+
+        var (view, session) = restart();
+        var tab = NewTab(view, session, old.Origin, attempt);
+        bool current = old == _currentTab;
+        _tabs[index] = tab;
+        _tabStrip.Children[_tabStrip.Children.IndexOf(old.Header)] = tab.Header;
+        _sessionHost.Children[_sessionHost.Children.IndexOf(old.Host)] = tab.Host;
+        if (current)
+        {
+            SelectTab(tab);
+        }
+        else
+        {
+            tab.IsSelected = false;
+        }
+
+        UpdateSessionChrome();
+        old.EndedByUser = true;
+        await old.Session.DisposeAsync();
     }
 
     void SelectTab(SessionTab? tab)
@@ -1275,10 +1354,12 @@ public partial class MainWindow : Window
     {
         if (_tabs.FirstOrDefault(t => t.Session == session) is { } tab)
         {
+            tab.EndedByUser = true;
+            tab.CancelReconnect();
             int index = _tabs.IndexOf(tab);
             _tabs.Remove(tab);
             _tabStrip.Children.Remove(tab.Header);
-            _sessionHost.Children.Remove(tab.View);
+            _sessionHost.Children.Remove(tab.Host);
             if (_tabs.Count == 0)
             {
                 ExitFullScreen();
@@ -1353,7 +1434,11 @@ public partial class MainWindow : Window
         {
             var disconnect = new Button { Content = "Disconnect" };
             disconnect.Classes.Add("danger");
-            disconnect.Click += async (_, _) => await session.DisconnectAsync();
+            disconnect.Click += async (_, _) =>
+            {
+                tab.EndedByUser = true;
+                await session.DisconnectAsync();
+            };
             _sessionActions.Children.Add(disconnect);
         }
         else

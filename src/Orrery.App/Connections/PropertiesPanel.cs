@@ -32,10 +32,11 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
+    readonly ToggleSwitch _autoReconnect = Switch("AutoReconnect");
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -63,6 +64,8 @@ sealed class PropertiesPanel : UserControl
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
+        _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
+        ToolTip.SetTip(_autoReconnectRow.View, "Try again by itself, up to 5 times, when an open session is cut off. Not after logging off or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
         ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);
@@ -115,7 +118,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Header(_tile, _title, _path),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
-                Pane.Section("Options", _clipboardRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
+                Pane.Section("Options", _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
                 _notesField,
             },
@@ -145,7 +148,8 @@ sealed class PropertiesPanel : UserControl
         _sshAgent.IsCheckedChanged += (_, _) => MarkDirty();
         _sshLegacy.IsCheckedChanged += (_, _) => MarkDirty();
         _jumpHost.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow })
+        _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -226,6 +230,9 @@ sealed class PropertiesPanel : UserControl
 
             _sshLegacyRow.Load(own.AllowLegacySsh is null, Describe(inherited.AllowLegacySsh));
             _sshLegacy.IsChecked = own.AllowLegacySsh ?? inherited.AllowLegacySsh.Value;
+
+            _autoReconnectRow.Load(own.AutoReconnect is null, Describe(inherited.AutoReconnect));
+            _autoReconnect.IsChecked = own.AutoReconnect ?? inherited.AutoReconnect.Value;
 
             FillJumpHosts(node);
             _jumpHostRow.Load(own.JumpHostId is null, Describe(inherited.JumpHostId));
@@ -309,6 +316,7 @@ sealed class PropertiesPanel : UserControl
             ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
             UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
             AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
+            AutoReconnect = _autoReconnectRow.Inherit.IsChecked == true ? null : _autoReconnect.IsChecked == true,
             JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
         };
         _node.Name = name;

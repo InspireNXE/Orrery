@@ -13,8 +13,14 @@ using Orrery.Core.Sessions;
 
 namespace Orrery.App.Sessions;
 
-/// <summary>Where a session came from: its tab title, and how to open it again after it ends.</summary>
-sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func<Task> Reconnect);
+/// <summary>
+/// Where a session came from: its tab title, and how to open it again after it ends. <see cref="Restart"/>,
+/// set when it should reconnect by itself, opens it again with the same login and without asking anything.
+/// </summary>
+sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func<Task> Reconnect, bool AutoReconnect = false)
+{
+    public Func<(Control View, IConnectionSession Session)>? Restart { get; init; }
+}
 
 /// <summary>
 /// One open session: its view, and its header in the tab strip with a status dot, the protocol and a
@@ -117,11 +123,20 @@ sealed class SessionTab
             }
         }, RoutingStrategies.Tunnel);
 
-        session.StateChanged += (_, _) => Dispatcher.UIThread.Post(() =>
+        session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() =>
         {
+            if (e.State == SessionState.Connected)
+            {
+                HasConnected = true;
+            }
+
+            LastMessage = e.Message ?? LastMessage;
             ShowState();
             StateChanged?.Invoke(this, EventArgs.Empty);
         });
+
+        _countdown.Tick += (_, _) => CountDown();
+        Host = new Grid { Children = { view, BuildOverlay() } };
         ShowState();
     }
 
@@ -129,6 +144,115 @@ sealed class SessionTab
     public Control View { get; }
     public SessionOrigin Origin { get; }
     public Button Header { get; }
+
+    /// <summary>The view with the reconnect notice over it; what goes in the session area.</summary>
+    public Control Host { get; }
+
+    /// <summary>Whether this session got as far as connected, as opposed to failing on the way.</summary>
+    public bool HasConnected { get; private set; }
+
+    /// <summary>Which automatic try this session is: 0 for one the user opened.</summary>
+    public int ReconnectAttempt { get; init; }
+
+    /// <summary>Set when the user disconnected or closed it, so its ending isn't treated as a drop.</summary>
+    public bool EndedByUser { get; set; }
+
+    /// <summary>Why it last failed, from the session.</summary>
+    public string? LastMessage { get; private set; }
+
+    public bool IsReconnecting => _overlay.IsVisible;
+
+    /// <summary>
+    /// Whether this should reconnect by itself: it can, it failed after connecting (or while an automatic try was
+    /// connecting), the user didn't end it, and the server didn't refuse the login. A logoff ends as Disconnected
+    /// and isn't retried.
+    /// </summary>
+    public bool WasCutOff =>
+        Session.State == SessionState.Failed && Origin.Restart is not null && !EndedByUser
+        && (HasConnected || ReconnectAttempt > 0)
+        && Session is not Orrery.Protocols.Ssh.SshSession { AuthenticationRejected: true };
+
+    // ---- Reconnect notice ----
+
+    readonly Border _overlay = new() { IsVisible = false };
+    readonly TextBlock _overlayReason = new() { TextWrapping = TextWrapping.Wrap, Foreground = Dialogs.MutedBrush, MaxWidth = 380, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+    readonly TextBlock _overlayCountdown = new() { HorizontalAlignment = HorizontalAlignment.Center };
+    readonly DispatcherTimer _countdown = new() { Interval = TimeSpan.FromSeconds(1) };
+    DateTime _reconnectAt;
+    string _attemptText = string.Empty;
+    Action? _reconnectNow;
+
+    Control BuildOverlay()
+    {
+        var now = new Button { Content = "Reconnect now" };
+        now.Classes.Add("accent");
+        now.Click += (_, _) => Fire();
+        var cancel = new Button { Content = "Cancel" };
+        cancel.Click += (_, _) => CancelReconnect();
+
+        _overlay.Background = new SolidColorBrush(Color.Parse("#C00E1117")).ToImmutable();
+        _overlay.Child = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(28, 22),
+            CornerRadius = new CornerRadius(10),
+            Background = new SolidColorBrush(Color.Parse("#171B23")).ToImmutable(),
+            BorderBrush = new SolidColorBrush(Color.Parse("#2A303B")).ToImmutable(),
+            BorderThickness = new Thickness(1),
+            Child = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock { Text = "Connection lost", FontSize = 15, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center },
+                    _overlayReason,
+                    _overlayCountdown,
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), Children = { now, cancel } },
+                },
+            },
+        };
+        return _overlay;
+    }
+
+    /// <summary>Shows the notice over the session and calls <paramref name="reconnect"/> after <paramref name="delay"/>, unless cancelled.</summary>
+    public void ShowReconnecting(int attempt, int attempts, TimeSpan delay, Action reconnect)
+    {
+        _reconnectNow = reconnect;
+        _reconnectAt = DateTime.UtcNow + delay;
+        _overlayReason.Text = LastMessage;
+        _overlayReason.IsVisible = !string.IsNullOrEmpty(LastMessage);
+        _attemptText = $"(try {attempt} of {attempts})";
+        _overlay.IsVisible = true;
+        CountDown();
+        _countdown.Start();
+    }
+
+    public void CancelReconnect()
+    {
+        _countdown.Stop();
+        _reconnectNow = null;
+        _overlay.IsVisible = false;
+    }
+
+    void CountDown()
+    {
+        var left = (int)Math.Ceiling((_reconnectAt - DateTime.UtcNow).TotalSeconds);
+        if (left <= 0)
+        {
+            Fire();
+            return;
+        }
+
+        _overlayCountdown.Text = $"Reconnecting in {left} s {_attemptText}";
+    }
+
+    void Fire()
+    {
+        var reconnect = _reconnectNow;
+        CancelReconnect();
+        reconnect?.Invoke();
+    }
 
     public event EventHandler? Selected;
     public event EventHandler? CloseRequested;
@@ -154,7 +278,7 @@ sealed class SessionTab
         {
             Header.Classes.Set("selected", value);
             _accent.IsVisible = value;
-            View.IsVisible = value;
+            Host.IsVisible = value;
         }
     }
 
