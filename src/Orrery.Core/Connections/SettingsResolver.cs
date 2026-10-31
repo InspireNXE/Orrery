@@ -17,7 +17,12 @@ public sealed record ResolvedSettings(
     Resolved<bool> AllowLegacySsh,
     Resolved<Guid?> JumpHostId,
     Resolved<bool> AutoReconnect,
-    Resolved<string?> DesktopSize);
+    Resolved<string?> DesktopSize,
+    Resolved<bool?> EnlargeRemoteDesktop)
+{
+    /// <summary>Whether to enlarge the remote desktop: the tree's value, else <paramref name="appSetting"/>.</summary>
+    public bool Enlarge(bool appSetting) => EnlargeRemoteDesktop.Value ?? appSetting;
+}
 
 public static class SettingsResolver
 {
@@ -48,7 +53,9 @@ public static class SettingsResolver
             Find(node, s => s.AllowLegacySsh) is { } legacy ? new Resolved<bool>(legacy.Value!.Value, legacy.Source) : new Resolved<bool>(false, null),
             jump,
             Find(node, s => s.AutoReconnect) is { } again ? new Resolved<bool>(again.Value!.Value, again.Source) : new Resolved<bool>(true, null),
-            FindString(node, s => s.DesktopSize));
+            FindString(node, s => s.DesktopSize),
+            // No Orrery default here: the app's "Enlarge remote desktops" setting fills in, see ResolvedSettings.Enlarge.
+            Find(node, s => s.EnlargeRemoteDesktop) is { } enlarge ? new Resolved<bool?>(enlarge.Value, enlarge.Source) : new Resolved<bool?>(null, null));
     }
 
     /// <summary>

@@ -433,7 +433,8 @@ sealed class SettingsView : UserControl
         return Section("Remote desktops",
             zoom,
             Note("Remote desktops don't learn this display's scaling, so without this their text is as small as at 100%. "
-                + "Enlarged, text is crisp at 200% and slightly soft at 125% or 150%. Applies to new connections."));
+                + "Enlarged, text is crisp at 200% and slightly soft at 125% or 150%. Applies to new connections. "
+                + "A connection or folder can choose for itself in its properties."));
     }
 
     // ---- Keyboard ----

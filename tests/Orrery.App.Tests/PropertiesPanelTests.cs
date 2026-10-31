@@ -178,6 +178,30 @@ public class PropertiesPanelTests
         Assert.True(SettingsResolver.Resolve(entry).AllowLegacySsh.Value);
     }
 
+    [AvaloniaFact]
+    public async Task Enlarging_shows_the_app_setting_until_the_connection_sets_its_own()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example" };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore(), enlargeByDefault: () => false);
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var enlarge = window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "EnlargeRemoteDesktop");
+        Assert.False(enlarge.IsChecked);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From Settings");
+
+        InheritBoxFor(enlarge).IsChecked = false;
+        enlarge.IsChecked = true;
+        Assert.True(panel.TrySave());
+
+        Assert.True(entry.Settings.EnlargeRemoteDesktop);
+        Assert.True(SettingsResolver.Resolve(entry).Enlarge(appSetting: false));
+    }
+
     sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;

@@ -54,4 +54,25 @@ public class DesktopResolutionTests
         entry.Settings.DesktopSize = string.Empty;
         Assert.Null(SettingsResolver.Resolve(entry).DesktopSize.Value);
     }
+
+    [Fact]
+    public void Enlarging_follows_the_app_setting_until_a_folder_or_connection_chooses()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers" };
+        var entry = new ConnectionEntry { Name = "web-1", Host = "web-1" };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        Assert.True(SettingsResolver.Resolve(entry).EnlargeRemoteDesktop.IsDefault);
+        Assert.True(SettingsResolver.Resolve(entry).Enlarge(appSetting: true));
+        Assert.False(SettingsResolver.Resolve(entry).Enlarge(appSetting: false));
+
+        folder.Settings.EnlargeRemoteDesktop = false;
+        Assert.False(SettingsResolver.Resolve(entry).Enlarge(appSetting: true));
+        Assert.Same(folder, SettingsResolver.Resolve(entry).EnlargeRemoteDesktop.Source);
+
+        entry.Settings.EnlargeRemoteDesktop = true;
+        Assert.True(SettingsResolver.Resolve(entry).Enlarge(appSetting: false));
+    }
 }

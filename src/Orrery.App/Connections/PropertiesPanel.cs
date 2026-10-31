@@ -33,24 +33,28 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
     readonly ToggleSwitch _autoReconnect = Switch("AutoReconnect");
+    readonly ToggleSwitch _enlarge = Switch("EnlargeRemoteDesktop");
     readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, Watermark = "Fit the window" };
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
     readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
+    readonly Func<bool> _enlargeByDefault;
 
     ConnectionNode? _node;
     bool _loading;
     bool _dirty;
     int _showVersion;
 
-    public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials)
+    /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, shown where nothing in the tree sets it.</param>
+    public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null)
     {
         _tree = tree;
+        _enlargeByDefault = enlargeByDefault ?? (() => true);
         _credential = new CredentialPicker(credentials);
         _tile = Pane.Tile(_tileIcon);
 
@@ -67,6 +71,8 @@ sealed class PropertiesPanel : UserControl
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
         ToolTip.SetTip(_desktopSizeRow.View, "RDP: empty fits the window and follows it as it changes; or a fixed size like 1920x1080, scaled to fit.");
+        _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
+        ToolTip.SetTip(_enlargeRow.View, "RDP, VNC: on enlarges the remote desktop at 125% scaling and above; off shows it pixel for pixel. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
         ToolTip.SetTip(_autoReconnectRow.View, "Try again by itself, up to 5 times, when an open session is cut off. Not after logging off or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
@@ -121,7 +127,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Header(_tile, _title, _path),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
-                Pane.Section("Options", _desktopSizeRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
+                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
                 _notesField,
             },
@@ -152,7 +158,8 @@ sealed class PropertiesPanel : UserControl
         _sshLegacy.IsCheckedChanged += (_, _) => MarkDirty();
         _jumpHost.SelectionChanged += (_, _) => MarkDirty();
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow })
+        _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -236,6 +243,9 @@ sealed class PropertiesPanel : UserControl
 
             _desktopSizeRow.Load(own.DesktopSize is null, Describe(inherited.DesktopSize));
             _desktopSize.Text = own.DesktopSize ?? inherited.DesktopSize.Value;
+
+            _enlargeRow.Load(own.EnlargeRemoteDesktop is null, inherited.EnlargeRemoteDesktop.IsDefault ? "From Settings" : Describe(inherited.EnlargeRemoteDesktop));
+            _enlarge.IsChecked = own.EnlargeRemoteDesktop ?? inherited.Enlarge(_enlargeByDefault());
 
             _autoReconnectRow.Load(own.AutoReconnect is null, Describe(inherited.AutoReconnect));
             _autoReconnect.IsChecked = own.AutoReconnect ?? inherited.AutoReconnect.Value;
@@ -334,6 +344,7 @@ sealed class PropertiesPanel : UserControl
             UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
             AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
             DesktopSize = desktopSize,
+            EnlargeRemoteDesktop = _enlargeRow.Inherit.IsChecked == true ? null : _enlarge.IsChecked == true,
             AutoReconnect = _autoReconnectRow.Inherit.IsChecked == true ? null : _autoReconnect.IsChecked == true,
             JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
         };
