@@ -72,9 +72,9 @@ sealed class PropertiesPanel : UserControl
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
-        ToolTip.SetTip(_desktopSizeRow.View, "RDP: empty fits the window and follows it as it changes; or a fixed size like 1920x1080, scaled to fit.");
+        ToolTip.SetTip(_desktopSizeRow.View, "RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
-        ToolTip.SetTip(_enlargeRow.View, "RDP, VNC: on enlarges the remote desktop at 125% scaling and above; off shows it pixel for pixel. Applies to new connections.");
+        ToolTip.SetTip(_enlargeRow.View, "RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
         foreach (var (quality, label) in QualityLabels)
         {
             _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
@@ -84,7 +84,7 @@ sealed class PropertiesPanel : UserControl
         ToolTip.SetTip(_qualityRow.View, "RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
             + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
-        ToolTip.SetTip(_autoReconnectRow.View, "Try again by itself, up to 5 times, when an open session is cut off. Not after logging off or Disconnect.");
+        ToolTip.SetTip(_autoReconnectRow.View, "If an open session is cut off, Orrery tries again up to 5 times. It doesn't after you log off or press Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
         ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);

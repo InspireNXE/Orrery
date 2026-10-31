@@ -255,7 +255,7 @@ sealed class SettingsView : UserControl
             section.Children.Add(Row("Saved credentials are kept in", new TextBlock { Text = "Encrypted vault file (master password)" }));
             section.Children.Add(Note(_location.Mode == StorageMode.Portable
                 ? "Portable copies always use the vault file, because the system keychain stays on this computer."
-                : "There's no system keyring available here (on Linux, the Secret Service: GNOME Keyring or KWallet), so saved credentials use the vault file."));
+                : "No system keyring is available here (on Linux that's the Secret Service, from GNOME Keyring or KWallet), so saved credentials use the vault file."));
         }
 
         int minutes = _settings.AutoLockMinutes ?? AppSettings.DefaultAutoLockMinutes;
@@ -438,9 +438,9 @@ sealed class SettingsView : UserControl
 
         return Section("Remote desktops",
             zoom,
-            Note("Remote desktops don't learn this display's scaling, so without this their text is as small as at 100%. "
-                + "Enlarged, text is crisp at 200% and slightly soft at 125% or 150%. Applies to new connections. "
-                + "A connection or folder can choose for itself in its properties."));
+            Note("Remote desktops aren't told this display's scaling, so without this their text looks as small as it would at 100%. "
+                + "Enlarged text is sharp at 200% and slightly soft at 125% or 150%. Applies to new connections. "
+                + "A connection or folder can set its own choice in its properties."));
     }
 
     // ---- Keyboard ----
@@ -486,7 +486,7 @@ sealed class SettingsView : UserControl
             problem,
             Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
                 + "and can't be a key the system, Orrery or typing in a session already uses. "
-                + "Full screen can always be left from the bar at the top edge of the screen too."));
+                + "You can always leave full screen from the bar at the top edge of the screen."));
     }
 
     // ---- Import and export ----
@@ -501,7 +501,7 @@ sealed class SettingsView : UserControl
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { import, export } },
             Note("Import adds the connections from an mRemoteNG confCons.xml or an Orrery export. You can also drop the file onto the connections list."),
             Note("Export saves every connection as an Orrery file, an mRemoteNG confCons.xml or a CSV. To export one folder, right-click it. "
-                + "Passwords and keys are never exported."));
+                + "Passwords and keys are left out unless you choose to include them, encrypted with a password you set. CSV never includes them."));
     }
 
     // ---- Logs ----
@@ -522,8 +522,8 @@ sealed class SettingsView : UserControl
             Row("Log folder", path),
             open,
             detailed,
-            Note("One file a day, kept for two weeks. Logs say what connected where and what went wrong, never passwords, keys, "
-                + "keystrokes or what was on screen. Detailed logging adds more and turns itself off when Orrery closes."));
+            Note("One file a day, kept for two weeks. The log records what connected where and what went wrong. It never holds "
+                + "passwords, keys, keystrokes or anything shown on screen. Detailed logging adds more and switches off when Orrery closes."));
     }
 
     // ---- About ----

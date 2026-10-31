@@ -5,8 +5,7 @@ connections in one tree, opens them in tabs, and stores their passwords in the s
 Avalonia and .NET 10, inspired by [mRemoteNG](https://mremoteng.org/), and imports mRemoteNG's `confCons.xml`.
 Orrery isn't affiliated with the mRemoteNG project.
 
-Version 0.1.0. Early days: the protocols work, but several things still need testing on real machines (see
-[Status](#status)).
+Version 0.1.0. The protocols work, but several things still need testing on real machines (see [Status](#status)).
 
 ## Features
 
@@ -99,9 +98,8 @@ To build everything this machine can, run:
 ```
 
 It runs the three scripts below in turn. If a tool is missing, it skips that step with a warning and carries on, then
-lists what was built and what wasn't. On Windows you get everything except the
-AppImage. Pass `-NfpmPath` or `-IsccPath` for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or
-`-SkipLinux` to leave a step out.
+lists what was built and what wasn't. On Windows you get everything except the AppImage. Pass `-NfpmPath` or
+`-IsccPath` for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or `-SkipLinux` to leave a step out.
 
 | Script | Builds | Needs |
 | --- | --- | --- |
@@ -151,7 +149,7 @@ It's built on open-source work, all under permissive licences (MIT, Apache 2.0, 
 - Portions of this software are copyright © The FreeType Project (https://freetype.org). All rights reserved.
   (FreeType is built into Skia.)
 
-Every package carries `THIRD-PARTY-NOTICES.txt`, generated from what that build actually ships, with each component's
+Every package carries `THIRD-PARTY-NOTICES.txt`, generated from what that build ships, with each component's
 licence and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
 the libraries linked into it, including libfuse (LGPL 2.1). mRemoteNG is GPL-licensed. Orrery reads and writes its
 `confCons.xml` files using code written from the file format alone, and contains none of mRemoteNG's code.
