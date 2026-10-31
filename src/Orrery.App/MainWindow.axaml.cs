@@ -1262,16 +1262,7 @@ public partial class MainWindow : Window
         more.Classes.Add("small");
         ToolTip.SetTip(more, "More options");
         Avalonia.Automation.AutomationProperties.SetName(more, "More options");
-        var flyout = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
-        flyout.Opening += (_, _) =>
-        {
-            flyout.Items.Clear();
-            foreach (var item in SessionMenu(tab))
-            {
-                flyout.Items.Add(item);
-            }
-        };
-        more.Flyout = flyout;
+        more.Click += (_, _) => Controls.PopupMenu.ShowAt(more, SessionMenu(tab), PlacementMode.BottomEdgeAlignedRight);
         _sessionActions.Children.Add(more);
 
         if (state is SessionState.Connecting or SessionState.Connected)
