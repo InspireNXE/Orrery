@@ -227,6 +227,7 @@ public partial class MainWindow : Window
         WireTree();
         WireTitleBar();
         WireFullScreen();
+        WireTabStrip();
         var layout = _settingsStore.Load();
         ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
         ShowInspector(layout.InspectorOpen ?? true, save: false);
@@ -614,6 +615,102 @@ public partial class MainWindow : Window
     }
 
     void OnExitFullScreenClick(object? sender, RoutedEventArgs e) => ExitFullScreen();
+
+    // ---- Tab strip keys and dragging ----
+
+    SessionTab? _draggedTab;
+    Point? _tabDragStart;
+
+    void WireTabStrip()
+    {
+        // Caught on the way down, as the full-screen shortcut is; TabShortcuts decides what a focused session keeps.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Handled || _tabs.Count == 0 || _settingsHost.IsVisible
+                || (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is { IsRecording: true }
+                || Input.TabShortcuts.Match(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()) is not { } command)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            if (command.Kind == Input.TabCommandKind.Close)
+            {
+                if (_currentTab is { } tab)
+                {
+                    _ = CloseTabAsync(tab.Session);
+                }
+            }
+            else if (Input.TabShortcuts.Target(command, _currentTab is null ? 0 : _tabs.IndexOf(_currentTab), _tabs.Count) is { } index)
+            {
+                SelectTab(_tabs[index]);
+            }
+        }, RoutingStrategies.Tunnel);
+
+        // Drag a tab sideways to move it; it lands where it's let go. The tab's own click still selects it.
+        _tabStrip.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (e.GetCurrentPoint(_tabStrip).Properties.IsLeftButtonPressed && TabAt(e.Source) is { } tab)
+            {
+                (_draggedTab, _tabDragStart) = (tab, e.GetPosition(_tabStrip));
+            }
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+
+        _tabStrip.AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            if (_draggedTab is { } tab && _tabDragStart is { } start && Math.Abs(e.GetPosition(_tabStrip).X - start.X) > 6)
+            {
+                tab.Header.Opacity = 0.6;
+                Cursor = new Cursor(StandardCursorType.SizeWestEast);
+            }
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+
+        _tabStrip.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            if (_draggedTab is { } tab && tab.Header.Opacity < 1)
+            {
+                MoveTab(tab, Input.TabShortcuts.DropIndex(
+                    [.. _tabs.Select(t => t.Header.Bounds.X + t.Header.Bounds.Width / 2)], _tabs.IndexOf(tab), e.GetPosition(_tabStrip).X));
+            }
+
+            EndTabDrag();
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+        _tabStrip.AddHandler(PointerCaptureLostEvent, (_, _) => EndTabDrag(), RoutingStrategies.Bubble, handledEventsToo: true);
+    }
+
+    void EndTabDrag()
+    {
+        if (_draggedTab is { } tab)
+        {
+            tab.Header.Opacity = 1;
+        }
+
+        (_draggedTab, _tabDragStart) = (null, null);
+        Cursor = null;
+    }
+
+    SessionTab? TabAt(object? source) =>
+        (source as Visual)?.FindAncestorOfType<Button>(includeSelf: true) is { } button ? _tabs.FirstOrDefault(t => t.Header == button) : null;
+
+    void MoveTab(SessionTab tab, int index)
+    {
+        int from = _tabs.IndexOf(tab);
+        if (from < 0 || index == from)
+        {
+            return;
+        }
+
+        _tabs.RemoveAt(from);
+        _tabs.Insert(index, tab);
+        _tabStrip.Children.Move(from, index);
+    }
+
+    static Input.FocusPlace FocusPlaceOf(object? source) => (source as Visual) switch
+    {
+        { } visual when visual.FindAncestorOfType<RemoteFrameView>(includeSelf: true) is not null => Input.FocusPlace.Desktop,
+        { } visual when visual.FindAncestorOfType<TerminalView>(includeSelf: true) is not null => Input.FocusPlace.Terminal,
+        _ => Input.FocusPlace.App,
+    };
 
     /// <summary>The current session fills the screen; everything else hides until the full-screen shortcut.</summary>
     void EnterFullScreen()
