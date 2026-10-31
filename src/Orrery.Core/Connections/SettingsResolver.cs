@@ -15,7 +15,8 @@ public sealed record ResolvedSettings(
     Resolved<bool> ShareClipboard,
     Resolved<bool> UseSshAgent,
     Resolved<bool> AllowLegacySsh,
-    Resolved<Guid?> JumpHostId);
+    Resolved<Guid?> JumpHostId,
+    Resolved<bool> AutoReconnect);
 
 public static class SettingsResolver
 {
@@ -44,7 +45,8 @@ public static class SettingsResolver
             Find(node, s => s.ShareClipboard) is { } clip ? new Resolved<bool>(clip.Value!.Value, clip.Source) : new Resolved<bool>(true, null),
             Find(node, s => s.UseSshAgent) is { } agent ? new Resolved<bool>(agent.Value!.Value, agent.Source) : new Resolved<bool>(true, null),
             Find(node, s => s.AllowLegacySsh) is { } legacy ? new Resolved<bool>(legacy.Value!.Value, legacy.Source) : new Resolved<bool>(false, null),
-            jump);
+            jump,
+            Find(node, s => s.AutoReconnect) is { } again ? new Resolved<bool>(again.Value!.Value, again.Source) : new Resolved<bool>(true, null));
     }
 
     /// <summary>

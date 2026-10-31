@@ -53,6 +53,9 @@ public sealed class InheritableSettings
     /// <summary>SSH: also accept SHA-1, CBC and 3DES algorithms, for old devices that offer nothing newer. Off by default.</summary>
     public bool? AllowLegacySsh { get; set; }
 
+    /// <summary>Try again by itself when an open session drops (not when it's logged off or closed). Null inherits; on by default.</summary>
+    public bool? AutoReconnect { get; set; }
+
     /// <summary>SSH: a saved SSH connection to go through first (ssh -J); <see cref="NoJumpHost"/> for none; null to inherit.</summary>
     public Guid? JumpHostId { get; set; }
 
