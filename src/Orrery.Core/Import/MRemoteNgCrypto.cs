@@ -83,7 +83,7 @@ public static class MRemoteNgCrypto
         }
     }
 
-    /// <summary>Encrypts in the same format. Used by tests to build fixtures.</summary>
+    /// <summary>Encrypts in the same format. Used for the mRemoteNG export and by tests to build fixtures.</summary>
     public static string Encrypt(string plaintext, string password, int iterations)
     {
         var salt = RandomNumberGenerator.GetBytes(SaltSize);

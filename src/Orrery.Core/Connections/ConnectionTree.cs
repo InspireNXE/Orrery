@@ -110,7 +110,8 @@ public sealed class ConnectionTree
 
     /// <summary>
     /// Brings in a detached folder from elsewhere (an import): the folder itself, or just its contents,
-    /// under <paramref name="parent"/>. Raises <see cref="Changed"/> once, however many nodes arrive.
+    /// under <paramref name="parent"/>. Contents brought in alone take the settings they inherited from the
+    /// source folder. Raises <see cref="Changed"/> once, however many nodes arrive.
     /// </summary>
     public void AddFrom(ConnectionFolder source, ConnectionFolder parent, bool includeSourceFolder)
     {
@@ -128,6 +129,7 @@ public sealed class ConnectionTree
             foreach (var child in source.ChildList.ToList())
             {
                 source.ChildList.Remove(child);
+                child.Settings.FillFrom(source.Settings);
                 Insert(child, parent, null);
             }
         }

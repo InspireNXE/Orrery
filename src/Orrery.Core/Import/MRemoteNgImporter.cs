@@ -53,8 +53,11 @@ public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credentia
         return this with { Credentials = Credentials.Where(c => used.Contains(c.Id)).ToList() };
     }
 
+    // Each node's own id counts too, so an Orrery export brought back into the tree it came from is spotted.
     static HashSet<string> ExistingSourceIds(ConnectionTree tree) =>
-        tree.Root.Descendants().Select(n => n.ImportSourceId).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        tree.Root.Descendants().Select(n => n.ImportSourceId).OfType<string>()
+            .Concat(tree.Root.Descendants().Select(n => OrreryImporter.SourcePrefix + n.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record ImportReport(
@@ -66,7 +69,8 @@ public sealed record ImportReport(
     IReadOnlyDictionary<string, int> Protocols,
     IReadOnlyList<string> Skipped,
     IReadOnlyList<string> NotYetSupported,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    string From = "mRemoteNG")
 {
     /// <summary>Lines each list keeps; the rest are counted in one "and N more" line.</summary>
     public const int MaxListedLines = 500;
@@ -84,7 +88,7 @@ public sealed record ImportReport(
     public string ToMarkdown(DateTimeOffset when)
     {
         var md = new StringBuilder();
-        md.AppendLine($"# mRemoteNG import, {when:yyyy-MM-dd HH:mm}");
+        md.AppendLine($"# {From} import, {when:yyyy-MM-dd HH:mm}");
         md.AppendLine();
         md.AppendLine($"Source: `{SourceFile}`");
         md.AppendLine();

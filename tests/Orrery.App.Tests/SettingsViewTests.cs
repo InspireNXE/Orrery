@@ -22,7 +22,7 @@ public class SettingsViewTests : IDisposable
         var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
         var settings = AppSettingsStore.In(location);
         using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
-        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
         KeyGesture? changed = null;
         view.FullScreenShortcutChanged += (_, shortcut) => changed = shortcut;
         var window = new Window { Content = view };
@@ -52,7 +52,7 @@ public class SettingsViewTests : IDisposable
         var settings = AppSettingsStore.In(location);
         using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
 
-        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
         var window = new Window { Content = view };
         window.Show();
         Dispatcher.UIThread.RunJobs();

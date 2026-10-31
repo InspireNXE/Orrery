@@ -1,0 +1,337 @@
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using System.Xml;
+using System.Xml.Linq;
+using Orrery.Core.Connections;
+using Orrery.Core.Credentials;
+using Orrery.Core.Import;
+
+namespace Orrery.Core.Export;
+
+public enum ExportFormat
+{
+    /// <summary>Orrery's own file, which Orrery imports back with every setting.</summary>
+    Orrery,
+
+    /// <summary>mRemoteNG's confCons.xml (ConfVersion 2.6).</summary>
+    MRemoteNg,
+
+    /// <summary>One row per connection, for spreadsheets and inventories.</summary>
+    Csv,
+}
+
+/// <summary>A finished export: the file's text, what's in it, and what didn't carry over.</summary>
+public sealed record ExportResult(string Content, int Folders, int Connections, IReadOnlyList<string> Warnings);
+
+/// <summary>
+/// Writes a connection, a folder or the whole tree to a file. Never includes passwords or keys: a
+/// connection that uses a saved credential gets that credential's username and domain instead.
+/// </summary>
+public static class ConnectionExporter
+{
+    /// <summary>Marks an Orrery export file, so it isn't mistaken for connections.json or anything else.</summary>
+    internal const string OrreryFormatName = "orrery-connections";
+    internal const int OrrerySchemaVersion = 1;
+
+    public static ExportFormat? FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".json" => ExportFormat.Orrery,
+        ".xml" => ExportFormat.MRemoteNg,
+        ".csv" => ExportFormat.Csv,
+        _ => null,
+    };
+
+    /// <param name="node">What to export; the tree's root exports everything, including its defaults.</param>
+    /// <param name="credentials">Saved credentials by id, for their usernames; null when they couldn't be read (a locked vault).</param>
+    public static ExportResult Export(ConnectionNode node, ExportFormat format, IReadOnlyDictionary<Guid, CredentialSummary>? credentials, DateTimeOffset now)
+    {
+        var warnings = new List<string>();
+        var snapshot = Snapshot(node, credentials, warnings);
+        int folders = snapshot.Root.Descendants().OfType<ConnectionFolder>().Count();
+        int connections = snapshot.AllConnections().Count();
+        var content = format switch
+        {
+            ExportFormat.Orrery => WriteOrrery(snapshot, now),
+            ExportFormat.MRemoteNg => WriteMRemoteNg(snapshot, warnings),
+            ExportFormat.Csv => WriteCsv(snapshot),
+            _ => throw new ArgumentOutOfRangeException(nameof(format)),
+        };
+        return new ExportResult(content, folders, connections, warnings);
+    }
+
+    /// <summary>
+    /// A detached copy to write out. Its root is the tree's root (with the defaults) when exporting
+    /// everything, else a plain folder holding the exported node, which takes the values it inherited.
+    /// Saved credentials become their username and domain; jump hosts outside the export are dropped.
+    /// </summary>
+    static ConnectionTree Snapshot(ConnectionNode node, IReadOnlyDictionary<Guid, CredentialSummary>? credentials, List<string> warnings)
+    {
+        var copy = Copy(node);
+        ConnectionFolder root;
+        if (node.Parent is null && copy is ConnectionFolder whole)
+        {
+            root = whole;
+        }
+        else
+        {
+            foreach (var ancestor in node.Ancestors())
+            {
+                copy.Settings.FillFrom(ancestor.Settings);
+            }
+
+            root = new ConnectionFolder { Name = "Connections" };
+            root.ChildList.Add(copy);
+        }
+
+        var tree = new ConnectionTree(root);
+        var all = tree.Root.Descendants().Prepend(tree.Root).ToList();
+        var ids = all.Select(n => n.Id).ToHashSet();
+        int unknownCredentials = 0;
+        foreach (var item in all)
+        {
+            var settings = item.Settings;
+            if (settings.CredentialId is { } credentialId && credentialId != InheritableSettings.NoCredential)
+            {
+                if (credentials?.GetValueOrDefault(credentialId) is { } summary)
+                {
+                    settings.Username = summary.Username ?? string.Empty;
+                    settings.Domain = summary.Domain ?? string.Empty;
+                }
+                else
+                {
+                    unknownCredentials++;
+                }
+
+                settings.CredentialId = null;
+            }
+
+            if (settings.JumpHostId is { } jumpId && jumpId != InheritableSettings.NoJumpHost && !ids.Contains(jumpId))
+            {
+                settings.JumpHostId = null;
+                warnings.Add($"{Describe(item)}: its jump host isn't part of the export, so it was left out.");
+            }
+        }
+
+        if (unknownCredentials > 0)
+        {
+            warnings.Add(credentials is null
+                ? $"{Count(unknownCredentials, "folder or connection", "folders or connections")} use a saved credential, but the vault was locked, so their usernames aren't included."
+                : $"{Count(unknownCredentials, "folder or connection", "folders or connections")} use a saved credential that no longer exists, so their usernames aren't included.");
+        }
+
+        return tree;
+    }
+
+    /// <summary>A deep copy that keeps ids, so jump hosts inside the export still point at the right connection.</summary>
+    static ConnectionNode Copy(ConnectionNode node)
+    {
+        ConnectionNode copy = node switch
+        {
+            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, PortForwards = entry.PortForwards?.ToList() },
+            ConnectionFolder folder => new ConnectionFolder { Id = folder.Id, Expanded = folder.Expanded },
+            _ => throw new NotSupportedException(node.GetType().Name),
+        };
+        copy.Name = node.Name;
+        copy.Notes = node.Notes;
+        copy.ImportSourceId = node.ImportSourceId;
+        copy.Settings = node.Settings.Clone();
+        if (node is ConnectionFolder source && copy is ConnectionFolder target)
+        {
+            foreach (var child in source.Children)
+            {
+                target.ChildList.Add(Copy(child));
+            }
+        }
+
+        return copy;
+    }
+
+    static string Describe(ConnectionNode node) => node.Path is { Length: > 0 } path ? $"{path} / {node.Name}" : node.Name;
+
+    static string Count(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
+
+    // ---- Orrery ----
+
+    internal sealed record OrreryFile(string Format, int SchemaVersion, DateTimeOffset Exported, ConnectionFolder Root);
+
+    static string WriteOrrery(ConnectionTree tree, DateTimeOffset now) =>
+        JsonSerializer.Serialize(new OrreryFile(OrreryFormatName, OrrerySchemaVersion, now, tree.Root), ConnectionStore.JsonOptions);
+
+    // ---- mRemoteNG ----
+
+    const string MRemoteNgNamespace = "http://mremoteng.org";
+    const int MRemoteNgKdfIterations = 1000;
+
+    /// <summary>
+    /// Every attribute a ConfVersion 2.6 node has, with mRemoteNG's defaults, in the order it writes them.
+    /// Taken from a real file (the import test fixture); the ones Orrery knows are filled in per node.
+    /// </summary>
+    static readonly (string Name, string Default)[] MRemoteNgAttributes =
+    [
+        ("Name", ""), ("Type", "Connection"), ("Descr", ""), ("Icon", "mRemoteNG"), ("Panel", "General"), ("Id", ""),
+        ("Username", ""), ("Domain", ""), ("Password", ""), ("Hostname", ""), ("Protocol", "RDP"), ("PuttySession", "Default Settings"),
+        ("Port", "3389"), ("ConnectToConsole", "false"), ("UseCredSsp", "true"), ("RenderingEngine", "IE"),
+        ("ICAEncryptionStrength", "EncrBasic"), ("RDPAuthenticationLevel", "NoAuth"), ("RDPMinutesToIdleTimeout", "0"),
+        ("RDPAlertIdleTimeout", "false"), ("LoadBalanceInfo", ""), ("Colors", "Colors16Bit"), ("Resolution", "FitToWindow"),
+        ("AutomaticResize", "true"), ("DisplayWallpaper", "true"), ("DisplayThemes", "true"), ("EnableFontSmoothing", "true"),
+        ("EnableDesktopComposition", "true"), ("CacheBitmaps", "true"), ("RedirectDiskDrives", "false"), ("RedirectPorts", "false"),
+        ("RedirectPrinters", "false"), ("RedirectSmartCards", "false"), ("RedirectSound", "DoNotPlay"), ("SoundQuality", "Dynamic"),
+        ("RedirectKeys", "false"), ("RedirectClipboard", "true"), ("Connected", "false"), ("PreExtApp", ""), ("PostExtApp", ""),
+        ("MacAddress", ""), ("UserField", ""), ("ExtApp", ""), ("VNCCompression", "CompNone"), ("VNCEncoding", "EncHextile"),
+        ("VNCAuthMode", "AuthVNC"), ("VNCProxyType", "ProxyNone"), ("VNCProxyIP", ""), ("VNCProxyPort", "0"), ("VNCProxyUsername", ""),
+        ("VNCProxyPassword", ""), ("VNCColors", "ColNormal"), ("VNCSmartSizeMode", "SmartSAspect"), ("VNCViewOnly", "false"),
+        ("RDGatewayUsageMethod", "Never"), ("RDGatewayHostname", ""), ("RDGatewayUseConnectionCredentials", "Yes"),
+        ("RDGatewayUsername", ""), ("RDGatewayPassword", ""), ("RDGatewayDomain", ""),
+    ];
+
+    /// <summary>Every Inherit… flag a ConfVersion 2.6 node has. Exported nodes carry their own values, so all are false.</summary>
+    static readonly string[] MRemoteNgInheritFlags =
+    [
+        "CacheBitmaps", "Colors", "Description", "DisplayThemes", "DisplayWallpaper", "EnableFontSmoothing", "EnableDesktopComposition",
+        "Domain", "Icon", "Panel", "Password", "Port", "Protocol", "PuttySession", "RedirectDiskDrives", "RedirectKeys", "RedirectPorts",
+        "RedirectPrinters", "RedirectSmartCards", "RedirectSound", "SoundQuality", "Resolution", "AutomaticResize", "UseConsoleSession",
+        "UseCredSsp", "RenderingEngine", "Username", "ICAEncryptionStrength", "RDPAuthenticationLevel", "RDPMinutesToIdleTimeout",
+        "RDPAlertIdleTimeout", "LoadBalanceInfo", "PreExtApp", "PostExtApp", "MacAddress", "UserField", "ExtApp", "VNCCompression",
+        "VNCEncoding", "VNCAuthMode", "VNCProxyType", "VNCProxyIP", "VNCProxyPort", "VNCProxyUsername", "VNCProxyPassword", "VNCColors",
+        "VNCSmartSizeMode", "VNCViewOnly", "RDGatewayUsageMethod", "RDGatewayHostname", "RDGatewayUseConnectionCredentials",
+        "RDGatewayUsername", "RDGatewayPassword", "RDGatewayDomain", "RedirectClipboard",
+    ];
+
+    static string WriteMRemoteNg(ConnectionTree tree, List<string> warnings)
+    {
+        XNamespace ns = MRemoteNgNamespace;
+        var document = new XDocument(
+            new XDeclaration("1.0", "utf-8", null),
+            new XElement(ns + "Connections",
+                new XAttribute(XNamespace.Xmlns + "mrng", MRemoteNgNamespace),
+                new XAttribute("Name", "Connections"),
+                new XAttribute("Export", "false"),
+                new XAttribute("EncryptionEngine", "AES"),
+                new XAttribute("BlockCipherMode", "GCM"),
+                new XAttribute("KdfIterations", MRemoteNgKdfIterations.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("FullFileEncryption", "false"),
+                // mRemoteNG checks this decrypts with its default password to know there's no master password.
+                new XAttribute("Protected", MRemoteNgCrypto.Encrypt(MRemoteNgCrypto.NotProtectedMarker, MRemoteNgCrypto.DefaultPassword, MRemoteNgKdfIterations)),
+                new XAttribute("ConfVersion", "2.6"),
+                tree.Root.Children.Select(MRemoteNgNode)));
+
+        var lost = new Dictionary<string, int>();
+        void Lost(string what, bool when)
+        {
+            if (when) lost[what] = lost.GetValueOrDefault(what) + 1;
+        }
+
+        foreach (var entry in tree.AllConnections())
+        {
+            var resolved = SettingsResolver.Resolve(entry);
+            Lost("Jump hosts", resolved.JumpHostId.Value is not null);
+            Lost("Port forwards", entry.PortForwards is { Count: > 0 });
+            Lost("Fixed desktop sizes", resolved.DesktopSize.Value is not null);
+            Lost("SSH agent turned off", resolved.Protocol.Value == Protocol.Ssh && !resolved.UseSshAgent.Value);
+            Lost("Older SSH algorithms allowed", resolved.Protocol.Value == Protocol.Ssh && resolved.AllowLegacySsh.Value);
+            Lost("Reconnect turned off", !resolved.AutoReconnect.Value);
+            Lost("Enlarge setting chosen per connection", resolved.EnlargeRemoteDesktop.Value is not null);
+        }
+
+        foreach (var (what, count) in lost.OrderByDescending(l => l.Value))
+        {
+            warnings.Add($"mRemoteNG has no equivalent for {what.ToLowerInvariant()}: {Count(count, "connection", "connections")}.");
+        }
+
+        var output = new Utf8StringWriter();
+        using (var writer = XmlWriter.Create(output, new XmlWriterSettings { Indent = true, Encoding = Encoding.UTF8 }))
+        {
+            document.Save(writer);
+        }
+
+        return output.ToString();
+    }
+
+    static XElement MRemoteNgNode(ConnectionNode node)
+    {
+        var resolved = SettingsResolver.Resolve(node);
+        var values = new Dictionary<string, string>
+        {
+            ["Name"] = node.Name,
+            ["Type"] = node is ConnectionFolder ? "Container" : "Connection",
+            ["Descr"] = node.Notes ?? string.Empty,
+            ["Id"] = node.Id.ToString(),
+            ["Username"] = resolved.Username.Value ?? string.Empty,
+            ["Domain"] = resolved.Domain.Value ?? string.Empty,
+            ["Hostname"] = (node as ConnectionEntry)?.Host ?? string.Empty,
+            ["Protocol"] = resolved.Protocol.Value switch
+            {
+                Protocol.Ssh => "SSH2",
+                Protocol.Vnc => "VNC",
+                Protocol.Telnet => "Telnet",
+                _ => "RDP",
+            },
+            ["Port"] = resolved.Port.Value.ToString(CultureInfo.InvariantCulture),
+            ["RedirectClipboard"] = resolved.ShareClipboard.Value ? "true" : "false",
+        };
+
+        var element = new XElement("Node");
+        foreach (var (name, fallback) in MRemoteNgAttributes)
+        {
+            element.Add(new XAttribute(name, values.GetValueOrDefault(name, fallback)));
+            if (name == "Type" && node is ConnectionFolder folder)
+            {
+                element.Add(new XAttribute("Expanded", folder.Expanded ? "true" : "false"));
+            }
+        }
+
+        foreach (var flag in MRemoteNgInheritFlags)
+        {
+            element.Add(new XAttribute("Inherit" + flag, "false"));
+        }
+
+        if (node is ConnectionFolder container)
+        {
+            element.Add(container.Children.Select(MRemoteNgNode));
+        }
+
+        return element;
+    }
+
+    /// <summary>So the XML declaration says utf-8, which is how the file is written.</summary>
+    sealed class Utf8StringWriter() : StringWriter(CultureInfo.InvariantCulture)
+    {
+        public override Encoding Encoding => Encoding.UTF8;
+    }
+
+    // ---- CSV ----
+
+    static string WriteCsv(ConnectionTree tree)
+    {
+        var csv = new StringBuilder();
+        csv.Append("Folder,Name,Host,Protocol,Port,Username,Domain,Notes\r\n");
+        foreach (var entry in tree.AllConnections())
+        {
+            var resolved = SettingsResolver.Resolve(entry);
+            string[] cells =
+            [
+                entry.Path, entry.Name, entry.Host, ProtocolInfo.Label(resolved.Protocol.Value),
+                resolved.Port.Value.ToString(CultureInfo.InvariantCulture), resolved.Username.Value ?? string.Empty,
+                resolved.Domain.Value ?? string.Empty, entry.Notes ?? string.Empty,
+            ];
+            csv.Append(string.Join(',', cells.Select(CsvCell))).Append("\r\n");
+        }
+
+        return csv.ToString();
+    }
+
+    /// <summary>
+    /// Quotes a cell when it needs it, and puts an apostrophe before one a spreadsheet would run as a
+    /// formula (starting with = + - @ or a tab), so a hostile name can't run anything when opened.
+    /// </summary>
+    internal static string CsvCell(string value)
+    {
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+        {
+            value = "'" + value;
+        }
+
+        return value.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+    }
+}
