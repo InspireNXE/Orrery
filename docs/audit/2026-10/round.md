@@ -61,6 +61,7 @@ build. Packet 13 fixed them.
 | 10 | a6a7711 | S-17, S-18, S-19, S-33 | 374 (+6 skipped) |
 | 11 | fbcf720 | S-31, S-32 | 399 (+6 skipped) |
 | 12 | 1f0d711 | S-9 | 401 (+6 skipped) |
+| 15 fix | (this commit) | packet 15 refused HYBRID_EX's 4-byte Early User Authorization Result ("sign-in reply wasn't valid"); the reply size comes from IronRDP's hint again, capped at 64 KiB | 406 (+6 skipped) |
 
 Final run on `main` at 1f0d711: `dotnet build Orrery.sln --no-incremental` 0 warnings, 0 errors; `dotnet test Orrery.sln`
 401 passed, 6 skipped, 0 failed (Core 272 + 6 skipped, App 77, Ssh 27, Vnc 18, Telnet 7). The 6 skipped are Unix-only
