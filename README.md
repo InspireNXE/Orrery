@@ -90,7 +90,7 @@ AppImage. Pass `-NfpmPath` or `-IsccPath` for tools that aren't on PATH, and `-S
 | Script | Builds | Needs |
 | --- | --- | --- |
 | `./build/package.ps1` | Portable zips for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64 and osx-x64 (`-Runtimes win-x64` for just one) | .NET SDK |
-| `build\Build-Installer.ps1` | Windows installer | Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 6 or 7 |
+| `build\Build-Installer.ps1` | Windows installer | Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 7 |
 | `./build/Build-LinuxPackages.ps1` | .deb and .rpm, x64 and arm64 | [nfpm](https://nfpm.goreleaser.com/install/) (runs on Windows too) |
 | | AppImage, x64 and arm64 | Linux, [appimagetool](https://github.com/AppImage/appimagetool/releases) |
 

@@ -11,7 +11,7 @@ step whose tool is missing, with a warning, and prints what was built and what w
 Built with Inno Setup, the same way as Prober's desktop setup (`installer\Orrery.iss` is modelled on
 `Prober.Installer\Prober.Desktop.iss`, and `installer\WizardLayout.iss` is copied from Prober so the wizard looks
 the same). You need PowerShell 5.1 or later, the .NET SDK, and Inno Setup 7 installed per user
-(`%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe`) or Inno Setup 6 under either Program Files folder; pass
+(`%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe`) or for all users under either Program Files folder; pass
 `-IsccPath` for anything else. From the repo root:
 
 ```powershell
