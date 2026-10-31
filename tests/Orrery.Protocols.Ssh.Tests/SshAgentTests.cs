@@ -106,7 +106,7 @@ public class SshAgentTests : IDisposable
 
         var client = SshAgentClient.Find();
         Assert.NotNull(client);
-        Assert.Equal("Pageant", client.Description);
+        Assert.Equal("Pageant (before 0.75)", client.Description);
 
         var keys = client.ListIdentities();
         var data = RandomNumberGenerator.GetBytes(32);
@@ -117,6 +117,50 @@ public class SshAgentTests : IDisposable
         using var me = WindowsIdentity.GetCurrent();
         var mySid = me.User!.Value;
         Assert.All(pageant.BlockOwners, owner => Assert.Equal(mySid, owner));
+    }
+
+    [Fact]
+    public void Pageants_pipe_name_is_the_user_and_a_per_user_hash_that_stays_the_same()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var name = PageantPipe.Name();
+
+        // User names can hold dots ("first.last"), so only the hash is pinned down.
+        Assert.Matches(@"^pageant\.[^\\/]+\.[0-9a-f]{64}$", name);
+        Assert.Equal(name, PageantPipe.Name());
+    }
+
+    [Fact]
+    public void Prefers_pageants_own_pipe_to_its_window()
+    {
+        if (!OperatingSystem.IsWindows() || AgentOwner.PipeExists(PageantPipe.Name()))
+        {
+            return; // Windows-only, and a real Pageant 0.75+ is already on the pipe.
+        }
+
+        Environment.SetEnvironmentVariable("SSH_AUTH_SOCK", null);
+        using var window = new FakePageant(_agent);
+        _agent.ServePipe(PageantPipe.Name());
+        for (int i = 0; i < 100 && !AgentOwner.PipeExists(PageantPipe.Name()); i++)
+        {
+            Thread.Sleep(20); // The fake opens its pipe in the background.
+        }
+
+        var client = SshAgentClient.Find();
+        Assert.NotNull(client);
+        Assert.Equal("Pageant", client.Description);
+
+        var keys = client.ListIdentities();
+        var data = RandomNumberGenerator.GetBytes(32);
+        var signature = new AgentKeySource(client, keys[1]).HostKeyAlgorithms.Single().Sign(data);
+        Assert.True(ServerAccepts("ecdsa-sha2-nistp256", keys[1].PublicKey, data, signature));
+
+        // Nothing went through the window's shared memory.
+        Assert.Empty(window.BlockOwners);
     }
 
     [Fact]
@@ -155,7 +199,7 @@ public class SshAgentTests : IDisposable
         using var pageant = new FakePageant(_agent);
         var client = SshAgentClient.Find();
         Assert.NotNull(client);
-        Assert.Equal("Pageant", client.Description);
+        Assert.Equal("Pageant (before 0.75)", client.Description);
         client.ListTimeout = TimeSpan.FromMilliseconds(300);
 
         pageant.Hang();

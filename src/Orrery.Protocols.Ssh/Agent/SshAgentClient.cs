@@ -23,7 +23,7 @@ public interface IAgentTransport
 /// <summary>
 /// Talks to an SSH agent (draft-miller-ssh-agent): lists its keys and asks it to sign, so private keys stay
 /// inside the agent. Finds the agent the way OpenSSH does: <c>SSH_AUTH_SOCK</c>, then on Windows the
-/// OpenSSH agent's pipe, then Pageant. On Windows an agent is only used when this user or SYSTEM runs it
+/// OpenSSH agent's pipe, then Pageant's pipe, then an older Pageant's window. On Windows an agent is only used when this user or SYSTEM runs it
 /// (see <see cref="AgentOwner"/>).
 /// </summary>
 public sealed class SshAgentClient(IAgentTransport transport, string description)
@@ -56,9 +56,16 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
                 return new SshAgentClient(new StreamTransport(OpenWindowsOpenSshPipe), "Windows OpenSSH agent");
             }
 
+            // Pageant's own pipe first; the window and shared memory only for versions before 0.75.
+            var pageantPipe = PageantPipe.Name();
+            if (IsTrustedPipe(pageantPipe, allowSystem: false))
+            {
+                return new SshAgentClient(new StreamTransport(() => OpenPageantPipe(pageantPipe)), "Pageant");
+            }
+
             if (PageantTransport.IsRunning())
             {
-                return new SshAgentClient(new PageantTransport(), "Pageant");
+                return new SshAgentClient(new PageantTransport(), "Pageant (before 0.75)");
             }
         }
 
@@ -112,7 +119,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
     /// identification level and closed without sending anything; when it fails, Pageant is tried next.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    static bool IsTrustedPipe(string name)
+    static bool IsTrustedPipe(string name, bool allowSystem = true)
     {
         if (!AgentOwner.PipeExists(name))
         {
@@ -121,7 +128,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
 
         try
         {
-            OpenPipe(name).Dispose();
+            OpenPipe(name, allowSystem).Dispose();
             return true;
         }
         catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException)
@@ -170,18 +177,21 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
     [SupportedOSPlatform("windows")]
     static Stream OpenWindowsOpenSshPipe() => OpenPipe(WindowsOpenSshPipe);
 
+    [SupportedOSPlatform("windows")]
+    static Stream OpenPageantPipe(string name) => OpenPipe(name, allowSystem: false);
+
     /// <summary>
     /// Connects at identification level, so the server can't act as this user, and checks who the server is
     /// before anything is sent. Asynchronous, so a read that takes too long can be cancelled.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    static Stream OpenPipe(string name)
+    static Stream OpenPipe(string name, bool allowSystem = true)
     {
         var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification);
         try
         {
             pipe.Connect(ConnectTimeout);
-            AgentOwner.CheckPipe(pipe.SafePipeHandle);
+            AgentOwner.CheckPipe(pipe.SafePipeHandle, allowSystem);
             return pipe;
         }
         catch
@@ -191,7 +201,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
         }
     }
 
-    /// <summary>One connection per request: the OpenSSH agent and SSH_AUTH_SOCK sockets.</summary>
+    /// <summary>One connection per request: the OpenSSH agent, Pageant's pipe and SSH_AUTH_SOCK sockets.</summary>
     sealed class StreamTransport(Func<Stream> open) : IAgentTransport
     {
         public byte[] Exchange(byte[] request, TimeSpan timeout)
