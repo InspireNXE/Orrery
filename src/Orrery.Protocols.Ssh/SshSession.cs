@@ -29,8 +29,8 @@ public sealed record SshHop(ConnectionTarget Target, SshLogin Login, bool AllowL
 public sealed class SshSession : ITerminalSession
 {
     const string TerminalType = "xterm-256color";
-    static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
-    static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
+    internal static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
     static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     readonly HostKeyValidator _hostKeys;
@@ -151,21 +151,8 @@ public sealed class SshSession : ITerminalSession
         bool hostKeyRejected = false;
         try
         {
-            var info = new ConnectionInfo(host, port, login.Username, AuthenticationMethods(login))
-            {
-                Timeout = ConnectTimeout,
-            };
-            SshAlgorithms.Apply(info, allowLegacy);
-
-            var client = new SshClient(info) { KeepAliveInterval = KeepAlive };
-            client.HostKeyReceived += (_, e) =>
-            {
-                // SSH.NET asks synchronously on its own thread; the prompt runs on the UI thread meanwhile. The key
-                // is checked against the real name, not the loopback address it's reached through.
-                e.CanTrust = _hostKeys.ValidateAsync(target.Host, target.Port, e.HostKeyName, e.FingerPrintSHA256)
-                    .GetAwaiter().GetResult();
-                hostKeyRejected = !e.CanTrust;
-            };
+            var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = KeepAlive };
+            CheckHostKey(client, _hostKeys, target, () => hostKeyRejected = true);
             client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy));
 
             lock (_lock)
@@ -200,6 +187,29 @@ public sealed class SshSession : ITerminalSession
 
         return null;
     }
+
+    /// <summary>
+    /// How to reach and log in to a server at <paramref name="host"/>:<paramref name="port"/>, which is a loopback
+    /// forward when it's behind a jump host. SHA-1, CBC and 3DES only when <paramref name="allowLegacy"/> is set.
+    /// </summary>
+    internal static ConnectionInfo ConnectionInfoFor(string host, int port, SshLogin login, bool allowLegacy)
+    {
+        var info = new ConnectionInfo(host, port, login.Username, AuthenticationMethods(login)) { Timeout = ConnectTimeout };
+        SshAlgorithms.Apply(info, allowLegacy);
+        return info;
+    }
+
+    /// <summary>
+    /// Checks the host key <paramref name="client"/> is offered against <paramref name="target"/>'s real name, not
+    /// the loopback address it may be reached through, calling <paramref name="rejected"/> if it isn't trusted.
+    /// SSH.NET asks synchronously on its own thread; the prompt runs on the UI thread meanwhile.
+    /// </summary>
+    internal static void CheckHostKey(BaseClient client, HostKeyValidator hostKeys, ConnectionTarget target, Action rejected) =>
+        client.HostKeyReceived += (_, e) =>
+        {
+            e.CanTrust = hostKeys.ValidateAsync(target.Host, target.Port, e.HostKeyName, e.FingerPrintSHA256).GetAwaiter().GetResult();
+            if (!e.CanTrust) rejected();
+        };
 
     /// <summary>Why a login was turned down, by what was tried.</summary>
     internal static string Refusal(SshAuthenticationException e, SshLogin login) => e is NoLoginMethodException ? e.Message : login switch

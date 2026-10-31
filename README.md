@@ -15,6 +15,9 @@ Version 0.1.0. Early days: the protocols work, but several things still need tes
 - **Jump hosts**: reach a machine through one or more saved SSH connections (like `ssh -J`). SSH goes through them
   directly, and RDP, VNC and Telnet through an SSH tunnel Orrery opens and closes with the session. SSH connections
   also take port forwards (`L`, `R`, `D`).
+- **SFTP file browser**: open an SSH connection's files in a tab beside its terminal (right-click it, or its tab,
+  and choose *Browse files*). Browse, upload (or drop files in), download, rename, delete and make folders, with
+  progress and Cancel. It uses the same login, agent keys and jump hosts as the terminal.
 - **Connection tree**: folders, drag and drop, multi-select (Ctrl- and Shift-click), filter, inherited settings,
   and host groups (a host with its guest machines one level below it).
 - **Credentials**: kept in Windows Credential Manager, the macOS Keychain or the Linux Secret Service, or in an

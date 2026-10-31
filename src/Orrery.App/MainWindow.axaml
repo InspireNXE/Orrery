@@ -165,6 +165,7 @@
                   <TreeView.ContextMenu>
                     <ContextMenu>
                       <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
+                      <MenuItem x:Name="BrowseFilesMenuItem" Header="Browse files (SFTP)" Click="OnBrowseFilesMenuClick" />
                       <Separator />
                       <MenuItem Header="New connection" Click="OnNewConnectionClick" />
                       <MenuItem Header="New folder" Click="OnNewFolderClick" />

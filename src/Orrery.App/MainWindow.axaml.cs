@@ -82,7 +82,7 @@ public partial class MainWindow : Window
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
-    readonly MenuItem _connectMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
+    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
 
@@ -163,6 +163,7 @@ public partial class MainWindow : Window
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
+        _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
         _addGuestMenuItem = this.FindControl<MenuItem>("AddGuestMenuItem")!;
         _moveOutOfHostMenuItem = this.FindControl<MenuItem>("MoveOutOfHostMenuItem")!;
         _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
@@ -386,6 +387,7 @@ public partial class MainWindow : Window
             int connections = nodes.OfType<ConnectionEntry>().Count();
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
+            _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
             _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
             _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
             _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
@@ -1075,6 +1077,14 @@ public partial class MainWindow : Window
 
     async void OnConnectMenuClick(object? sender, RoutedEventArgs e) => await ConnectSelectedAsync();
 
+    async void OnBrowseFilesMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (SingleSelectedNode is ConnectionEntry entry)
+        {
+            await ConnectAsync(entry, files: true);
+        }
+    }
+
     /// <summary>Opens every selected connection, in list order; folders in the selection are skipped.</summary>
     async Task ConnectSelectedAsync()
     {
@@ -1300,7 +1310,8 @@ public partial class MainWindow : Window
     }
 
     /// <param name="skipAgent">Ask for a login even if an SSH agent is running: its keys were just refused.</param>
-    async Task ConnectAsync(ConnectionEntry entry, bool skipAgent = false)
+    /// <param name="files">SSH: open a file browser (SFTP) instead of a terminal.</param>
+    async Task ConnectAsync(ConnectionEntry entry, bool skipAgent = false, bool files = false)
     {
         if (_properties.Node == entry && !_properties.TrySave())
         {
@@ -1315,7 +1326,11 @@ public partial class MainWindow : Window
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
-        var origin = new SessionOrigin(entry.Name, protocol, entry.Id, () => ConnectAsync(entry), resolved.AutoReconnect.Value);
+        files &= protocol == Protocol.Ssh;
+        var origin = new SessionOrigin(files ? $"{entry.Name} � files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
+        {
+            Files = files,
+        };
         try
         {
             // SSH goes through its jump hosts itself; RDP, VNC and Telnet through a tunnel the jump hosts make.
@@ -1354,7 +1369,7 @@ public partial class MainWindow : Window
                 && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
             {
                 StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
-                    whenRefused: () => ConnectAsync(entry, skipAgent: true), resolved.AllowLegacySsh.Value, route);
+                    whenRefused: () => ConnectAsync(entry, skipAgent: true, files), resolved.AllowLegacySsh.Value, route);
                 return;
             }
 
@@ -1514,11 +1529,10 @@ public partial class MainWindow : Window
     {
         Open(origin, () =>
         {
-            var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24, allowLegacySsh,
-                route?.Jumps, route?.Forwards);
+            var (view, session, rejected) = NewSshView(origin, target, new SshLogin(target.Username!, null, UseAgent: true), allowLegacySsh, route);
             session.StateChanged += (_, e) =>
             {
-                if (e.State == SessionState.Failed && session.AuthenticationRejected)
+                if (e.State == SessionState.Failed && rejected())
                 {
                     Dispatcher.UIThread.Post(async () =>
                     {
@@ -1527,7 +1541,7 @@ public partial class MainWindow : Window
                     });
                 }
             };
-            return (NewTerminalView(session), session);
+            return (view, session);
         });
     }
 
@@ -1543,10 +1557,26 @@ public partial class MainWindow : Window
         var login = SshLoginFor(target.Username, password, saved);
         Open(origin, () =>
         {
-            var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh, route?.Jumps, route?.Forwards);
-            return (NewTerminalView(session), session);
+            var (view, session, _) = NewSshView(origin, target, login, allowLegacySsh, route);
+            return (view, session);
         });
         UpdateVaultButton();
+    }
+
+    /// <summary>
+    /// A terminal, or for <see cref="SessionOrigin.Files"/> a file browser (SFTP), on a new SSH connection.
+    /// <c>Rejected</c> says whether the server turned the login down.
+    /// </summary>
+    (Control View, IConnectionSession Session, Func<bool> Rejected) NewSshView(SessionOrigin origin, ConnectionTarget target, SshLogin login, bool allowLegacySsh, SshRoute? route)
+    {
+        if (origin.Files)
+        {
+            var files = SftpSession.Start(target, login, _hostKeyValidator, allowLegacySsh, route?.Jumps);
+            return (new FileBrowserView(files), files, () => files.AuthenticationRejected);
+        }
+
+        var shell = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh, route?.Jumps, route?.Forwards);
+        return (NewTerminalView(shell), shell, () => shell.AuthenticationRejected);
     }
 
     /// <summary>A saved SSH-key credential logs in with its key instead of the password.</summary>
@@ -1800,7 +1830,7 @@ public partial class MainWindow : Window
         var state = session.State;
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
-        _sessionDetail.Text = $"{ProtocolInfo.Label(tab.Origin.Protocol)} · " + state switch
+        _sessionDetail.Text = $"{(tab.Origin.Files ? "SFTP" : ProtocolInfo.Label(tab.Origin.Protocol))} · " + state switch
         {
             SessionState.Connecting => "Connecting…",
             SessionState.Disconnected => "Disconnected",
@@ -1965,6 +1995,13 @@ public partial class MainWindow : Window
             }
 
             yield return on;
+        }
+
+        if (tab.Origin is { Protocol: Protocol.Ssh, EntryId: { } id } && _tree.Find(id) is ConnectionEntry entry)
+        {
+            yield return tab.Origin.Files
+                ? MenuItemFor("Open a terminal", async () => await ConnectAsync(entry))
+                : MenuItemFor("Browse files (SFTP)", async () => await ConnectAsync(entry, files: true));
         }
 
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
