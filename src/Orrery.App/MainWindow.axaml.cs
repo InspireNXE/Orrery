@@ -445,22 +445,18 @@ public partial class MainWindow : Window
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        _treeView.AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        // Moving onto another element raises DragEnter there in place of DragOver, so both mark the drop.
+        _treeView.AddHandler(DragDrop.DragEnterEvent, OnTreeDragOver);
+        _treeView.AddHandler(DragDrop.DragOverEvent, OnTreeDragOver);
+
+        // Leaving one element inside the tree for another isn't leaving the tree; clearing then would flicker.
+        _treeView.AddHandler(DragDrop.DragLeaveEvent, (_, e) =>
         {
-            if (DroppedImportFile(e) is not null)
+            if (!new Rect(_treeView.Bounds.Size).Contains(e.GetPosition(_treeView)))
             {
                 ShowDrop(null, null);
-                e.DragEffects = DragDropEffects.Copy;
-                return;
             }
-
-            TreeViewItem? item = null;
-            var plan = DraggedNodes(e) is { Count: > 0 } nodes ? PlanDrop(e, nodes, out item) : null;
-            ShowDrop(plan is null ? null : item, plan?.Position);
-            e.DragEffects = plan is not null ? DragDropEffects.Move : DragDropEffects.None;
         });
-
-        _treeView.AddHandler(DragDrop.DragLeaveEvent, (_, _) => ShowDrop(null, null));
 
         _treeView.AddHandler(DragDrop.DropEvent, async (_, e) =>
         {
@@ -934,6 +930,21 @@ public partial class MainWindow : Window
         e.DataTransfer.TryGetValue(DragFormat) is { } ids
             ? ids.Split(',').Select(id => Guid.TryParse(id, out var guid) ? _tree.Find(guid) : null).OfType<ConnectionNode>().ToList()
             : [];
+
+    void OnTreeDragOver(object? sender, DragEventArgs e)
+    {
+        if (DroppedImportFile(e) is not null)
+        {
+            ShowDrop(null, null);
+            e.DragEffects = DragDropEffects.Copy;
+            return;
+        }
+
+        TreeViewItem? item = null;
+        var plan = DraggedNodes(e) is { Count: > 0 } nodes ? PlanDrop(e, nodes, out item) : null;
+        ShowDrop(plan is null ? null : item, plan?.Position);
+        e.DragEffects = plan is not null ? DragDropEffects.Move : DragDropEffects.None;
+    }
 
     /// <summary>Where <paramref name="dragged"/> would go if dropped now, and the row under the pointer.</summary>
     DropPlan? PlanDrop(DragEventArgs e, IReadOnlyList<ConnectionNode> dragged, out TreeViewItem? item)
