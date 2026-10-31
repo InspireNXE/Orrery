@@ -965,6 +965,16 @@ public partial class MainWindow : Window
     /// <summary>Marks the row a drop would go before, after or into; null clears the mark.</summary>
     void ShowDrop(TreeViewItem? item, DropPosition? position)
     {
+        // After a row is the same place as before its next sibling, so that gap gets one line, on the lower
+        // row; it doesn't hop between the two rows. It also lands below an expanded folder's or host's children,
+        // where the drop goes, not under its own row. Only the last row in a list draws an after line.
+        if (position == DropPosition.After && item is not null && ItemsControl.ItemsControlFromItemContainer(item) is { } list
+            && list.ContainerFromIndex(list.IndexFromContainer(item) + 1) is TreeViewItem next)
+        {
+            item = next;
+            position = DropPosition.Before;
+        }
+
         if (_dropRow is not null && _dropRow != item)
         {
             _dropRow.Classes.Remove("drop-before");
