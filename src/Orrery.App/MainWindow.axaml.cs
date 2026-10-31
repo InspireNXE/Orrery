@@ -63,7 +63,6 @@ public partial class MainWindow : Window
     readonly TextBlock _sessionAddress, _sessionDetail, _sessionCount;
     readonly Controls.StrokeIcon _sessionLock;
     readonly Border _sidePanel, _propertiesHost, _dimmer;
-    readonly Button _importDropZone;
     readonly ContentControl _settingsHost;
     readonly Button _sidePanelToggle, _inspectorToggle;
     readonly Control _titleBar, _rail, _statusBar, _tabStripBar;
@@ -143,7 +142,6 @@ public partial class MainWindow : Window
             ["credentials"] = (this.FindControl<Button>("CredentialsRailButton")!, this.FindControl<Control>("CredentialsSide")!),
             ["recent"] = (this.FindControl<Button>("RecentRailButton")!, this.FindControl<Control>("RecentSide")!),
         };
-        _importDropZone = this.FindControl<Button>("ImportDropZone")!;
         _settingsHost = this.FindControl<ContentControl>("SettingsHost")!;
         _settingsRailButton = this.FindControl<Button>("SettingsRailButton")!;
         _sidePanelToggle = this.FindControl<Button>("SidePanelToggle")!;
@@ -463,22 +461,6 @@ public partial class MainWindow : Window
                 }
             }
         };
-
-        _importDropZone.AddHandler(DragDrop.DragOverEvent, (_, e) =>
-        {
-            bool importable = DroppedImportFile(e) is not null;
-            e.DragEffects = importable ? DragDropEffects.Copy : DragDropEffects.None;
-            _importDropZone.Classes.Set("dragover", importable);
-        });
-        _importDropZone.AddHandler(DragDrop.DragLeaveEvent, (_, _) => _importDropZone.Classes.Set("dragover", false));
-        _importDropZone.AddHandler(DragDrop.DropEvent, async (_, e) =>
-        {
-            _importDropZone.Classes.Set("dragover", false);
-            if (DroppedImportFile(e) is { } file)
-            {
-                await ImportAsync(file);
-            }
-        });
     }
 
     /// <summary>
@@ -929,10 +911,6 @@ public partial class MainWindow : Window
         }
 
         _treeEmptyState.IsVisible = _tree.Root.Children.Count == 0;
-
-        // Importing is a one-off, so the drop zone only offers it while there's nothing here yet. Settings
-        // keeps an Import button, and an mRemoteNG file can still be dropped onto the tree.
-        _importDropZone.IsVisible = _treeEmptyState.IsVisible;
         UpdateTreeStatus();
         if (SelectedNode != _properties.Node)
         {
@@ -1953,8 +1931,6 @@ public partial class MainWindow : Window
             await ImportAsync(path);
         }
     }
-
-    async void OnImportClick(object? sender, RoutedEventArgs e) => await ChooseImportFileAsync();
 
     async Task ChooseImportFileAsync()
     {

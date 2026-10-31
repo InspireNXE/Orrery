@@ -166,22 +166,6 @@
       <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
     </Style>
 
-    <Style Selector="Button.dropzone">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.dropzone:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#181B21" />
-      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
-    </Style>
-    <Style Selector="Button.dropzone.dragover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#1A2433" />
-    </Style>
-
     <!-- Session tabs: open on the session below, with an accent line along the top of the current one. -->
     <Style Selector="Button.tab">
       <Setter Property="Background" Value="Transparent" />

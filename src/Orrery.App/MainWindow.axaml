@@ -133,20 +133,6 @@
                 </TextBox.InnerLeftContent>
               </TextBox>
   
-              <!-- Drop zone and import button for mRemoteNG files. -->
-              <Button x:Name="ImportDropZone" DockPanel.Dock="Bottom" Classes="dropzone" Margin="12" Click="OnImportClick"
-                      DragDrop.AllowDrop="True" HorizontalAlignment="Stretch"
-                      ToolTip.Tip="Import connections from mRemoteNG">
-                <Grid>
-                  <Rectangle x:Name="DropZoneOutline" RadiusX="8" RadiusY="8" Stroke="#2F3540" StrokeThickness="1" StrokeDashArray="4,3" />
-                  <TextBlock TextWrapping="Wrap" LineHeight="18" Margin="12,10" FontSize="12">
-                    <Run Text="Import from mRemoteNG: drop a " />
-                    <Run Text="confCons.xml" FontFamily="{StaticResource OrreryMono}" Foreground="{StaticResource OrrerySoftText}" />
-                    <Run Text=" here, or click to browse." />
-                  </TextBlock>
-                </Grid>
-              </Button>
-  
               <Grid>
                 <TreeView x:Name="Tree" Background="Transparent" DragDrop.AllowDrop="True" Padding="12,0">
                   <TreeView.Styles>
@@ -190,7 +176,7 @@
                   </TreeView.ContextMenu>
                 </TreeView>
                 <TextBlock x:Name="TreeEmptyState" TextWrapping="Wrap" Foreground="{StaticResource OrreryMuted}" Margin="14,6,14,8" LineHeight="19"
-                           Text="No saved connections yet. Add one with +, or use Quick connect." />
+                           Text="No saved connections yet. Add one with +, use Quick connect, or import them in Settings." />
               </Grid>
             </DockPanel>
           </Panel>
