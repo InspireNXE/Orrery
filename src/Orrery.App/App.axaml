@@ -232,8 +232,10 @@
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BorderThickness" Value="2,0,0,0" />
     </Style>
+    <!-- The theme's hover style sets its own border; keep ours so hovering, or dragging over, doesn't shift a row. -->
     <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot:pointerover">
       <Setter Property="Background" Value="#1A1D23" />
+      <Setter Property="BorderThickness" Value="2,0,0,0" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot">
       <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
@@ -243,14 +245,13 @@
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot:pointerover">
       <Setter Property="Background" Value="#262C38" />
     </Style>
-    <!-- Where a dragged row will land: a line above or below the row, or the row lit up to go into it. -->
+    <!-- Where a dragged row will land: a line above or below the row, or the row lit up to go into it.
+         The lines are inset shadows, not border thickness, so marking a row never moves or resizes it. -->
     <Style Selector="TreeView#Tree TreeViewItem.drop-before /template/ Border#PART_LayoutRoot">
-      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
-      <Setter Property="BorderThickness" Value="0,2,0,0" />
+      <Setter Property="BoxShadow" Value="inset 0 2 0 0 #5B9DFF" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem.drop-after /template/ Border#PART_LayoutRoot">
-      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
-      <Setter Property="BorderThickness" Value="0,0,0,2" />
+      <Setter Property="BoxShadow" Value="inset 0 -2 0 0 #5B9DFF" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem.drop-into /template/ Border#PART_LayoutRoot">
       <Setter Property="Background" Value="#1A2433" />
