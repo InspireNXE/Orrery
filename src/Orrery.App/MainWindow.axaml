@@ -13,7 +13,7 @@
         FontSize="13"
         Background="{StaticResource OrreryBackground}"
         Foreground="{StaticResource OrreryText}">
-  <Grid>
+  <Grid x:Name="Root">
     <DockPanel>
 
       <!-- Title bar: the window's own chrome, with quick connect in the middle. -->

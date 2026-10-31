@@ -433,6 +433,18 @@ public partial class MainWindow : Window
 
     void WireTitleBar()
     {
+        // Maximized, Windows pushes a window that draws its own title bar a few pixels past each screen edge;
+        // Avalonia reports how far, so the content is kept inside by that much.
+        var root = this.FindControl<Grid>("Root")!;
+        root.Margin = OffScreenMargin;
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == OffScreenMarginProperty || e.Property == WindowStateProperty)
+            {
+                root.Margin = OffScreenMargin;
+            }
+        };
+
         // The title bar is drawn by Orrery, so its empty parts move and maximise the window.
         var titleBar = this.FindControl<Border>("TitleBar")!;
         titleBar.PointerPressed += (_, e) =>
