@@ -88,8 +88,8 @@ Linux the portable app is a single executable; on macOS it is an `Orrery.app` bu
 
 ## Status
 
-Tested on Windows, including RDP resizing and clipboard. Still to be checked on real machines: Linux and macOS
-builds, ARM builds, VNC authentication, and the installer. The Windows executables aren't code-signed, so SmartScreen may warn
+Tested on Windows, including RDP resizing and clipboard and the installer. Still to be checked on real machines:
+Linux and macOS builds, ARM builds, and VNC authentication. The Windows executables aren't code-signed, so SmartScreen may warn
 on first launch and antivirus tools can flag the single-file executable as a false positive.
 
 ## Licence
