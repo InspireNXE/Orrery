@@ -75,6 +75,11 @@ While a remote session has focus it gets keys first, so these shortcuts go to th
 A portable copy has an `orrery.portable.json` file beside the executable and asks on first launch where to keep its
 data.
 
+Orrery keeps a log of what connected where and what went wrong: one file a day, kept for two weeks, in
+`%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or `~/.local/state/orrery/logs` (a portable copy keeps it in its
+data folder). It never holds passwords, keys, keystrokes or what was on screen. Settings has a button to open the
+folder and a detailed logging switch for troubleshooting, which turns itself off when Orrery closes.
+
 ## Building
 
 You need the [.NET 10 SDK](https://dotnet.microsoft.com/download). From the repo root:

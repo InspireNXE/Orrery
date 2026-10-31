@@ -14,6 +14,9 @@ sealed class SessionLogger
 {
     static readonly ILogger Logger = Log.For("Session");
 
+    // Sessions not yet ended, so the ones still open when Orrery closes get their last line too. UI thread only.
+    static readonly HashSet<SessionLogger> Open = [];
+
     readonly SessionTab _tab;
     readonly Stopwatch _opened = Stopwatch.StartNew();
     TimeSpan? _connectedAt;
@@ -34,7 +37,21 @@ sealed class SessionLogger
         Logger.LogInformation("[{Session}] Opening \"{Title}\" on {Host}:{Port}{Attempt}", logger.Id, tab.Origin.Title, target.Host, target.Port,
             tab.ReconnectAttempt > 0 ? $" (reconnect attempt {tab.ReconnectAttempt})" : string.Empty);
         tab.StateChanged += (_, _) => logger.OnStateChanged();
+        Open.Add(logger);
         return logger;
+    }
+
+    /// <summary>Writes the end of every session still open; Orrery is closing and their own ends won't be seen.</summary>
+    public static void CloseAll()
+    {
+        foreach (var logger in Open)
+        {
+            var elapsed = logger._opened.Elapsed;
+            Logger.LogInformation("[{Session}] Closed with Orrery after {Duration}", logger.Id,
+                Duration(logger._connectedAt is { } since ? elapsed - since : elapsed));
+        }
+
+        Open.Clear();
     }
 
     void OnStateChanged()
@@ -46,6 +63,11 @@ sealed class SessionLogger
         }
 
         _logged = state;
+        if (state is SessionState.Disconnected or SessionState.Failed)
+        {
+            Open.Remove(this);
+        }
+
         var elapsed = _opened.Elapsed;
         switch (state)
         {

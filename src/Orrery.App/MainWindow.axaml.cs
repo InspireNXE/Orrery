@@ -274,6 +274,7 @@ public partial class MainWindow : Window
         {
             _properties.TrySave();
             SaveNow();
+            SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
             {
                 _ = session.DisposeAsync().AsTask();

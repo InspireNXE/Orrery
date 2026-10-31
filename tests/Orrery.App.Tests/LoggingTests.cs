@@ -5,10 +5,13 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Logging;
+using Orrery.App.Sessions;
 using Orrery.App.Settings;
+using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
+using Orrery.Core.Sessions;
 using Orrery.Core.Storage;
 using Serilog.Core;
 using Serilog.Events;
@@ -132,6 +135,55 @@ public class LoggingTests : IDisposable
         var detailed = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => (c.Content as string)?.StartsWith("Detailed logging") == true);
         Assert.False(detailed.IsChecked);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_session_logs_opening_connecting_and_how_it_ended_under_its_own_id()
+    {
+        AppLog.Start(Location);
+        try
+        {
+            var dropped = new FakeSession();
+            var tab = new SessionTab(dropped, new Border(), new SessionOrigin("web", Protocol.Ssh, null, () => Task.CompletedTask));
+            var id = SessionLogger.Attach(tab).Id;
+            dropped.Set(SessionState.Connected);
+            Dispatcher.UIThread.RunJobs();
+            dropped.Set(SessionState.Failed, "The network went away");
+            Dispatcher.UIThread.RunJobs();
+
+            var stillOpen = new FakeSession();
+            var openId = SessionLogger.Attach(new SessionTab(stillOpen, new Border(), new SessionOrigin("db", Protocol.Rdp, null, () => Task.CompletedTask))).Id;
+            stillOpen.Set(SessionState.Connected);
+            Dispatcher.UIThread.RunJobs();
+            SessionLogger.CloseAll();
+
+            AppLog.Stop();
+            var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir)));
+            Assert.Matches(@"^ssh-[0-9a-f]{4}$", id);
+            Assert.Contains($"INF Session: [{id}] Opening \"web\" on box:22", text);
+            Assert.Contains($"INF Session: [{id}] Connected in ", text);
+            Assert.Contains($"WRN Session: [{id}] Dropped after 0 s: The network went away", text);
+            Assert.Contains($"INF Session: [{openId}] Closed with Orrery after 0 s", text);
+        }
+        finally
+        {
+            AppLog.Stop();
+        }
+    }
+
+    sealed class FakeSession : IConnectionSession
+    {
+        public ConnectionTarget Target { get; } = new("box", 22, "user", null);
+        public SessionState State { get; private set; } = SessionState.Connecting;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Set(SessionState state, string? message = null)
+        {
+            State = state;
+            StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        }
     }
 
     static LogEvent Event(ManualTime time, string template, params object[] values)
