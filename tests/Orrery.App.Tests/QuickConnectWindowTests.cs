@@ -21,7 +21,7 @@ public class QuickConnectWindowTests
         var owner = new Window();
         owner.Show();
         var window = new QuickConnectWindow(tree, [new OpenSession("web-01", "admin@web-01.corp", Protocol.Ssh)]);
-        var result = window.ShowDialog<QuickConnectChoice?>(owner);
+        var result = window.ShowOver(owner);
         Dispatcher.UIThread.RunJobs();
 
         window.GetVisualDescendants().OfType<TextBox>().Single().Text = query;
