@@ -228,6 +228,35 @@ public class PropertiesPanelTests
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "Lab · 1 guest");
     }
 
+    [AvaloniaFact]
+    public async Task A_credential_chosen_while_connecting_shows_and_survives_applying_other_edits()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "one", Host = "one.example" };
+        tree.Add(entry, tree.Root);
+        var store = new EmptyCredentialStore();
+        var panel = new PropertiesPanel(tree, store);
+        var window = new Window { Content = panel, Width = 400, Height = 600 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        // An edit not applied yet, then the connect prompt saves a credential and uses it from now on.
+        window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Text == "one").Text = "one renamed";
+        var admin = new CredentialSummary(Guid.NewGuid(), "Admin", CredentialKind.Password, "admin", null, null);
+        store.Items.Add(admin);
+        entry.Settings.CredentialId = admin.Id;
+        await panel.CredentialsChangedAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var picker = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Items.OfType<ComboBoxItem>().Any(i => Equals(i.Tag, admin.Id)));
+        Assert.Equal(admin.Id, (picker.SelectedItem as ComboBoxItem)?.Tag);
+
+        Assert.True(panel.TrySave());
+        Assert.Equal(admin.Id, entry.Settings.CredentialId);
+        Assert.Equal("one renamed", entry.Name);
+    }
+
     sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;
@@ -241,6 +270,8 @@ public class PropertiesPanelTests
 
         public TaskCompletionSource? FirstGate { get; private set; }
 
+        public List<CredentialSummary> Items { get; } = [];
+
         public bool IsLocked => false;
         public bool Exists => true;
         public Task UnlockAsync(string masterPassword) => Task.CompletedTask;
@@ -253,7 +284,7 @@ public class PropertiesPanelTests
                 await gate.Task;
             }
 
-            return [];
+            return Items.ToList();
         }
 
         public Task<Credential?> GetAsync(Guid id) => Task.FromResult<Credential?>(null);
