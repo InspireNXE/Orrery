@@ -1,6 +1,6 @@
 # Orrery design: host groups
 
-Status: **Agreed**, 2026-10-31 (owner's answers in §9)
+Status: **Built**, phases 1 to 5, 2026-10-31 (owner's answers in §9)
 Scope: letting a connection hold other connections ("guests"), so a host and what runs on it show as one item.
 
 ---

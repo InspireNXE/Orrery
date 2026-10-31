@@ -89,12 +89,13 @@ public sealed class InheritableSettings
     /// <summary>
     /// Takes every value this one inherits (null) from <paramref name="parent"/>, so a node lifted out of its
     /// folder keeps what it had. Every setting is nullable, so new ones are covered without listing them.
+    /// <paramref name="only"/> limits it to those settings, such as <see cref="PassedToGuests"/> for a host.
     /// </summary>
-    public void FillFrom(InheritableSettings parent)
+    public void FillFrom(InheritableSettings parent, IReadOnlySet<string>? only = null)
     {
         foreach (var property in SettingProperties)
         {
-            if (property.GetValue(this) is null)
+            if (only?.Contains(property.Name) != false && property.GetValue(this) is null)
             {
                 property.SetValue(this, property.GetValue(parent));
             }

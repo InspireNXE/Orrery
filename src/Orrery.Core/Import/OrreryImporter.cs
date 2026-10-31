@@ -79,6 +79,9 @@ public static class OrreryImporter
         root.Name = $"Imported from Orrery ({DateTime.Now:yyyy-MM-dd})";
         root.ImportSourceId = null;
 
+        // Links each node to its folder (and each guest to its host), so settings resolve before it's added.
+        _ = new ConnectionTree(root);
+
         var connections = root.Descendants().OfType<ConnectionEntry>().ToList();
         var protocols = connections.GroupBy(e => ProtocolInfo.Label(SettingsResolver.Resolve(e).Protocol.Value))
             .ToDictionary(g => g.Key, g => g.Count());
@@ -125,6 +128,16 @@ public static class OrreryImporter
             {
                 target.ChildList.Add(Rebuild(child, newIds, warnings));
             }
+        }
+        else if (node is ConnectionEntry { GuestList: { Count: > 0 } guests } original && copy is ConnectionEntry host)
+        {
+            if (guests.Any(g => g.GuestList is { Count: > 0 }))
+            {
+                throw new ImportException($"A guest of \"{original.Name}\" has guests of its own, so the file may be damaged.");
+            }
+
+            host.GuestsCollapsed = original.GuestsCollapsed;
+            host.GuestList = guests.Select(g => (ConnectionEntry)Rebuild(g, newIds, warnings)).ToList();
         }
 
         return copy;

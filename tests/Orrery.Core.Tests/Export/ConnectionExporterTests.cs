@@ -178,6 +178,106 @@ public class ConnectionExporterTests
         Assert.Throws<ImportException>(() => ImportOrrery(content));
     }
 
+    /// <summary>Lab / hv-01 (clipboard off, user root) with guests vm-a and vm-jump; vm-a goes through vm-jump.</summary>
+    static (ConnectionTree Tree, ConnectionFolder Lab, ConnectionEntry Host, ConnectionEntry VmA, ConnectionEntry VmJump) HostSample()
+    {
+        var tree = ConnectionTree.Empty();
+        var lab = new ConnectionFolder { Name = "Lab" };
+        var host = new ConnectionEntry { Name = "hv-01", Host = "hv-01.lab", Settings = { ShareClipboard = false, Username = "root" }, GuestsCollapsed = true };
+        var vmJump = new ConnectionEntry { Name = "vm-jump", Host = "vm-jump.lab", Settings = { Protocol = Protocol.Ssh } };
+        var vmA = new ConnectionEntry { Name = "vm-a", Host = "vm-a.lab", Settings = { Protocol = Protocol.Ssh, JumpHostId = vmJump.Id } };
+        tree.Add(lab, tree.Root);
+        tree.Add(host, lab);
+        tree.AddGuest(vmA, host);
+        tree.AddGuest(vmJump, host);
+        return (tree, lab, host, vmA, vmJump);
+    }
+
+    [Fact]
+    public void Hosts_and_their_guests_round_trip_through_an_orrery_export()
+    {
+        var (tree, lab, host, _, _) = HostSample();
+
+        var export = ConnectionExporter.Export(lab, ExportFormat.Orrery, Credentials, Now);
+        Assert.Contains("\"schemaVersion\": 2", export.Content);
+        Assert.Equal(3, export.Connections);
+        Assert.Contains("\"schemaVersion\": 1", ConnectionExporter.Export(Sample().Tree.Root, ExportFormat.Orrery, Credentials, Now).Content);
+
+        var imported = ImportOrrery(export.Content);
+        // Linked as it comes back, before it's added anywhere.
+        var newLab = Assert.IsType<ConnectionFolder>(Assert.Single(imported.Root.Children));
+        var newHost = Assert.IsType<ConnectionEntry>(Assert.Single(newLab.Children));
+        Assert.Same(newLab, newHost.Parent);
+        Assert.NotEqual(host.Id, newHost.Id);
+        Assert.True(newHost.GuestsCollapsed);
+        Assert.Equal(["vm-a", "vm-jump"], newHost.Guests.Select(g => g.Name));
+        Assert.All(newHost.Guests, g => Assert.Same(newHost, g.GuestOf));
+        Assert.All(newHost.Guests, g => Assert.Same(newLab, g.Parent));
+        var newVmA = newHost.Guests[0];
+        Assert.Equal(newHost.Guests[1].Id, newVmA.Settings.JumpHostId);
+        Assert.False(SettingsResolver.Resolve(newVmA).ShareClipboard.Value);
+        Assert.Equal(new Dictionary<string, int> { ["RDP"] = 1, ["SSH"] = 2 }, imported.Report.Protocols);
+
+        Assert.Equal(3, imported.CountAlreadyIn(tree));
+    }
+
+    [Fact]
+    public void A_guest_exported_on_its_own_is_a_plain_connection_with_what_it_took_from_its_host()
+    {
+        var (_, _, _, vmA, _) = HostSample();
+
+        var export = ConnectionExporter.Export(vmA, ExportFormat.Orrery, Credentials, Now);
+        Assert.Contains("\"schemaVersion\": 1", export.Content);
+        Assert.Contains(export.Warnings, w => w.Contains("jump host"));
+
+        var entry = Assert.IsType<ConnectionEntry>(Assert.Single(ImportOrrery(export.Content).Root.Children));
+        Assert.Null(entry.GuestOf);
+        Assert.False(entry.Settings.ShareClipboard);
+        Assert.Null(SettingsResolver.Resolve(entry).Username.Value);
+    }
+
+    [Fact]
+    public void An_mremoteng_export_writes_a_host_as_a_folder_holding_the_host_and_its_guests()
+    {
+        var (tree, _, _, _, _) = HostSample();
+
+        var first = ConnectionExporter.Export(tree.Root, ExportFormat.MRemoteNg, Credentials, Now);
+        Assert.Contains(first.Warnings, w => w.Contains("1 host was written as a folder"));
+        Assert.Equal(System.Text.RegularExpressions.Regex.Matches(first.Content, "Id=\"[^\"]+\"").Select(m => m.Value),
+            System.Text.RegularExpressions.Regex.Matches(ConnectionExporter.Export(tree.Root, ExportFormat.MRemoteNg, Credentials, Now).Content, "Id=\"[^\"]+\"").Select(m => m.Value));
+
+        var imported = new ConnectionTree(MRemoteNgImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(first.Content)), "confCons.xml").Root);
+        var lab = Assert.IsType<ConnectionFolder>(Assert.Single(imported.Root.Children));
+        var hostFolder = Assert.IsType<ConnectionFolder>(Assert.Single(lab.Children));
+        Assert.Equal("hv-01", hostFolder.Name);
+        Assert.False(hostFolder.Expanded);
+        Assert.Equal(["hv-01", "vm-a", "vm-jump"], hostFolder.Children.Select(c => c.Name));
+        Assert.Equal("hv-01.lab", ((ConnectionEntry)hostFolder.Children[0]).Host);
+        Assert.False(SettingsResolver.Resolve(hostFolder.Children[1]).ShareClipboard.Value);
+    }
+
+    [Fact]
+    public void A_csv_export_lists_guests_with_their_host_in_the_folder_column()
+    {
+        var (tree, _, _, _, _) = HostSample();
+
+        var lines = ConnectionExporter.Export(tree.Root, ExportFormat.Csv, Credentials, Now).Content.Split("\r\n");
+
+        Assert.StartsWith("Lab,hv-01,", lines[1]);
+        Assert.StartsWith("Lab / hv-01,vm-a,", lines[2]);
+    }
+
+    [Fact]
+    public void An_orrery_file_with_a_guest_that_has_guests_is_refused()
+    {
+        var content = """
+            {"format":"orrery-connections","schemaVersion":2,"root":{"type":"folder","children":[
+              {"type":"connection","name":"hv","guests":[{"name":"vm","guests":[{"name":"nested"}]}]}]}}
+            """;
+
+        Assert.Throws<ImportException>(() => ImportOrrery(content));
+    }
+
     [Fact]
     public void Filling_from_a_parent_covers_every_setting()
     {

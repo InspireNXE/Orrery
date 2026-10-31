@@ -32,7 +32,8 @@ public static class ConnectionExporter
 {
     /// <summary>Marks an Orrery export file, so it isn't mistaken for connections.json or anything else.</summary>
     internal const string OrreryFormatName = "orrery-connections";
-    internal const int OrrerySchemaVersion = 1;
+    /// <summary>The newest schema the importer reads. Files are written with the oldest that holds them (2 only with hosts).</summary>
+    internal const int OrrerySchemaVersion = 2;
 
     public static ExportFormat? FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
@@ -75,6 +76,12 @@ public static class ConnectionExporter
         }
         else
         {
+            // A guest exported on its own becomes a plain connection, keeping what it took from its host.
+            if (node is ConnectionEntry { GuestOf: { } host })
+            {
+                copy.Settings.FillFrom(host.Settings, InheritableSettings.PassedToGuests);
+            }
+
             foreach (var ancestor in node.Ancestors())
             {
                 copy.Settings.FillFrom(ancestor.Settings);
@@ -143,6 +150,11 @@ public static class ConnectionExporter
                 target.ChildList.Add(Copy(child));
             }
         }
+        else if (node is ConnectionEntry { IsHost: true } original && copy is ConnectionEntry host)
+        {
+            host.GuestsCollapsed = original.GuestsCollapsed;
+            host.GuestList = original.Guests.Select(g => (ConnectionEntry)Copy(g)).ToList();
+        }
 
         return copy;
     }
@@ -156,7 +168,7 @@ public static class ConnectionExporter
     internal sealed record OrreryFile(string Format, int SchemaVersion, DateTimeOffset Exported, ConnectionFolder Root);
 
     static string WriteOrrery(ConnectionTree tree, DateTimeOffset now) =>
-        JsonSerializer.Serialize(new OrreryFile(OrreryFormatName, OrrerySchemaVersion, now, tree.Root), ConnectionStore.JsonOptions);
+        JsonSerializer.Serialize(new OrreryFile(OrreryFormatName, ConnectionStore.SchemaFor(tree.Root), now, tree.Root), ConnectionStore.JsonOptions);
 
     // ---- mRemoteNG ----
 
@@ -216,6 +228,12 @@ public static class ConnectionExporter
                 new XAttribute("ConfVersion", "2.6"),
                 tree.Root.Children.Select(MRemoteNgNode)));
 
+        int hosts = tree.AllConnections().Count(e => e.IsHost);
+        if (hosts > 0)
+        {
+            warnings.Add($"mRemoteNG has no hosts, so {Count(hosts, "host was", "hosts were")} written as a folder holding the host and its guests.");
+        }
+
         var lost = new Dictionary<string, int>();
         void Lost(string what, bool when)
         {
@@ -248,18 +266,25 @@ public static class ConnectionExporter
         return output.ToString();
     }
 
-    static XElement MRemoteNgNode(ConnectionNode node)
+    static XElement MRemoteNgNode(ConnectionNode node) =>
+        node is ConnectionEntry { IsHost: true } host
+            ? MRemoteNgNode(host, asFolder: true, [MRemoteNgNode(host, asFolder: false, []), .. host.Guests.Select(MRemoteNgNode)])
+            : MRemoteNgNode(node, asFolder: node is ConnectionFolder, ((node as ConnectionFolder)?.Children ?? []).Select(MRemoteNgNode).ToList());
+
+    /// <param name="asFolder">Written as a container. A host is written twice: as a folder named after it, and inside that as the connection.</param>
+    static XElement MRemoteNgNode(ConnectionNode node, bool asFolder, List<XElement> children)
     {
         var resolved = SettingsResolver.Resolve(node);
         var values = new Dictionary<string, string>
         {
             ["Name"] = node.Name,
-            ["Type"] = node is ConnectionFolder ? "Container" : "Connection",
+            ["Type"] = asFolder ? "Container" : "Connection",
             ["Descr"] = node.Notes ?? string.Empty,
-            ["Id"] = node.Id.ToString(),
+            // A host's folder needs an id of its own; derived from the host's, so exporting again gives the same one.
+            ["Id"] = (asFolder && node is ConnectionEntry ? HostFolderId(node.Id) : node.Id).ToString(),
             ["Username"] = resolved.Username.Value ?? string.Empty,
             ["Domain"] = resolved.Domain.Value ?? string.Empty,
-            ["Hostname"] = (node as ConnectionEntry)?.Host ?? string.Empty,
+            ["Hostname"] = asFolder ? string.Empty : (node as ConnectionEntry)?.Host ?? string.Empty,
             ["Protocol"] = resolved.Protocol.Value switch
             {
                 Protocol.Ssh => "SSH2",
@@ -275,9 +300,10 @@ public static class ConnectionExporter
         foreach (var (name, fallback) in MRemoteNgAttributes)
         {
             element.Add(new XAttribute(name, values.GetValueOrDefault(name, fallback)));
-            if (name == "Type" && node is ConnectionFolder folder)
+            if (name == "Type" && asFolder)
             {
-                element.Add(new XAttribute("Expanded", folder.Expanded ? "true" : "false"));
+                bool expanded = node is ConnectionFolder folder ? folder.Expanded : !((ConnectionEntry)node).GuestsCollapsed;
+                element.Add(new XAttribute("Expanded", expanded ? "true" : "false"));
             }
         }
 
@@ -286,12 +312,15 @@ public static class ConnectionExporter
             element.Add(new XAttribute("Inherit" + flag, "false"));
         }
 
-        if (node is ConnectionFolder container)
-        {
-            element.Add(container.Children.Select(MRemoteNgNode));
-        }
-
+        element.Add(children);
         return element;
+    }
+
+    static Guid HostFolderId(Guid hostId)
+    {
+        var bytes = hostId.ToByteArray();
+        bytes[0] ^= 0xFF;
+        return new Guid(bytes);
     }
 
     /// <summary>So the XML declaration says utf-8, which is how the file is written.</summary>
