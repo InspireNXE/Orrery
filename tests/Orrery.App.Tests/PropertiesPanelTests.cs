@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using Orrery.App.Connections;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Sessions;
 using Xunit;
 
 namespace Orrery.App.Tests;
@@ -176,6 +177,32 @@ public class PropertiesPanelTests
 
         Assert.True(entry.Settings.AllowLegacySsh);
         Assert.True(SettingsResolver.Resolve(entry).AllowLegacySsh.Value);
+    }
+
+    [AvaloniaFact]
+    public async Task Display_quality_shows_what_is_inherited_and_can_be_set()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Branch office", Settings = { DisplayQuality = DisplayQuality.Fastest } };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example" };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var quality = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "DisplayQuality");
+        Assert.Equal("Fastest, for slow links", (quality.SelectedItem as ComboBoxItem)?.Content);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Branch office");
+
+        InheritBoxFor(quality).IsChecked = false;
+        quality.SelectedItem = quality.Items.OfType<ComboBoxItem>().Single(i => (DisplayQuality)i.Tag! == DisplayQuality.Best);
+        Assert.True(panel.TrySave());
+
+        Assert.Equal(DisplayQuality.Best, entry.Settings.DisplayQuality);
+        Assert.Equal(DisplayQuality.Best, SettingsResolver.Resolve(entry).DisplayQuality.Value);
     }
 
     [AvaloniaFact]

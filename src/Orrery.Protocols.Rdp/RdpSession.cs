@@ -56,8 +56,10 @@ public sealed class RdpSession : IFrameBufferSession
     /// remote machine needs that thread's single-threaded apartment.
     /// </summary>
     /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
+    /// <param name="quality">Which of the remote desktop's visual effects to ask for.</param>
     public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight,
-        ServerCertificateValidator certificateValidator, bool shareClipboard = true, ISessionRoute? route = null)
+        ServerCertificateValidator certificateValidator, bool shareClipboard = true, ISessionRoute? route = null,
+        DisplayQuality quality = DisplayQuality.Balanced)
     {
         var session = new RdpSession(target, certificateValidator, route);
         if (shareClipboard && OperatingSystem.IsWindows())
@@ -73,16 +75,16 @@ public sealed class RdpSession : IFrameBufferSession
             }
         }
 
-        session._readLoop = Task.Run(() => session.RunAsync(password, desktopWidth, desktopHeight));
+        session._readLoop = Task.Run(() => session.RunAsync(password, desktopWidth, desktopHeight, quality));
         return session;
     }
 
-    async Task RunAsync(string password, int desktopWidth, int desktopHeight)
+    async Task RunAsync(string password, int desktopWidth, int desktopHeight, DisplayQuality quality)
     {
         var token = _cts.Token;
         try
         {
-            var config = BuildConfig(Target, password, desktopWidth, desktopHeight);
+            var config = BuildConfig(Target, password, desktopWidth, desktopHeight, quality);
             var dial = await _route.DialAsync(Target, token);
             var (result, framed) = await RdpConnector.ConnectAsync(config, Target, dial, _certificateValidator, _clipboard?.BackendFactory(), token);
             _framed = new Framed<Stream>(framed.GetInner().Item1);
@@ -550,7 +552,22 @@ public sealed class RdpSession : IFrameBufferSession
         return bytes;
     }
 
-    static Config BuildConfig(ConnectionTarget target, string password, int width, int height)
+    /// <summary>
+    /// The performance flags for <paramref name="quality"/>, as mstsc's experience settings set them. Balanced is
+    /// IronRDP's own default; the server leaves out what's disabled, so less is drawn and sent.
+    /// </summary>
+    public static IReadOnlyList<PerformanceFlagsType> VisualEffects(DisplayQuality quality) => quality switch
+    {
+        DisplayQuality.Best => [PerformanceFlagsType.EnableFontSmoothing, PerformanceFlagsType.EnableDesktopComposition],
+        DisplayQuality.Fastest =>
+        [
+            PerformanceFlagsType.DisableWallpaper, PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations,
+            PerformanceFlagsType.DisableTheming, PerformanceFlagsType.DisableCursorShadow, PerformanceFlagsType.DisableCursorSettings,
+        ],
+        _ => [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing],
+    };
+
+    static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality)
     {
         var builder = ConfigBuilder.New();
         builder.WithUsernameAndPassword(target.Username ?? string.Empty, password);
@@ -563,7 +580,13 @@ public sealed class RdpSession : IFrameBufferSession
         builder.SetDesktopSize((ushort)height, (ushort)width);
         builder.ClientName = "Orrery";
         builder.ClientDir = "C:\\";
-        builder.PerformanceFlags = PerformanceFlags.NewDefault();
+        var flags = PerformanceFlags.NewEmpty();
+        foreach (var flag in VisualEffects(quality))
+        {
+            flags.AddFlag(flag);
+        }
+
+        builder.PerformanceFlags = flags;
 
         // NLA is required: credentials only ever go through CredSSP, inside a certificate-checked TLS session.
         // These are IronRDP's defaults today; they're set here so a changed default can't weaken the sign-in.

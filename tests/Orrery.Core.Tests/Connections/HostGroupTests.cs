@@ -1,4 +1,5 @@
 using Orrery.Core.Connections;
+using Orrery.Core.Sessions;
 using Xunit;
 
 namespace Orrery.Core.Tests.Connections;
@@ -262,6 +263,7 @@ public class HostGroupTests : IDisposable
         host.Settings.AllowLegacySsh = true;
         host.Settings.DesktopSize = "1280x720";
         host.Settings.EnlargeRemoteDesktop = false;
+        host.Settings.DisplayQuality = DisplayQuality.Fastest;
 
         var resolved = SettingsResolver.Resolve(vmA);
         Assert.Equal(Protocol.Rdp, resolved.Protocol.Value);
@@ -274,6 +276,7 @@ public class HostGroupTests : IDisposable
         Assert.False(resolved.AllowLegacySsh.Value);
         Assert.Null(resolved.DesktopSize.Value);
         Assert.Null(resolved.EnlargeRemoteDesktop.Value);
+        Assert.Equal(DisplayQuality.Balanced, resolved.DisplayQuality.Value);
     }
 
     [Fact]

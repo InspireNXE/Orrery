@@ -18,6 +18,11 @@ Version 0.1.0. Early days: the protocols work, but several things still need tes
 - **SFTP file browser**: open an SSH connection's files in a tab beside its terminal (right-click it, or its tab,
   and choose *Browse files*). Browse, upload (or drop files in), download, rename, delete and make folders, with
   progress and Cancel. It uses the same login, agent keys and jump hosts as the terminal.
+- **Display quality**: per connection or folder, Balanced, Best look or Fastest. For RDP it picks the remote
+  desktop's visual effects (wallpaper, themes, font smoothing, desktop composition); for VNC, the JPEG quality the
+  server uses when it sends Tight (which needs TurboJPEG installed). HDR isn't possible over RDP or VNC, and RDP
+  can't follow your display scaling yet because IronRDP's .NET binding doesn't pass it on; *Enlarge to match
+  display scaling* enlarges the picture locally instead.
 - **Connection tree**: folders, drag and drop, multi-select (Ctrl- and Shift-click), filter, inherited settings,
   and host groups (a host with its guest machines one level below it).
 - **Credentials**: kept in Windows Credential Manager, the macOS Keychain or the Linux Secret Service, or in an

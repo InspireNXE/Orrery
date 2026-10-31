@@ -3,6 +3,7 @@ using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
+using Orrery.Core.Sessions;
 using Xunit;
 
 namespace Orrery.Core.Tests.Export;
@@ -118,6 +119,29 @@ public class ConnectionExporterTests
 
         Assert.Contains(export.Warnings, w => w.Contains("vault was locked"));
         Assert.DoesNotContain("admin", export.Content);
+    }
+
+    [Fact]
+    public void Display_quality_survives_an_mremoteng_round_trip()
+    {
+        var tree = ConnectionTree.Empty();
+        foreach (var (name, protocol, quality) in new (string, Protocol, DisplayQuality?)[]
+        {
+            ("default", Protocol.Rdp, null), ("best", Protocol.Rdp, DisplayQuality.Best), ("fast", Protocol.Rdp, DisplayQuality.Fastest),
+            ("fast vnc", Protocol.Vnc, DisplayQuality.Fastest),
+        })
+        {
+            tree.Add(new ConnectionEntry { Name = name, Host = $"{name}.example", Settings = { Protocol = protocol, DisplayQuality = quality } }, tree.Root);
+        }
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.MRemoteNg, Credentials, Now);
+        var imported = new ConnectionTree(MRemoteNgImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "confCons.xml").Root);
+
+        DisplayQuality Quality(string name) => SettingsResolver.Resolve(imported.AllConnections().Single(e => e.Name == name)).DisplayQuality.Value;
+        Assert.Equal(DisplayQuality.Balanced, Quality("default"));
+        Assert.Equal(DisplayQuality.Best, Quality("best"));
+        Assert.Equal(DisplayQuality.Fastest, Quality("fast"));
+        Assert.Equal(DisplayQuality.Fastest, Quality("fast vnc"));
     }
 
     [Fact]

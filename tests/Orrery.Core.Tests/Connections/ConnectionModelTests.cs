@@ -1,4 +1,5 @@
 using Orrery.Core.Connections;
+using Orrery.Core.Sessions;
 using Xunit;
 
 namespace Orrery.Core.Tests.Connections;
@@ -158,6 +159,26 @@ public class ConnectionModelTests : IDisposable
         web01.Settings.AllowLegacySsh = false;
         Assert.False(SettingsResolver.Resolve(web01).AllowLegacySsh.Value);
         Assert.True(SettingsResolver.ResolveInherited(web01).AllowLegacySsh.Value);
+    }
+
+    [Fact]
+    public void Display_quality_is_balanced_by_default_follows_folders_and_is_saved_by_name()
+    {
+        var (tree, production, _, web01) = Sample();
+        Assert.Equal(DisplayQuality.Balanced, SettingsResolver.Resolve(web01).DisplayQuality.Value);
+        Assert.True(SettingsResolver.Resolve(web01).DisplayQuality.IsDefault);
+
+        production.Settings.DisplayQuality = DisplayQuality.Fastest;
+        Assert.Equal(DisplayQuality.Fastest, SettingsResolver.Resolve(web01).DisplayQuality.Value);
+        Assert.Same(production, SettingsResolver.Resolve(web01).DisplayQuality.Source);
+
+        web01.Settings.DisplayQuality = DisplayQuality.Best;
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "quality.json");
+        var saved = new ConnectionStore(path, Path.Combine(_dir, "backups"));
+        saved.Save(tree);
+        Assert.Contains("\"displayQuality\": \"best\"", File.ReadAllText(path));
+        Assert.Equal(DisplayQuality.Best, SettingsResolver.Resolve(saved.Load().Find(web01.Id)!).DisplayQuality.Value);
     }
 
     [Fact]

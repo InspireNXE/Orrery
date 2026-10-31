@@ -6,6 +6,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Sessions;
 using Orrery.Core.Import;
 
 namespace Orrery.Core.Export;
@@ -393,6 +394,12 @@ public static class ConnectionExporter
             },
             ["Port"] = resolved.Port.Value.ToString(CultureInfo.InvariantCulture),
             ["RedirectClipboard"] = resolved.ShareClipboard.Value ? "true" : "false",
+            // The visual effects and VNC compression the display quality stands for; importing reads them back the same.
+            ["DisplayWallpaper"] = resolved.DisplayQuality.Value != DisplayQuality.Fastest ? "true" : "false",
+            ["DisplayThemes"] = resolved.DisplayQuality.Value != DisplayQuality.Fastest ? "true" : "false",
+            ["EnableFontSmoothing"] = resolved.DisplayQuality.Value != DisplayQuality.Fastest ? "true" : "false",
+            ["EnableDesktopComposition"] = resolved.DisplayQuality.Value == DisplayQuality.Best ? "true" : "false",
+            ["VNCCompression"] = resolved.DisplayQuality.Value == DisplayQuality.Fastest ? "Comp9" : "CompNone",
         };
 
         var element = new XElement("Node");

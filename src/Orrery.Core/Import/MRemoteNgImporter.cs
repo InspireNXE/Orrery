@@ -4,6 +4,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Sessions;
 
 namespace Orrery.Core.Import;
 
@@ -411,6 +412,11 @@ public static class MRemoteNgImporter
                     SetClipboard(folder, node);
                 }
 
+                if (node.Children.Any(c => QualityAttributes.Any(c.Inherits)))
+                {
+                    SetQuality(folder, node, MapProtocol(node.Effective("Protocol")) ?? Protocol.Rdp);
+                }
+
                 foreach (var child in node.Children)
                 {
                     Add(child, folder);
@@ -452,6 +458,7 @@ public static class MRemoteNgImporter
             SetText(entry, node.Effective("Username"), s => s.Username, (s, v) => s.Username = v);
             SetText(entry, node.Effective("Domain"), s => s.Domain, (s, v) => s.Domain = v);
             SetClipboard(entry, node);
+            SetQuality(entry, node, mapped);
             AddCredential(entry, node);
             NoteUnsupported(node, mapped);
         }
@@ -574,6 +581,46 @@ public static class MRemoteNgImporter
             if (SettingsResolver.Resolve(node).ShareClipboard.Value != share)
             {
                 node.Settings.ShareClipboard = share;
+            }
+        }
+
+        /// <summary>The mRemoteNG attributes <see cref="QualityFrom"/> reads.</summary>
+        static readonly string[] QualityAttributes =
+            ["DisplayWallpaper", "DisplayThemes", "EnableFontSmoothing", "EnableDesktopComposition", "VNCCompression", "VNCColors"];
+
+        /// <summary>
+        /// mRemoteNG's visual-effect switches (RDP) or VNC compression and colours as a display quality: every effect
+        /// on is Best, none is Fastest, a mix is Balanced. Null when there's nothing to go on, or a VNC connection
+        /// doesn't ask for speed (VNC's Best and Balanced are the same).
+        /// </summary>
+        static DisplayQuality? QualityFrom(MNode source, Protocol protocol)
+        {
+            if (protocol == Protocol.Vnc)
+            {
+                return source.Effective("VNCCompression") is "Comp7" or "Comp8" or "Comp9" || source.Effective("VNCColors") == "Col8Bit"
+                    ? DisplayQuality.Fastest
+                    : null;
+            }
+
+            var effects = QualityAttributes[..4].Select(source.Effective).Where(v => bool.TryParse(v, out _)).Select(bool.Parse).ToList();
+            return effects.Count == 0 ? null
+                : effects.All(on => on) ? DisplayQuality.Best
+                : effects.Any(on => on) ? DisplayQuality.Balanced
+                : DisplayQuality.Fastest;
+        }
+
+        /// <summary>The display quality from <see cref="QualityFrom"/>, stored only where it differs from what's inherited.</summary>
+        static void SetQuality(ConnectionNode node, MNode source, Protocol protocol)
+        {
+            if (QualityFrom(source, protocol) is not { } quality)
+            {
+                return;
+            }
+
+            node.Settings.DisplayQuality = null;
+            if (SettingsResolver.Resolve(node).DisplayQuality.Value != quality)
+            {
+                node.Settings.DisplayQuality = quality;
             }
         }
 
