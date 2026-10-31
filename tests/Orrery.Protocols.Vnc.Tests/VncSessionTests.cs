@@ -262,4 +262,41 @@ public class VncSessionTests
         Assert.Empty(server.ClientClipboard);
         Assert.False(received);
     }
+
+    // The fine-grained JPEG quality pseudo-encodings are -512 (0%) to -412 (100%); subsampling is -768 (none) to -763.
+    static bool IsFineQuality(int encoding) => encoding is >= -512 and <= -412;
+
+    [Fact]
+    public async Task Fastest_quality_asks_the_server_for_lower_quality_jpeg()
+    {
+        await using var server = new TestRfbServer(password: null);
+        var connected = new TaskCompletionSource();
+        await using var session = VncSession.Start(new ConnectionTarget("127.0.0.1", server.Port, null, null), string.Empty,
+            quality: DisplayQuality.Fastest);
+        session.FrameUpdated += (_, _) => connected.TrySetResult();
+        await connected.Task.WaitAsync(Wait);
+
+        Assert.Equal(-512 + 60, Assert.Single(server.Encodings, IsFineQuality));
+        Assert.Contains(-768 + 1, server.Encodings); // 4x chroma subsampling
+    }
+
+    [Fact]
+    public async Task Balanced_quality_asks_for_full_quality_jpeg()
+    {
+        await using var server = new TestRfbServer(password: null);
+        await using var session = await ConnectAsync(server, string.Empty);
+
+        Assert.Equal(-412, Assert.Single(server.Encodings, IsFineQuality));
+        Assert.Contains(-768, server.Encodings); // no subsampling
+    }
+
+    [Fact]
+    public void Best_and_balanced_are_full_quality_and_fastest_gives_some_up()
+    {
+        Assert.Equal((100, MarcusW.VncClient.JpegSubsamplingLevel.None), VncSession.ImageSettings(DisplayQuality.Balanced));
+        Assert.Equal(VncSession.ImageSettings(DisplayQuality.Balanced), VncSession.ImageSettings(DisplayQuality.Best));
+        var (jpeg, subsampling) = VncSession.ImageSettings(DisplayQuality.Fastest);
+        Assert.True(jpeg < 100);
+        Assert.NotEqual(MarcusW.VncClient.JpegSubsamplingLevel.None, subsampling);
+    }
 }

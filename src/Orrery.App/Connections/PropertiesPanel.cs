@@ -7,6 +7,7 @@ using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
 
@@ -36,9 +37,10 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _enlarge = Switch("EnlargeRemoteDesktop");
     readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, Watermark = "Fit the window" };
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -73,6 +75,14 @@ sealed class PropertiesPanel : UserControl
         ToolTip.SetTip(_desktopSizeRow.View, "RDP: empty fits the window and follows it as it changes; or a fixed size like 1920x1080, scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
         ToolTip.SetTip(_enlargeRow.View, "RDP, VNC: on enlarges the remote desktop at 125% scaling and above; off shows it pixel for pixel. Applies to new connections.");
+        foreach (var (quality, label) in QualityLabels)
+        {
+            _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
+        }
+
+        _qualityRow = new InheritRow("Display quality", _quality, () => ShowInherited(r => SelectQuality(r.DisplayQuality.Value)));
+        ToolTip.SetTip(_qualityRow.View, "RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
+            + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
         ToolTip.SetTip(_autoReconnectRow.View, "Try again by itself, up to 5 times, when an open session is cut off. Not after logging off or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
@@ -127,7 +137,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Header(_tile, _title, _path),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
-                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
+                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
                 _notesField,
             },
@@ -159,7 +169,8 @@ sealed class PropertiesPanel : UserControl
         _jumpHost.SelectionChanged += (_, _) => MarkDirty();
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow })
+        _quality.SelectionChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -240,6 +251,9 @@ sealed class PropertiesPanel : UserControl
 
             _enlargeRow.Load(own.EnlargeRemoteDesktop is null, inherited.EnlargeRemoteDesktop.IsDefault ? "From Settings" : Describe(inherited.EnlargeRemoteDesktop));
             _enlarge.IsChecked = own.EnlargeRemoteDesktop ?? inherited.Enlarge(_enlargeByDefault());
+
+            _qualityRow.Load(own.DisplayQuality is null, Describe(inherited.DisplayQuality));
+            SelectQuality(own.DisplayQuality ?? inherited.DisplayQuality.Value);
 
             _autoReconnectRow.Load(own.AutoReconnect is null, Describe(inherited.AutoReconnect));
             _autoReconnect.IsChecked = own.AutoReconnect ?? inherited.AutoReconnect.Value;
@@ -385,6 +399,7 @@ sealed class PropertiesPanel : UserControl
             AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
             DesktopSize = desktopSize,
             EnlargeRemoteDesktop = _enlargeRow.Inherit.IsChecked == true ? null : _enlarge.IsChecked == true,
+            DisplayQuality = _qualityRow.Inherit.IsChecked == true ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?,
             AutoReconnect = _autoReconnectRow.Inherit.IsChecked == true ? null : _autoReconnect.IsChecked == true,
             JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
         };
@@ -450,6 +465,16 @@ sealed class PropertiesPanel : UserControl
 
     void SelectProtocol(Protocol protocol) =>
         _protocol.SelectedItem = _protocol.Items.OfType<ComboBoxItem>().First(i => (Protocol)i.Tag! == protocol);
+
+    static readonly (DisplayQuality Quality, string Label)[] QualityLabels =
+    [
+        (DisplayQuality.Balanced, "Balanced"),
+        (DisplayQuality.Best, "Best look"),
+        (DisplayQuality.Fastest, "Fastest, for slow links"),
+    ];
+
+    void SelectQuality(DisplayQuality quality) =>
+        _quality.SelectedItem = _quality.Items.OfType<ComboBoxItem>().First(i => (DisplayQuality)i.Tag! == quality);
 
     /// <summary>"Connect directly", then every saved SSH connection except <paramref name="node"/> itself.</summary>
     void FillJumpHosts(ConnectionNode node)

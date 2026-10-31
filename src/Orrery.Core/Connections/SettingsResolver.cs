@@ -1,3 +1,5 @@
+using Orrery.Core.Sessions;
+
 namespace Orrery.Core.Connections;
 
 /// <summary>An effective setting and the node it came from; Source is null when the default applies.</summary>
@@ -18,7 +20,8 @@ public sealed record ResolvedSettings(
     Resolved<Guid?> JumpHostId,
     Resolved<bool> AutoReconnect,
     Resolved<string?> DesktopSize,
-    Resolved<bool?> EnlargeRemoteDesktop)
+    Resolved<bool?> EnlargeRemoteDesktop,
+    Resolved<DisplayQuality> DisplayQuality)
 {
     /// <summary>Whether to enlarge the remote desktop: the tree's value, else <paramref name="appSetting"/>.</summary>
     public bool Enlarge(bool appSetting) => EnlargeRemoteDesktop.Value ?? appSetting;
@@ -67,7 +70,10 @@ public static class SettingsResolver
             // No Orrery default here: the app's "Enlarge remote desktops" setting fills in, see ResolvedSettings.Enlarge.
             Find(node, includeSelf, nameof(InheritableSettings.EnlargeRemoteDesktop), s => s.EnlargeRemoteDesktop) is { } enlarge
                 ? new Resolved<bool?>(enlarge.Value, enlarge.Source)
-                : new Resolved<bool?>(null, null));
+                : new Resolved<bool?>(null, null),
+            Find(node, includeSelf, nameof(InheritableSettings.DisplayQuality), s => s.DisplayQuality) is { } quality
+                ? new Resolved<DisplayQuality>(quality.Value!.Value, quality.Source)
+                : new Resolved<DisplayQuality>(Sessions.DisplayQuality.Balanced, null));
     }
 
     /// <summary>

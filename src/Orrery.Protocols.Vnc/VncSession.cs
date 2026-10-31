@@ -56,14 +56,16 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     readonly ILoggerFactory _logging;
     readonly bool _shareClipboard;
     readonly ISessionRoute? _route;
+    readonly DisplayQuality _quality;
 
-    VncSession(ConnectionTarget target, string password, bool shareClipboard, ILoggerFactory? logging, ISessionRoute? route)
+    VncSession(ConnectionTarget target, string password, bool shareClipboard, ILoggerFactory? logging, ISessionRoute? route, DisplayQuality quality)
     {
         Target = target;
         _password = password;
         _shareClipboard = shareClipboard;
         _logging = logging ?? NullLoggerFactory.Instance;
         _route = route;
+        _quality = quality;
     }
 
     public ConnectionTarget Target { get; }
@@ -79,9 +81,11 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     /// <param name="logging">The VNC library's own diagnostics; none when null.</param>
     /// <param name="shareClipboard">Exchange clipboard text with the server (RFB carries Latin-1 only).</param>
     /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
-    public static VncSession Start(ConnectionTarget target, string password, bool shareClipboard = true, ILoggerFactory? logging = null, ISessionRoute? route = null)
+    /// <param name="quality">How much image quality to give up for speed; it only changes the quality of Tight's JPEG.</param>
+    public static VncSession Start(ConnectionTarget target, string password, bool shareClipboard = true, ILoggerFactory? logging = null, ISessionRoute? route = null,
+        DisplayQuality quality = DisplayQuality.Balanced)
     {
-        var session = new VncSession(target, password, shareClipboard, logging, route);
+        var session = new VncSession(target, password, shareClipboard, logging, route, quality);
         session._connectTask = Task.Run(session.ConnectAsync);
         return session;
     }
@@ -92,8 +96,11 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         {
             var (host, port) = await _route.DialAsync(Target, _cts.Token);
             var client = new VncClient(_logging, new ClosableImplementation(this));
+            var (jpegQuality, subsampling) = ImageSettings(_quality);
             var parameters = new ConnectParameters
             {
+                JpegQualityLevel = jpegQuality,
+                JpegSubsamplingLevel = subsampling,
                 TransportParameters = new TcpTransportParameters { Host = host, Port = port },
                 AuthenticationHandler = new Authenticator(_password),
                 InitialRenderTarget = this,
@@ -122,6 +129,18 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
             SetState(SessionState.Failed, Describe(e));
         }
     }
+
+    /// <summary>
+    /// JPEG quality (percent) and chroma subsampling for <paramref name="quality"/>. Full quality is the library's
+    /// default, so Best and Balanced are the same. JPEG only applies when the server sends Tight, which needs
+    /// TurboJPEG installed here; otherwise the image is lossless. The library doesn't send a compression level
+    /// (ConnectParameters.PreferredCompressionLevel is left out of what it asks for), so there's none to set.
+    /// </summary>
+    public static (int JpegQuality, JpegSubsamplingLevel Subsampling) ImageSettings(DisplayQuality quality) => quality switch
+    {
+        DisplayQuality.Fastest => (60, JpegSubsamplingLevel.ChrominanceSubsampling4X),
+        _ => (100, JpegSubsamplingLevel.None),
+    };
 
     static string Describe(Exception e) => e switch
     {

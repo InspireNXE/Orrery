@@ -2,6 +2,7 @@ using System.Text;
 using System.Xml.Linq;
 using Orrery.Core.Connections;
 using Orrery.Core.Import;
+using Orrery.Core.Sessions;
 using Xunit;
 
 namespace Orrery.Core.Tests.Import;
@@ -167,6 +168,41 @@ public class MRemoteNgImporterTests
         Assert.True(Entry(result, "own").Settings.ShareClipboard);
         Assert.Null(Entry(result, "plain").Settings.ShareClipboard); // Same as the default: nothing stored.
         Assert.True(SettingsResolver.Resolve(Entry(result, "plain")).ShareClipboard.Value);
+    }
+
+    [Fact]
+    public void Visual_effects_and_vnc_compression_become_a_display_quality()
+    {
+        static XAttribute[] Effects(bool wallpaper, bool themes, bool smoothing, bool composition) =>
+        [
+            new("DisplayWallpaper", wallpaper), new("DisplayThemes", themes),
+            new("EnableFontSmoothing", smoothing), new("EnableDesktopComposition", composition),
+        ];
+
+        var result = Import(File(new[]
+        {
+            Node("Slow site", "Container", Effects(false, false, false, false),
+                Node("inherits", "Connection", Conn("RDP", "3389"), Effects(true, true, true, true),
+                    new XAttribute("InheritDisplayWallpaper", "true"), new XAttribute("InheritDisplayThemes", "true"),
+                    new XAttribute("InheritEnableFontSmoothing", "true"), new XAttribute("InheritEnableDesktopComposition", "true")),
+                Node("everything on", "Connection", Conn("RDP", "3389"), Effects(true, true, true, true))),
+            Node("mixed", "Connection", Conn("RDP", "3389"), Effects(true, true, true, false)),
+            Node("no effects listed", "Connection", Conn("RDP", "3389")),
+            Node("squeezed vnc", "Connection", Conn("VNC", "5900"), new XAttribute("VNCCompression", "Comp9")),
+            Node("plain vnc", "Connection", Conn("VNC", "5900"), new XAttribute("VNCCompression", "CompNone")),
+        }));
+
+        DisplayQuality Quality(string name) => SettingsResolver.Resolve(Entry(result, name)).DisplayQuality.Value;
+        var folder = Assert.Single(result.Root.Children.OfType<ConnectionFolder>());
+        Assert.Equal(DisplayQuality.Fastest, folder.Settings.DisplayQuality);
+        Assert.Null(Entry(result, "inherits").Settings.DisplayQuality);
+        Assert.Equal(DisplayQuality.Fastest, Quality("inherits"));
+        Assert.Equal(DisplayQuality.Best, Quality("everything on"));
+        Assert.Null(Entry(result, "mixed").Settings.DisplayQuality); // Balanced is the default: nothing stored.
+        Assert.Equal(DisplayQuality.Balanced, Quality("mixed"));
+        Assert.Null(Entry(result, "no effects listed").Settings.DisplayQuality);
+        Assert.Equal(DisplayQuality.Fastest, Quality("squeezed vnc"));
+        Assert.Equal(DisplayQuality.Balanced, Quality("plain vnc"));
     }
 
     [Fact]
