@@ -147,13 +147,17 @@ public sealed class SftpSession : IConnectionSession
         items.OrderByDescending(i => i.IsDirectory).ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Copies <paramref name="item"/> into the local folder <paramref name="localFolder"/>, a folder with everything
-    /// in it. <paramref name="progress"/> gets the bytes copied so far across the whole transfer.
+    /// Copies <paramref name="items"/> into the local folder <paramref name="localFolder"/>, each under its
+    /// <see cref="SftpItem.Name"/> and folders with everything in them. <paramref name="progress"/> gets the bytes
+    /// copied so far across all of them.
     /// </summary>
-    public Task DownloadAsync(SftpItem item, string localFolder, IProgress<long>? progress = null, CancellationToken token = default) => Run(async () =>
+    public Task DownloadAsync(IReadOnlyList<SftpItem> items, string localFolder, IProgress<long>? progress = null, CancellationToken token = default) => Run(async () =>
     {
         long done = 0;
-        await DownloadIntoAsync(item, localFolder);
+        foreach (var item in items)
+        {
+            await DownloadIntoAsync(item, localFolder);
+        }
 
         async Task DownloadIntoAsync(SftpItem from, string folder)
         {
@@ -192,13 +196,17 @@ public sealed class SftpSession : IConnectionSession
     });
 
     /// <summary>
-    /// Copies the local file or folder <paramref name="localPath"/> into <paramref name="remoteFolder"/>, a folder
-    /// with everything in it, replacing files of the same name. <paramref name="progress"/> gets the bytes copied so far.
+    /// Copies the local files and folders <paramref name="localPaths"/> into <paramref name="remoteFolder"/>, folders
+    /// with everything in them, replacing files of the same name. <paramref name="progress"/> gets the bytes copied
+    /// so far across all of them.
     /// </summary>
-    public Task UploadAsync(string localPath, string remoteFolder, IProgress<long>? progress = null, CancellationToken token = default) => Run(async () =>
+    public Task UploadAsync(IReadOnlyList<string> localPaths, string remoteFolder, IProgress<long>? progress = null, CancellationToken token = default) => Run(async () =>
     {
         long done = 0;
-        await UploadIntoAsync(localPath, remoteFolder);
+        foreach (var path in localPaths)
+        {
+            await UploadIntoAsync(path, remoteFolder);
+        }
 
         async Task UploadIntoAsync(string from, string folder)
         {
