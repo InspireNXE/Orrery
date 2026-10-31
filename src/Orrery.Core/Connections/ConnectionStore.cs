@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Storage;
 
 namespace Orrery.Core.Connections;
@@ -11,6 +13,8 @@ namespace Orrery.Core.Connections;
 /// </summary>
 public sealed class ConnectionStore(string path, string backupDirectory, int backupsToKeep = 10, TimeSpan? backupInterval = null)
 {
+    static readonly ILogger Logger = Log.For("Storage");
+
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
 
     // 2 added hosts' guests. A tree without hosts is still written as 1, so older builds keep reading it; one
@@ -40,6 +44,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
     {
         if (!File.Exists(path))
         {
+            Logger.LogInformation("No connections file yet at {Path}", path);
             return ConnectionTree.Empty();
         }
 
@@ -50,7 +55,10 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             throw new InvalidDataException("connections.json was written by a newer version of Orrery.");
         }
 
-        return new ConnectionTree(file.Root);
+        var tree = new ConnectionTree(file.Root);
+        Logger.LogInformation("Loaded {Connections} connections in {Folders} folders from {Path}", tree.Root.Descendants().OfType<ConnectionEntry>().Count(),
+            tree.Root.Descendants().OfType<ConnectionFolder>().Count(), path);
+        return tree;
     }
 
     public void Save(ConnectionTree tree)
@@ -61,6 +69,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
 
         AtomicFile.WriteAllText(path, JsonSerializer.Serialize(new FileModel(SchemaFor(tree.Root), tree.Root), JsonOptions));
+        Logger.LogDebug("Saved {Connections} connections", tree.Root.Descendants().OfType<ConnectionEntry>().Count());
     }
 
     void Backup()
@@ -80,10 +89,12 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         PrivateStorage.RestrictFile(backup);
         File.SetLastWriteTimeUtc(backup, DateTime.UtcNow);
         backups.Add(backup);
+        Logger.LogInformation("Backed up connections to {Backup}", name);
 
         foreach (var old in backups.Take(Math.Max(0, backups.Count - backupsToKeep)))
         {
             File.Delete(old);
+            Logger.LogDebug("Removed old backup {Backup}", Path.GetFileName(old));
         }
     }
 

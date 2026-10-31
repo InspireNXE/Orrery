@@ -183,6 +183,7 @@ public partial class MainWindow : Window
                 () => new HostKeyPromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
 
         _credentials = CredentialStores.For(location, _settingsStore.Load());
+        StorageLog.LogInformation("Credentials are kept in {Store}", (_credentials as KeychainCredentialStore)?.BackendName ?? "the vault file");
         if (_credentials is VaultFileStore vault)
         {
             vault.AutoLocked += (_, _) => Dispatcher.UIThread.Post(async () =>
@@ -304,6 +305,7 @@ public partial class MainWindow : Window
                 aside = path;
             }
 
+            StorageLog.LogError("Couldn't read connections.json ({Message}); kept it as {Aside} and started empty", e.Message, aside);
             return (ConnectionTree.Empty(),
                 $"{e.Message}\n\nThe file was kept as:\n{aside}\n\nRecent copies are in the backups folder next to it. Orrery is starting with an empty list.");
         }
@@ -1608,6 +1610,7 @@ public partial class MainWindow : Window
     sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards);
 
     static readonly ILogger ConnectLog = Log.For("Connect");
+    static readonly ILogger StorageLog = Log.For("Storage");
 
     /// <summary>A username as the log shows it, with its domain when there is one.</summary>
     static string Account(string? username, string? domain) =>
@@ -2231,6 +2234,7 @@ public partial class MainWindow : Window
             }
             catch (Exception e) when (e is ImportException or IOException or UnauthorizedAccessException)
             {
+                StorageLog.LogWarning("Couldn't import {Path}: {Message}", path, e.Message);
                 await Dialogs.ShowMessageAsync(this, "Couldn't import this file", e.Message);
                 return;
             }
@@ -2273,6 +2277,7 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
+            StorageLog.LogWarning("Couldn't save the imported credentials: {Message}", e.Message);
             await Dialogs.ShowMessageAsync(this, "Couldn't save the imported credentials", $"{e.Message}\n\nNothing was imported.");
             return;
         }
@@ -2287,6 +2292,8 @@ public partial class MainWindow : Window
             Select(importedFolder.Id);
         }
 
+        StorageLog.LogInformation("Imported {Connections} connections in {Folders} folders and {Credentials} credentials from {Path}",
+            result.Report.Connections, result.Report.Folders, result.Credentials.Count, path);
         var reportPath = WriteImportReport(result.Report);
         await Dialogs.ShowMessageAsync(this, $"Imported {result.Report.Connections} connection{(result.Report.Connections == 1 ? "" : "s")}",
             reportPath is null ? "The import is complete." : $"A summary of what was and wasn't imported is saved at:\n{reportPath}");
@@ -2410,6 +2417,8 @@ public partial class MainWindow : Window
                 AtomicFile.WriteAllText(path, exported.Content);
                 return exported;
             });
+            StorageLog.LogInformation("Exported {Connections} connections as {Format} to {Path}, {Secrets} with passwords, {Warnings} warnings",
+                result.Connections, format.ToString(), path, result.Secrets, result.Warnings.Count);
             var included = secrets is null ? "Passwords and keys aren't included."
                 : format == ExportFormat.Orrery
                     ? $"{result.Secrets} saved credential{(result.Secrets == 1 ? " is" : "s are")} included. The whole file is encrypted with the password you chose."
@@ -2425,6 +2434,7 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            StorageLog.LogWarning("Couldn't export to {Path}: {Message}", path, e.Message);
             await Dialogs.ShowMessageAsync(this, "Couldn't export", e.Message);
         }
     }

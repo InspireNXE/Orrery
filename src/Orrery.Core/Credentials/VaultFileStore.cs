@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using NSec.Cryptography;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Storage;
 
 namespace Orrery.Core.Credentials;
@@ -18,6 +20,8 @@ namespace Orrery.Core.Credentials;
 /// </summary>
 public sealed class VaultFileStore : ICredentialStore, IDisposable
 {
+    static readonly ILogger Logger = Log.For("Vault");
+
     const string Format = "orrery-vault";
     const int Version = 1;
     const string KdfName = "argon2id";
@@ -125,6 +129,8 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                 Touch();
                 Save();
             }
+
+            Logger.LogInformation("Created a new vault at {Path}", _path);
         }
         finally
         {
@@ -141,6 +147,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         }
         catch (JsonException)
         {
+            Logger.LogWarning("The vault at {Path} isn't readable JSON", _path);
             throw new InvalidDataException(Damaged);
         }
 
@@ -171,7 +178,9 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
         if (dataKeyBytes is null)
         {
-            lock (_lock) _failedAttempts++;
+            int attempts;
+            lock (_lock) attempts = ++_failedAttempts;
+            Logger.LogWarning("Vault unlock failed: wrong master password ({Attempts} in a row)", attempts);
             throw new WrongVaultPasswordException();
         }
 
@@ -198,6 +207,8 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                 _failedAttempts = 0;
                 Touch();
             }
+
+            Logger.LogInformation("Vault unlocked, {Count} credentials", items.Count);
         }
         finally
         {
@@ -280,6 +291,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                     }
 
                     previousKey?.Dispose();
+                    Logger.LogInformation("Vault master password changed");
                 }
             }
             finally
@@ -291,11 +303,18 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     public void Lock()
     {
+        bool wasOpen;
         lock (_lock)
         {
+            wasOpen = _dataKey is not null;
             _dataKey?.Dispose();
             _dataKey = null;
             _items = null;
+        }
+
+        if (wasOpen)
+        {
+            Logger.LogInformation("Vault locked");
         }
     }
 
@@ -442,6 +461,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
         if (locked)
         {
+            Logger.LogInformation("Vault locked after {Minutes:0} minutes unused", AutoLockAfter?.TotalMinutes);
             AutoLocked?.Invoke(this, EventArgs.Empty);
         }
     }
