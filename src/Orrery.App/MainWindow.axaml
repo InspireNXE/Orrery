@@ -253,8 +253,8 @@
                 Background="{StaticResource OrreryPanel}"
                 BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0" />
 
-        <!-- Settings: a page over the sessions and the inspector; sessions keep running underneath. -->
-        <ContentControl Grid.Column="2" Grid.ColumnSpan="2" x:Name="SettingsHost" IsVisible="False" />
+        <!-- Settings: a page of its own over everything right of the rail; sessions keep running underneath. -->
+        <ContentControl Grid.Column="1" Grid.ColumnSpan="3" x:Name="SettingsHost" IsVisible="False" />
       </Grid>
     </DockPanel>
 
