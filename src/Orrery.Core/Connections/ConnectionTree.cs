@@ -131,6 +131,34 @@ public sealed class ConnectionTree
         Move(guest, folder, folder.ChildList.IndexOf(host) + 1);
     }
 
+    /// <summary>
+    /// Removes a host but keeps its guests, as plain connections in <paramref name="destination"/>: where the
+    /// host was when that's the host's own folder, else at the end.
+    /// </summary>
+    public void RemoveKeepingGuests(ConnectionEntry host, ConnectionFolder destination)
+    {
+        if (host.GuestOf is not null || host.Parent is not { } folder)
+        {
+            throw new InvalidOperationException("Only a host in the tree can be removed this way.");
+        }
+
+        int? index = destination == folder ? folder.ChildList.IndexOf(host) : null;
+        var guests = host.Guests.ToList();
+        foreach (var guest in guests)
+        {
+            Detach(guest);
+        }
+
+        Detach(host);
+        foreach (var guest in guests)
+        {
+            Insert(guest, destination, index);
+            index++;
+        }
+
+        NotifyChanged();
+    }
+
     static void CheckGuest(ConnectionEntry guest, ConnectionEntry host)
     {
         if (guest == host)

@@ -27,7 +27,12 @@ public sealed class NodeViewModel : INotifyPropertyChanged
         Children = new ObservableCollection<NodeViewModel>(children);
         _expansionChanged = expansionChanged;
         _persistExpansion = !forceExpanded;
-        _isExpanded = forceExpanded || (node as ConnectionFolder)?.Expanded == true;
+        _isExpanded = forceExpanded || node switch
+        {
+            ConnectionFolder folder => folder.Expanded,
+            ConnectionEntry entry => !entry.GuestsCollapsed,
+            _ => false,
+        };
     }
 
     public ConnectionNode Node { get; }
@@ -36,6 +41,10 @@ public sealed class NodeViewModel : INotifyPropertyChanged
     public string Name => string.IsNullOrWhiteSpace(Node.Name) ? "(unnamed)" : Node.Name;
     public bool IsFolder => Node is ConnectionFolder;
     public bool IsConnection => Node is ConnectionEntry;
+    public bool IsHost => Node is ConnectionEntry { IsHost: true };
+
+    /// <summary>How many guests a host has, shown beside its badge.</summary>
+    public string GuestCount => Node is ConnectionEntry { IsHost: true } host ? host.Guests.Count.ToString() : string.Empty;
     Protocol Protocol => SettingsResolver.Resolve(Node).Protocol.Value;
     public string Badge => IsConnection ? ProtocolInfo.Label(Protocol) : string.Empty;
     public IBrush BadgeBackground => ProtocolStyle.Background(Protocol);
@@ -90,12 +99,18 @@ public sealed class NodeViewModel : INotifyPropertyChanged
                 folder.Expanded = value;
                 _expansionChanged?.Invoke();
             }
+            else if (_persistExpansion && Node is ConnectionEntry { IsHost: true } host)
+            {
+                host.GuestsCollapsed = !value;
+                _expansionChanged?.Invoke();
+            }
         }
     }
 
     /// <summary>
-    /// Builds rows for the root's children. With a filter, keeps connections whose name, host or folder
-    /// path matches, plus the folders leading to them.
+    /// Builds rows for the root's children, with each host's guests under it. With a filter, keeps
+    /// connections whose name or host matches, plus the folders and hosts leading to them; a matching
+    /// folder or host shows everything in it.
     /// </summary>
     public static List<NodeViewModel> Build(ConnectionFolder root, string? filter, Action expansionChanged)
     {
@@ -125,12 +140,17 @@ public sealed class NodeViewModel : INotifyPropertyChanged
         }
 
         var entry = (ConnectionEntry)node;
-        if (filtering && !Matches(entry.Name, query!) && !Matches(entry.Host, query!))
+        bool entryMatches = !filtering || Matches(entry.Name, query!) || Matches(entry.Host, query!);
+        var guests = entry.Guests
+            .Where(g => entryMatches || Matches(g.Name, query!) || Matches(g.Host, query!))
+            .Select(g => new NodeViewModel(g, [], filtering, expansionChanged))
+            .ToList();
+        if (!entryMatches && guests.Count == 0)
         {
             return null;
         }
 
-        return new NodeViewModel(entry, [], filtering, expansionChanged);
+        return new NodeViewModel(entry, guests, filtering, expansionChanged);
     }
 
     static bool Matches(string text, string query) => text.Contains(query, StringComparison.CurrentCultureIgnoreCase);
