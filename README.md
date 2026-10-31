@@ -10,30 +10,41 @@ Version 0.1.0. Early days: the protocols work, but several things still need tes
 
 ## Features
 
-- RDP through [IronRDP](https://github.com/Devolutions/IronRDP), SSH through SSH.NET, VNC through
-  MarcusW.VncClient, and Telnet.
-- Jump hosts, like `ssh -J`: reach a machine through one or more saved SSH connections. SSH goes through them
-  directly. RDP, VNC and Telnet go through an SSH tunnel that Orrery opens and closes with the session. SSH
-  connections also take port forwards (`L`, `R`, `D`).
-- An SFTP file browser. Right-click an SSH connection or its tab and choose *Browse files* to open its files in a
-  tab beside the terminal. You can upload (or drop files in), download, rename, delete and make folders, with a
-  progress bar and Cancel. It uses the terminal's login, agent keys and jump hosts.
-- A display quality setting (Balanced, Best look or Fastest) for each connection or folder. For RDP it decides
-  which visual effects the remote desktop shows: wallpaper, themes, font smoothing and desktop composition. For VNC
-  it sets the JPEG quality the server uses when it sends Tight images, which needs TurboJPEG installed.
-- No HDR, because neither RDP nor VNC can carry it. RDP also can't follow your display scaling yet, since IronRDP's
-  .NET binding doesn't pass it on. *Enlarge to match display scaling* enlarges the picture on your side instead.
-- A connection tree with folders, drag and drop, multi-select (Ctrl- and Shift-click), a filter, inherited
-  settings, and host groups (a host with its guest machines one level below it).
-- Saved credentials kept in Windows Credential Manager, the macOS Keychain or the Linux Secret Service. When there's no
-  system store, in portable mode, or if you choose it, they go in an encrypted vault file (Argon2id,
-  XChaCha20-Poly1305) instead.
-- Import from mRemoteNG `confCons.xml` and Orrery `.json`.
-- Export to Orrery `.json`, mRemoteNG `confCons.xml` and CSV. The `.json` and `confCons.xml` files can include
-  passwords and keys, encrypted under a password you set. CSV never includes them.
-- Installed or portable. The installed copy keeps its data in your profile, and the portable copy keeps it wherever
-  you choose on first launch.
-- A dark-first interface.
+### Connections
+
+- RDP ([IronRDP](https://github.com/Devolutions/IronRDP)), SSH (SSH.NET), VNC (MarcusW.VncClient) and Telnet
+- Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
+- SSH port forwards (`L`, `R`, `D`)
+- SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
+
+### Display
+
+- Display quality per connection or folder: Balanced, Best look or Fastest
+- RDP fits the window and follows it as it resizes, or keeps a fixed size
+- *Enlarge to match display scaling* for high-DPI screens
+
+### Organising
+
+- Connection tree with folders, drag and drop, multi-select and a filter
+- Settings inherited from folders
+- Host groups: a host with its guest machines below it
+
+### Credentials and files
+
+- Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
+- Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
+- Import mRemoteNG `confCons.xml` and Orrery `.json`
+- Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
+  (never in CSV)
+
+### Running it
+
+- Installed, or portable with its data wherever you choose
+- Windows, Linux and macOS
+- Dark-first interface
+
+HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet because IronRDP's .NET binding doesn't
+pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.
 
 ## Keyboard shortcuts
 
