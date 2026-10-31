@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Renci.SshNet;
@@ -14,6 +16,8 @@ namespace Orrery.Protocols.Ssh;
 /// </summary>
 internal sealed class HostKeyCheck
 {
+    static readonly ILogger Logger = Log.For("Ssh");
+
     readonly HostKeyValidator _hostKeys;
     readonly TimeSpan _slowAnswer;
     string? _accepted;
@@ -50,6 +54,8 @@ internal sealed class HostKeyCheck
         var asked = Stopwatch.StartNew();
         bool trusted = _hostKeys.ValidateAsync(Target.Host, Target.Port, keyType, sha256Fingerprint).GetAwaiter().GetResult();
         Rejected = !trusted;
+        Logger.Log(trusted ? LogLevel.Information : LogLevel.Warning, "{Host}:{Port} host key {KeyType} SHA256:{Fingerprint} {Decision}",
+            Target.Host, Target.Port, keyType, sha256Fingerprint, trusted ? "trusted" : "not trusted");
         if (trusted)
         {
             _accepted = sha256Fingerprint;
@@ -80,7 +86,12 @@ internal sealed class HostKeyCheck
         }
         catch (Exception e) when (RetryAfter(e))
         {
+            Logger.LogInformation("{Host}:{Port} timed out while the host key was being checked; connecting again", Target.Host, Target.Port);
             client.Connect();
         }
+
+        var info = client.ConnectionInfo;
+        Logger.LogInformation("Connected to {Host}:{Port} as {User}: {ServerVersion}, {KeyExchange}, {Cipher}", Target.Host, Target.Port,
+            info.Username, info.ServerVersion, info.CurrentKeyExchangeAlgorithm, info.CurrentServerEncryption);
     }
 }

@@ -102,6 +102,8 @@ public sealed class RdpSession : IFrameBufferSession
                 _activeStage = ActiveStage.New(result);
             }
 
+            Logger.LogInformation("Connected to {Host}: desktop {Width}x{Height} (asked for {AskedWidth}x{AskedHeight}), {Quality} quality, clipboard {Clipboard}",
+                Target.Host, Width, Height, desktopWidth, desktopHeight, quality.ToString(), _clipboard is null ? "off" : "on");
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
             if (_clipboard is not null)
@@ -118,6 +120,7 @@ public sealed class RdpSession : IFrameBufferSession
         }
         catch (Exception e) when (e is CertificateRejectedException or RouteException)
         {
+            Logger.LogWarning("RDP session to {Host} didn't start: {Message}", Target.Host, e.Message);
             SetState(SessionState.Failed, e.Message);
         }
         catch (Exception e)
@@ -420,7 +423,12 @@ public sealed class RdpSession : IFrameBufferSession
                 var outputs = WithStageLock(() => _activeStage!.EncodedResize((uint)width, (uint)height));
                 if (outputs is not null)
                 {
+                    Logger.LogDebug("{Host}: asking for a {Width}x{Height} desktop", Target.Host, width, height);
                     await HandleOutputsAsync(outputs, _cts.Token);
+                }
+                else
+                {
+                    Logger.LogDebug("{Host}: can't resize, the server has no display control channel", Target.Host);
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)

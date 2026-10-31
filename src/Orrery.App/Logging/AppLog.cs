@@ -76,6 +76,7 @@ static class AppLog
             _limiter = new RepeatLimitingSink(_file);
             _logger = new LoggerConfiguration()
                 .MinimumLevel.ControlledBy(Level)
+                .MinimumLevel.Override("MarcusW", LogEventLevel.Warning)
                 .Enrich.With<UtcTimestampEnricher>()
                 .WriteTo.Sink(_limiter)
                 .CreateLogger();

@@ -20,6 +20,8 @@ public sealed record SftpItem(string Name, string FullPath, bool IsDirectory, bo
 /// </summary>
 public sealed class SftpSession : IConnectionSession
 {
+    static readonly ILogger Logger = Log.For("Sftp");
+
     readonly HostKeyValidator _hostKeys;
     readonly bool _allowLegacy;
     readonly IReadOnlyList<SshHop> _jumps;
@@ -156,10 +158,14 @@ public sealed class SftpSession : IConnectionSession
     public Task DownloadAsync(IReadOnlyList<SftpItem> items, string localFolder, IProgress<long>? progress = null, CancellationToken token = default) => Run(async () =>
     {
         long done = 0;
+        int files = 0;
+        var took = System.Diagnostics.Stopwatch.StartNew();
         foreach (var item in items)
         {
             await DownloadIntoAsync(item, localFolder);
         }
+
+        Logger.LogInformation("{Host}: downloaded {Files} files, {Bytes} bytes in {Seconds:0.0} s", Target.Host, files, done, took.Elapsed.TotalSeconds);
 
         async Task DownloadIntoAsync(SftpItem from, string folder)
         {
@@ -193,6 +199,8 @@ public sealed class SftpSession : IConnectionSession
             }
 
             done = before + from.Size;
+            files++;
+            Logger.LogDebug("{Host}: downloaded {Remote} to {Local}", Target.Host, from.FullPath, local);
             progress?.Report(done);
         }
     });
@@ -205,10 +213,14 @@ public sealed class SftpSession : IConnectionSession
     public Task UploadAsync(IReadOnlyList<string> localPaths, string remoteFolder, IProgress<long>? progress = null, CancellationToken token = default) => Run(async () =>
     {
         long done = 0;
+        int files = 0;
+        var took = System.Diagnostics.Stopwatch.StartNew();
         foreach (var path in localPaths)
         {
             await UploadIntoAsync(path, remoteFolder);
         }
+
+        Logger.LogInformation("{Host}: uploaded {Files} files, {Bytes} bytes in {Seconds:0.0} s", Target.Host, files, done, took.Elapsed.TotalSeconds);
 
         async Task UploadIntoAsync(string from, string folder)
         {
@@ -233,6 +245,8 @@ public sealed class SftpSession : IConnectionSession
             await Client.UploadFileAsync(input, remote, canOverride: true,
                 new Progress<UploadFileProgressReport>(r => progress?.Report(done = before + (long)r.TotalBytesUploaded)), token);
             done = before + input.Length;
+            files++;
+            Logger.LogDebug("{Host}: uploaded {Local} to {Remote}", Target.Host, from, remote);
             progress?.Report(done);
         }
     });
@@ -270,14 +284,23 @@ public sealed class SftpSession : IConnectionSession
         }
     });
 
-    public Task CreateFolderAsync(string path, CancellationToken token = default) => Run(() => Client.CreateDirectoryAsync(path, token));
+    public Task CreateFolderAsync(string path, CancellationToken token = default) => Run(async () =>
+    {
+        await Client.CreateDirectoryAsync(path, token);
+        Logger.LogDebug("{Host}: made folder {Path}", Target.Host, path);
+    });
 
-    public Task RenameAsync(string from, string to, CancellationToken token = default) => Run(() => Client.RenameFileAsync(from, to, token));
+    public Task RenameAsync(string from, string to, CancellationToken token = default) => Run(async () =>
+    {
+        await Client.RenameFileAsync(from, to, token);
+        Logger.LogDebug("{Host}: renamed {From} to {To}", Target.Host, from, to);
+    });
 
     /// <summary>Deletes a file, or a folder and everything in it. A link is removed, never what it points to.</summary>
     public Task DeleteAsync(SftpItem item, CancellationToken token = default) => Run(async () =>
     {
         await DeleteTreeAsync(item);
+        Logger.LogDebug("{Host}: deleted {Path}", Target.Host, item.FullPath);
 
         async Task DeleteTreeAsync(SftpItem target)
         {

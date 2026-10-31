@@ -178,6 +178,7 @@ public sealed class SshSession : ITerminalSession
         catch (SshAuthenticationException e)
         {
             // The server's own refusal sends the caller back to ask for a login; a jump host's is only reported.
+            Log.For("Ssh").LogWarning("{Host}: login as {User} refused: {Reason}", target.Host, login.Username, e.Message);
             AuthenticationRejected = true;
             Fail(Refusal(e, login));
         }
@@ -222,13 +223,19 @@ public sealed class SshSession : ITerminalSession
                     ForwardKind.Remote => new ForwardedPortRemote(forward.EffectiveListenAddress, (uint)forward.ListenPort, forward.DestinationHost!, (uint)forward.DestinationPort),
                     _ => new ForwardedPortDynamic(forward.EffectiveListenAddress, (uint)forward.ListenPort),
                 };
-                port.Exception += (_, e) => Notice($"Forward {forward}: {e.Exception.Message}", warning: true);
+                port.Exception += (_, e) =>
+                {
+                    Log.For("Ssh").LogWarning("{Host}: forward {Forward}: {Message}", Target.Host, forward.ToString(), e.Exception.Message);
+                    Notice($"Forward {forward}: {e.Exception.Message}", warning: true);
+                };
                 client.AddForwardedPort(port);
                 port.Start();
+                Log.For("Ssh").LogInformation("{Host}: forwarding {Forward}", Target.Host, forward.Describe());
                 Notice($"Forwarding {forward.Describe()}");
             }
             catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or InvalidOperationException or ArgumentException)
             {
+                Log.For("Ssh").LogWarning("{Host}: couldn't open forward {Forward}: {Message}", Target.Host, forward.ToString(), e.Message);
                 Notice($"Couldn't open forward {forward}: {e.Message}", warning: true);
             }
         }
@@ -305,7 +312,9 @@ public sealed class SshSession : ITerminalSession
                 return [];
             }
 
-            return [.. agent.ListIdentities().Select(identity => new AgentKeySource(agent, identity))];
+            IPrivateKeySource[] keys = [.. agent.ListIdentities().Select(identity => new AgentKeySource(agent, identity))];
+            Log.For("Ssh").LogDebug("The SSH agent offered {Count} keys", keys.Length);
+            return keys;
         }
         catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException or System.Net.Sockets.SocketException or System.ComponentModel.Win32Exception)
         {
