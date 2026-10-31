@@ -980,14 +980,42 @@ public partial class MainWindow : Window
         _dimmer.IsVisible = true;
         try
         {
-            choice = await new QuickConnectWindow(_tree).ShowDialog<QuickConnectChoice?>(this);
+            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol)).ToList();
+            choice = await new QuickConnectWindow(_tree, open).ShowDialog<QuickConnectChoice?>(this);
         }
         finally
         {
             _dimmer.IsVisible = false;
         }
 
-        if (choice?.NewName is { } name)
+        if (choice?.SessionIndex is { } index)
+        {
+            if (index < _tabs.Count)
+            {
+                SelectTab(_tabs[index]);
+            }
+        }
+        else if (choice is { Edit: true, Entry: { } toEdit })
+        {
+            // Its settings, ready to change, without connecting.
+            _filter.Text = string.Empty;
+            if (_side != "connections")
+            {
+                OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
+            }
+
+            ShowSidePanel(true);
+            ShowInspector(true);
+            foreach (var folder in toEdit.Ancestors())
+            {
+                folder.Expanded = true;
+            }
+
+            RebuildTree();
+            Select(toEdit.Id);
+            Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
+        }
+        else if (choice?.NewName is { } name)
         {
             AddAndEdit(new ConnectionEntry { Name = name, Host = choice.Host ?? string.Empty });
         }
