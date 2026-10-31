@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Orrery.Core.Connections;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Renci.SshNet;
@@ -135,7 +137,7 @@ public sealed class SshSession : ITerminalSession
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
-            Trace.TraceError($"SSH session to {Target.Host} failed: {e}");
+            Log.For("Ssh").LogError(e, "SSH session to {Host} failed", Target.Host);
             Fail(Describe(e, _allowLegacy));
         }
     }
@@ -181,7 +183,7 @@ public sealed class SshSession : ITerminalSession
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
-            Trace.TraceError($"SSH connection to {target.Host} failed: {e}");
+            Log.For("Ssh").LogError(e, "SSH connection to {Host} failed", target.Host);
             Fail(Describe(e, allowLegacy));
         }
 
@@ -307,7 +309,7 @@ public sealed class SshSession : ITerminalSession
         }
         catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException or System.Net.Sockets.SocketException or System.ComponentModel.Win32Exception)
         {
-            Trace.TraceWarning($"Couldn't use the SSH agent: {e.Message}");
+            Log.For("Ssh").LogWarning("Couldn't use the SSH agent: {Message}", e.Message);
             return [];
         }
     }
@@ -388,7 +390,7 @@ public sealed class SshSession : ITerminalSession
         // Bounded, and never throws, so closing always ends in Disconnected.
         if (pump is not null && await Task.WhenAny(pump.Completion, Task.Delay(StopTimeout)) != pump.Completion)
         {
-            Trace.TraceWarning($"SSH session to {Target.Host} left its reader or writer running after closing.");
+            Log.For("Ssh").LogWarning("SSH session to {Host} left its reader or writer running after closing.", Target.Host);
         }
     }
 

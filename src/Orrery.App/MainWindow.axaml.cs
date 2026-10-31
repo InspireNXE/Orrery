@@ -9,9 +9,12 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Microsoft.Extensions.Logging;
 using Orrery.App.Connections;
 using Orrery.App.Credentials;
 using Orrery.App.Import;
+using Orrery.App.Logging;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
 using Orrery.App.Security;
@@ -640,7 +643,7 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Couldn't save the layout: {e.Message}");
+            Log.For("App").LogWarning("Couldn't save the layout: {Message}", e.Message);
         }
     }
 
@@ -1339,6 +1342,8 @@ public partial class MainWindow : Window
                 return;
             }
 
+            ConnectLog.LogInformation("Connecting \"{Name}\": {Protocol}{Files} to {Host}:{Port}{Via}", entry.Name, protocol, files ? " files" : string.Empty,
+                entry.Host, resolved.Port.Value, jumps.Count == 0 ? string.Empty : " through " + string.Join(", ", jumps.Select(j => $"{j.Target.Host}:{j.Target.Port}")));
             var route = new SshRoute(jumps, protocol == Protocol.Ssh ? entry.PortForwards ?? [] : []);
 
             // Telnet has no login of its own: the server asks in the terminal.
@@ -1361,6 +1366,12 @@ public partial class MainWindow : Window
                 {
                     saved = credential;
                     (username, domain, password) = (credential.Username, credential.Domain, credential.Secret);
+                    ConnectLog.LogInformation("\"{Name}\": logging in as {User} with saved credential \"{Credential}\" ({Kind})", entry.Name,
+                        Account(username, domain), credential.Name, credential.Kind);
+                }
+                else
+                {
+                    ConnectLog.LogWarning("\"{Name}\": its saved credential no longer exists, so the login is asked for", entry.Name);
                 }
             }
 
@@ -1368,6 +1379,7 @@ public partial class MainWindow : Window
             if (password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipAgent
                 && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
             {
+                ConnectLog.LogInformation("\"{Name}\": logging in as {User} with the SSH agent's keys", entry.Name, username);
                 StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
                     whenRefused: () => ConnectAsync(entry, skipAgent: true, files), resolved.AllowLegacySsh.Value, route);
                 return;
@@ -1379,8 +1391,12 @@ public partial class MainWindow : Window
                     .ShowDialog<ConnectPromptResult?>(this);
                 if (prompt is null)
                 {
+                    ConnectLog.LogDebug("\"{Name}\": the login prompt was cancelled", entry.Name);
                     return;
                 }
+
+                ConnectLog.LogInformation("\"{Name}\": logging in as {User} with {Source}", entry.Name, Account(prompt.Username, prompt.Domain),
+                    prompt.CredentialId is null ? "a password typed at the prompt" : "a saved credential chosen at the prompt");
 
                 if (prompt is { RememberForConnection: true, CredentialId: { } chosen })
                 {
@@ -1519,7 +1535,7 @@ public partial class MainWindow : Window
         }
         catch (Exception e)
         {
-            System.Diagnostics.Trace.TraceWarning($"Couldn't reach the SSH agent: {e.Message}");
+            Log.For("App").LogWarning("Couldn't reach the SSH agent: {Message}", e.Message);
             return false;
         }
     });
@@ -1591,6 +1607,12 @@ public partial class MainWindow : Window
     /// <summary>What an SSH session goes through and opens besides its shell.</summary>
     sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards);
 
+    static readonly ILogger ConnectLog = Log.For("Connect");
+
+    /// <summary>A username as the log shows it, with its domain when there is one.</summary>
+    static string Account(string? username, string? domain) =>
+        string.IsNullOrEmpty(username) ? "(no username)" : string.IsNullOrEmpty(domain) ? username : $"{domain}\\{username}";
+
     /// <summary>
     /// The jump hosts on the way to <paramref name="entry"/>, each with its login: its saved credential, else the
     /// SSH agent's keys, else asked for now. Null when the chain is broken or a prompt was cancelled.
@@ -1599,6 +1621,7 @@ public partial class MainWindow : Window
     {
         if (SettingsResolver.JumpChain(entry, _tree, out var error) is not { } chain)
         {
+            ConnectLog.LogWarning("\"{Name}\": {Problem}", entry.Name, error);
             await Dialogs.ShowMessageAsync(this, $"Can't reach \"{entry.Name}\"", error!);
             return null;
         }
@@ -1685,7 +1708,7 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Couldn't save the terminal text size: {e.Message}");
+            Log.For("App").LogWarning("Couldn't save the terminal text size: {Message}", e.Message);
         }
     }
 
@@ -1711,6 +1734,7 @@ public partial class MainWindow : Window
     SessionTab NewTab(Control view, IConnectionSession session, SessionOrigin origin, int reconnectAttempt = 0)
     {
         var tab = new SessionTab(session, view, origin) { ReconnectAttempt = reconnectAttempt };
+        SessionLogger.Attach(tab);
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
         tab.Header.ContextMenu = TabMenu(tab);
@@ -2213,7 +2237,7 @@ public partial class MainWindow : Window
             catch (Exception e)
             {
                 // The importer means to fail only as above; anything else is a bug, not a reason to exit.
-                System.Diagnostics.Trace.TraceError($"Importing {path} failed: {e}");
+                Log.For("App").LogError(e, "Importing {Path} failed", path);
                 await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
                     "Orrery couldn't read this file. It may be damaged, or not an mRemoteNG connections file or Orrery export.");
                 return;
@@ -2497,7 +2521,7 @@ public partial class MainWindow : Window
             : DataMover.CheckOldCopy(oldDataDir, _location.DataDir);
         if (problem is not null)
         {
-            System.Diagnostics.Trace.TraceWarning($"Not offering to delete {oldDataDir}: {problem}");
+            Log.For("App").LogWarning("Not offering to delete {OldDataDir}: {Problem}", oldDataDir, problem);
             return;
         }
 

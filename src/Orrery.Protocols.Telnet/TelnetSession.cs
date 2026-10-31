@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
 
 namespace Orrery.Protocols.Telnet;
@@ -112,13 +114,13 @@ public sealed class TelnetSession : ITerminalSession
         }
         catch (Exception e) when (e is SocketException or IOException or ObjectDisposedException)
         {
-            Trace.TraceWarning($"Telnet session to {Target.Host} ended: {e.Message}");
+            Log.For("Telnet").LogWarning("Telnet session to {Host} ended: {Message}", Target.Host, e.Message);
             SetState(State == SessionState.Connected ? SessionState.Disconnected : SessionState.Failed, e.Message);
         }
         catch (Exception e)
         {
             // From a DataReceived handler or the parser. Report it here so it doesn't sit unobserved in _run.
-            Trace.TraceError($"Telnet session to {Target.Host} failed: {e}");
+            Log.For("Telnet").LogError(e, "Telnet session to {Host} failed", Target.Host);
             SetState(SessionState.Failed, "The Telnet session stopped because of an internal error.");
         }
     }
@@ -230,7 +232,7 @@ public sealed class TelnetSession : ITerminalSession
             catch (Exception e)
             {
                 // The read loop has already reported how it ended.
-                Trace.TraceWarning($"Telnet read loop for {Target.Host} ended with {e.GetType().Name}: {e.Message}");
+                Log.For("Telnet").LogWarning("Telnet read loop for {Host} ended with {ExceptionType}: {Message}", Target.Host, e.GetType().Name, e.Message);
             }
         }
 

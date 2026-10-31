@@ -47,6 +47,7 @@
         "type": "Project",
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.7.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.2, )",
           "NSec.Cryptography": "[26.4.0, )"
         }
       }

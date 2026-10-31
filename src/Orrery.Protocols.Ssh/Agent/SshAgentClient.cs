@@ -5,6 +5,8 @@ using System.Net.Sockets;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 
 namespace Orrery.Protocols.Ssh.Agent;
 
@@ -133,7 +135,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
         }
         catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException)
         {
-            Trace.TraceWarning($"Not using the SSH agent pipe {name}: {e.Message}");
+            Log.For("SshAgent").LogWarning("Not using the SSH agent pipe {Name}: {Message}", name, e.Message);
             return false;
         }
     }

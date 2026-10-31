@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 
 namespace Orrery.App.Input;
 
@@ -71,7 +73,7 @@ static class WindowsKeyHook
             _hook = SetWindowsHookEx(WH_KEYBOARD_LL, Callback, GetModuleHandle(null), 0);
             if (_hook == IntPtr.Zero)
             {
-                Trace.TraceWarning($"Couldn't capture the Windows key: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
+                Log.For("Input").LogWarning("Couldn't capture the Windows key: {Message}", new Win32Exception(Marshal.GetLastWin32Error()).Message);
                 return;
             }
 

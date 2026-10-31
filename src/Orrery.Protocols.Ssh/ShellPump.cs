@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 using Renci.SshNet.Common;
 
 namespace Orrery.Protocols.Ssh;
@@ -86,7 +88,7 @@ sealed class ShellPump
         catch (Exception e)
         {
             // From a DataReceived handler. Report it, or the tab would look connected with no output coming.
-            Trace.TraceError($"SSH output stopped: {e}");
+            Log.For("Ssh").LogError(e, "SSH output stopped");
             if (!_stop.IsCancellationRequested) _failed("The SSH session stopped because of an internal error.");
             return;
         }

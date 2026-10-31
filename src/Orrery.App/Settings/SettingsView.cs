@@ -6,10 +6,13 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Microsoft.Extensions.Logging;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.App.Input;
+using Orrery.App.Logging;
 using Orrery.Core.Credentials;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 
@@ -96,6 +99,7 @@ sealed class SettingsView : UserControl
                             RemoteDesktopSection(),
                             KeyboardSection(),
                             ImportSection(),
+                            LogsSection(),
                             AboutSection(),
                         },
                     },
@@ -144,7 +148,7 @@ sealed class SettingsView : UserControl
 
         section.Children.Add(Note(_location.Mode == StorageMode.Portable
             ? "Connections, the vault, backups, cache and logs all live in this folder."
-            : $"Connections, settings and backups live in this folder. Cache and logs stay in {Path.GetDirectoryName(_location.CacheDir)}."));
+            : $"Connections, settings and backups live in this folder. The cache stays in {_location.CacheDir}."));
         return section;
     }
 
@@ -500,6 +504,28 @@ sealed class SettingsView : UserControl
                 + "Passwords and keys are never exported."));
     }
 
+    // ---- Logs ----
+
+    Control LogsSection()
+    {
+        var path = new SelectableTextBlock { Text = _location.LogDir, FontFamily = Dialogs.MonoFont, FontSize = 12, TextWrapping = TextWrapping.Wrap };
+        var open = new Button { Content = "Open log folder" };
+        open.Click += (_, _) =>
+        {
+            Directory.CreateDirectory(_location.LogDir);
+            OpenFolder(_location.LogDir);
+        };
+        var detailed = new CheckBox { Content = "Detailed logging, for troubleshooting", IsChecked = AppLog.Detailed };
+        detailed.IsCheckedChanged += (_, _) => AppLog.Detailed = detailed.IsChecked == true;
+
+        return Section("Logs",
+            Row("Log folder", path),
+            open,
+            detailed,
+            Note("One file a day, kept for two weeks. Logs say what connected where and what went wrong, never passwords, keys, "
+                + "keystrokes or what was on screen. Detailed logging adds more and turns itself off when Orrery closes."));
+    }
+
     // ---- About ----
 
     static Control AboutSection()
@@ -532,7 +558,7 @@ sealed class SettingsView : UserControl
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            Trace.TraceWarning($"Couldn't open {path}: {e.Message}");
+            Log.For("Settings").LogWarning("Couldn't open {Path}: {Message}", path, e.Message);
         }
     }
 }

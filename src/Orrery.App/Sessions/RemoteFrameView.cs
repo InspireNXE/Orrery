@@ -9,7 +9,9 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
 using Orrery.App.Input;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
 
 namespace Orrery.App.Sessions;
@@ -100,7 +102,7 @@ public sealed class RemoteFrameView : Panel
                 {
                     // Another app holds the clipboard open. A server can send cut text as often as it likes, and
                     // an exception here would end the app, so the next change tries again.
-                    System.Diagnostics.Trace.TraceWarning($"Couldn't write the clipboard: {e.Message}");
+                    Log.For("RemoteDesktop").LogWarning("Couldn't write the clipboard: {Message}", e.Message);
                 }
             });
         }
@@ -286,7 +288,7 @@ public sealed class RemoteFrameView : Panel
         catch (Exception e) when (e is ArgumentException or OutOfMemoryException or InvalidOperationException)
         {
             // Nothing above the dispatcher catches this, so letting it go would end the whole app.
-            System.Diagnostics.Trace.TraceError($"Couldn't draw the {width}x{height} remote desktop: {e}");
+            Log.For("RemoteDesktop").LogError(e, "Couldn't draw the {Width}x{Height} remote desktop", width, height);
             _image.Source = null;
             _bitmap?.Dispose();
             _bitmap = null;
@@ -451,7 +453,7 @@ public sealed class RemoteFrameView : Panel
         catch (Exception e) when (e is COMException or InvalidOperationException)
         {
             // Another app holds the clipboard open; the next focus tries again.
-            System.Diagnostics.Trace.TraceWarning($"Couldn't read the clipboard: {e.Message}");
+            Log.For("RemoteDesktop").LogWarning("Couldn't read the clipboard: {Message}", e.Message);
         }
     }
 

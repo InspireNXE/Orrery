@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Storage;
 
 namespace Orrery.Core.Connections;
@@ -61,7 +63,7 @@ public sealed class RecentConnections(string path, int limit = 20)
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Couldn't save recent connections: {e.Message}");
+            Log.For("Storage").LogWarning("Couldn't save recent connections: {Message}", e.Message);
         }
 
         Changed?.Invoke(this, EventArgs.Empty);

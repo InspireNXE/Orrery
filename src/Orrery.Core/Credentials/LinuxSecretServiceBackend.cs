@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 
 namespace Orrery.Core.Credentials;
 
@@ -52,7 +54,7 @@ public sealed class LinuxSecretServiceBackend : ISecretBackend
         }
         catch (Exception e) when (e is IOException or EntryPointNotFoundException or DllNotFoundException)
         {
-            Trace.TraceWarning($"The Secret Service isn't usable, so the vault file is used: {e.Message}");
+            Log.For("Credentials").LogWarning("The Secret Service isn't usable, so the vault file is used: {Message}", e.Message);
             return null;
         }
     }

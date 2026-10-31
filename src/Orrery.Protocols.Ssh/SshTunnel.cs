@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Orrery.Core.Connections;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Renci.SshNet;
@@ -60,7 +62,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
             var client = new SshClient(SshSession.ConnectionInfoFor(host, port, hop.Login, hop.AllowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
             hostKey = HostKeyCheck.Attach(client, hostKeys, hop.Target);
             // A hop that drops later breaks the connections through it, which their sessions report.
-            client.ErrorOccurred += (_, e) => Trace.TraceWarning($"{where}{e.Exception.Message}");
+            client.ErrorOccurred += (_, e) => Log.For("JumpHost").LogWarning("Jump host {Host}: {Message}", hop.Target.Host, e.Exception.Message);
 
             lock (_lock)
             {
@@ -90,7 +92,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
-            Trace.TraceError($"SSH connection to jump host {hop.Target.Host} failed: {e}");
+            Log.For("JumpHost").LogError(e, "SSH connection to jump host {Host} failed", hop.Target.Host);
             throw new RouteException(where + SshSession.Describe(e, hop.AllowLegacy), e);
         }
     }

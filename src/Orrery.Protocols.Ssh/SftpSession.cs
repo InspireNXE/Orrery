@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Renci.SshNet;
@@ -109,7 +111,7 @@ public sealed class SftpSession : IConnectionSession
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
-            Trace.TraceError($"SFTP session to {Target.Host} failed: {e}");
+            Log.For("Sftp").LogError(e, "SFTP session to {Host} failed", Target.Host);
             Fail(e is SftpPathNotFoundException ? "The server has no SFTP subsystem." : SshSession.Describe(e, _allowLegacy));
         }
     }
