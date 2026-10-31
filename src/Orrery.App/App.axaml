@@ -219,34 +219,31 @@
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
 
-    <!-- Connection tree rows: rounded, with an accent edge on the selected row. -->
+    <!-- Connection tree rows: rounded, with an accent edge on the selected row.
+         Rows have no border. The accent edge and the drop lines are inset shadows, so no state changes a row's
+         size or moves its text. (Avalonia draws shadows only on a border that's even all round.) -->
     <Style Selector="TreeView#Tree TreeViewItem">
       <Setter Property="MinHeight" Value="30" />
       <Setter Property="FontSize" Value="13" />
       <Setter Property="Padding" Value="0" />
+      <!-- On the item, which the theme's template binds the row's border to; a setter on the row loses to that. -->
+      <Setter Property="BorderThickness" Value="0" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot">
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="MinHeight" Value="30" />
-      <!-- Every row keeps the selected row's edge, transparent, so selecting one doesn't shift its text. -->
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="2,0,0,0" />
     </Style>
-    <!-- The theme's hover style sets its own border; keep ours so hovering, or dragging over, doesn't shift a row. -->
     <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot:pointerover">
       <Setter Property="Background" Value="#1A1D23" />
-      <Setter Property="BorderThickness" Value="2,0,0,0" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot">
       <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
-      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
-      <Setter Property="BorderThickness" Value="2,0,0,0" />
+      <Setter Property="BoxShadow" Value="inset 2 0 0 0 #5B9DFF" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot:pointerover">
       <Setter Property="Background" Value="#262C38" />
     </Style>
-    <!-- Where a dragged row will land: a line above or below the row, or the row lit up to go into it.
-         The lines are inset shadows, not border thickness, so marking a row never moves or resizes it. -->
+    <!-- Where a dragged row will land: a line above or below the row, or the row lit up to go into it. -->
     <Style Selector="TreeView#Tree TreeViewItem.drop-before /template/ Border#PART_LayoutRoot">
       <Setter Property="BoxShadow" Value="inset 0 2 0 0 #5B9DFF" />
     </Style>
@@ -255,8 +252,7 @@
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem.drop-into /template/ Border#PART_LayoutRoot">
       <Setter Property="Background" Value="#1A2433" />
-      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
-      <Setter Property="BorderThickness" Value="2,0,0,0" />
+      <Setter Property="BoxShadow" Value="inset 2 0 0 0 #5B9DFF" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem /template/ ContentPresenter#PART_HeaderPresenter">
       <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
