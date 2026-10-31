@@ -56,6 +56,9 @@ public sealed class InheritableSettings
     /// <summary>RDP: a fixed desktop size like "1920x1080"; empty fits the window; null inherits. See <see cref="DesktopResolution"/>.</summary>
     public string? DesktopSize { get; set; }
 
+    /// <summary>RDP, VNC: enlarge the remote desktop to match this display's scaling. Null inherits; with nothing set, the app setting applies.</summary>
+    public bool? EnlargeRemoteDesktop { get; set; }
+
     /// <summary>Try again by itself when an open session drops (not when it's logged off or closed). Null inherits; on by default.</summary>
     public bool? AutoReconnect { get; set; }
 

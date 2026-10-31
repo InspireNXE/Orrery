@@ -207,7 +207,7 @@ public partial class MainWindow : Window
         _saveTimer = new DispatcherTimer { Interval = SaveDelay };
         _saveTimer.Tick += (_, _) => SaveNow();
 
-        _properties = new PropertiesPanel(_tree, _credentials);
+        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
         _propertiesHost.Child = _properties;
 
@@ -1230,7 +1230,7 @@ public partial class MainWindow : Window
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
             // Checked when saved; a hand-edited file that doesn't parse just fits the window.
             DesktopResolution.TryParse(resolved.DesktopSize.Value, out var desktopSize, out _);
-            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize);
+            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize, resolved.EnlargeRemoteDesktop.Value);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -1268,38 +1268,40 @@ public partial class MainWindow : Window
     }
 
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
-        bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null)
+        bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null, bool? enlarge = null)
     {
         switch (origin.Protocol)
         {
             case Protocol.Ssh:
                 return StartSshAsync(origin, target, password, saved, allowLegacySsh, route);
             case Protocol.Vnc:
-                StartVnc(origin, target, password, shareClipboard);
+                StartVnc(origin, target, password, shareClipboard, enlarge);
                 return Task.CompletedTask;
             default:
-                StartRdp(origin, target, password, shareClipboard, desktopSize);
+                StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge);
                 return Task.CompletedTask;
         }
     }
 
     /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
-    void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard)
+    /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
+    void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, bool? enlarge = null)
     {
         Open(origin, () =>
         {
             var session = VncSession.Start(target, password, shareClipboard);
-            return (new RemoteFrameView(session, _settingsStore.Load().ZoomRemoteDesktops), session);
+            return (new RemoteFrameView(session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops), session);
         });
         UpdateVaultButton();
     }
 
     /// <param name="fixedSize">A desktop size to keep; null fits the session area and follows it.</param>
-    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null)
+    /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
+    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null, bool? enlarge = null)
     {
         Open(origin, () =>
         {
-            bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
+            bool zoom = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
             var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
             var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
             return (new RemoteFrameView(session, zoom) { FollowsViewSize = fixedSize is null }, session);
