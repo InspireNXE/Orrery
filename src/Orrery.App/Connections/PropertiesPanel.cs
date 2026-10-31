@@ -213,12 +213,7 @@ sealed class PropertiesPanel : UserControl
             _port.Text = (own.Port ?? inherited.Port.Value).ToString();
 
             _credentialRow.Load(own.CredentialId is null, Describe(inherited.CredentialId));
-            await _credential.RefreshAsync(own.CredentialId switch
-            {
-                null => inherited.CredentialId.Value,
-                var id when id == InheritableSettings.NoCredential => null,
-                var id => id,
-            });
+            await _credential.RefreshAsync(ShownCredential(own, inherited));
             if (version != _showVersion)
             {
                 // Another node was selected while the credential list loaded; that call owns the panel.
@@ -269,6 +264,52 @@ sealed class PropertiesPanel : UserControl
             {
                 _loading = false;
                 _dirty = false;
+            }
+        }
+    }
+
+    static Guid? ShownCredential(InheritableSettings own, ResolvedSettings inherited) => own.CredentialId switch
+    {
+        null => inherited.CredentialId.Value,
+        var id when id == InheritableSettings.NoCredential => null,
+        var id => id,
+    };
+
+    /// <summary>
+    /// Catches up with a credential saved, or chosen for <paramref name="changed"/>, outside the panel (while
+    /// connecting): the credential row shows the node's choice and the list has the new one. Other edits not
+    /// yet applied are kept. Without this, applying them would put the old credential back.
+    /// </summary>
+    public async Task CredentialsChangedAsync(ConnectionNode changed)
+    {
+        if (_node is null || Content != _editorView)
+        {
+            return;
+        }
+
+        int version = _showVersion;
+        bool dirty = _dirty;
+        _loading = true;
+        try
+        {
+            if (_node == changed)
+            {
+                var inherited = SettingsResolver.ResolveInherited(_node);
+                _credentialRow.Load(_node.Settings.CredentialId is null, Describe(inherited.CredentialId));
+                await _credential.RefreshAsync(ShownCredential(_node.Settings, inherited));
+            }
+            else
+            {
+                await _credential.RefreshAsync(_credential.SelectedId);
+            }
+        }
+        finally
+        {
+            // Another node shown meanwhile owns the panel's state now.
+            if (version == _showVersion)
+            {
+                _loading = false;
+                _dirty = dirty;
             }
         }
     }

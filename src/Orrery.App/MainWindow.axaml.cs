@@ -1376,6 +1376,11 @@ public partial class MainWindow : Window
                     _tree.NotifyChanged();
                 }
 
+                if (prompt.CredentialId is not null)
+                {
+                    await _properties.CredentialsChangedAsync(entry);
+                }
+
                 (username, domain, password) = (prompt.Username, prompt.Domain, prompt.Password);
                 if (prompt.CredentialId is { } chosenId && await _credentials.GetAsync(chosenId) is { } chosenCredential)
                 {
