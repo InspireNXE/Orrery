@@ -17,7 +17,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
     // Each folder level costs two JSON levels (the folder and its children), so the default of 64 stops at
     // about 30 folders. This leaves room for ConnectionTree.MaxFolderDepth with plenty to spare.
-    static readonly JsonSerializerOptions JsonOptions = new()
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         MaxDepth = 256,
         WriteIndented = true,

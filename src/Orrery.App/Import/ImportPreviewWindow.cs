@@ -16,7 +16,7 @@ sealed class ImportPreviewWindow : Window
     {
         var report = result.Report;
 
-        Title = "Import from mRemoteNG";
+        Title = $"Import from {report.From}";
         Width = 560;
         SizeToContent = SizeToContent.Height;
         MaxHeight = 760;
@@ -56,7 +56,7 @@ sealed class ImportPreviewWindow : Window
             Margin = new Thickness(24),
             Children =
             {
-                new TextBlock { Text = "Import from mRemoteNG", FontSize = 18, FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = $"Import from {report.From}", FontSize = 18, FontWeight = FontWeight.SemiBold },
                 new TextBlock { Text = report.SourceFile, FontFamily = Dialogs.MonoFont, FontSize = 12, Foreground = Dialogs.MutedBrush },
                 new TextBlock
                 {
@@ -78,7 +78,7 @@ sealed class ImportPreviewWindow : Window
                 newFolder,
                 topLevel,
                 skip,
-                new TextBlock { Text = "Your mRemoteNG file isn't changed.", FontSize = 12, Foreground = Dialogs.MutedBrush },
+                new TextBlock { Text = $"Your {report.From} file isn't changed.", FontSize = 12, Foreground = Dialogs.MutedBrush },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, importButton } },
             },
         };

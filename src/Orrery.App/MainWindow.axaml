@@ -181,6 +181,7 @@
                       <MenuItem Header="New connection" Click="OnNewConnectionClick" />
                       <MenuItem Header="New folder" Click="OnNewFolderClick" />
                       <MenuItem x:Name="DuplicateMenuItem" Header="Duplicate" Click="OnDuplicateMenuClick" InputGesture="Ctrl+D" />
+                      <MenuItem x:Name="ExportMenuItem" Header="Export…" Click="OnExportMenuClick" />
                       <Separator />
                       <MenuItem Header="Defaults for all connections…" Click="OnEditDefaultsClick" />
                       <Separator />

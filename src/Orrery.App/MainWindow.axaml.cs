@@ -12,6 +12,7 @@ using Avalonia.VisualTree;
 using Orrery.App.Connections;
 using Orrery.App.Credentials;
 using Orrery.App.Import;
+using Orrery.Core.Export;
 using Orrery.Core.Import;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
@@ -1929,10 +1930,13 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---- mRemoteNG import ----
+    // ---- Import and export ----
 
+    /// <summary>An mRemoteNG confCons.xml or an Orrery export.</summary>
     static string? DroppedImportFile(DragEventArgs e) =>
-        e.DataTransfer.TryGetFile()?.TryGetLocalPath() is { } path && path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) ? path : null;
+        e.DataTransfer.TryGetFile()?.TryGetLocalPath() is { } path && IsImportFile(path) ? path : null;
+
+    static bool IsImportFile(string path) => ConnectionExporter.FormatFor(path) is ExportFormat.MRemoteNg or ExportFormat.Orrery;
 
     /// <summary>First launch with an empty list on a machine that has mRemoteNG: offer to bring its connections over.</summary>
     async Task OfferMRemoteNgImportAsync()
@@ -1956,12 +1960,17 @@ public partial class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
         {
-            Title = "Import from mRemoteNG",
+            Title = "Import connections",
             AllowMultiple = false,
-            FileTypeFilter = [new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] }],
+            FileTypeFilter =
+            [
+                new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG or Orrery connections") { Patterns = ["*.xml", "*.json"] },
+                new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
+                new Avalonia.Platform.Storage.FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
+            ],
         });
 
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && IsImportFile(path))
         {
             await ImportAsync(path);
         }
@@ -1976,7 +1985,8 @@ public partial class MainWindow : Window
             try
             {
                 var password = masterPassword;
-                result = await Task.Run(() => MRemoteNgImporter.ImportFile(path, password));
+                bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
+                result = await Task.Run(() => orrery ? OrreryImporter.ImportFile(path) : MRemoteNgImporter.ImportFile(path, password));
             }
             catch (MasterPasswordRequiredException e)
             {
@@ -1998,7 +2008,7 @@ public partial class MainWindow : Window
                 // The importer means to fail only as above; anything else is a bug, not a reason to exit.
                 System.Diagnostics.Trace.TraceError($"Importing {path} failed: {e}");
                 await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
-                    "Orrery couldn't read this file. It may be damaged, or not an mRemoteNG connections file.");
+                    "Orrery couldn't read this file. It may be damaged, or not an mRemoteNG connections file or Orrery export.");
                 return;
             }
         }
@@ -2056,13 +2066,80 @@ public partial class MainWindow : Window
         try
         {
             var now = DateTimeOffset.Now;
-            var path = Path.Combine(_location.DataDir, "import", $"mremoteng-{now:yyyyMMdd-HHmmss}.md");
+            var path = Path.Combine(_location.DataDir, "import", $"{report.From.ToLowerInvariant()}-{now:yyyyMMdd-HHmmss}.md");
             AtomicFile.WriteAllText(path, report.ToMarkdown(now));
             return path;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return null;
+        }
+    }
+
+    async void OnExportMenuClick(object? sender, RoutedEventArgs e) => await ExportAsync(SelectedNode ?? _tree.Root);
+
+    /// <summary>Saves <paramref name="node"/> (the root for everything) as an Orrery, mRemoteNG or CSV file, chosen by its type.</summary>
+    async Task ExportAsync(ConnectionNode node)
+    {
+        _properties.TrySave();
+        bool everything = node.Parent is null;
+        var name = everything ? "Orrery connections" : string.Join("_", node.Name.Split(Path.GetInvalidFileNameChars())).Trim();
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = everything ? "Export all connections" : $"Export \"{node.Name}\"",
+            SuggestedFileName = name.Length > 0 ? name : "Orrery connections",
+            DefaultExtension = "json",
+            ShowOverwritePrompt = true,
+            FileTypeChoices =
+            [
+                new FilePickerFileType("Orrery export (all settings)") { Patterns = ["*.json"] },
+                new FilePickerFileType("mRemoteNG confCons.xml") { Patterns = ["*.xml"] },
+                new FilePickerFileType("CSV (spreadsheet)") { Patterns = ["*.csv"] },
+            ],
+        });
+        if (file?.TryGetLocalPath() is not { } path)
+        {
+            return;
+        }
+
+        if (ConnectionExporter.FormatFor(path) is not { } format)
+        {
+            await Dialogs.ShowMessageAsync(this, "Choose a file type", "Save the export as .json (Orrery), .xml (mRemoteNG) or .csv.");
+            return;
+        }
+
+        // Only usernames are read from saved credentials. If the vault stays locked, they're left out and the export says so.
+        var scope = node.Ancestors().Cast<ConnectionNode>().Append(node).Concat((node as ConnectionFolder)?.Descendants() ?? []);
+        IReadOnlyDictionary<Guid, CredentialSummary>? credentials = null;
+        if (!scope.Any(n => n.Settings.CredentialId is { } id && id != InheritableSettings.NoCredential)
+            || await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+        {
+            try
+            {
+                credentials = (await _credentials.ListAsync()).ToDictionary(c => c.Id);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                credentials = null;
+            }
+        }
+
+        try
+        {
+            var result = ConnectionExporter.Export(node, format, credentials, DateTimeOffset.Now);
+            await Task.Run(() => AtomicFile.WriteAllText(path, result.Content));
+            var body = $"Saved to:\n{path}\n\nPasswords and keys aren't included.";
+            if (result.Warnings.Count > 0)
+            {
+                body += "\n\n" + string.Join("\n", result.Warnings.Take(10).Select(w => "• " + w))
+                    + (result.Warnings.Count > 10 ? $"\n…and {result.Warnings.Count - 10} more" : "");
+            }
+
+            await Dialogs.ShowMessageAsync(this, $"Exported {result.Connections} connection{(result.Connections == 1 ? "" : "s")}", body);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't export", e.Message);
         }
     }
 
@@ -2115,7 +2192,7 @@ public partial class MainWindow : Window
                 _properties.TrySave();
                 SaveNow();
                 return Task.CompletedTask;
-            }, ChooseImportFileAsync);
+            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root));
             view.CloseRequested += (_, _) => CloseSettings();
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {

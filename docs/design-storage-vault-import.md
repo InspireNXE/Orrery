@@ -305,7 +305,8 @@ The report never contains secrets.
 - mRemoteNG's SQL Server connection backend
 - `extApps.xml` (external tools)
 - PuTTY registry sessions beyond recording the name
-- Exporting back to `confCons.xml`
+
+> Export (2026-10-31): Orrery writes its own `.json` export (re-importable, new ids on import), a `confCons.xml` (ConfVersion 2.6, every node carries its own values, all `Inherit…` flags false, no passwords) and a CSV. Passwords and keys are never exported; a saved credential becomes its username and domain. See `src/Orrery.Core/Export/ConnectionExporter.cs`.
 
 ### 4.9 Testing
 - **Fixtures:** generate `confCons.xml` files from real mRemoteNG builds (at least the current stable and the current nightly, plus one legacy-format version), each with a known master password and with the default password. Cover every protocol, nested inheritance, full-file encryption, Unicode names and an empty file. **Never commit real user files.**

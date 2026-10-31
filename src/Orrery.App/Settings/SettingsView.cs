@@ -34,6 +34,7 @@ sealed class SettingsView : UserControl
     readonly ICredentialStore _credentials;
     readonly Func<Task> _saveEverything;
     readonly Func<Task> _import;
+    readonly Func<Task> _export;
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
@@ -43,13 +44,14 @@ sealed class SettingsView : UserControl
 
     /// <param name="saveEverything">Writes pending edits to disk, so a copy of the data folder is complete.</param>
     /// <param name="import">Asks for an mRemoteNG file and imports it.</param>
-    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import)
+    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import, Func<Task> export)
     {
         _location = location;
         _settingsStore = settingsStore;
         _credentials = credentials;
         _saveEverything = saveEverything;
         _import = import;
+        _export = export;
         _settings = settingsStore.Load();
 
         var close = new Button { Content = StrokeIcon.Create(Icons.Close, 14), Width = 28, Height = 28 };
@@ -483,15 +485,19 @@ sealed class SettingsView : UserControl
                 + "Full screen can always be left from the bar at the top edge of the screen too."));
     }
 
-    // ---- Import ----
+    // ---- Import and export ----
 
     Control ImportSection()
     {
-        var import = new Button { Content = "Import from mRemoteNG…" };
+        var import = new Button { Content = "Import…" };
         import.Click += async (_, _) => await _import();
-        return Section("Import",
-            import,
-            Note("Choose an mRemoteNG confCons.xml to add its connections. You can also drop the file onto the connections list."));
+        var export = new Button { Content = "Export…" };
+        export.Click += async (_, _) => await _export();
+        return Section("Import and export",
+            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { import, export } },
+            Note("Import adds the connections from an mRemoteNG confCons.xml or an Orrery export. You can also drop the file onto the connections list."),
+            Note("Export saves every connection as an Orrery file, an mRemoteNG confCons.xml or a CSV. To export one folder, right-click it. "
+                + "Passwords and keys are never exported."));
     }
 
     // ---- About ----

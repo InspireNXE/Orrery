@@ -69,6 +69,24 @@ public sealed class InheritableSettings
     public static readonly Guid NoJumpHost = Guid.Empty;
 
     public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
+
+    /// <summary>
+    /// Takes every value this one inherits (null) from <paramref name="parent"/>, so a node lifted out of its
+    /// folder keeps what it had. Every setting is nullable, so new ones are covered without listing them.
+    /// </summary>
+    public void FillFrom(InheritableSettings parent)
+    {
+        foreach (var property in SettingProperties)
+        {
+            if (property.GetValue(this) is null)
+            {
+                property.SetValue(this, property.GetValue(parent));
+            }
+        }
+    }
+
+    static readonly System.Reflection.PropertyInfo[] SettingProperties =
+        typeof(InheritableSettings).GetProperties().Where(p => p.CanRead && p.CanWrite).ToArray();
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
