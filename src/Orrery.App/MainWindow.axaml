@@ -235,7 +235,7 @@
             <StackPanel x:Name="EmptyState" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
               <TextBlock Text="No open sessions" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
               <TextBlock Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"
-                         Text="Double-click a connection, or press Ctrl K to quick connect." />
+                         Text="Double-click a connection, or press Ctrl+K to quick connect." />
             </StackPanel>
           </Grid>
         </DockPanel>

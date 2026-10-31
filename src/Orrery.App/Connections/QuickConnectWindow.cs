@@ -284,7 +284,7 @@ sealed class QuickConnectWindow : Window
         {
             AddHeader("Actions");
             var host = direct.Count > 0 ? direct[0].Host : null;
-            AddItem(ActionRow($"New connection named “{query}”…"), new QuickConnectChoice(null, host, 0, NewName: query), "Create");
+            AddItem(ActionRow($"New connection named \"{query}\"…"), new QuickConnectChoice(null, host, 0, NewName: query), "Create");
         }
 
         if (_items.Count == 0)
