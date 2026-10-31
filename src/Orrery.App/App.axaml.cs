@@ -157,7 +157,7 @@ public partial class App : Application
             return;
         }
 
-        var start = new ProcessStartInfo(exe);
+        var start = new ProcessStartInfo(RestartExecutable(exe, Environment.GetEnvironmentVariable("APPIMAGE")));
         if (Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
             && Assembly.GetEntryAssembly()?.Location is { Length: > 0 } dll)
         {
@@ -181,6 +181,13 @@ public partial class App : Application
 
         desktop.Shutdown();
     }
+
+    /// <summary>
+    /// What <see cref="Restart"/> starts: the AppImage file when running from one (<paramref name="appImage"/>,
+    /// from <c>$APPIMAGE</c>), since its mount goes away when this process exits; otherwise this executable.
+    /// </summary>
+    internal static string RestartExecutable(string processPath, string? appImage) =>
+        appImage is { Length: > 0 } && Path.IsPathRooted(appImage) ? appImage : processPath;
 
     static Window MessageWindow(string title, string body)
     {
