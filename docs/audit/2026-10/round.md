@@ -70,6 +70,7 @@ file-mode tests (packet 04), not run on Windows. Every finding except S-7's Iron
 Not run, owner to check:
 - a real SSH server with `yes | head -c 2G` leaves memory flat (06), and a legacy-only SSH server needs the new switch (14);
 - a real RDP session connects, resizes and shares the clipboard, and a non-NLA server is refused (01, 09, 15);
+  2026-10-30: the owner confirmed an RDP connection after the 991bc41 fix; resize, clipboard and non-NLA not yet checked.
 - a real VNC server still connects with classic auth (01, 02);
 - Move data and "Delete old copy" between two real folders, and the open-folder warnings on screen (03, 05);
 - Linux or macOS file modes on a fresh data folder, and the 6 skipped tests (04);
