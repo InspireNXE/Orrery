@@ -33,11 +33,13 @@ public sealed class RdpSession : IFrameBufferSession
     WinCliprdr? _clipboard;
 
     readonly ServerCertificateValidator _certificateValidator;
+    readonly ISessionRoute? _route;
 
-    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator)
+    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator, ISessionRoute? route)
     {
         Target = target;
         _certificateValidator = certificateValidator;
+        _route = route;
     }
 
     public ConnectionTarget Target { get; }
@@ -53,10 +55,11 @@ public sealed class RdpSession : IFrameBufferSession
     /// Call on the UI thread: on Windows the shared clipboard is created here, and pasting files from the
     /// remote machine needs that thread's single-threaded apartment.
     /// </summary>
+    /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
     public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight,
-        ServerCertificateValidator certificateValidator, bool shareClipboard = true)
+        ServerCertificateValidator certificateValidator, bool shareClipboard = true, ISessionRoute? route = null)
     {
-        var session = new RdpSession(target, certificateValidator);
+        var session = new RdpSession(target, certificateValidator, route);
         if (shareClipboard && OperatingSystem.IsWindows())
         {
             try
@@ -80,7 +83,8 @@ public sealed class RdpSession : IFrameBufferSession
         try
         {
             var config = BuildConfig(Target, password, desktopWidth, desktopHeight);
-            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, _certificateValidator, _clipboard?.BackendFactory(), token);
+            var dial = await _route.DialAsync(Target, token);
+            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, dial, _certificateValidator, _clipboard?.BackendFactory(), token);
             _framed = new Framed<Stream>(framed.GetInner().Item1);
 
             lock (_stageLock)
@@ -107,7 +111,7 @@ public sealed class RdpSession : IFrameBufferSession
         {
             SetState(SessionState.Disconnected);
         }
-        catch (CertificateRejectedException e)
+        catch (Exception e) when (e is CertificateRejectedException or RouteException)
         {
             SetState(SessionState.Failed, e.Message);
         }
@@ -475,6 +479,7 @@ public sealed class RdpSession : IFrameBufferSession
         // Each loop has already reported its own outcome, so a fault here is only traced.
         await AwaitLoopAsync(_readLoop);
         await AwaitLoopAsync(_clipboardLoop);
+        _route?.Dispose();
     }
 
     static async Task AwaitLoopAsync(Task? loop)

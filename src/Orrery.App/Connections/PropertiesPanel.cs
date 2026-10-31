@@ -81,7 +81,7 @@ sealed class PropertiesPanel : UserControl
         ToolTip.SetTip(_sshLegacyRow.View, "SSH: also accept SHA-1, CBC and 3DES algorithms.");
         var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
         _jumpHostRow = new InheritRow("Jump host", _jumpHost, () => ShowInherited(r => SelectJumpHost(r.JumpHostId.Value)));
-        ToolTip.SetTip(_jumpHostRow.View, "SSH: reach this through another saved SSH connection first, like ssh -J.");
+        ToolTip.SetTip(_jumpHostRow.View, "Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
         _forwardsField = new StackPanel
         {
             Spacing = 4,

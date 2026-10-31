@@ -32,11 +32,13 @@ public sealed class TelnetSession : ITerminalSession
     NetworkStream? _stream;
     int _columns, _rows;
     Task? _run;
+    readonly ISessionRoute? _route;
 
-    TelnetSession(ConnectionTarget target, int columns, int rows)
+    TelnetSession(ConnectionTarget target, int columns, int rows, ISessionRoute? route)
     {
         Target = target;
         (_columns, _rows) = (columns, rows);
+        _route = route;
     }
 
     public ConnectionTarget Target { get; }
@@ -46,9 +48,10 @@ public sealed class TelnetSession : ITerminalSession
     public event Action<byte[]>? DataReceived;
 
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
-    public static TelnetSession Start(ConnectionTarget target, int columns, int rows)
+    /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
+    public static TelnetSession Start(ConnectionTarget target, int columns, int rows, ISessionRoute? route = null)
     {
-        var session = new TelnetSession(target, columns, rows);
+        var session = new TelnetSession(target, columns, rows, route);
         session._run = Task.Run(session.RunAsync);
         return session;
     }
@@ -58,12 +61,13 @@ public sealed class TelnetSession : ITerminalSession
         var token = _cts.Token;
         try
         {
+            var (host, port) = await _route.DialAsync(Target, token);
             var client = new TcpClient { NoDelay = true };
             lock (_lock) _client = client;
             using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 timeout.CancelAfter(ConnectTimeout);
-                await client.ConnectAsync(Target.Host, Target.Port, timeout.Token);
+                await client.ConnectAsync(host, port, timeout.Token);
             }
 
             var stream = client.GetStream();
@@ -101,6 +105,10 @@ public sealed class TelnetSession : ITerminalSession
         catch (OperationCanceledException)
         {
             SetState(SessionState.Failed, "The connection timed out.");
+        }
+        catch (RouteException e)
+        {
+            SetState(SessionState.Failed, e.Message);
         }
         catch (Exception e) when (e is SocketException or IOException or ObjectDisposedException)
         {
@@ -226,6 +234,7 @@ public sealed class TelnetSession : ITerminalSession
             }
         }
 
+        _route?.Dispose();
         SetState(SessionState.Disconnected);
     }
 
