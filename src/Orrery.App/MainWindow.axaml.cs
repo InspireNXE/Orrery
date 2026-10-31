@@ -1327,7 +1327,7 @@ public partial class MainWindow : Window
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
         files &= protocol == Protocol.Ssh;
-        var origin = new SessionOrigin(files ? $"{entry.Name} · files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
+        var origin = new SessionOrigin(files ? $"{entry.Name} Â· files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
         {
             Files = files,
         };

@@ -367,13 +367,7 @@ sealed class FileBrowserView : DockPanel
         string folder = _current;
         await TransferAsync($"Uploading {Describe(paths.Select(p => Path.GetFileName(Path.TrimEndingDirectorySeparator(p))).ToList())}",
             _ => Task.FromResult(SftpSession.LocalSize(paths)),
-            async (progress, token) =>
-            {
-                foreach (var path in paths)
-                {
-                    await _session.UploadAsync(path, folder, progress, token);
-                }
-            });
+            (progress, token) => _session.UploadAsync(paths, folder, progress, token));
         await OpenAsync(_current);
     }
 
@@ -419,13 +413,7 @@ sealed class FileBrowserView : DockPanel
 
         await TransferAsync($"Downloading {Describe(items.Select(i => i.Name).ToList())}",
             token => _session.RemoteSizeAsync(items, token),
-            async (progress, token) =>
-            {
-                foreach (var item in files)
-                {
-                    await _session.DownloadAsync(item, folder, progress, token);
-                }
-            });
+            (progress, token) => _session.DownloadAsync(files, folder, progress, token));
     }
 
     /// <summary>Runs one transfer with a progress bar and Cancel, and says how it ended.</summary>
