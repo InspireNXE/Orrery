@@ -2133,19 +2133,22 @@ public partial class MainWindow : Window
     {
         ImportResult? result = null;
         string? masterPassword = null, passwordError = null;
+        bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
         while (result is null)
         {
             try
             {
                 var password = masterPassword;
-                bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
-                result = await Task.Run(() => orrery ? OrreryImporter.ImportFile(path) : MRemoteNgImporter.ImportFile(path, password));
+                result = await Task.Run(() => orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
             }
             catch (MasterPasswordRequiredException e)
             {
                 passwordError = e.WrongPassword ? "That password is incorrect." : null;
-                masterPassword = await Dialogs.PromptPasswordAsync(this, "Master password",
-                    "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", passwordError);
+                masterPassword = orrery
+                    ? await Dialogs.PromptPasswordAsync(this, "Export password",
+                        "This Orrery export includes saved passwords, so it's encrypted. Enter the password it was exported with.", passwordError)
+                    : await Dialogs.PromptPasswordAsync(this, "Master password",
+                        "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", passwordError);
                 if (masterPassword is null)
                 {
                     return;
@@ -2261,27 +2264,82 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Only usernames are read from saved credentials. If the vault stays locked, they're left out and the export says so.
-        var scope = node.Ancestors().Cast<ConnectionNode>().Append(node).Concat((node as ConnectionFolder)?.Descendants() ?? []);
+        // Saved credentials in play: set on what's exported, on a folder above it, or on anything inside it (a host's guests too).
+        var inside = node switch
+        {
+            ConnectionFolder folder => folder.Descendants(),
+            ConnectionEntry host => host.Guests,
+            _ => [],
+        };
+        var used = node.Ancestors().Cast<ConnectionNode>().Append(node).Concat(inside)
+            .Select(n => n.Settings.CredentialId).OfType<Guid>().Where(id => id != InheritableSettings.NoCredential).ToHashSet();
+
+        // Passwords and keys go in only if asked for, encrypted with a password chosen here. CSV never has them.
+        string? exportPassword = null;
+        if (used.Count > 0 && format != ExportFormat.Csv)
+        {
+            if (await new ExportSecretsWindow(format).ShowDialog<ExportSecretsChoice?>(this) is not { } choice)
+            {
+                return;
+            }
+
+            exportPassword = choice.Password;
+        }
+
+        // Otherwise only usernames are read from saved credentials. If the vault stays locked, they're left out and the export says so.
         IReadOnlyDictionary<Guid, CredentialSummary>? credentials = null;
-        if (!scope.Any(n => n.Settings.CredentialId is { } id && id != InheritableSettings.NoCredential)
-            || await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+        ExportSecrets? secrets = null;
+        bool unlocked = used.Count == 0 || await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this);
+        if (exportPassword is not null && !unlocked)
+        {
+            return;
+        }
+
+        if (unlocked)
         {
             try
             {
                 credentials = (await _credentials.ListAsync()).ToDictionary(c => c.Id);
+                if (exportPassword is not null)
+                {
+                    var whole = new Dictionary<Guid, Credential>();
+                    foreach (var id in used)
+                    {
+                        if (await _credentials.GetAsync(id) is { } credential)
+                        {
+                            whole[id] = credential;
+                        }
+                    }
+
+                    secrets = new ExportSecrets(exportPassword, whole);
+                }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
             {
+                if (exportPassword is not null)
+                {
+                    await Dialogs.ShowMessageAsync(this, "Couldn't read the saved passwords", $"{e.Message}\n\nNothing was exported.");
+                    return;
+                }
+
                 credentials = null;
             }
         }
 
         try
         {
-            var result = ConnectionExporter.Export(node, format, credentials, DateTimeOffset.Now);
-            await Task.Run(() => AtomicFile.WriteAllText(path, result.Content));
-            var body = $"Saved to:\n{path}\n\nPasswords and keys aren't included.";
+            // Encrypting is deliberately slow (Argon2id for Orrery, many PBKDF2 rounds for mRemoteNG); keep it off the UI thread.
+            var result = await Task.Run(() =>
+            {
+                var exported = ConnectionExporter.Export(node, format, credentials, DateTimeOffset.Now, secrets);
+                AtomicFile.WriteAllText(path, exported.Content);
+                return exported;
+            });
+            var included = secrets is null ? "Passwords and keys aren't included."
+                : format == ExportFormat.Orrery
+                    ? $"{result.Secrets} saved credential{(result.Secrets == 1 ? " is" : "s are")} included. The whole file is encrypted with the password you chose."
+                    : $"Passwords for {result.Secrets} connection{(result.Secrets == 1 ? " are" : "s are")} included, protected by the master password you chose.";
+            var body = $"Saved to:\n{path}\n\n{included}";
             if (result.Warnings.Count > 0)
             {
                 body += "\n\n" + string.Join("\n", result.Warnings.Take(10).Select(w => "• " + w))

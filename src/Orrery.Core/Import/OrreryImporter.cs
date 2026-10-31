@@ -1,5 +1,7 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Orrery.Core.Connections;
+using Orrery.Core.Credentials;
 using Orrery.Core.Export;
 
 namespace Orrery.Core.Import;
@@ -14,23 +16,82 @@ public static class OrreryImporter
     internal const string SourcePrefix = "orrery:";
     const long MaxFileBytes = 64L * 1024 * 1024;
 
-    public static ImportResult ImportFile(string path)
+    public static ImportResult ImportFile(string path, string? password = null)
     {
         using var stream = File.OpenRead(path);
-        return Import(stream, Path.GetFileName(path));
+        return Import(stream, Path.GetFileName(path), password);
     }
 
-    public static ImportResult Import(Stream json, string sourceName)
+    /// <param name="password">Opens an export sealed because it holds saved passwords and keys (<see cref="SealedExport"/>).</param>
+    /// <exception cref="MasterPasswordRequiredException">The file is sealed, and <paramref name="password"/> is missing or wrong.</exception>
+    public static ImportResult Import(Stream json, string sourceName, string? password = null)
     {
         if (json.CanSeek && json.Length > MaxFileBytes)
         {
             throw new ImportException("This file is larger than Orrery imports at once.");
         }
 
+        using var document = Parse(() => JsonDocument.Parse(json, DocumentOptions));
+        if (!SealedExport.IsSealed(document.RootElement))
+        {
+            return Read(document.RootElement, sourceName, fromSealed: false);
+        }
+
+        if (string.IsNullOrEmpty(password))
+        {
+            throw new MasterPasswordRequiredException(wrongPassword: false);
+        }
+
+        byte[]? plaintext;
+        try
+        {
+            var sealedFile = document.RootElement.Deserialize<SealedExport.SealedFile>(ConnectionStore.JsonOptions)
+                ?? throw new InvalidDataException("This encrypted export is damaged.");
+            plaintext = SealedExport.Open(sealedFile, password);
+        }
+        catch (Exception e) when (e is JsonException or NotSupportedException or InvalidDataException or FormatException)
+        {
+            throw new ImportException(e is InvalidDataException ? e.Message : "This encrypted export is damaged.");
+        }
+
+        if (plaintext is null)
+        {
+            throw new MasterPasswordRequiredException(wrongPassword: true);
+        }
+
+        try
+        {
+            using var inner = Parse(() => JsonDocument.Parse(plaintext, DocumentOptions));
+            return Read(inner.RootElement, sourceName, fromSealed: true);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    // As deep as connections.json may nest, which a deep folder tree needs.
+    static readonly JsonDocumentOptions DocumentOptions = new() { MaxDepth = ConnectionStore.JsonOptions.MaxDepth };
+
+    static JsonDocument Parse(Func<JsonDocument> parse)
+    {
+        try
+        {
+            return parse();
+        }
+        catch (JsonException e)
+        {
+            throw new ImportException($"This isn't a readable Orrery export: {e.Message}");
+        }
+    }
+
+    /// <param name="fromSealed">Only a sealed file's saved credentials are taken; a plain export never has any.</param>
+    static ImportResult Read(JsonElement json, string sourceName, bool fromSealed)
+    {
         ConnectionExporter.OrreryFile? file;
         try
         {
-            file = JsonSerializer.Deserialize<ConnectionExporter.OrreryFile>(json, ConnectionStore.JsonOptions);
+            file = json.Deserialize<ConnectionExporter.OrreryFile>(ConnectionStore.JsonOptions);
         }
         catch (Exception e) when (e is JsonException or NotSupportedException)
         {
@@ -74,8 +135,33 @@ public static class OrreryImporter
             }
         }
 
+        // Saved credentials get new ids too, and connections follow them.
+        var credentialIds = new Dictionary<Guid, Guid>();
+        var credentials = new List<Credential>();
+        if (fromSealed && file.Credentials is { } carried)
+        {
+            if (carried.Count > MRemoteNgImporter.MaxCredentials)
+            {
+                throw new ImportException($"This file has more than {MRemoteNgImporter.MaxCredentials:N0} saved credentials, more than Orrery imports at once.");
+            }
+
+            foreach (var credential in carried)
+            {
+                if (credential is not { Secret: not null } || !Enum.IsDefined(credential.Kind) || !credentialIds.TryAdd(credential.Id, Guid.NewGuid()))
+                {
+                    throw new ImportException("This file has a saved credential Orrery can't read, so it may be damaged.");
+                }
+
+                credentials.Add(credential with
+                {
+                    Id = credentialIds[credential.Id],
+                    Name = string.IsNullOrWhiteSpace(credential.Name) ? "Imported credential" : credential.Name.Trim(),
+                });
+            }
+        }
+
         var warnings = new List<string>();
-        var root = (ConnectionFolder)Rebuild(file.Root, newIds, warnings);
+        var root = (ConnectionFolder)Rebuild(file.Root, newIds, credentialIds, warnings);
         root.Name = $"Imported from Orrery ({DateTime.Now:yyyy-MM-dd})";
         root.ImportSourceId = null;
 
@@ -85,12 +171,12 @@ public static class OrreryImporter
         var connections = root.Descendants().OfType<ConnectionEntry>().ToList();
         var protocols = connections.GroupBy(e => ProtocolInfo.Label(SettingsResolver.Resolve(e).Protocol.Value))
             .ToDictionary(g => g.Key, g => g.Count());
-        var report = new ImportReport(sourceName, root.Descendants().OfType<ConnectionFolder>().Count(), connections.Count, 0, 0,
+        var report = new ImportReport(sourceName, root.Descendants().OfType<ConnectionFolder>().Count(), connections.Count, credentials.Count, 0,
             protocols, [], [], ImportReport.Shorten(warnings), From: "Orrery");
-        return new ImportResult(root, [], report);
+        return new ImportResult(root, credentials, report);
     }
 
-    static ConnectionNode Rebuild(ConnectionNode node, Dictionary<Guid, Guid> newIds, List<string> warnings)
+    static ConnectionNode Rebuild(ConnectionNode node, Dictionary<Guid, Guid> newIds, Dictionary<Guid, Guid> credentialIds, List<string> warnings)
     {
         ConnectionNode copy = node switch
         {
@@ -103,10 +189,10 @@ public static class OrreryImporter
         copy.ImportSourceId = node.ImportSourceId ?? SourcePrefix + node.Id;
         copy.Settings = node.Settings?.Clone() ?? new InheritableSettings();
 
-        // Exports don't carry saved credentials; an id here would point at nothing on this computer.
-        if (copy.Settings.CredentialId != InheritableSettings.NoCredential)
+        // Only a sealed export carries saved credentials; any other id would point at nothing on this computer.
+        if (copy.Settings.CredentialId is { } credentialId && credentialId != InheritableSettings.NoCredential)
         {
-            copy.Settings.CredentialId = null;
+            copy.Settings.CredentialId = credentialIds.TryGetValue(credentialId, out var newCredential) ? newCredential : null;
         }
 
         if (copy.Settings.JumpHostId is { } jump && jump != InheritableSettings.NoJumpHost)
@@ -126,7 +212,7 @@ public static class OrreryImporter
         {
             foreach (var child in source.Children)
             {
-                target.ChildList.Add(Rebuild(child, newIds, warnings));
+                target.ChildList.Add(Rebuild(child, newIds, credentialIds, warnings));
             }
         }
         else if (node is ConnectionEntry { GuestList: { Count: > 0 } guests } original && copy is ConnectionEntry host)
@@ -137,7 +223,7 @@ public static class OrreryImporter
             }
 
             host.GuestsCollapsed = original.GuestsCollapsed;
-            host.GuestList = guests.Select(g => (ConnectionEntry)Rebuild(g, newIds, warnings)).ToList();
+            host.GuestList = guests.Select(g => (ConnectionEntry)Rebuild(g, newIds, credentialIds, warnings)).ToList();
         }
 
         return copy;

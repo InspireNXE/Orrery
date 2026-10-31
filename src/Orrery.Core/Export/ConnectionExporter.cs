@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Xml;
@@ -21,12 +22,30 @@ public enum ExportFormat
     Csv,
 }
 
-/// <summary>A finished export: the file's text, what's in it, and what didn't carry over.</summary>
-public sealed record ExportResult(string Content, int Folders, int Connections, IReadOnlyList<string> Warnings);
+/// <summary>
+/// A finished export: the file's text, what's in it, and what didn't carry over. <paramref name="Secrets"/>
+/// counts the saved credentials an Orrery file carries, or the connections a confCons.xml has a password for.
+/// </summary>
+public sealed record ExportResult(string Content, int Folders, int Connections, IReadOnlyList<string> Warnings, int Secrets = 0);
 
 /// <summary>
-/// Writes a connection, a folder or the whole tree to a file. Never includes passwords or keys: a
-/// connection that uses a saved credential gets that credential's username and domain instead.
+/// Saved passwords and keys to put in an export, and the password protecting them: an Orrery file is
+/// encrypted with it as a whole (<see cref="SealedExport"/>), and a confCons.xml uses it as mRemoteNG's
+/// master password. Only <paramref name="Credentials"/> (by id) are included.
+/// </summary>
+public sealed record ExportSecrets(string Password, IReadOnlyDictionary<Guid, Credential> Credentials)
+{
+    /// <summary>Argon2id cost for the Orrery file; tests make it cheap.</summary>
+    internal SealedExport.KdfSettings? Kdf { get; init; }
+
+    /// <summary>Keeps the password out of logs and crash reports.</summary>
+    public override string ToString() => $"ExportSecrets {{ Credentials = {Credentials.Count} }}";
+}
+
+/// <summary>
+/// Writes a connection, a folder or the whole tree to a file. Passwords and keys are left out unless the
+/// export is given <see cref="ExportSecrets"/>, and then only encrypted. Without them, a connection that
+/// uses a saved credential gets that credential's username and domain instead.
 /// </summary>
 public static class ConnectionExporter
 {
@@ -45,28 +64,45 @@ public static class ConnectionExporter
 
     /// <param name="node">What to export; the tree's root exports everything, including its defaults.</param>
     /// <param name="credentials">Saved credentials by id, for their usernames; null when they couldn't be read (a locked vault).</param>
-    public static ExportResult Export(ConnectionNode node, ExportFormat format, IReadOnlyDictionary<Guid, CredentialSummary>? credentials, DateTimeOffset now)
+    /// <param name="secrets">Passwords and keys to include, encrypted; null leaves them out. Not for CSV.</param>
+    public static ExportResult Export(ConnectionNode node, ExportFormat format, IReadOnlyDictionary<Guid, CredentialSummary>? credentials,
+        DateTimeOffset now, ExportSecrets? secrets = null)
     {
+        if (secrets is not null && format == ExportFormat.Csv)
+        {
+            throw new ArgumentException("A CSV export can't carry passwords or keys.", nameof(secrets));
+        }
+
         var warnings = new List<string>();
-        var snapshot = Snapshot(node, credentials, warnings);
-        int folders = snapshot.Root.Descendants().OfType<ConnectionFolder>().Count();
-        int connections = snapshot.AllConnections().Count();
+        var snapshot = Snapshot(node, credentials, secrets, keepCredentials: format == ExportFormat.Orrery, warnings);
+        var tree = snapshot.Tree;
+        int folders = tree.Root.Descendants().OfType<ConnectionFolder>().Count();
+        int connections = tree.AllConnections().Count();
         var content = format switch
         {
-            ExportFormat.Orrery => WriteOrrery(snapshot, now),
-            ExportFormat.MRemoteNg => WriteMRemoteNg(snapshot, warnings),
-            ExportFormat.Csv => WriteCsv(snapshot),
+            ExportFormat.Orrery => WriteOrrery(snapshot, now, secrets),
+            ExportFormat.MRemoteNg => WriteMRemoteNg(snapshot, secrets, warnings),
+            ExportFormat.Csv => WriteCsv(tree),
             _ => throw new ArgumentOutOfRangeException(nameof(format)),
         };
-        return new ExportResult(content, folders, connections, warnings);
+        int included = secrets is null ? 0
+            : format == ExportFormat.Orrery ? snapshot.Credentials.Count
+            : snapshot.ConnectionSecrets.Values.Count(c => c.Kind == CredentialKind.Password);
+        return new ExportResult(content, folders, connections, warnings, included);
     }
+
+    /// <param name="Credentials">Saved credentials an Orrery file carries whole, in the order first used.</param>
+    /// <param name="ConnectionSecrets">Each connection's saved credential, by connection id, for a confCons.xml with secrets.</param>
+    sealed record ExportSnapshot(ConnectionTree Tree, IReadOnlyList<Credential> Credentials, IReadOnlyDictionary<Guid, Credential> ConnectionSecrets);
 
     /// <summary>
     /// A detached copy to write out. Its root is the tree's root (with the defaults) when exporting
     /// everything, else a plain folder holding the exported node, which takes the values it inherited.
-    /// Saved credentials become their username and domain; jump hosts outside the export are dropped.
+    /// Saved credentials become their username and domain, except those an Orrery file with secrets carries
+    /// whole (<paramref name="keepCredentials"/>); jump hosts outside the export are dropped.
     /// </summary>
-    static ConnectionTree Snapshot(ConnectionNode node, IReadOnlyDictionary<Guid, CredentialSummary>? credentials, List<string> warnings)
+    static ExportSnapshot Snapshot(ConnectionNode node, IReadOnlyDictionary<Guid, CredentialSummary>? credentials, ExportSecrets? secrets,
+        bool keepCredentials, List<string> warnings)
     {
         var copy = Copy(node);
         ConnectionFolder root;
@@ -92,13 +128,32 @@ public static class ConnectionExporter
         }
 
         var tree = new ConnectionTree(root);
+
+        // Read before saved credentials become usernames below, which takes the ids away.
+        var connectionSecrets = new Dictionary<Guid, Credential>();
+        if (secrets is not null && !keepCredentials)
+        {
+            foreach (var entry in tree.AllConnections())
+            {
+                if (SettingsResolver.Resolve(entry).CredentialId.Value is { } id && secrets.Credentials.TryGetValue(id, out var credential))
+                {
+                    connectionSecrets[entry.Id] = credential;
+                }
+            }
+        }
+
+        var carried = new Dictionary<Guid, Credential>();
         var all = tree.Root.Descendants().Prepend(tree.Root).ToList();
         var ids = all.Select(n => n.Id).ToHashSet();
         int unknownCredentials = 0;
         foreach (var item in all)
         {
             var settings = item.Settings;
-            if (settings.CredentialId is { } credentialId && credentialId != InheritableSettings.NoCredential)
+            if (keepCredentials && settings.CredentialId is { } keptId && secrets?.Credentials.GetValueOrDefault(keptId) is { } kept)
+            {
+                carried.TryAdd(keptId, kept);
+            }
+            else if (settings.CredentialId is { } credentialId && credentialId != InheritableSettings.NoCredential)
             {
                 if (credentials?.GetValueOrDefault(credentialId) is { } summary)
                 {
@@ -127,7 +182,7 @@ public static class ConnectionExporter
                 : $"{Count(unknownCredentials, "folder or connection", "folders or connections")} use a saved credential that no longer exists, so their usernames aren't included.");
         }
 
-        return tree;
+        return new ExportSnapshot(tree, carried.Values.ToList(), connectionSecrets);
     }
 
     /// <summary>A deep copy that keeps ids, so jump hosts inside the export still point at the right connection.</summary>
@@ -165,15 +220,38 @@ public static class ConnectionExporter
 
     // ---- Orrery ----
 
-    internal sealed record OrreryFile(string Format, int SchemaVersion, DateTimeOffset Exported, ConnectionFolder Root);
+    /// <param name="Credentials">Saved credentials, secrets included; only ever written inside a sealed file.</param>
+    internal sealed record OrreryFile(string Format, int SchemaVersion, DateTimeOffset Exported, ConnectionFolder Root, IReadOnlyList<Credential>? Credentials = null);
 
-    static string WriteOrrery(ConnectionTree tree, DateTimeOffset now) =>
-        JsonSerializer.Serialize(new OrreryFile(OrreryFormatName, ConnectionStore.SchemaFor(tree.Root), now, tree.Root), ConnectionStore.JsonOptions);
+    static string WriteOrrery(ExportSnapshot snapshot, DateTimeOffset now, ExportSecrets? secrets)
+    {
+        var root = snapshot.Tree.Root;
+        var file = new OrreryFile(OrreryFormatName, ConnectionStore.SchemaFor(root), now, root, secrets is null ? null : snapshot.Credentials);
+        if (secrets is null)
+        {
+            return JsonSerializer.Serialize(file, ConnectionStore.JsonOptions);
+        }
+
+        var plaintext = JsonSerializer.SerializeToUtf8Bytes(file, ConnectionStore.JsonOptions);
+        try
+        {
+            return SealedExport.Seal(plaintext, secrets.Password, secrets.Kdf);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
 
     // ---- mRemoteNG ----
 
     const string MRemoteNgNamespace = "http://mremoteng.org";
     const int MRemoteNgKdfIterations = 1000;
+    /// <summary>
+    /// For a file with passwords. mRemoteNG reads the cost from the file and offers up to 50,000 itself; ten
+    /// times its default still opens quickly, and stays inside what Orrery's importer works through.
+    /// </summary>
+    const int MRemoteNgProtectedKdfIterations = 10_000;
 
     /// <summary>
     /// Every attribute a ConfVersion 2.6 node has, with mRemoteNG's defaults, in the order it writes them.
@@ -210,8 +288,19 @@ public static class ConnectionExporter
         "RDGatewayUsername", "RDGatewayPassword", "RDGatewayDomain", "RedirectClipboard",
     ];
 
-    static string WriteMRemoteNg(ConnectionTree tree, List<string> warnings)
+    static string WriteMRemoteNg(ExportSnapshot snapshot, ExportSecrets? secrets, List<string> warnings)
     {
+        var tree = snapshot.Tree;
+        int iterations = secrets is null ? MRemoteNgKdfIterations : MRemoteNgProtectedKdfIterations;
+        // With passwords, the marker is encrypted with the master password, so mRemoteNG asks for it.
+        var marker = secrets is null
+            ? MRemoteNgCrypto.Encrypt(MRemoteNgCrypto.NotProtectedMarker, MRemoteNgCrypto.DefaultPassword, iterations)
+            : MRemoteNgCrypto.Encrypt(MRemoteNgCrypto.ProtectedMarker, secrets.Password, iterations);
+        string PasswordFor(ConnectionNode node) =>
+            secrets is not null && snapshot.ConnectionSecrets.TryGetValue(node.Id, out var credential) && credential.Kind == CredentialKind.Password
+                ? MRemoteNgCrypto.Encrypt(credential.Secret, secrets.Password, iterations)
+                : string.Empty;
+
         XNamespace ns = MRemoteNgNamespace;
         var document = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
@@ -221,12 +310,18 @@ public static class ConnectionExporter
                 new XAttribute("Export", "false"),
                 new XAttribute("EncryptionEngine", "AES"),
                 new XAttribute("BlockCipherMode", "GCM"),
-                new XAttribute("KdfIterations", MRemoteNgKdfIterations.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("KdfIterations", iterations.ToString(CultureInfo.InvariantCulture)),
                 new XAttribute("FullFileEncryption", "false"),
-                // mRemoteNG checks this decrypts with its default password to know there's no master password.
-                new XAttribute("Protected", MRemoteNgCrypto.Encrypt(MRemoteNgCrypto.NotProtectedMarker, MRemoteNgCrypto.DefaultPassword, MRemoteNgKdfIterations)),
+                // mRemoteNG checks whether this decrypts with its default password to know if there's a master password.
+                new XAttribute("Protected", marker),
                 new XAttribute("ConfVersion", "2.6"),
-                tree.Root.Children.Select(MRemoteNgNode)));
+                tree.Root.Children.Select(n => MRemoteNgNode(n, PasswordFor))));
+
+        int keys = snapshot.ConnectionSecrets.Values.Count(c => c.Kind != CredentialKind.Password);
+        if (keys > 0)
+        {
+            warnings.Add($"mRemoteNG has no place for SSH keys, so {Count(keys, "connection's key was", "connections' keys were")} left out.");
+        }
 
         int hosts = tree.AllConnections().Count(e => e.IsHost);
         if (hosts > 0)
@@ -266,13 +361,16 @@ public static class ConnectionExporter
         return output.ToString();
     }
 
-    static XElement MRemoteNgNode(ConnectionNode node) =>
+    /// <param name="passwordFor">A connection's encrypted password, or empty.</param>
+    static XElement MRemoteNgNode(ConnectionNode node, Func<ConnectionNode, string> passwordFor) =>
         node is ConnectionEntry { IsHost: true } host
-            ? MRemoteNgNode(host, asFolder: true, [MRemoteNgNode(host, asFolder: false, []), .. host.Guests.Select(MRemoteNgNode)])
-            : MRemoteNgNode(node, asFolder: node is ConnectionFolder, ((node as ConnectionFolder)?.Children ?? []).Select(MRemoteNgNode).ToList());
+            ? MRemoteNgNode(host, asFolder: true,
+                [MRemoteNgNode(host, asFolder: false, [], passwordFor), .. host.Guests.Select(g => MRemoteNgNode(g, passwordFor))], passwordFor)
+            : MRemoteNgNode(node, asFolder: node is ConnectionFolder,
+                ((node as ConnectionFolder)?.Children ?? []).Select(c => MRemoteNgNode(c, passwordFor)).ToList(), passwordFor);
 
     /// <param name="asFolder">Written as a container. A host is written twice: as a folder named after it, and inside that as the connection.</param>
-    static XElement MRemoteNgNode(ConnectionNode node, bool asFolder, List<XElement> children)
+    static XElement MRemoteNgNode(ConnectionNode node, bool asFolder, List<XElement> children, Func<ConnectionNode, string> passwordFor)
     {
         var resolved = SettingsResolver.Resolve(node);
         var values = new Dictionary<string, string>
@@ -284,6 +382,7 @@ public static class ConnectionExporter
             ["Id"] = (asFolder && node is ConnectionEntry ? HostFolderId(node.Id) : node.Id).ToString(),
             ["Username"] = resolved.Username.Value ?? string.Empty,
             ["Domain"] = resolved.Domain.Value ?? string.Empty,
+            ["Password"] = asFolder ? string.Empty : passwordFor(node),
             ["Hostname"] = asFolder ? string.Empty : (node as ConnectionEntry)?.Host ?? string.Empty,
             ["Protocol"] = resolved.Protocol.Value switch
             {
