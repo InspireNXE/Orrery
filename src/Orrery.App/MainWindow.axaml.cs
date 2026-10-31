@@ -1250,7 +1250,7 @@ public partial class MainWindow : Window
         try
         {
             var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol)).ToList();
-            choice = await new QuickConnectWindow(_tree, open).ShowDialog<QuickConnectChoice?>(this);
+            choice = await new QuickConnectWindow(_tree, open).ShowOver(this);
         }
         finally
         {

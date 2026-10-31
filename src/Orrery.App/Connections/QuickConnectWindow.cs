@@ -114,6 +114,7 @@ sealed class QuickConnectWindow : Window
     readonly List<Item> _items = [];
     int _selected = -1;
     bool _closing;
+    QuickConnectChoice? _choice;
 
     public QuickConnectWindow(ConnectionTree tree, IReadOnlyList<OpenSession>? sessions = null)
     {
@@ -214,9 +215,22 @@ sealed class QuickConnectWindow : Window
             owner.Position.Y + (int)(TopOffset * scaling));
     }
 
+    /// <summary>
+    /// Shows the box over <paramref name="owner"/> and completes when it closes. Not modal: a modal dialog
+    /// disables its owner, so a click on the owner never takes focus from the box and never dismisses it.
+    /// </summary>
+    public Task<QuickConnectChoice?> ShowOver(Window owner)
+    {
+        var result = new TaskCompletionSource<QuickConnectChoice?>();
+        Closed += (_, _) => result.TrySetResult(_choice);
+        Show(owner);
+        return result.Task;
+    }
+
     void Finish(QuickConnectChoice? choice)
     {
         _closing = true;
+        _choice = choice;
         Close(choice);
     }
 
