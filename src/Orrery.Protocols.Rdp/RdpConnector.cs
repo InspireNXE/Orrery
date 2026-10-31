@@ -3,6 +3,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using Devolutions.IronRdp;
+using Microsoft.Extensions.Logging;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 
@@ -127,7 +128,11 @@ static class RdpConnector
                 throw new CertificateRejectedException(target.Host);
             }
 
-            if (!await validator.ValidateAsync(target.Host, target.Port, certificate, errors))
+            bool trusted = await validator.ValidateAsync(target.Host, target.Port, certificate, errors);
+            Orrery.Core.Diagnostics.Log.For("Rdp").Log(trusted ? LogLevel.Information : LogLevel.Warning,
+                "{Host}:{Port} certificate {Subject} ({Thumbprint}), problems: {Errors}, {Decision}", target.Host, target.Port, certificate.Subject,
+                certificate.GetCertHashString(), errors.ToString(), trusted ? "trusted" : "not trusted");
+            if (!trusted)
             {
                 throw new CertificateRejectedException(target.Host);
             }

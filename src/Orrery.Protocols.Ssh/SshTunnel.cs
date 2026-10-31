@@ -88,6 +88,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         }
         catch (SshAuthenticationException e)
         {
+            Log.For("JumpHost").LogWarning("Jump host {Host}: login as {User} refused: {Reason}", hop.Target.Host, hop.Login.Username, e.Message);
             throw new RouteException(where + SshSession.Refusal(e, hop.Login), e);
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)

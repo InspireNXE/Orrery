@@ -14,7 +14,6 @@ using MarcusW.VncClient.Output;
 using MarcusW.VncClient.Rendering;
 using MarcusW.VncClient.Security;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
 using VncPixelFormat = MarcusW.VncClient.PixelFormat;
@@ -64,7 +63,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         Target = target;
         _password = password;
         _shareClipboard = shareClipboard;
-        _logging = logging ?? NullLoggerFactory.Instance;
+        _logging = logging ?? Log.Factory;
         _route = route;
         _quality = quality;
     }
@@ -115,6 +114,8 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
             var connection = await client.ConnectAsync(parameters, _cts.Token);
             connection.ConnectionStateChanged += OnConnectionStateChanged;
             _connection = connection;
+            Log.For("Vnc").LogInformation("Connected to {Host}: {ProtocolVersion}, desktop {Width}x{Height}, {Quality} quality", Target.Host,
+                connection.ProtocolVersion.ToString(), connection.RemoteFramebufferSize.Width, connection.RemoteFramebufferSize.Height, _quality.ToString());
             if (connection.ConnectionState == ConnectionState.Connected)
             {
                 SetState(SessionState.Connected);
