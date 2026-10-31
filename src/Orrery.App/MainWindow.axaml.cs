@@ -697,7 +697,6 @@ public partial class MainWindow : Window
 
                 tab.Header.ZIndex = 1;
                 tab.Header.Opacity = 0.85;
-                Cursor = new Cursor(StandardCursorType.SizeWestEast);
             }
 
             if (_tabDragging)
@@ -735,7 +734,10 @@ public partial class MainWindow : Window
         double left = _tabs[0].Header.Bounds.Left, right = _tabs[^1].Header.Bounds.Right;
         dx = Math.Clamp(dx, left - bounds.Left, right - bounds.Right);
 
-        _tabDropIndex = Input.TabShortcuts.DropIndex([.. _tabs.Select(t => t.Header.Bounds.Center.X)], from, bounds.Center.X + dx);
+        // Judged by the leading edge, not the centre: a tab wider than its neighbour could never get its centre
+        // past the neighbour's middle at the end of the strip.
+        double edge = dx < 0 ? bounds.Left + dx : bounds.Right + dx;
+        _tabDropIndex = Input.TabShortcuts.DropIndex([.. _tabs.Select(t => t.Header.Bounds.Center.X)], from, edge);
         double step = bounds.Width + _tabStrip.Spacing;
         for (int i = 0; i < _tabs.Count; i++)
         {
@@ -778,7 +780,6 @@ public partial class MainWindow : Window
         }
 
         (_draggedTab, _tabDragStart, _tabDragging) = (null, null, false);
-        Cursor = null;
     }
 
     SessionTab? TabAt(object? source) =>
