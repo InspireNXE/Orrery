@@ -678,19 +678,42 @@ public partial class MainWindow : Window
 
         _tabStrip.AddHandler(PointerMovedEvent, (_, e) =>
         {
-            if (_draggedTab is { } tab && _tabDragStart is { } start && Math.Abs(e.GetPosition(_tabStrip).X - start.X) > 6)
+            if (_draggedTab is not { } tab || _tabDragStart is not { } start)
             {
-                tab.Header.Opacity = 0.6;
+                return;
+            }
+
+            double dx = e.GetPosition(_tabStrip).X - start.X;
+            if (!_tabDragging && Math.Abs(dx) > 6)
+            {
+                _tabDragging = true;
+
+                // The button theme animates RenderTransform (a pressed "shrink"), and an animated value outranks the
+                // drag's own, so its transitions are off for the drag; the tabs slide with the drag's own instead.
+                foreach (var each in _tabs)
+                {
+                    each.Header.Transitions = [];
+                }
+
+                tab.Header.ZIndex = 1;
+                tab.Header.Opacity = 0.85;
                 Cursor = new Cursor(StandardCursorType.SizeWestEast);
+            }
+
+            if (_tabDragging)
+            {
+                ShowTabDrag(tab, dx);
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        _tabStrip.AddHandler(PointerReleasedEvent, (_, e) =>
+        _tabStrip.AddHandler(PointerReleasedEvent, (_, _) =>
         {
-            if (_draggedTab is { } tab && tab.Header.Opacity < 1)
+            if (_draggedTab is { } tab && _tabDragging)
             {
-                MoveTab(tab, Input.TabShortcuts.DropIndex(
-                    [.. _tabs.Select(t => t.Header.Bounds.X + t.Header.Bounds.Width / 2)], _tabs.IndexOf(tab), e.GetPosition(_tabStrip).X));
+                int target = _tabDropIndex;
+                EndTabDrag();
+                MoveTab(tab, target);
+                return;
             }
 
             EndTabDrag();
@@ -698,14 +721,63 @@ public partial class MainWindow : Window
         _tabStrip.AddHandler(PointerCaptureLostEvent, (_, _) => EndTabDrag(), RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
-    void EndTabDrag()
+    bool _tabDragging;
+    int _tabDropIndex;
+
+    /// <summary>
+    /// Draws the drag: the held tab follows the pointer, kept within the strip, and the tabs it passes slide into its
+    /// old place, so the gap shows where it will land. Only transforms move, so the held tab keeps the pointer.
+    /// </summary>
+    void ShowTabDrag(SessionTab tab, double dx)
     {
-        if (_draggedTab is { } tab)
+        int from = _tabs.IndexOf(tab);
+        var bounds = tab.Header.Bounds;
+        double left = _tabs[0].Header.Bounds.Left, right = _tabs[^1].Header.Bounds.Right;
+        dx = Math.Clamp(dx, left - bounds.Left, right - bounds.Right);
+
+        _tabDropIndex = Input.TabShortcuts.DropIndex([.. _tabs.Select(t => t.Header.Bounds.Center.X)], from, bounds.Center.X + dx);
+        double step = bounds.Width + _tabStrip.Spacing;
+        for (int i = 0; i < _tabs.Count; i++)
         {
-            tab.Header.Opacity = 1;
+            double x = i == from ? dx : Input.TabShortcuts.Shift(i, from, _tabDropIndex) * step;
+            SlideTo(_tabs[i].Header, x, animate: i != from);
+        }
+    }
+
+    static readonly TimeSpan TabSlideTime = TimeSpan.FromMilliseconds(120);
+
+    static void SlideTo(Control header, double x, bool animate)
+    {
+        if (header.RenderTransform is not TranslateTransform shift)
+        {
+            shift = new TranslateTransform();
+            header.RenderTransform = shift;
         }
 
-        (_draggedTab, _tabDragStart) = (null, null);
+        // The held tab tracks the pointer exactly; the others glide. Set once, so a glide under way isn't restarted.
+        if (animate && shift.Transitions is null)
+        {
+            shift.Transitions = [new Avalonia.Animation.DoubleTransition { Property = TranslateTransform.XProperty, Duration = TabSlideTime }];
+        }
+        else if (!animate)
+        {
+            shift.Transitions = null;
+        }
+
+        shift.X = x;
+    }
+
+    void EndTabDrag()
+    {
+        foreach (var each in _tabs)
+        {
+            each.Header.ClearValue(RenderTransformProperty);
+            each.Header.ClearValue(TransitionsProperty);
+            each.Header.ZIndex = 0;
+            each.Header.Opacity = 1;
+        }
+
+        (_draggedTab, _tabDragStart, _tabDragging) = (null, null, false);
         Cursor = null;
     }
 

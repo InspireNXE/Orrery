@@ -94,4 +94,13 @@ static class TabShortcuts
     /// </summary>
     public static int DropIndex(IReadOnlyList<double> middles, int dragged, double x) =>
         middles.Where((middle, i) => i != dragged && middle < x).Count();
+
+    /// <summary>
+    /// Which way the tab at <paramref name="index"/> steps aside while the tab from <paramref name="from"/> is held
+    /// over <paramref name="to"/>: -1 left, +1 right, 0 not at all. The tabs it has passed move into its old place.
+    /// </summary>
+    public static int Shift(int index, int from, int to) =>
+        from < to && index > from && index <= to ? -1
+        : to < from && index >= to && index < from ? 1
+        : 0;
 }
