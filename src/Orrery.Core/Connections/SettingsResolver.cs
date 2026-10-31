@@ -14,7 +14,8 @@ public sealed record ResolvedSettings(
     Resolved<string?> Domain,
     Resolved<bool> ShareClipboard,
     Resolved<bool> UseSshAgent,
-    Resolved<bool> AllowLegacySsh);
+    Resolved<bool> AllowLegacySsh,
+    Resolved<Guid?> JumpHostId);
 
 public static class SettingsResolver
 {
@@ -30,6 +31,10 @@ public static class SettingsResolver
             ? new Resolved<Guid?>(c.Value == InheritableSettings.NoCredential ? null : c.Value, c.Source)
             : new Resolved<Guid?>(null, null);
 
+        var jump = Find(node, s => s.JumpHostId) is { } j
+            ? new Resolved<Guid?>(j.Value == InheritableSettings.NoJumpHost ? null : j.Value, j.Source)
+            : new Resolved<Guid?>(null, null);
+
         return new ResolvedSettings(
             protocol,
             port,
@@ -38,8 +43,54 @@ public static class SettingsResolver
             FindString(node, s => s.Domain),
             Find(node, s => s.ShareClipboard) is { } clip ? new Resolved<bool>(clip.Value!.Value, clip.Source) : new Resolved<bool>(true, null),
             Find(node, s => s.UseSshAgent) is { } agent ? new Resolved<bool>(agent.Value!.Value, agent.Source) : new Resolved<bool>(true, null),
-            Find(node, s => s.AllowLegacySsh) is { } legacy ? new Resolved<bool>(legacy.Value!.Value, legacy.Source) : new Resolved<bool>(false, null));
+            Find(node, s => s.AllowLegacySsh) is { } legacy ? new Resolved<bool>(legacy.Value!.Value, legacy.Source) : new Resolved<bool>(false, null),
+            jump);
     }
+
+    /// <summary>
+    /// The jump hosts to go through to reach <paramref name="entry"/>, outermost first: its jump host's own
+    /// jump host comes before it. Null, with <paramref name="error"/> set, when one is missing, isn't SSH,
+    /// has no host, loops back, or the chain is longer than <see cref="MaxJumpHosts"/>.
+    /// </summary>
+    public static List<ConnectionEntry>? JumpChain(ConnectionEntry entry, ConnectionTree tree, out string? error)
+    {
+        error = null;
+        var chain = new List<ConnectionEntry>();
+        var seen = new HashSet<Guid> { entry.Id };
+        for (var current = entry; Resolve(current).JumpHostId.Value is { } id; )
+        {
+            if (tree.Find(id) is not ConnectionEntry jump)
+            {
+                error = $"The jump host for \"{current.Name}\" no longer exists. Choose another in its settings.";
+                return null;
+            }
+
+            if (!seen.Add(jump.Id))
+            {
+                error = $"\"{jump.Name}\" is reached through itself. Change the jump host of one of the connections in the loop.";
+                return null;
+            }
+
+            if (Resolve(jump).Protocol.Value != Protocol.Ssh || string.IsNullOrWhiteSpace(jump.Host))
+            {
+                error = $"The jump host \"{jump.Name}\" must be an SSH connection with a host.";
+                return null;
+            }
+
+            if (chain.Count == MaxJumpHosts)
+            {
+                error = $"\"{entry.Name}\" goes through more than {MaxJumpHosts} jump hosts.";
+                return null;
+            }
+
+            chain.Insert(0, jump);
+            current = jump;
+        }
+
+        return chain;
+    }
+
+    public const int MaxJumpHosts = 5;
 
     /// <summary>What <paramref name="node"/> would get if it inherited everything, i.e. its parent's values.</summary>
     public static ResolvedSettings ResolveInherited(ConnectionNode node) =>

@@ -53,6 +53,12 @@ public sealed class InheritableSettings
     /// <summary>SSH: also accept SHA-1, CBC and 3DES algorithms, for old devices that offer nothing newer. Off by default.</summary>
     public bool? AllowLegacySsh { get; set; }
 
+    /// <summary>SSH: a saved SSH connection to go through first (ssh -J); <see cref="NoJumpHost"/> for none; null to inherit.</summary>
+    public Guid? JumpHostId { get; set; }
+
+    /// <summary>Marks "connect directly", overriding a jump host set on a parent folder.</summary>
+    public static readonly Guid NoJumpHost = Guid.Empty;
+
     public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
 }
 
@@ -116,4 +122,7 @@ public sealed class ConnectionFolder : ConnectionNode
 public sealed class ConnectionEntry : ConnectionNode
 {
     public string Host { get; set; } = string.Empty;
+
+    /// <summary>SSH: ports to forward while the session is open. Null when there are none.</summary>
+    public List<PortForward>? PortForwards { get; set; }
 }

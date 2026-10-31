@@ -32,7 +32,10 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow;
+    readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
+    readonly Control _forwardsField;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow;
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -65,6 +68,25 @@ sealed class PropertiesPanel : UserControl
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);
         ToolTip.SetTip(_sshLegacyRow.View, "SSH: also accept SHA-1, CBC and 3DES algorithms.");
         var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
+        _jumpHostRow = new InheritRow("Jump host", _jumpHost, () => ShowInherited(r => SelectJumpHost(r.JumpHostId.Value)));
+        ToolTip.SetTip(_jumpHostRow.View, "SSH: reach this through another saved SSH connection first, like ssh -J.");
+        _forwardsField = new StackPanel
+        {
+            Spacing = 4,
+            Children =
+            {
+                Dialogs.Label("Port forwards"),
+                _forwards,
+                new TextBlock
+                {
+                    Text = "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy. "
+                        + "They listen on 127.0.0.1 unless an address comes first.",
+                    FontSize = 11,
+                    Foreground = Dialogs.MutedBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                },
+            },
+        };
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
@@ -94,6 +116,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
                 Pane.Section("Options", _clipboardRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
+                Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
                 _notesField,
             },
         };
@@ -104,7 +127,7 @@ sealed class PropertiesPanel : UserControl
             Children = { _error, _connect, Pane.Pair(_save, revert) },
         });
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
@@ -121,7 +144,8 @@ sealed class PropertiesPanel : UserControl
         _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
         _sshAgent.IsCheckedChanged += (_, _) => MarkDirty();
         _sshLegacy.IsCheckedChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow })
+        _jumpHost.SelectionChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -203,6 +227,18 @@ sealed class PropertiesPanel : UserControl
             _sshLegacyRow.Load(own.AllowLegacySsh is null, Describe(inherited.AllowLegacySsh));
             _sshLegacy.IsChecked = own.AllowLegacySsh ?? inherited.AllowLegacySsh.Value;
 
+            FillJumpHosts(node);
+            _jumpHostRow.Load(own.JumpHostId is null, Describe(inherited.JumpHostId));
+            SelectJumpHost(own.JumpHostId switch
+            {
+                null => inherited.JumpHostId.Value,
+                var id when id == InheritableSettings.NoJumpHost => null,
+                var id => id,
+            });
+
+            _forwardsField.IsVisible = node is ConnectionEntry;
+            _forwards.Text = PortForward.FormatAll((node as ConnectionEntry)?.PortForwards);
+
             Content = _editorView;
         }
         finally
@@ -251,6 +287,17 @@ sealed class PropertiesPanel : UserControl
             port = p;
         }
 
+        List<PortForward>? forwards = null;
+        if (_node is ConnectionEntry)
+        {
+            if (PortForward.TryParseAll(_forwards.Text, out var forwardError) is not { } parsed)
+            {
+                return Fail(forwardError!);
+            }
+
+            forwards = parsed.Count > 0 ? parsed : null;
+        }
+
         // Empty text with Inherit unticked means "none", overriding the parent.
         _node.Settings = new InheritableSettings
         {
@@ -262,12 +309,14 @@ sealed class PropertiesPanel : UserControl
             ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
             UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
             AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
+            JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
         };
         _node.Name = name;
         _node.Notes = string.IsNullOrWhiteSpace(_notes.Text) ? null : _notes.Text.Trim();
         if (_node is ConnectionEntry entry)
         {
             entry.Host = host;
+            entry.PortForwards = forwards;
         }
 
         _dirty = false;
@@ -324,6 +373,32 @@ sealed class PropertiesPanel : UserControl
 
     void SelectProtocol(Protocol protocol) =>
         _protocol.SelectedItem = _protocol.Items.OfType<ComboBoxItem>().First(i => (Protocol)i.Tag! == protocol);
+
+    /// <summary>"Connect directly", then every saved SSH connection except <paramref name="node"/> itself.</summary>
+    void FillJumpHosts(ConnectionNode node)
+    {
+        _jumpHost.Items.Clear();
+        _jumpHost.Items.Add(new ComboBoxItem { Content = "Connect directly", Tag = InheritableSettings.NoJumpHost });
+        foreach (var entry in _tree.Root.Descendants().OfType<ConnectionEntry>()
+                     .Where(e => e != node && SettingsResolver.Resolve(e).Protocol.Value == Protocol.Ssh)
+                     .OrderBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            _jumpHost.Items.Add(new ComboBoxItem { Content = string.IsNullOrEmpty(entry.Host) ? entry.Name : $"{entry.Name}  ({entry.Host})", Tag = entry.Id });
+        }
+    }
+
+    /// <summary>Selects the jump host by id; one that's been deleted shows as missing, so saving doesn't quietly drop it.</summary>
+    void SelectJumpHost(Guid? id)
+    {
+        var item = _jumpHost.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (Guid)i.Tag! == (id ?? InheritableSettings.NoJumpHost));
+        if (item is null)
+        {
+            item = new ComboBoxItem { Content = "(a connection that no longer exists)", Tag = id!.Value };
+            _jumpHost.Items.Add(item);
+        }
+
+        _jumpHost.SelectedItem = item;
+    }
 
     void ShowInherited(Action<ResolvedSettings> apply)
     {
