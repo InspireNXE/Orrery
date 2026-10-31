@@ -931,6 +931,17 @@ public partial class MainWindow : Window
 
         try
         {
+            SshRoute? route = null;
+            if (protocol == Protocol.Ssh)
+            {
+                if (await JumpHopsAsync(entry) is not { } jumps)
+                {
+                    return;
+                }
+
+                route = new SshRoute(jumps, entry.PortForwards ?? []);
+            }
+
             string? username = resolved.Username.Value, domain = resolved.Domain.Value, password = null;
             Credential? saved = null;
             if (resolved.CredentialId.Value is { } id)
@@ -952,7 +963,7 @@ public partial class MainWindow : Window
                 && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
             {
                 StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
-                    whenRefused: () => ConnectAsync(entry, skipAgent: true), resolved.AllowLegacySsh.Value);
+                    whenRefused: () => ConnectAsync(entry, skipAgent: true), resolved.AllowLegacySsh.Value, route);
                 return;
             }
 
@@ -979,7 +990,7 @@ public partial class MainWindow : Window
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value);
+            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -1017,12 +1028,12 @@ public partial class MainWindow : Window
     }
 
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
-        bool shareClipboard = true, bool allowLegacySsh = false)
+        bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null)
     {
         switch (origin.Protocol)
         {
             case Protocol.Ssh:
-                return StartSshAsync(origin, target, password, saved, allowLegacySsh);
+                return StartSshAsync(origin, target, password, saved, allowLegacySsh, route);
             case Protocol.Vnc:
                 StartVnc(origin, target, password, shareClipboard);
                 return Task.CompletedTask;
@@ -1073,9 +1084,10 @@ public partial class MainWindow : Window
     /// Logs in with the agent's keys alone. If the server refuses them all, the tab closes and
     /// <paramref name="whenRefused"/> asks for a login the usual way.
     /// </summary>
-    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, bool allowLegacySsh = false)
+    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, bool allowLegacySsh = false, SshRoute? route = null)
     {
-        var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24, allowLegacySsh);
+        var session = SshSession.Start(target, new SshLogin(target.Username!, null, UseAgent: true), _hostKeyValidator, 80, 24, allowLegacySsh,
+            route?.Jumps, route?.Forwards);
         session.StateChanged += (_, e) =>
         {
             if (e.State == SessionState.Failed && session.AuthenticationRejected)
@@ -1091,7 +1103,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
-    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh)
+    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh, SshRoute? route)
     {
         if (string.IsNullOrWhiteSpace(target.Username))
         {
@@ -1099,13 +1111,85 @@ public partial class MainWindow : Window
             return;
         }
 
-        var login = saved?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase
-            ? new SshLogin(target.Username, null, saved.Secret, saved.Passphrase)
-            : new SshLogin(target.Username, password);
-
-        var session = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh);
+        var session = SshSession.Start(target, SshLoginFor(target.Username, password, saved), _hostKeyValidator, 80, 24, allowLegacySsh,
+            route?.Jumps, route?.Forwards);
         AddTab(NewTerminalView(session), session, origin);
         UpdateVaultButton();
+    }
+
+    /// <summary>A saved SSH-key credential logs in with its key instead of the password.</summary>
+    static SshLogin SshLoginFor(string username, string? password, Credential? saved) =>
+        saved?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase
+            ? new SshLogin(username, null, saved.Secret, saved.Passphrase)
+            : new SshLogin(username, password);
+
+    /// <summary>What an SSH session goes through and opens besides its shell.</summary>
+    sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards);
+
+    /// <summary>
+    /// The jump hosts on the way to <paramref name="entry"/>, each with its login: its saved credential, else the
+    /// SSH agent's keys, else asked for now. Null when the chain is broken or a prompt was cancelled.
+    /// </summary>
+    async Task<List<SshHop>?> JumpHopsAsync(ConnectionEntry entry)
+    {
+        if (SettingsResolver.JumpChain(entry, _tree, out var error) is not { } chain)
+        {
+            await Dialogs.ShowMessageAsync(this, $"Can't reach \"{entry.Name}\"", error!);
+            return null;
+        }
+
+        var hops = new List<SshHop>();
+        foreach (var jump in chain)
+        {
+            var resolved = SettingsResolver.Resolve(jump);
+            string? username = resolved.Username.Value, password = null;
+            Credential? saved = null;
+            if (resolved.CredentialId.Value is { } id)
+            {
+                if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+                {
+                    return null;
+                }
+
+                if (await _credentials.GetAsync(id) is { } credential)
+                {
+                    (saved, username, password) = (credential, credential.Username, credential.Secret);
+                }
+            }
+
+            SshLogin login;
+            if (saved is null && resolved.UseSshAgent.Value && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
+            {
+                login = new SshLogin(username, null, UseAgent: true);
+            }
+            else
+            {
+                if (saved is null)
+                {
+                    var prompt = await new ConnectPromptWindow(_credentials, $"Jump host {jump.Name}", $"{jump.Host}:{resolved.Port.Value}", username, null, offerRemember: false)
+                        .ShowDialog<ConnectPromptResult?>(this);
+                    if (prompt is null)
+                    {
+                        return null;
+                    }
+
+                    (username, password) = (prompt.Username, prompt.Password);
+                    saved = prompt.CredentialId is { } chosen ? await _credentials.GetAsync(chosen) : null;
+                }
+
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    await Dialogs.ShowMessageAsync(this, "SSH needs a username", $"Set a username on the jump host \"{jump.Name}\" or its saved credential, then connect again.");
+                    return null;
+                }
+
+                login = SshLoginFor(username, password, saved);
+            }
+
+            hops.Add(new SshHop(new ConnectionTarget(jump.Host, resolved.Port.Value, username, null), login, resolved.AllowLegacySsh.Value));
+        }
+
+        return hops;
     }
 
     /// <summary>A terminal at the saved text size; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>

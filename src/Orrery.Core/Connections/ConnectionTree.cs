@@ -159,7 +159,7 @@ public sealed class ConnectionTree
     {
         ConnectionNode copy = node switch
         {
-            ConnectionEntry entry => new ConnectionEntry { Host = entry.Host },
+            ConnectionEntry entry => new ConnectionEntry { Host = entry.Host, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Expanded = folder.Expanded },
             _ => throw new NotSupportedException(node.GetType().Name),
         };
