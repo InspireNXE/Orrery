@@ -15,6 +15,7 @@ using MarcusW.VncClient.Rendering;
 using MarcusW.VncClient.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
 using VncPixelFormat = MarcusW.VncClient.PixelFormat;
 using VncSize = MarcusW.VncClient.Size;
@@ -125,7 +126,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
         catch (Exception e)
         {
-            Trace.TraceError($"VNC session to {Target.Host} failed: {e}");
+            Log.For("Vnc").LogError(e, "VNC session to {Host} failed", Target.Host);
             SetState(SessionState.Failed, Describe(e));
         }
     }
@@ -412,7 +413,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
         catch (Exception e) when (e is InvalidOperationException or OperationCanceledException or ObjectDisposedException)
         {
-            Trace.TraceWarning($"VNC input dropped: {e.Message}");
+            Log.For("Vnc").LogWarning("VNC input dropped: {Message}", e.Message);
         }
     }
 
@@ -462,7 +463,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
                 }
                 catch (Exception e)
                 {
-                    Trace.TraceWarning($"Closing the VNC connection didn't finish cleanly: {e.Message}");
+                    Log.For("Vnc").LogWarning("Closing the VNC connection didn't finish cleanly: {Message}", e.Message);
                 }
                 finally
                 {

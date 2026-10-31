@@ -10,7 +10,10 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Microsoft.Extensions.Logging;
+using Orrery.App.Logging;
 using Orrery.App.Storage;
+using Orrery.Core.Diagnostics;
 using Orrery.Core.Storage;
 
 namespace Orrery.App;
@@ -35,7 +38,7 @@ public partial class App : Application
         Dispatcher.UIThread.UnhandledException += OnUiThreadUnhandledException;
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
-            Trace.TraceError($"Unobserved task exception: {e.Exception}");
+            Log.For("App").LogError(e.Exception, "Unobserved task exception");
             e.SetObserved();
         };
 
@@ -45,7 +48,11 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.Exit += (_, _) => _dataLock?.Dispose();
+            desktop.Exit += (_, _) =>
+            {
+                AppLog.Stop();
+                _dataLock?.Dispose();
+            };
             _args = desktop.Args ?? [];
 
             var appDirectory = DataLocationResolver.AppDirectory(AppContext.BaseDirectory);
@@ -93,7 +100,7 @@ public partial class App : Application
 
     void OnUiThreadUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        Trace.TraceError($"Unhandled exception on the UI thread: {e.Exception}");
+        Log.For("App").LogError(e.Exception, "Unhandled exception on the UI thread");
         e.Handled = true;
 
         // One message at a time, so a fault that repeats doesn't stack up windows.
@@ -132,7 +139,7 @@ public partial class App : Application
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            Trace.TraceError($"Can't open data folder {location.DataDir}: {e}");
+            Log.For("App").LogError(e, "Can't open data folder {DataDir}", location.DataDir);
             return MessageWindow("Orrery can't open its data folder", $"{location.DataDir}\n\n{e.Message}");
         }
 
@@ -142,6 +149,7 @@ public partial class App : Application
                 $"Another copy of Orrery is using this data folder:\n{location.DataDir}");
         }
 
+        AppLog.Start(location);
         int moved = Array.IndexOf(_args, MovedFromFlag);
         return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null);
     }
@@ -176,7 +184,7 @@ public partial class App : Application
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            Trace.TraceError($"Couldn't restart Orrery: {e}");
+            Log.For("App").LogError(e, "Couldn't restart Orrery");
         }
 
         desktop.Shutdown();

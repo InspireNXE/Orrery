@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Devolutions.IronRdp;
+using Microsoft.Extensions.Logging;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using RdpPixelFormat = Devolutions.IronRdp.PixelFormat;
@@ -31,6 +32,8 @@ public sealed class RdpSession : IFrameBufferSession
     Task? _readLoop;
     Task? _clipboardLoop;
     WinCliprdr? _clipboard;
+
+    static readonly ILogger Logger = Orrery.Core.Diagnostics.Log.For("Rdp");
 
     readonly ServerCertificateValidator _certificateValidator;
     readonly ISessionRoute? _route;
@@ -71,7 +74,7 @@ public sealed class RdpSession : IFrameBufferSession
             catch (Exception e)
             {
                 // A session without a shared clipboard is still useful.
-                Trace.TraceError($"Couldn't set up the RDP clipboard: {e.Message}");
+                Logger.LogError("Couldn't set up the RDP clipboard: {Message}", e.Message);
             }
         }
 
@@ -119,7 +122,7 @@ public sealed class RdpSession : IFrameBufferSession
         }
         catch (Exception e)
         {
-            Trace.TraceError($"RDP session to {Target.Host} failed: {e}");
+            Logger.LogError(e, "RDP session to {Host} failed", Target.Host);
             SetState(SessionState.Failed, e.Message);
         }
     }
@@ -168,12 +171,12 @@ public sealed class RdpSession : IFrameBufferSession
             catch (IronRdpException e)
             {
                 // Only this clipboard operation failed; the session goes on.
-                Trace.TraceWarning($"RDP clipboard operation failed: {e.Message}");
+                Logger.LogWarning("RDP clipboard operation failed: {Message}", e.Message);
             }
             catch (Exception e)
             {
                 // A write to a dropped connection, say. The read loop reports the disconnect.
-                Trace.TraceWarning($"RDP clipboard loop ended: {e.Message}");
+                Logger.LogWarning("RDP clipboard loop ended: {Message}", e.Message);
                 return;
             }
         }
@@ -217,7 +220,7 @@ public sealed class RdpSession : IFrameBufferSession
                         break;
 
                     default:
-                        Trace.TraceInformation($"Unhandled RDP output: {output.EnumType}");
+                        Logger.LogDebug("Unhandled RDP output: {EnumType}", output.EnumType);
                         break;
                 }
             }
@@ -422,7 +425,7 @@ public sealed class RdpSession : IFrameBufferSession
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                Trace.TraceError($"RDP resize to {width}x{height} failed: {e.Message}");
+                Logger.LogError("RDP resize to {Width}x{Height} failed: {Message}", width, height, e.Message);
             }
         });
     }
@@ -457,7 +460,7 @@ public sealed class RdpSession : IFrameBufferSession
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                Trace.TraceError($"Sending RDP input failed: {e.Message}");
+                Logger.LogError("Sending RDP input failed: {Message}", e.Message);
             }
         });
     }
@@ -473,7 +476,7 @@ public sealed class RdpSession : IFrameBufferSession
             }
             catch (Exception e)
             {
-                Trace.TraceError($"Graceful RDP shutdown failed: {e.Message}");
+                Logger.LogError("Graceful RDP shutdown failed: {Message}", e.Message);
             }
         }
 
@@ -497,7 +500,7 @@ public sealed class RdpSession : IFrameBufferSession
         }
         catch (Exception e)
         {
-            Trace.TraceWarning($"RDP session loop had failed: {e.Message}");
+            Logger.LogWarning("RDP session loop had failed: {Message}", e.Message);
         }
     }
 
