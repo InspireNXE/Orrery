@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -89,6 +91,31 @@ sealed class SessionTab
         Header.Classes.Add("tab");
         ToolTip.SetTip(Header, Address);
         Header.Click += (_, _) => Selected?.Invoke(this, EventArgs.Empty);
+
+        // Middle-click closes the tab, as in a browser: pressed and released over the same tab.
+        bool middlePressed = false;
+        Header.AddHandler(InputElement.PointerPressedEvent, (_, e) =>
+        {
+            if (e.GetCurrentPoint(Header).Properties.IsMiddleButtonPressed)
+            {
+                middlePressed = true;
+                e.Handled = true;
+            }
+        }, RoutingStrategies.Tunnel);
+        Header.AddHandler(InputElement.PointerReleasedEvent, (_, e) =>
+        {
+            if (e.InitialPressMouseButton != MouseButton.Middle || !middlePressed)
+            {
+                return;
+            }
+
+            middlePressed = false;
+            e.Handled = true;
+            if (new Rect(Header.Bounds.Size).Contains(e.GetPosition(Header)))
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+        }, RoutingStrategies.Tunnel);
 
         session.StateChanged += (_, _) => Dispatcher.UIThread.Post(() =>
         {
