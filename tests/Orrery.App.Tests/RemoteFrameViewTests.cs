@@ -132,4 +132,50 @@ public class RemoteFrameViewTests
         Assert.Empty(unhandled);
         window.Close();
     }
+
+    /// <summary>A connected desktop that records the sizes it's asked for.</summary>
+    sealed class ResizableDesktop : IFrameBufferSession
+    {
+        public List<(int Width, int Height)> Requests { get; } = [];
+        public ConnectionTarget Target { get; } = new("desk", 3389, "user", null);
+        public SessionState State => SessionState.Connected;
+#pragma warning disable CS0067 // Part of the interface; this fake never raises them.
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+#pragma warning restore CS0067
+        public int Width => 1024;
+        public int Height => 768;
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
+        public void SendKey(ushort scancode, bool pressed) { }
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+        public void RequestResize(int width, int height) => Requests.Add((width, height));
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_fixed_desktop_size_isnt_changed_when_the_view_resizes(bool follows)
+    {
+        var session = new ResizableDesktop();
+        var window = new Window { Content = new RemoteFrameView(session) { FollowsViewSize = follows }, Width = 800, Height = 500 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        window.Width = 1000;
+
+        // Past the view's settle delay, letting its timer run.
+        for (int i = 0; i < 10; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(100);
+        }
+
+        Assert.Equal(follows, session.Requests.Count > 0);
+        window.Close();
+    }
 }
