@@ -60,7 +60,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
             var pageantPipe = PageantPipe.Name();
             if (IsTrustedPipe(pageantPipe, allowSystem: false))
             {
-                return new SshAgentClient(new StreamTransport(() => OpenPageantPipe(pageantPipe)), "Pageant");
+                return new SshAgentClient(new StreamTransport(PageantPipeOpener(pageantPipe)), "Pageant");
             }
 
             if (PageantTransport.IsRunning())
@@ -177,8 +177,9 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
     [SupportedOSPlatform("windows")]
     static Stream OpenWindowsOpenSshPipe() => OpenPipe(WindowsOpenSshPipe);
 
+    // A lambda doesn't carry the caller's Windows check, so it's made inside a Windows-only method.
     [SupportedOSPlatform("windows")]
-    static Stream OpenPageantPipe(string name) => OpenPipe(name, allowSystem: false);
+    static Func<Stream> PageantPipeOpener(string name) => () => OpenPipe(name, allowSystem: false);
 
     /// <summary>
     /// Connects at identification level, so the server can't act as this user, and checks who the server is
