@@ -501,7 +501,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (side == _side && _sidePanel.IsVisible)
+        // With Settings open, any other rail button leaves it, and shows its panel rather than hiding it.
+        bool leavingSettings = _settingsHost.IsVisible;
+        if (leavingSettings)
+        {
+            CloseSettings();
+        }
+
+        if (side == _side && _sidePanel.IsVisible && !leavingSettings)
         {
             ShowSidePanel(false);
             return;
