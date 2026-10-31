@@ -3,10 +3,13 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Orrery.App.Storage;
 using Orrery.Core.Storage;
 
@@ -35,6 +38,10 @@ public partial class App : Application
             Trace.TraceError($"Unobserved task exception: {e.Exception}");
             e.SetObserved();
         };
+
+        // In every window, a click outside the text field being typed in leaves it, also on parts of the
+        // window that can't take focus themselves; a click on something that can then focuses that.
+        InputElement.PointerPressedEvent.AddClassHandler<Window>(LeaveTextFieldOnClickOutside, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -65,6 +72,23 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    internal static void LeaveTextFieldOnClickOutside(Window window, PointerPressedEventArgs e)
+    {
+        if (window.FocusManager?.GetFocusedElement() is not TextBox field)
+        {
+            return;
+        }
+
+        // A field inside another control (a number box's spin buttons, say) counts that whole control as inside.
+        var inside = field.TemplatedParent as Visual ?? field;
+        if (e.Source is Visual source && (source == inside || inside.IsVisualAncestorOf(source)))
+        {
+            return;
+        }
+
+        window.FocusManager.ClearFocus();
     }
 
     void OnUiThreadUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
