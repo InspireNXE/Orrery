@@ -196,8 +196,7 @@ sealed class PropertiesPanel : UserControl
             // The root folder isn't in the list; editing it sets the defaults everything else inherits.
             bool defaults = node.Parent is null;
             _title.Text = defaults ? "Defaults for all connections" : string.IsNullOrWhiteSpace(node.Name) ? "(unnamed)" : node.Name;
-            _path.Text = defaults ? "Used by every folder and connection that doesn't set its own. Inherit means Orrery's default."
-                : node.Path is { Length: > 0 } path ? path : "Top level";
+            _path.Text = defaults ? "Used by every folder and connection that doesn't set its own. Inherit means Orrery's default." : Location(node);
             _path.TextWrapping = defaults ? TextWrapping.Wrap : TextWrapping.NoWrap;
             _nameField.IsVisible = _notesField.IsVisible = !defaults;
             _name.Text = node.Name;
@@ -443,6 +442,20 @@ sealed class PropertiesPanel : UserControl
         {
             apply(SettingsResolver.ResolveInherited(_node));
         }
+    }
+
+    /// <summary>The line under the name: the folder, with "Guest of" for a guest and the guest count for a host.</summary>
+    static string Location(ConnectionNode node)
+    {
+        var folder = node.Parent is { } parent && parent.Parent is not null
+            ? (parent.Path is { Length: > 0 } above ? $"{above} / {parent.Name}" : parent.Name)
+            : "Top level";
+        return node switch
+        {
+            ConnectionEntry { GuestOf: { } host } => $"Guest of {host.Name} · {folder}",
+            ConnectionEntry { IsHost: true } entry => $"{folder} · {entry.Guests.Count} guest{(entry.Guests.Count == 1 ? "" : "s")}",
+            _ => folder,
+        };
     }
 
     static string Describe<T>(Resolved<T> resolved) =>

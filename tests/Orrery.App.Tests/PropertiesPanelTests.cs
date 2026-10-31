@@ -202,6 +202,32 @@ public class PropertiesPanelTests
         Assert.True(SettingsResolver.Resolve(entry).Enlarge(appSetting: false));
     }
 
+    [AvaloniaFact]
+    public async Task A_guest_says_whose_guest_it_is_and_names_the_host_where_a_setting_comes_from_it()
+    {
+        var tree = ConnectionTree.Empty();
+        var lab = new ConnectionFolder { Name = "Lab" };
+        var host = new ConnectionEntry { Name = "hv-01", Host = "hv-01.lab", Settings = { ShareClipboard = false } };
+        var guest = new ConnectionEntry { Name = "vm-a", Host = "vm-a.lab" };
+        tree.Add(lab, tree.Root);
+        tree.Add(host, lab);
+        tree.AddGuest(guest, host);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+
+        await panel.ShowAsync(guest);
+        Dispatcher.UIThread.RunJobs();
+        var texts = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+        Assert.Contains("Guest of hv-01 · Lab", texts);
+        Assert.Contains("From hv-01", texts);
+        Assert.False(window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "ShareClipboard").IsChecked);
+
+        await panel.ShowAsync(host);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "Lab · 1 guest");
+    }
+
     sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;
