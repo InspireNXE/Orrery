@@ -105,7 +105,7 @@ public class VaultAutoLockTests : IDisposable
     }
 
     /// <summary>The test app has Fluent's theme but not Orrery's palette, which the main window's XAML refers to by key.</summary>
-    static void AddMainWindowResources()
+    internal static void AddMainWindowResources()
     {
         var resources = Application.Current!.Resources;
         foreach (var (key, color) in new[]
@@ -123,7 +123,7 @@ public class VaultAutoLockTests : IDisposable
     static IEnumerable<string> PickerText(CredentialPicker picker) =>
         picker.Items.OfType<ComboBoxItem>().Select(i => i.Content?.ToString() ?? string.Empty).ToList();
 
-    static T Private<T>(object owner, string field) =>
+    internal static T Private<T>(object owner, string field) =>
         (T)owner.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(owner)!;
 
     public void Dispose()
