@@ -3,6 +3,9 @@
 Three kinds of package (the Windows installer, portable zips, and Linux .deb, .rpm and AppImage), all
 self-contained: the .NET runtime ships beside the app, so nothing else needs installing.
 
+`build/Build-All.ps1` runs all three builds below (portable zips, Windows installer, Linux packages). It skips a
+step whose tool is missing, with a warning, and prints what was built and what was skipped.
+
 ## Orrery Setup (Windows installer)
 
 Built with Inno Setup, the same way as Prober's desktop setup (`installer\Orrery.iss` is modelled on
@@ -67,7 +70,11 @@ Writes to `artifacts/linux/`: `orrery_<version>-1_amd64.deb`, `orrery_<version>-
   read-only and has no `orrery.portable.json`, so it runs in installed mode; settings' restart relaunches the
   `.AppImage` file (`$APPIMAGE`), not the copy inside its mount.
 
-The launcher, the AppImage's `AppRun` and the icons are in `installer/linux/`. `build/generate-art.py` draws the icons.
+The launcher, the AppImage's `AppRun` and the icons are in `installer/linux/`. So is
+`APPIMAGE-RUNTIME-NOTICES.txt`, which the AppImage carries in `usr/share/doc/orrery`. It covers the runtime that
+appimagetool puts in front of the image, which is statically linked with libfuse 3 (LGPL 2.1), squashfuse, zstd,
+zlib, mimalloc and musl. Update it if a newer runtime links something else (see `src/runtime/Makefile` in
+AppImage/type2-runtime). `build/generate-art.py` draws the icons.
 The window's X11 class is set to `Orrery` (`Program.cs`) to match the launcher's `StartupWMClass`, so docks group the
 window with its icon.
 

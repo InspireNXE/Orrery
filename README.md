@@ -64,12 +64,23 @@ dotnet run --project src/Orrery.App
 
 ### Packages
 
+To build everything this machine can, run:
+
 ```powershell
-./build/package.ps1                      # portable zips for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64
-./build/package.ps1 -Runtimes win-x64    # just one
-build\Build-Installer.ps1                # Windows installer (needs Inno Setup 6 or 7)
-./build/Build-LinuxPackages.ps1          # .deb and .rpm (needs nfpm) and AppImage (needs appimagetool, Linux only)
+./build/Build-All.ps1
 ```
+
+It runs the three scripts below in turn. If a tool is missing, that step is skipped with a warning instead of stopping
+the rest, and a summary at the end lists what was built and what wasn't. On Windows you get everything except the
+AppImage. Pass `-NfpmPath` or `-IsccPath` for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or
+`-SkipLinux` to leave a step out.
+
+| Script | Builds | Needs |
+| --- | --- | --- |
+| `./build/package.ps1` | Portable zips for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64 and osx-x64 (`-Runtimes win-x64` for just one) | .NET SDK |
+| `build\Build-Installer.ps1` | Windows installer | Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 6 or 7 |
+| `./build/Build-LinuxPackages.ps1` | .deb and .rpm, x64 and arm64 | [nfpm](https://nfpm.goreleaser.com/install/) (runs on Windows too) |
+| | AppImage, x64 and arm64 | Linux, [appimagetool](https://github.com/AppImage/appimagetool/releases) |
 
 Packages are self-contained, so the target machine needs no .NET runtime. Output goes to `artifacts/`. On Windows and
 Linux the portable app is a single executable; on macOS it is an `Orrery.app` bundle, not yet signed or notarised.
@@ -92,10 +103,27 @@ has the details, including Linux requirements, third-party notices and lock file
 ## Status
 
 Tested on Windows, including RDP resizing and clipboard and the installer. Still to be checked on real machines:
-Linux and macOS builds (including the .deb, .rpm and AppImage), ARM builds, and VNC authentication. The Windows executables aren't code-signed, so SmartScreen may warn
-on first launch and antivirus tools can flag the single-file executable as a false positive.
+Linux and macOS builds (including the .deb, .rpm and AppImage), ARM builds, and VNC authentication. The Windows
+executables aren't code-signed, so SmartScreen may warn on first launch and antivirus tools can flag the single-file
+executable as a false positive.
 
-## Licence
+## Licence and credits
 
-MIT, © 2026 InspireNXE. See [LICENSE](LICENSE). Third-party licences ship in `THIRD-PARTY-NOTICES.txt` with each
-package.
+Orrery is MIT-licensed, © 2026 InspireNXE. See [LICENSE](LICENSE).
+
+It's built on open-source work, all under permissive licences (MIT, Apache 2.0, BSD, ISC, OFL):
+
+- [Avalonia](https://avaloniaui.net/) (UI), [SkiaSharp](https://github.com/mono/SkiaSharp) and
+  [HarfBuzzSharp](https://github.com/mono/SkiaSharp) (drawing and text), and the [Inter](https://rsms.me/inter/) font
+- [IronRDP](https://github.com/Devolutions/IronRDP) by Devolutions (RDP), [SSH.NET](https://github.com/sshnet/SSH.NET)
+  (SSH), [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) (VNC, through the [community fork](https://github.com/karbonbaron/MarcusW.VncClient))
+- [NSec](https://nsec.rocks/) and [libsodium](https://libsodium.org/) (vault and export encryption),
+  [BouncyCastle](https://www.bouncycastle.org/) (mRemoteNG file encryption)
+- [.NET](https://dotnet.microsoft.com/) by Microsoft and the .NET Foundation, which ships inside every package
+- Portions of this software are copyright © The FreeType Project (https://freetype.org). All rights reserved.
+  (FreeType is built into Skia.)
+
+Every package carries `THIRD-PARTY-NOTICES.txt`, generated from what that build actually ships, with each component's
+licence and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
+the libraries linked into it, including libfuse (LGPL 2.1). mRemoteNG is GPL-licensed: Orrery reads and writes its
+`confCons.xml` format, written from the file format, and contains none of mRemoteNG's code.
