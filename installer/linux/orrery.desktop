@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Orrery
+GenericName=Remote Connection Manager
+Comment=Open RDP, SSH, VNC and Telnet connections
+Exec=orrery
+Icon=orrery
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=rdp;ssh;vnc;telnet;remote;desktop;
+StartupWMClass=Orrery

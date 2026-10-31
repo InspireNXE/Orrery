@@ -4,3 +4,7 @@
 *.png binary
 *.ico binary
 *.icns binary
+
+# Run on Linux, so Unix line endings even in a Windows checkout.
+installer/linux/AppRun text eol=lf
+installer/linux/*.desktop text eol=lf

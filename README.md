@@ -47,7 +47,7 @@ A focused remote session receives keys first, so these go to the remote machine 
 | --- | --- |
 | Windows | `%APPDATA%\Orrery` (cache and logs under `%LOCALAPPDATA%\Orrery`) |
 | macOS | `~/Library/Application Support/Orrery` |
-| Linux | `~/.config/orrery` (XDG directories are respected; Linux has no installed package yet, so this applies only without `orrery.portable.json`) |
+| Linux | `~/.config/orrery` (XDG directories are respected), for the .deb, .rpm and AppImage |
 
 A portable copy has an `orrery.portable.json` file beside the executable and asks on first launch where to keep its
 data.
@@ -68,13 +68,14 @@ dotnet run --project src/Orrery.App
 ./build/package.ps1                      # portable zips for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64
 ./build/package.ps1 -Runtimes win-x64    # just one
 build\Build-Installer.ps1                # Windows installer (needs Inno Setup 6 or 7)
+./build/Build-LinuxPackages.ps1          # .deb and .rpm (needs nfpm) and AppImage (needs appimagetool, Linux only)
 ```
 
 Packages are self-contained, so the target machine needs no .NET runtime. Output goes to `artifacts/`. On Windows and
 Linux the portable app is a single executable; on macOS it is an `Orrery.app` bundle, not yet signed or notarised.
-Linux has portable zips only (no .deb, .rpm, AppImage or Flatpak yet); run `chmod +x Orrery` after unzipping, and the
-machine needs X11 (or XWayland), fontconfig and ICU. [docs/packaging.md](docs/packaging.md) has the details,
-including Linux requirements, third-party notices and lock files.
+On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine needs X11 (or XWayland), fontconfig
+and ICU; the .deb and .rpm declare these as dependencies. There's no Flatpak. [docs/packaging.md](docs/packaging.md)
+has the details, including Linux requirements, third-party notices and lock files.
 
 ## Repository layout
 
@@ -85,13 +86,13 @@ including Linux requirements, third-party notices and lock files.
 | `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
 | `build/` | Packaging, installer and third-party notice scripts |
-| `installer/` | Inno Setup script for the Windows installer |
+| `installer/` | Inno Setup script for the Windows installer; `installer/linux/` holds the Linux launcher and icons |
 | `docs/` | Design notes and packaging guide |
 
 ## Status
 
 Tested on Windows, including RDP resizing and clipboard and the installer. Still to be checked on real machines:
-Linux and macOS builds, ARM builds, and VNC authentication. The Windows executables aren't code-signed, so SmartScreen may warn
+Linux and macOS builds (including the .deb, .rpm and AppImage), ARM builds, and VNC authentication. The Windows executables aren't code-signed, so SmartScreen may warn
 on first launch and antivirus tools can flag the single-file executable as a false positive.
 
 ## Licence

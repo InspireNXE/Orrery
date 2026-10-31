@@ -1,7 +1,7 @@
 """Draws Orrery's icons and the setup wizard's side image from the logo in MainWindow.axaml.
 
 Run from the repository root: python build/generate-art.py (needs Pillow). Writes
-src/Orrery.App/Assets/orrery.{png,ico,icns} and installer/media/WizardImage.png.
+src/Orrery.App/Assets/orrery.{png,ico,icns}, installer/linux/icons/<size>.png and installer/media/WizardImage.png.
 """
 from pathlib import Path
 
@@ -51,6 +51,12 @@ def icons():
     tile.resize((512, 512), Image.LANCZOS).save(f"{base}.png")
     tile.resize((256, 256), Image.LANCZOS).save(f"{base}.ico", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     tile.save(f"{base}.icns")
+
+    # The Linux packages install these into the hicolor icon theme, one file per size.
+    linux = ROOT / "installer/linux/icons"
+    linux.mkdir(parents=True, exist_ok=True)
+    for size in (16, 24, 32, 48, 64, 128, 256, 512):
+        tile.resize((size, size), Image.LANCZOS).save(linux / f"{size}.png")
 
 
 def wizard_image():

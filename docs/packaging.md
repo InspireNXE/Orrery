@@ -1,6 +1,7 @@
 # Packaging Orrery
 
-Two kinds of package, both self-contained (the .NET runtime ships beside the app, so nothing else needs installing).
+Three kinds of package (the Windows installer, portable zips, and Linux .deb, .rpm and AppImage), all
+self-contained: the .NET runtime ships beside the app, so nothing else needs installing.
 
 ## Orrery Setup (Windows installer)
 
@@ -43,14 +44,41 @@ with the marker beside the bundle. The bundle isn't signed or notarised yet, so 
 Zip files carry no Unix permissions from Windows: on Linux and macOS, `chmod +x` the executable after unzipping, or
 build those packages on Linux or macOS.
 
-## Linux
+## Linux packages (.deb, .rpm, AppImage)
 
-Linux has only the two portable zips, `linux-x64` and `linux-arm64`. There is no .deb, .rpm, AppImage or Flatpak
-yet, so nothing installs Orrery system-wide or runs it in installed mode (data in `~/.config/orrery`); that only
-happens if you delete `orrery.portable.json` from beside the executable. Neither build has been run on a real Linux
-machine yet.
+```powershell
+./build/Build-LinuxPackages.ps1                                       # every format, x64 and arm64
+./build/Build-LinuxPackages.ps1 -Runtimes linux-x64 -Formats deb,rpm   # just x64 .deb and .rpm
+```
 
-What the machine needs, beyond the zip:
+Writes to `artifacts/linux/`: `orrery_<version>-1_amd64.deb`, `orrery_<version>-1_arm64.deb`,
+`orrery-<version>-1.x86_64.rpm`, `orrery-<version>-1.aarch64.rpm`, and `Orrery-<version>-x86_64.AppImage` and
+`-aarch64.AppImage`. Each uses an ordinary multi-file publish, not the single executable, so nothing unpacks to
+`~/.net` on first launch. Every format runs in installed mode, with data in `~/.config/orrery`.
+
+- **.deb and .rpm** are built with [nfpm](https://nfpm.goreleaser.com/install/), which runs on Windows, Linux and
+  macOS and sets Unix file modes itself (no `chmod` problem). Put `nfpm` on PATH or pass `-NfpmPath`. The app goes to
+  `/opt/orrery`, with `/usr/bin/orrery` linked to it, the launcher in `/usr/share/applications/orrery.desktop`, icons
+  in the hicolor theme, and `LICENSE` and `THIRD-PARTY-NOTICES.txt` in `/usr/share/doc/orrery`. The packages
+  require the C runtime, ICU, OpenSSL, fontconfig and the X11 libraries, and recommend libsecret. Their dependency
+  lists are in the script.
+- **AppImage** needs [appimagetool](https://github.com/AppImage/appimagetool/releases) (on PATH or
+  `-AppImageToolPath`), which only runs on Linux, so on Windows the script skips it with a warning. The image is
+  read-only and has no `orrery.portable.json`, so it runs in installed mode; settings' restart relaunches the
+  `.AppImage` file (`$APPIMAGE`), not the copy inside its mount.
+
+The launcher, the AppImage's `AppRun` and the icons are in `installer/linux/`. `build/generate-art.py` draws the icons.
+The window's X11 class is set to `Orrery` (`Program.cs`) to match the launcher's `StartupWMClass`, so docks group the
+window with its icon.
+
+Status: the .deb and .rpm build on Windows, and their contents have been checked (file modes, the symlink, control fields
+and dependencies). None of them has been installed on a real Linux machine yet, and the AppImage hasn't been built,
+since that needs Linux.
+
+## Running on Linux
+
+None of the Linux builds has been run on a real machine yet. The .deb and .rpm pull in what they need. For the
+portable zip and the AppImage, the machine needs:
 
 - **An X11 session.** Avalonia draws through X11; on Wayland it runs under XWayland.
 - **fontconfig and ICU** (`libfontconfig1` and `libicu` on Debian and Ubuntu, `fontconfig` and `libicu` on Fedora).
@@ -58,7 +86,7 @@ What the machine needs, beyond the zip:
 - **libsecret and a Secret Service** (GNOME Keyring or KWallet) to keep credentials in the system keyring. Without
   them, or in portable mode, credentials go to the encrypted vault file.
 
-After unzipping, `chmod +x Orrery` (zips made on Windows carry no Unix permissions). The first launch unpacks the
+After unzipping the portable zip, `chmod +x Orrery` (zips made on Windows carry no Unix permissions). The first launch unpacks the
 native libraries to `~/.net/Orrery/<hash>`, or `$DOTNET_BUNDLE_EXTRACT_BASE_DIR` if it's set.
 
 ## Third-party notices

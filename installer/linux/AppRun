@@ -1,0 +1,5 @@
+#!/bin/sh
+# The AppImage's entry point: runs Orrery from inside the mounted image. Orrery runs in installed mode here
+# (data in ~/.config/orrery), since the image is read-only and carries no orrery.portable.json.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/lib/orrery/Orrery" "$@"
