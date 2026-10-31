@@ -148,7 +148,8 @@ function Build-AppImage([string] $Rid, [string] $Publish, [string] $Tool) {
     }
     $doc = Join-Path $appDir 'usr/share/doc/orrery'
     New-Item -ItemType Directory -Force $doc | Out-Null
-    Copy-Item (Join-Path $root 'LICENSE'), (Join-Path $Publish 'THIRD-PARTY-NOTICES.txt') $doc
+    # The runtime appimagetool puts in front of the image links libfuse and others statically, so their notices too.
+    Copy-Item (Join-Path $root 'LICENSE'), (Join-Path $Publish 'THIRD-PARTY-NOTICES.txt'), (Join-Path $linux 'APPIMAGE-RUNTIME-NOTICES.txt') $doc
     Copy-Item (Join-Path $linux 'AppRun'), (Join-Path $linux 'orrery.desktop') $appDir
     Copy-Item (Join-Path $linux 'icons/256.png') (Join-Path $appDir 'orrery.png')
     Copy-Item (Join-Path $linux 'icons/256.png') (Join-Path $appDir '.DirIcon')
