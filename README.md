@@ -90,10 +90,10 @@ AppImage. Pass `-NfpmPath` or `-IsccPath` for tools that aren't on PATH, and `-S
 | | AppImage, x64 and arm64 | Linux, [appimagetool](https://github.com/AppImage/appimagetool/releases) |
 
 Packages are self-contained, so the target machine needs no .NET runtime. Output goes to `artifacts/`. On Windows and
-Linux the portable app is a single executable; on macOS it is an `Orrery.app` bundle, not yet signed or notarised.
-On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine needs X11 (or XWayland), fontconfig
-and ICU; the .deb and .rpm declare these as dependencies. There's no Flatpak. [docs/packaging.md](docs/packaging.md)
-has the details, including Linux requirements, third-party notices and lock files.
+Linux the portable app is a single executable with its native libraries beside it; on macOS it is an `Orrery.app`
+bundle, not yet signed or notarised. On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine
+needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as dependencies. There's no Flatpak.
+[docs/packaging.md](docs/packaging.md) has the details, including Linux requirements, third-party notices and lock files.
 
 ## Repository layout
 
