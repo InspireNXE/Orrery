@@ -115,8 +115,13 @@ public sealed class RemoteFrameView : Panel
         _resizeTimer.Tick += (_, _) =>
         {
             _resizeTimer.Stop();
-            var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
-            Session.RequestResize(width, height);
+
+            // Checked here too: the constructor can start the timer before FollowsViewSize is set.
+            if (FollowsViewSize)
+            {
+                var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
+                Session.RequestResize(width, height);
+            }
         };
 
         session.FrameUpdated += OnFrameUpdated;
@@ -208,8 +213,16 @@ public sealed class RemoteFrameView : Panel
         }
     }
 
+    /// <summary>Ask the server to match the view's size as it changes. Off for a fixed desktop size, which is scaled to fit instead.</summary>
+    public bool FollowsViewSize { get; init; } = true;
+
     void ScheduleResize()
     {
+        if (!FollowsViewSize)
+        {
+            return;
+        }
+
         _resizeTimer.Stop();
         _resizeTimer.Start();
     }

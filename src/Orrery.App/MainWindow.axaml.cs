@@ -73,6 +73,7 @@ public partial class MainWindow : Window
     // Full screen hides every pane and bar; these are what to put back.
     bool _fullScreen;
     WindowState _stateBeforeFullScreen;
+    (PixelPoint Position, WindowState State)? _positionBeforeFullScreen;
     (bool Side, bool Inspector) _panesBeforeFullScreen;
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
@@ -712,12 +713,24 @@ public partial class MainWindow : Window
         _ => Input.FocusPlace.App,
     };
 
-    /// <summary>The current session fills the screen; everything else hides until the full-screen shortcut.</summary>
-    void EnterFullScreen()
+    /// <summary>
+    /// The current session fills the screen the window is on, or <paramref name="screen"/>; everything else hides
+    /// until the full-screen shortcut.
+    /// </summary>
+    void EnterFullScreen(Avalonia.Platform.Screen? screen = null)
     {
         if (_fullScreen || _currentTab is not { } tab)
         {
             return;
+        }
+
+        // Full screen covers the screen the window is on, so the window goes there first, and comes back after.
+        _positionBeforeFullScreen = null;
+        if (screen is not null && !Equals(Screens.ScreenFromWindow(this)?.Bounds, screen.Bounds))
+        {
+            _positionBeforeFullScreen = (Position, WindowState);
+            WindowState = WindowState.Normal;
+            Position = new PixelPoint(screen.WorkingArea.X + 40, screen.WorkingArea.Y + 40);
         }
 
         if (_settingsHost.IsVisible)
@@ -751,6 +764,14 @@ public partial class MainWindow : Window
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
         _sidePanel.IsVisible = _panesBeforeFullScreen.Side;
         _propertiesHost.IsVisible = _panesBeforeFullScreen.Inspector;
+        if (_positionBeforeFullScreen is { } before)
+        {
+            WindowState = WindowState.Normal;
+            Position = before.Position;
+            _stateBeforeFullScreen = before.State;
+            _positionBeforeFullScreen = null;
+        }
+
         WindowState = _stateBeforeFullScreen;
         ExtendClientAreaToDecorationsHint = true;
         UpdateSessionToolbar();
@@ -1115,7 +1136,9 @@ public partial class MainWindow : Window
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route);
+            // Checked when saved; a hand-edited file that doesn't parse just fits the window.
+            DesktopResolution.TryParse(resolved.DesktopSize.Value, out var desktopSize, out _);
+            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -1153,7 +1176,7 @@ public partial class MainWindow : Window
     }
 
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
-        bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null)
+        bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null)
     {
         switch (origin.Protocol)
         {
@@ -1163,7 +1186,7 @@ public partial class MainWindow : Window
                 StartVnc(origin, target, password, shareClipboard);
                 return Task.CompletedTask;
             default:
-                StartRdp(origin, target, password, shareClipboard);
+                StartRdp(origin, target, password, shareClipboard, desktopSize);
                 return Task.CompletedTask;
         }
     }
@@ -1179,14 +1202,15 @@ public partial class MainWindow : Window
         UpdateVaultButton();
     }
 
-    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard)
+    /// <param name="fixedSize">A desktop size to keep; null fits the session area and follows it.</param>
+    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null)
     {
         Open(origin, () =>
         {
             bool zoom = _settingsStore.Load().ZoomRemoteDesktops;
-            var (width, height) = DesktopSizeForView(zoom);
+            var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
             var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard);
-            return (new RemoteFrameView(session, zoom), session);
+            return (new RemoteFrameView(session, zoom) { FollowsViewSize = fixedSize is null }, session);
         });
         UpdateVaultButton();
     }
@@ -1662,6 +1686,26 @@ public partial class MainWindow : Window
             SelectTab(tab);
             EnterFullScreen();
         }, Input.FullScreenShortcut.Format(_fullScreenShortcut), tab.Session.State == SessionState.Connected);
+
+        if (Screens.All.Count > 1)
+        {
+            var current = Screens.ScreenFromWindow(this);
+            var on = MenuItemFor("Full screen on", null, enabled: tab.Session.State == SessionState.Connected);
+            foreach (var (screen, i) in Screens.All.Select((s, i) => (s, i)))
+            {
+                var label = $"Display {i + 1}  ({screen.Bounds.Width}×{screen.Bounds.Height})"
+                    + (screen.IsPrimary ? " · main" : string.Empty)
+                    + (Equals(screen.Bounds, current?.Bounds) ? " · this window" : string.Empty);
+                on.Items.Add(MenuItemFor(label, () =>
+                {
+                    SelectTab(tab);
+                    EnterFullScreen(screen);
+                }));
+            }
+
+            yield return on;
+        }
+
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
         yield return MenuItemFor("Reconnect", async () =>
         {

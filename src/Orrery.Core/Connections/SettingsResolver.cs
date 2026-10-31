@@ -16,7 +16,8 @@ public sealed record ResolvedSettings(
     Resolved<bool> UseSshAgent,
     Resolved<bool> AllowLegacySsh,
     Resolved<Guid?> JumpHostId,
-    Resolved<bool> AutoReconnect);
+    Resolved<bool> AutoReconnect,
+    Resolved<string?> DesktopSize);
 
 public static class SettingsResolver
 {
@@ -46,7 +47,8 @@ public static class SettingsResolver
             Find(node, s => s.UseSshAgent) is { } agent ? new Resolved<bool>(agent.Value!.Value, agent.Source) : new Resolved<bool>(true, null),
             Find(node, s => s.AllowLegacySsh) is { } legacy ? new Resolved<bool>(legacy.Value!.Value, legacy.Source) : new Resolved<bool>(false, null),
             jump,
-            Find(node, s => s.AutoReconnect) is { } again ? new Resolved<bool>(again.Value!.Value, again.Source) : new Resolved<bool>(true, null));
+            Find(node, s => s.AutoReconnect) is { } again ? new Resolved<bool>(again.Value!.Value, again.Source) : new Resolved<bool>(true, null),
+            FindString(node, s => s.DesktopSize));
     }
 
     /// <summary>
