@@ -32,14 +32,8 @@ public sealed class TerminalView : Control
     static readonly Color SelectionColor = Color.Parse("#3A5A8C");
     static readonly Color CursorColor = Color.Parse("#E6E8EC");
 
-    // A dark-friendly take on the 16 ANSI colours: black, red, green, yellow, blue, magenta, cyan, white, then bright.
-    static readonly Color[] Ansi16 =
-    [
-        Color.Parse("#1B1E24"), Color.Parse("#E06C75"), Color.Parse("#98C379"), Color.Parse("#E5C07B"),
-        Color.Parse("#61AFEF"), Color.Parse("#C678DD"), Color.Parse("#56B6C2"), Color.Parse("#C8CCD4"),
-        Color.Parse("#5C6370"), Color.Parse("#FF7A85"), Color.Parse("#B5E890"), Color.Parse("#FFD68A"),
-        Color.Parse("#82C4FF"), Color.Parse("#DE9BF0"), Color.Parse("#7FD8E3"), Color.Parse("#FFFFFF"),
-    ];
+    TerminalColourScheme _colourScheme;
+    TerminalPalette _palette = TerminalPalette.Standard;
 
     readonly TerminalEmulator _terminal;
     readonly DispatcherTimer _resizeTimer;
@@ -99,6 +93,26 @@ public sealed class TerminalView : Control
 
     /// <summary>The terminal's size in character cells.</summary>
     public (int Columns, int Rows) GridSize => (_terminal.Columns, _terminal.Rows);
+
+    /// <summary>The 16 colours programs pick from. Changing it repaints what's on screen in the new colours.</summary>
+    public TerminalColourScheme ColourScheme
+    {
+        get => _colourScheme;
+        set
+        {
+            if (value == _colourScheme)
+            {
+                return;
+            }
+
+            _colourScheme = value;
+            _palette = TerminalPalette.For(value);
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>The colour a palette index (0 to 15) draws in, for tests.</summary>
+    internal Color AnsiColour(int index) => _palette.Ansi[index];
 
     /// <summary>Text size in points. Changing it keeps the view's size and re-flows the rows and columns.</summary>
     public double TextSize
@@ -337,13 +351,13 @@ public sealed class TerminalView : Control
         return style.Flags.HasFlag(CellFlags.Inverse) ? (bg, fg) : (fg, bg);
     }
 
-    static Color Resolve(TerminalColor color, Color fallback)
+    Color Resolve(TerminalColor color, Color fallback)
     {
         if (color.IsDefault) return fallback;
         if (color.IsRgb) return Color.FromRgb((byte)(color.Rgb24 >> 16), (byte)(color.Rgb24 >> 8), (byte)color.Rgb24);
 
         int i = color.PaletteIndex;
-        if (i < 16) return Ansi16[i];
+        if (i < 16) return _palette.Ansi[i];
         if (i < 232)
         {
             // 6×6×6 colour cube.

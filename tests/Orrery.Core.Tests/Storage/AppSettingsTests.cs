@@ -53,6 +53,20 @@ public class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Colour_settings_are_off_unless_chosen()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.False(store.Load().UseColourBlindColours);
+        Assert.Null(store.Load().TerminalColours);
+
+        store.Save(new AppSettings { ColourBlindColours = true, TerminalColours = TerminalColourScheme.ColourBlind });
+
+        Assert.True(store.Load().UseColourBlindColours);
+        Assert.Equal(TerminalColourScheme.ColourBlind, store.Load().TerminalColours);
+        Assert.Contains("\"colourBlind\"", File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
     public void Zero_minutes_means_never_lock()
     {
         Assert.Null(new AppSettings { AutoLockMinutes = 0 }.AutoLockAfter);

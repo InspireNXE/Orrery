@@ -12,10 +12,6 @@ namespace Orrery.App.Connections;
 /// </summary>
 public sealed class NodeViewModel : INotifyPropertyChanged
 {
-    static readonly IBrush ConnectedBrush = new SolidColorBrush(Color.Parse("#5FD38D")).ToImmutable();
-    static readonly IBrush ConnectingBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
-    static readonly IBrush OfflineBrush = new SolidColorBrush(Color.Parse("#5B6372")).ToImmutable();
-
     readonly Action? _expansionChanged;
     readonly bool _persistExpansion;
     bool _isExpanded;
@@ -66,20 +62,13 @@ public sealed class NodeViewModel : INotifyPropertyChanged
             }
 
             _status = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusFill)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusStroke)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusText)));
         }
     }
 
-    // A filled dot for an open session, a hollow ring otherwise.
-    public IBrush? StatusFill => _status switch
-    {
-        SessionState.Connected => ConnectedBrush,
-        SessionState.Connecting => ConnectingBrush,
-        _ => null,
-    };
-
-    public IBrush? StatusStroke => StatusFill is null ? OfflineBrush : null;
+    /// <summary>The status in words, beside the mark that shows it.</summary>
+    public string StatusText => Controls.StateGlyph.Describe(_status);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

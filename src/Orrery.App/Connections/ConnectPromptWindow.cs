@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Credentials;
 
@@ -23,7 +24,7 @@ sealed class ConnectPromptWindow : Window
     readonly TextBox _username = new(), _domain = new(), _password = new() { PasswordChar = '•' };
     readonly CheckBox _save = new() { Content = "Save as a credential" };
     readonly CheckBox _remember = new() { Content = "Use it for this connection from now on", IsChecked = true };
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly bool _offerRemember;
 
     public ConnectPromptWindow(ICredentialStore store, string title, string host, string? username, string? domain, bool offerRemember)

@@ -95,7 +95,7 @@ sealed class QuickConnectWindow : Window
     static readonly IBrush LineBrush = Brush("#262A33");
     static readonly IBrush OutlineBrush = Brush("#2F3540");
     static readonly IBrush HighlightBrush = Brush("#252B36");
-    static readonly IBrush AccentBrush = Brush("#5B9DFF");
+    static IBrush AccentBrush => Palette.Accent;
     static readonly IBrush SoftBrush = Brush("#C3C9D3");
 
     readonly ConnectionTree _tree;

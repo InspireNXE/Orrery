@@ -27,10 +27,10 @@ sealed class FileBrowserView : DockPanel
     readonly SftpSession _session;
     readonly TextBox _path = new() { FontFamily = Dialogs.MonoFont, FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center };
     readonly ListBox _list = new() { SelectionMode = SelectionMode.Multiple, Background = Brushes.Transparent };
-    readonly TextBlock _status = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+    readonly Notice _status = StatusLine();
     readonly ProgressBar _progress = new() { Width = 160, Height = 6, MinHeight = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
     readonly Button _cancel = new() { Content = "Cancel", Padding = new Thickness(10, 2), MinHeight = 0, IsVisible = false };
-    readonly TextBlock _message = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 520, TextAlignment = TextAlignment.Center };
+    readonly Notice _message = new(NoticeKind.Info) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 520 };
     readonly Control _browser;
     readonly Button _download, _rename, _delete;
     string _current = "/";
@@ -142,6 +142,7 @@ sealed class FileBrowserView : DockPanel
                 _list,
             },
         };
+        _message.Message.TextAlignment = TextAlignment.Center;
         Children.Add(new Panel { Children = { _browser, _message } });
 
         session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => ShowState(e.State, e.Message));
@@ -163,7 +164,7 @@ sealed class FileBrowserView : DockPanel
         _browser.IsVisible = connected || (state != SessionState.Connecting && _list.ItemsSource is not null);
         _browser.IsEnabled = connected;
         _message.IsVisible = !connected;
-        _message.Foreground = state == SessionState.Failed ? Dialogs.DangerBrush : Dialogs.MutedBrush;
+        _message.Kind = state == SessionState.Failed ? NoticeKind.Error : NoticeKind.Info;
         _message.Text = state switch
         {
             SessionState.Connecting => $"Connecting to {_session.Target.Host}…",
@@ -423,7 +424,7 @@ sealed class FileBrowserView : DockPanel
         _transfer = cts;
         _progress.IsVisible = _cancel.IsVisible = true;
         _progress.IsIndeterminate = true;
-        _status.Foreground = Dialogs.MutedBrush;
+        _status.Kind = NoticeKind.Info;
         _status.Text = $"{what}…";
         UpdateButtons();
         try
@@ -468,15 +469,25 @@ sealed class FileBrowserView : DockPanel
     void ShowCount()
     {
         int folders = Items.Count(i => i.IsDirectory), files = Items.Count - folders;
-        _status.Foreground = Dialogs.MutedBrush;
+        _status.Kind = NoticeKind.Info;
         _status.Text = $"{folders} {(folders == 1 ? "folder" : "folders")}, {files} {(files == 1 ? "file" : "files")}";
     }
 
     void ShowError(string text)
     {
-        _status.Foreground = Dialogs.DangerBrush;
+        _status.Kind = NoticeKind.Error;
         _status.Text = text;
         ToolTip.SetTip(_status, text);
+    }
+
+    /// <summary>The one-line status under the list: counts and progress, or an error with its icon.</summary>
+    static Notice StatusLine()
+    {
+        var line = new Notice(NoticeKind.Info) { VerticalAlignment = VerticalAlignment.Center, IconSize = 13 };
+        line.Message.FontSize = 12;
+        line.Message.TextWrapping = TextWrapping.NoWrap;
+        line.Message.TextTrimming = TextTrimming.CharacterEllipsis;
+        return line;
     }
 
     static string Describe(IReadOnlyList<string> names) => names.Count == 1 ? $"\"{names[0]}\"" : $"{names.Count} items";
