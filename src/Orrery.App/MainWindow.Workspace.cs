@@ -110,15 +110,19 @@ public partial class MainWindow
         return new Workspace { Window = window, Tabs = tabs, Active = _currentTab is null ? -1 : _tabs.IndexOf(_currentTab) };
     }
 
-    /// <summary>Writes the workspace as the window closes.</summary>
+    /// <summary>Writes the workspace as the window closes; with reopening set to Never, only where the window was.</summary>
     void SaveWorkspace()
     {
         _restoreCancel.Cancel();
         var workspace = CaptureWorkspace();
 
         // Closing while still reopening last time's tabs, or with the offer to reopen them unanswered, shouldn't
-        // forget them.
-        if (_restoring || (_restoreBar is { IsVisible: true } && _tabs.Count == 0))
+        // forget them, unless they're not to be remembered at all.
+        if (_settingsStore.Load().RestoreMode == RestoreSessionsMode.Never)
+        {
+            workspace = workspace.WithoutTabs();
+        }
+        else if (_restoring || (_restoreBar is { IsVisible: true } && _tabs.Count == 0))
         {
             workspace = workspace with { Tabs = _savedWorkspace.Tabs, Active = _savedWorkspace.Active };
         }
@@ -135,7 +139,18 @@ public partial class MainWindow
     {
         var remembered = _savedWorkspace.Surviving(_tree);
         var mode = _settingsStore.Load().RestoreMode;
-        if (remembered.Tabs.Count == 0 || mode == RestoreSessionsMode.Never || _restoreBar is null)
+        if (mode == RestoreSessionsMode.Never)
+        {
+            // A list left from before Never was chosen (by hand in settings.json, or a crash) goes now.
+            if (_savedWorkspace.Tabs.Count > 0)
+            {
+                ForgetOpenTabs();
+            }
+
+            return;
+        }
+
+        if (remembered.Tabs.Count == 0 || _restoreBar is null)
         {
             return;
         }
@@ -149,6 +164,21 @@ public partial class MainWindow
         _restoreText!.Text = remembered.Tabs.Count == 1 ? "1 session was open last time" : $"{remembered.Tabs.Count} sessions were open last time";
         _restoreBar.IsVisible = true;
         Controls.ScreenReader.Announce(_restoreBar, $"{_restoreText.Text}. Reopen them?", "Orrery.Restore", Controls.ScreenReader.MostRecent);
+    }
+
+    /// <summary>
+    /// Reopening was set to Never: deletes the saved list of open tabs now, rather than at close, and withdraws an
+    /// offer to reopen them. Where the window was stays.
+    /// </summary>
+    internal void ForgetOpenTabs()
+    {
+        if (_restoreBar is not null)
+        {
+            _restoreBar.IsVisible = false;
+        }
+
+        _workspaceStore.ForgetTabs();
+        WorkspaceLog.LogInformation("Forgot the sessions that were open last time");
     }
 
     internal async Task ReopenWorkspaceAsync(TimeSpan? stagger = null)

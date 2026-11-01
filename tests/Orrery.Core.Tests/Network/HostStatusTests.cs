@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Orrery.Core.Connections;
 using Orrery.Core.Network;
@@ -8,7 +9,7 @@ namespace Orrery.Core.Tests.Network;
 
 public class HostStatusTests
 {
-    sealed class FakeProbe(Func<string, int, bool>? answer = null) : IHostProbe
+    sealed class FakeProbe(Func<string, int, bool>? answer = null, HostCheckMethod method = HostCheckMethod.Tcp) : IHostProbe
     {
         int _running, _peak;
         readonly List<string> _calls = [];
@@ -16,8 +17,13 @@ public class HostStatusTests
         public TaskCompletionSource? Gate { get; set; }
         public int Peak => _peak;
         public int Calls => _calls.Count;
+        public IReadOnlyList<string> Probed => _calls;
 
-        public async Task<bool> IsUpAsync(string host, int port, CancellationToken cancellationToken)
+        public HostCheckMethod Method => method;
+
+        public string KeyFor(string host, int port) => method == HostCheckMethod.Ping ? host : $"{host}:{port}";
+
+        public async Task<ProbeAnswer> ProbeAsync(string host, int port, CancellationToken cancellationToken)
         {
             lock (_calls) _calls.Add($"{host}:{port}");
             int now = Interlocked.Increment(ref _running);
@@ -38,7 +44,7 @@ public class HostStatusTests
                     await Task.Delay(20, cancellationToken);
                 }
 
-                return answer?.Invoke(host, port) ?? true;
+                return answer?.Invoke(host, port) ?? true ? ProbeAnswer.Up : ProbeAnswer.Down;
             }
             finally
             {
@@ -237,15 +243,15 @@ public class HostStatusTests
         var probe = new TcpHostProbe(TimeSpan.FromSeconds(5));
         try
         {
-            Assert.True(await probe.IsUpAsync("127.0.0.1", open, default));
+            Assert.Equal(ProbeAnswer.Up, await probe.ProbeAsync("127.0.0.1", open, default));
         }
         finally
         {
             listener.Stop();
         }
 
-        Assert.False(await probe.IsUpAsync("127.0.0.1", open, default));
-        Assert.False(await probe.IsUpAsync("not a host name", 22, default));
+        Assert.Equal(ProbeAnswer.Down, await probe.ProbeAsync("127.0.0.1", open, default));
+        Assert.Equal(ProbeAnswer.Down, await probe.ProbeAsync("not a host name", 22, default));
     }
 
     [Fact]
@@ -253,6 +259,135 @@ public class HostStatusTests
     {
         using var cancel = new CancellationTokenSource();
         cancel.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new TcpHostProbe().IsUpAsync("127.0.0.1", 9, cancel.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new TcpHostProbe().ProbeAsync("127.0.0.1", 9, cancel.Token));
+    }
+
+    // ---- Choosing how ----
+
+    [Fact]
+    public async Task Pinging_sends_one_echo_a_round_to_a_host_several_connections_share()
+    {
+        var probe = new FakeProbe((host, _) => host.Equals("a.example", StringComparison.OrdinalIgnoreCase), HostCheckMethod.Ping);
+        var monitor = new HostStatusMonitor(probe);
+        var ssh = Target("a.example", 22);
+        var rdp = Target("a.example", 3389);
+        var shouted = Target("A.EXAMPLE", 5900);
+        var other = Target("b.example", 22);
+
+        await monitor.CheckAsync([ssh, rdp, shouted, other], TimeSpan.FromSeconds(60), default);
+
+        Assert.Equal(2, probe.Calls);
+        Assert.All(new[] { ssh, rdp, shouted }, t => Assert.Equal(HostState.Up, monitor.Get(t)!.State));
+        Assert.Equal(HostState.Down, monitor.Get(other)!.State);
+        Assert.All(new[] { ssh, rdp, shouted, other }, t => Assert.Equal(HostCheckMethod.Ping, monitor.Get(t)!.Method));
+    }
+
+    [Fact]
+    public async Task Tcp_shares_a_probe_only_between_connections_to_the_same_port()
+    {
+        var probe = new FakeProbe();
+        var monitor = new HostStatusMonitor(probe);
+
+        await monitor.CheckAsync([Target("a.example", 22), Target("a.example", 22), Target("a.example", 3389)], TimeSpan.Zero, default);
+
+        Assert.Equal(2, probe.Calls);
+        Assert.Equal(["a.example:22", "a.example:3389"], probe.Probed.Order());
+    }
+
+    [Fact]
+    public async Task A_new_method_checks_again_answers_made_the_old_way_and_shows_them_until_then()
+    {
+        var time = new ManualTime();
+        var tcp = new FakeProbe();
+        var ping = new FakeProbe(method: HostCheckMethod.Ping) { Gate = new TaskCompletionSource() };
+        var monitor = new HostStatusMonitor(tcp, time: time);
+        var target = Target();
+        await monitor.CheckAsync([target], TimeSpan.FromSeconds(60), default);
+        Assert.Equal(HostCheckMethod.Tcp, monitor.Get(target)!.Method);
+
+        monitor.Probe = ping;
+        var running = monitor.CheckAsync([target], TimeSpan.FromSeconds(60), default);
+        Assert.Equal(HostCheckMethod.Tcp, monitor.Get(target)!.Method);
+        ping.Gate.SetResult();
+        await running;
+
+        Assert.Equal(1, tcp.Calls);
+        Assert.Equal(1, ping.Calls);
+        Assert.Equal(HostCheckMethod.Ping, monitor.Get(target)!.Method);
+    }
+
+    [Fact]
+    public async Task A_probe_that_cannot_check_is_kept_as_unknown_with_the_reason()
+    {
+        var probe = new FixedProbe(new ProbeAnswer(HostState.Unknown, "no ping here"));
+        var monitor = new HostStatusMonitor(probe);
+        var target = Target();
+
+        await monitor.CheckAsync([target], TimeSpan.Zero, default);
+
+        var check = monitor.Get(target)!;
+        Assert.Equal(HostState.Unknown, check.State);
+        Assert.Equal("no ping here", check.WhyNot);
+    }
+
+    sealed class FixedProbe(ProbeAnswer answer) : IHostProbe
+    {
+        public HostCheckMethod Method => HostCheckMethod.Ping;
+        public string KeyFor(string host, int port) => host;
+        public Task<ProbeAnswer> ProbeAsync(string host, int port, CancellationToken cancellationToken) => Task.FromResult(answer);
+    }
+
+    [Theory]
+    [InlineData(IPStatus.Success, HostState.Up)]
+    [InlineData(IPStatus.TimedOut, HostState.Down)]
+    [InlineData(IPStatus.DestinationHostUnreachable, HostState.Down)]
+    [InlineData(IPStatus.DestinationNetworkUnreachable, HostState.Down)]
+    [InlineData(IPStatus.TtlExpired, HostState.Down)]
+    [InlineData(IPStatus.NoResources, HostState.Unknown)]
+    [InlineData(IPStatus.HardwareError, HostState.Unknown)]
+    [InlineData(IPStatus.Unknown, HostState.Unknown)]
+    public void A_ping_reply_is_up_down_or_could_not_be_sent(IPStatus status, HostState expected)
+    {
+        var answer = PingHostProbe.Answer(status);
+
+        Assert.Equal(expected, answer.State);
+        Assert.Equal(expected == HostState.Unknown, answer.WhyNot is not null);
+    }
+
+    [Fact]
+    public void Ping_failing_on_this_computer_is_cant_check_not_down()
+    {
+        var answer = PingHostProbe.CantPing(new PingException("An exception occurred during a Ping request.", new UnauthorizedAccessException("raw sockets")));
+
+        Assert.Equal(HostState.Unknown, answer.State);
+        Assert.Equal(PingHostProbe.NotAllowed, answer.WhyNot);
+    }
+
+    [Fact]
+    public async Task The_ping_probe_never_calls_this_computer_down()
+    {
+        // Loopback answers a ping wherever ping works at all; where it doesn't (some Linux set-ups), that's can't check.
+        var answer = await new PingHostProbe(TimeSpan.FromSeconds(2)).ProbeAsync("127.0.0.1", 22, default);
+
+        Assert.NotEqual(HostState.Down, answer.State);
+    }
+
+    [Fact]
+    public async Task The_ping_probe_throws_only_when_canceled()
+    {
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new PingHostProbe().ProbeAsync("127.0.0.1", 0, cancel.Token));
+    }
+
+    [Theory]
+    [InlineData(HostCheckMethod.Tcp, typeof(TcpHostProbe))]
+    [InlineData(HostCheckMethod.Ping, typeof(PingHostProbe))]
+    public void Each_method_has_its_probe(HostCheckMethod method, Type type)
+    {
+        var probe = HostProbes.For(method);
+
+        Assert.IsType(type, probe);
+        Assert.Equal(method, probe.Method);
     }
 }

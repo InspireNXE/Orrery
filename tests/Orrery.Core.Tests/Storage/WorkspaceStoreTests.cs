@@ -209,6 +209,34 @@ public class WorkspaceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Forgetting_the_tabs_keeps_where_the_window_was()
+    {
+        var store = new WorkspaceStore(WorkspacePath);
+        store.Save(new Workspace
+        {
+            Window = new WindowPlacement(10, 20, 1200, 800, Maximized: false),
+            Tabs = [new WorkspaceTab(null, "secret-name.example", 22, Protocol.Ssh)],
+            Active = 0,
+        });
+
+        store.ForgetTabs();
+
+        var loaded = store.Load();
+        Assert.Empty(loaded.Tabs);
+        Assert.Equal(-1, loaded.Active);
+        Assert.Equal(new WindowPlacement(10, 20, 1200, 800, false), loaded.Window);
+        Assert.DoesNotContain("secret-name", File.ReadAllText(WorkspacePath));
+    }
+
+    [Fact]
+    public void Forgetting_the_tabs_with_no_file_writes_none()
+    {
+        new WorkspaceStore(WorkspacePath).ForgetTabs();
+
+        Assert.False(File.Exists(WorkspacePath));
+    }
+
+    [Fact]
     public void Restoring_sessions_asks_unless_the_setting_says_otherwise()
     {
         var store = new AppSettingsStore(Path.Combine(_root, AppSettingsStore.FileName));

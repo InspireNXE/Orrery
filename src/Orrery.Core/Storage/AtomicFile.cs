@@ -46,6 +46,30 @@ public static class AtomicFile
     }
 
     /// <summary>
+    /// Deletes <paramref name="path"/> and any temp files an interrupted <see cref="WriteAllText"/> left beside it,
+    /// so nothing of what it held stays behind. A file that isn't there is fine.
+    /// </summary>
+    public static void Delete(string path)
+    {
+        File.Delete(path);
+        var folder = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
+        var name = Path.GetFileName(path);
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        foreach (var temp in Directory.EnumerateFiles(folder, name + ".*" + TempExtension))
+        {
+            if (string.Equals(TargetOfTemp(Path.GetFileName(temp)), name, comparison))
+            {
+                File.Delete(temp);
+            }
+        }
+    }
+
+    /// <summary>
     /// The file a temp file named <paramref name="name"/> was being written for, or null if it isn't one
     /// of ours: <c>target.&lt;random hex&gt;.tmp</c> now, <c>target.tmp</c> in earlier versions.
     /// </summary>

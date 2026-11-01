@@ -614,12 +614,20 @@ sealed class PropertiesPanel : UserControl
     /// <summary>
     /// "Last connected 3 days ago" (the exact time in the tooltip) or "Never connected", and under it, only while
     /// it's more recent than the last success, "Last attempt failed 2 hours ago". A folder shows the latest of
-    /// its connections. Runs again every so often so the wording keeps up.
+    /// its connections. Runs again every so often so the wording keeps up. Neither shows while history is off.
     /// </summary>
     public void ShowHistory()
     {
         if (_node is null || _history is null)
         {
+            return;
+        }
+
+        // With remembering turned off there's nothing to say, and "Never connected" would be wrong.
+        _lastConnected.IsVisible = _history.Enabled;
+        if (!_history.Enabled)
+        {
+            _lastFailed.IsVisible = false;
             return;
         }
 

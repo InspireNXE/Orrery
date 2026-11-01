@@ -212,6 +212,34 @@ public class ConnectionHistoryTests : IDisposable
         Assert.DoesNotContain("2026-10-31", File.ReadAllText(Path.Combine(_dir, "connections.json")));
     }
 
+    [Fact]
+    public void Turning_history_off_deletes_it_and_records_nothing_until_it_is_on_again()
+    {
+        var id = Guid.NewGuid();
+        var history = new ConnectionHistory(FilePath);
+        history.RecordConnected(id, Noon);
+        history.RecordFailed(id, Noon.AddHours(1));
+        int changes = 0;
+        history.Changed += (_, _) => changes++;
+
+        history.Enabled = false;
+
+        Assert.Equal(1, changes);
+        Assert.False(File.Exists(FilePath));
+        Assert.Equal(ConnectionUse.None, history.Get(id));
+
+        history.RecordConnected(id, Noon.AddHours(2));
+        history.RecordFailed(id, Noon.AddHours(3));
+        history.Forget([id]);
+        Assert.False(File.Exists(FilePath));
+        Assert.Equal(ConnectionUse.None, history.Get(id));
+
+        history.Enabled = true;
+        Assert.Equal(ConnectionUse.None, history.Get(id));
+        history.RecordConnected(id, Noon.AddHours(4));
+        Assert.Equal(new ConnectionUse(Noon.AddHours(4), null), new ConnectionHistory(FilePath).Get(id));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
