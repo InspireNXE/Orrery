@@ -96,15 +96,29 @@ sealed class FakeAgent : IAgentTransport, IDisposable
         return Blob(w => { w.String("ecdsa-sha2-nistp256"); w.String(inner); });
     }
 
-    /// <summary>Serves on <c>\\.\pipe\name</c>, one request per connection or several, until disposed.</summary>
-    public void ServePipe(string name) => _ = Task.Run(async () =>
+    /// <summary>
+    /// Serves on <c>\\.\pipe\name</c>, one request per connection or several, until disposed. The pipe is listening
+    /// before this returns, and the next instance is made as soon as one is taken, so the client's short connect
+    /// timeout doesn't race the server on a busy machine.
+    /// </summary>
+    public void ServePipe(string name)
     {
-        while (!_cts.IsCancellationRequested)
+        var first = NewPipe(name);
+        _ = Task.Run(() => AcceptPipes(name, first));
+    }
+
+    static NamedPipeServerStream NewPipe(string name) =>
+        new(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+
+    async Task AcceptPipes(string name, NamedPipeServerStream listening)
+    {
+        while (true)
         {
-            var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            var pipe = listening;
             try
             {
                 await pipe.WaitForConnectionAsync(_cts.Token);
+                listening = NewPipe(name);
             }
             catch (OperationCanceledException)
             {
@@ -138,7 +152,7 @@ sealed class FakeAgent : IAgentTransport, IDisposable
                 }
             });
         }
-    });
+    }
 
     static byte[] Blob(Action<Writer> write) { var w = new Writer(); write(w); return w.ToArray(); }
     static byte[] BigEndian(uint value) { var b = new byte[4]; BinaryPrimitives.WriteUInt32BigEndian(b, value); return b; }
