@@ -103,6 +103,8 @@ public static class FullScreenShortcut
         const KeyModifiers Ctrl = KeyModifiers.Control, Alt = KeyModifiers.Alt, Shift = KeyModifiers.Shift, Cmd = KeyModifiers.Meta;
         const string System = "the system keeps it for itself.";
 
+        yield return (SessionEscape.For(on), "Orrery uses it to leave a session for its tab.");
+
         if (on == ShortcutPlatform.MacOS)
         {
             yield return (new KeyGesture(Key.Q, Ctrl | Cmd), "macOS uses it to lock the screen.");

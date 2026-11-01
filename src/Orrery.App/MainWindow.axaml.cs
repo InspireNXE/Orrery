@@ -671,6 +671,24 @@ public partial class MainWindow : Window
                     EnterFullScreen();
                 }
             }
+            else if (Input.SessionEscape.Matches(e.Key, e.KeyModifiers) && _currentTab is { } tab
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true })
+            {
+                // Out of the session, which keeps every other key, to its tab: keyboard-only and screen reader users'
+                // way back to the rest of the window. Enter on the tab goes back in.
+                e.Handled = true;
+                if (_fullScreen)
+                {
+                    // Leaving full screen puts the focus back in the session once the layout settles; the tab
+                    // takes it after that.
+                    ExitFullScreen();
+                    Dispatcher.UIThread.Post(() => tab.Header.Focus(NavigationMethod.Tab), DispatcherPriority.Background);
+                }
+                else
+                {
+                    tab.Header.Focus(NavigationMethod.Tab);
+                }
+            }
         }, RoutingStrategies.Tunnel);
 
         _fullScreenHotZone.PointerEntered += (_, _) =>
