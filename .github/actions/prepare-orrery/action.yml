@@ -1,0 +1,52 @@
+name: Prepare Orrery build
+description: >-
+  Sets up the pinned .NET SDK, takes Devolutions.IronRdp from this run's ironrdp-nupkg artifact, restores the NuGet
+  cache and refreshes the lock files' IronRDP content hash, failing if anything else in them would change.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up .NET ${{ env.DOTNET_SDK_VERSION }}
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      with:
+        dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+    # The runner images carry newer SDKs, which dotnet would otherwise pick. Not committed: a global.json in the repo
+    # would hold every developer to this exact SDK too.
+    - name: Pin the .NET SDK
+      shell: pwsh
+      run: |
+        $json = '{ "sdk": { "version": "' + $Env:DOTNET_SDK_VERSION + '", "rollForward": "disable" } }'
+        [IO.File]::WriteAllText((Join-Path $Env:GITHUB_WORKSPACE 'global.json'), $json)
+        $used = dotnet --version
+        if ($used -ne $Env:DOTNET_SDK_VERSION) { throw "dotnet uses SDK $used, not $Env:DOTNET_SDK_VERSION." }
+
+    - name: Download Devolutions.IronRdp
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: ironrdp-nupkg
+        path: ${{ runner.temp }}/ironrdp-nuget
+
+    # Keyed on the committed lock files, before they're refreshed. IronRDP's own folder is left out, and deleted below
+    # too, because NuGet would reuse a cached copy of the same version built from an earlier commit.
+    - name: Cache NuGet packages
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.nuget/packages
+          !~/.nuget/packages/devolutions.ironrdp
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: Use the downloaded Devolutions.IronRdp
+      shell: pwsh
+      run: |
+        Remove-Item -Recurse -Force (Join-Path $HOME '.nuget/packages/devolutions.ironrdp') -ErrorAction SilentlyContinue
+        $source = Join-Path $Env:RUNNER_TEMP 'ironrdp-nuget'
+        Get-ChildItem $source -Filter '*.nupkg' | ForEach-Object { Write-Host "   $($_.Name)" }
+        dotnet nuget update source ironrdp-local --source $source --configfile (Join-Path $Env:GITHUB_WORKSPACE 'nuget.config')
+        if ($LASTEXITCODE -ne 0) { throw 'dotnet nuget update source failed.' }
+
+    - name: Refresh IronRDP's lock file hash
+      shell: pwsh
+      run: ./build/Update-IronRdpLockHashes.ps1

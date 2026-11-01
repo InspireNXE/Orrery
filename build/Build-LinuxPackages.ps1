@@ -15,7 +15,10 @@
     AppImage: built with appimagetool, which only runs on Linux, so it's skipped elsewhere with a warning. The
     image is read-only and carries no orrery.portable.json, so it runs in installed mode too.
 
-    nfpm and appimagetool are found on PATH, or pass -NfpmPath and -AppImageToolPath.
+    nfpm and appimagetool are found on PATH, or pass -NfpmPath and -AppImageToolPath. appimagetool downloads the
+    newest AppImage runtime for each image unless -AppImageRuntimeDir names a folder holding runtime-x86_64 and
+    runtime-aarch64 (as published at https://github.com/AppImage/type2-runtime/releases), which GitHub Actions passes
+    so the runtime is a pinned, checked download.
 
 .EXAMPLE
     ./build/Build-LinuxPackages.ps1                                       # every format, x64 and arm64
@@ -26,7 +29,8 @@ param(
     [ValidateSet('deb', 'rpm', 'appimage')] [string[]] $Formats = @('deb', 'rpm', 'appimage'),
     [string] $Configuration = 'Release',
     [string] $NfpmPath,
-    [string] $AppImageToolPath
+    [string] $AppImageToolPath,
+    [string] $AppImageRuntimeDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -137,6 +141,12 @@ function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
 
 function Build-AppImage([string] $Rid, [string] $Publish, [string] $Tool) {
     $arch = if ($Rid -eq 'linux-arm64') { 'aarch64' } else { 'x86_64' }
+    $toolArgs = @('--no-appstream')
+    if ($AppImageRuntimeDir) {
+        $runtime = Join-Path $AppImageRuntimeDir "runtime-$arch"
+        if (-not (Test-Path $runtime)) { throw "'$runtime' does not exist." }
+        $toolArgs += '--runtime-file', $runtime
+    }
     $appDir = Join-Path $work "$Rid/Orrery.AppDir"
     Remove-Item -Recurse -Force $appDir -ErrorAction SilentlyContinue
     $lib = Join-Path $appDir 'usr/lib/orrery'
@@ -159,7 +169,7 @@ function Build-AppImage([string] $Rid, [string] $Publish, [string] $Tool) {
 
     $image = Join-Path $out "Orrery-$version-$arch.AppImage"
     $env:ARCH = $arch
-    try { & $Tool --no-appstream $appDir $image }
+    try { & $Tool @toolArgs $appDir $image }
     finally { Remove-Item Env:ARCH }
     if ($LASTEXITCODE -ne 0) { throw "appimagetool failed for $Rid." }
     Write-Host "   $image" -ForegroundColor Green
