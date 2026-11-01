@@ -47,6 +47,7 @@ sealed class SettingsView : UserControl
     readonly ListBox _pageList = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
     readonly ScrollViewer _pageScroll = new();
     readonly Dictionary<string, Control> _pages = [];
+    Action _refreshScreenReaderNote = () => { };
 
     AppSettings _settings;
     bool _loading = true;
@@ -172,6 +173,7 @@ sealed class SettingsView : UserControl
         }
 
         _pageScroll.Offset = default;
+        _refreshScreenReaderNote();
         if (_pageList.SelectedItem is not ListBoxItem { Tag: string selected } || selected != name)
         {
             _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().First(i => Equals(i.Tag, name));
@@ -815,10 +817,18 @@ sealed class SettingsView : UserControl
 
     Control AccessibilitySection()
     {
-        var announce = new CheckBox { Content = "Read new terminal output aloud", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+        var announce = new CheckBox { Content = "Send new terminal output to your screen reader", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+
+        // Orrery has no voice of its own: with no screen reader running, the setting does nothing anyone can hear.
+        var noReader = new Notice(NoticeKind.Warning,
+            "No screen reader is running, so nothing will be read out. Start Narrator (Windows logo key + Ctrl + Enter), NVDA or JAWS.");
+        noReader.Message.FontSize = 12;
+        _refreshScreenReaderNote = () => noReader.IsVisible = OperatingSystem.IsWindows() && announce.IsChecked == true && !ScreenReader.IsRunning;
+        _refreshScreenReaderNote();
         announce.IsCheckedChanged += (_, _) =>
         {
             bool on = announce.IsChecked == true;
+            _refreshScreenReaderNote();
             _settings = _settings with { TerminalAnnouncements = on };
             if (TrySaveSettings())
             {
@@ -828,6 +838,7 @@ sealed class SettingsView : UserControl
 
         return Section("Accessibility",
             announce,
+            noReader,
             Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
                 + "It's on by default while a screen reader is running."),
             Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
