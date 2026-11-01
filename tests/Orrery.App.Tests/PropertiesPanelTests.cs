@@ -67,6 +67,33 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaFact]
+    public async Task An_inherited_default_port_follows_the_connections_own_protocol()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers" };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 900 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var texts = window.GetVisualDescendants().OfType<TextBox>().Select(t => t.Text).ToList();
+        Assert.Contains("22", texts);
+        Assert.DoesNotContain("3389", texts);
+
+        var protocol = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is Protocol));
+        protocol.SelectedItem = protocol.Items.OfType<ComboBoxItem>().Single(i => (Protocol)i.Tag! == Protocol.Vnc);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("5900", window.GetVisualDescendants().OfType<TextBox>().Select(t => t.Text));
+    }
+
+    [AvaloniaFact]
     public async Task Turning_off_the_clipboard_for_a_connection_is_saved()
     {
         var tree = ConnectionTree.Empty();

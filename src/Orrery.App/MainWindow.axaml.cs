@@ -2514,9 +2514,9 @@ public partial class MainWindow : Window
         var states = new Dictionary<Guid, SessionState>();
         foreach (var tab in _tabs)
         {
-            // Connected wins when one connection is open in two tabs.
-            if (tab.Origin.EntryId is { } id && tab.Session.State is SessionState.Connected or SessionState.Connecting
-                && states.GetValueOrDefault(id) != SessionState.Connected)
+            // When one connection is open in two tabs, connected wins over connecting, and both over failed.
+            if (tab.Origin.EntryId is { } id && tab.Session.State is SessionState.Connected or SessionState.Connecting or SessionState.Failed
+                && (!states.TryGetValue(id, out var shown) || TreeRank(tab.Session.State) > TreeRank(shown)))
             {
                 states[id] = tab.Session.State;
             }
@@ -2532,6 +2532,14 @@ public partial class MainWindow : Window
             }
         }
     }
+
+    static int TreeRank(SessionState state) => state switch
+    {
+        SessionState.Connected => 3,
+        SessionState.Connecting => 2,
+        SessionState.Failed => 1,
+        _ => 0,
+    };
 
     // ---- Import and export ----
 

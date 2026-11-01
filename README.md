@@ -16,6 +16,15 @@
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2e7d32">
 </p>
 
+<p align="center">
+  <img src="docs/images/main-window.png" width="880"
+       alt="Orrery's main window. On the left, the connection tree has a Production folder and a Lab folder, and in Lab a host called hv-01 with two guest machines under it. Each row has a mark for its session (web-01 connected, build-agent connecting) and one for its host (most up, kiosk and win-test down, app-03 behind a jump host and not checked). In the middle, an SSH tab to web-01 shows a shell with systemctl, df and git output. On the right, the properties pane shows web-01's settings, with its protocol and username taken from the Production folder.">
+</p>
+
+| Runs on | Passwords | Accessibility | Imports |
+| --- | --- | --- | --- |
+| Windows, Linux and macOS, installed or portable | In Credential Manager, the macOS Keychain or the Secret Service, or an encrypted vault file | Works with Narrator, NVDA and JAWS, and adjusts its colors for color blindness | mRemoteNG `confCons.xml` and OpenSSH `~/.ssh/config` |
+
 Orrery is built on Avalonia and .NET 10. It takes its cue from [mRemoteNG](https://mremoteng.org/) and can import
 mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 
@@ -40,6 +49,14 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 
 ### Connecting
 
+<p align="center">
+  <img src="docs/images/quick-connect.png" width="720"
+       alt="Quick connect open over the dimmed main window, with web typed in. It lists the open web-01 session first with Switch to, then the saved connections web-01 and web-02 from Production, then RDP to web and SSH to web to connect directly, and an action to make a new connection named web. A footer lists the keys: arrows to move, Enter to open, Alt+Enter for settings, Esc to close, and ssh://, rdp://, vnc:// or telnet:// to pick a protocol.">
+</p>
+
+Quick connect (Ctrl+K) searches your saved connections and open sessions as you type, and can connect straight to a
+host you type in.
+
 - Jump hosts work for every protocol, like `ssh -J`. RDP, VNC and Telnet go through an SSH tunnel.
 - A connection, or a whole folder, can point at an SSH key file on your computer. Orrery tries a saved key first,
   then the key file, then your SSH agent, then the password. It reads the file each time you connect and never copies
@@ -55,6 +72,11 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
   when the network comes back. It never retries a refused login or an untrusted host key or certificate, since those
   need you.
 - Give a connection a MAC address and you can wake its machine from the right-click menu (Wake-on-LAN).
+
+<p align="center">
+  <img src="docs/images/connection-lost.png" width="720"
+       alt="A tab for db-02 whose connection failed. In the middle of the tab, a panel headed Login refused says db-02.prod.example didn't accept the login, to check the username and password, or the key, then reconnect, and that this needs you, so Orrery won't try again by itself. Below are Reconnect and Copy details buttons and a closed Details section. The properties pane on the right says db-02 last connected 1 week ago and that the last attempt failed just now.">
+</p>
 
 ### Organizing
 
@@ -96,6 +118,11 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
   look different, at a strength you pick. A connection or folder can turn that correction off, for design or photo
   work.
 - Session states, host status, warnings and errors each have a shape, an icon or a word as well as a color.
+
+<p align="center">
+  <img src="docs/images/settings-appearance.png" width="720"
+       alt="Settings open on the Appearance page. The Color vision card has Deuteranopia: green-weak chosen and the correction strength slider at 80%. The Interface colors card offers Standard, Clearer and Color-blind (Okabe-Ito), with Color-blind selected. The Terminal colors card below it is set to Color-blind friendly.">
+</p>
 
 HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet, because IronRDP's .NET binding doesn't
 pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.
@@ -146,6 +173,11 @@ Orrery works with Narrator, NVDA and JAWS on Windows.
 - The tests check every color that carries meaning against simulated protanopia, deuteranopia and tritanopia
   (Machado et al. 2009) for how far apart the colors look (CIEDE2000), and against WCAG contrast.
 
+<p align="center">
+  <img src="docs/images/interface-colors.png" width="474"
+       alt="The same connection tree twice, in Standard and in Clearer interface colors. In Standard, connected and up marks are green and down marks are a pinkish red. In Clearer, the up marks are teal and the down crosses a brighter red. The connecting mark is a yellow broken ring in both.">
+</p>
+
 ### Not there yet
 
 - A remote desktop is a picture, so a screen reader can only tell you "Remote desktop:" and the connection's name.
@@ -184,22 +216,32 @@ remote desktop.
 
 ## Where your data lives
 
+A portable copy has an `orrery.portable.json` file beside the executable, and asks on first launch where to keep
+its data. An installed copy uses the usual folder for each system.
+
+<details>
+<summary>Data folders for an installed copy</summary>
+
 | | Installed copy |
 | --- | --- |
 | Windows | `%APPDATA%\Orrery` (cache and logs in `%LOCALAPPDATA%\Orrery`) |
 | macOS | `~/Library/Application Support/Orrery` |
 | Linux | `~/.config/orrery` (XDG directories are respected), for the .deb, .rpm and AppImage |
 
-A portable copy has an `orrery.portable.json` file beside the executable, and asks on first launch where to keep
-its data.
+</details>
 
 When each connection last connected or failed is kept in `history.json`, by connection, so it survives renames and
 moves. It stays on this computer: exports don't carry it, and deleting a connection deletes its entry.
+
+<details>
+<summary>Logs</summary>
 
 Logs record what connected where and what went wrong, one file a day, kept for two weeks, in
 `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or `~/.local/state/orrery/logs` (a portable copy keeps them in
 its data folder). They never hold passwords, keys, keystrokes or anything that was on screen. Settings has a button
 to open the folder, and a detailed logging switch for troubleshooting that turns itself off when Orrery closes.
+
+</details>
 
 ## Building
 
@@ -223,7 +265,12 @@ folder in the repo that git ignores, and `build/Get-IronRdp.ps1` downloads it th
 checks the file against the SHA-256 in `build/ironrdp-package.json` and won't use a file that doesn't match. If a
 restore fails with NU1301 or NU1101 for the `ironrdp-local` source, the script hasn't been run yet.
 
-You only need to run it again when `IronRdpVersion` changes. To use a package you built yourself, pass the folder
+You only need to run it again when `IronRdpVersion` changes.
+
+<details>
+<summary>Using a package you built, or going back to the released one</summary>
+
+To use a package you built yourself, pass the folder
 holding it and its SHA-256: `./build/Get-IronRdp.ps1 -FromFolder <folder> -Sha256 <hash>`. Its content hash differs
 from the one in the lock files, so the packaging scripts' locked restores fail with it until
 `./build/Update-IronRdpLockHashes.ps1` updates that hash (it checks that nothing else in the lock files changed).
@@ -232,6 +279,8 @@ GitHub Actions builds the package for all six platforms from the fork and commit
 
 To go back to the released package, remove the `ironrdp-local` source and its mapping from `nuget.config`, set
 `IronRdpVersion` back to `2026.10.29`, and run `dotnet restore Orrery.sln --force-evaluate` to update the lock files.
+
+</details>
 
 ### Packages
 
@@ -245,6 +294,9 @@ It runs the scripts below in turn. If a tool is missing, it skips that step with
 what it built and what it didn't. On Windows you get everything except the AppImage. Pass `-NfpmPath` or `-IsccPath`
 for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or `-SkipLinux` to leave a step out.
 
+<details>
+<summary>What each script builds, and what it needs</summary>
+
 | Script | Builds | Needs |
 | --- | --- | --- |
 | `./build/package.ps1` | Portable zips for win-x64, win-arm64, linux-x64, linux-arm64, macos-arm64 and macos-x64 (`-Runtimes win-x64` for just one; .NET calls the Mac ones `osx-arm64` and `osx-x64`) | .NET SDK |
@@ -252,16 +304,27 @@ for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or `-SkipLi
 | `./build/Build-LinuxPackages.ps1` | .deb and .rpm, x64 and arm64 | [nfpm](https://nfpm.goreleaser.com/install/) (runs on Windows too) |
 | | AppImage, x64 and arm64 | Linux, [appimagetool](https://github.com/AppImage/appimagetool/releases) |
 
+</details>
+
 Packages are self-contained, so the target machine doesn't need .NET installed. Output goes to `artifacts/`. On
 Windows and Linux the portable app is a single executable, which unpacks its native libraries to a cache folder the
-first time it runs. On macOS it's an
-`Orrery.app` bundle, not yet signed or notarized. On Linux, run `chmod +x Orrery` after unzipping a portable zip; the
-machine needs X11 (or XWayland), fontconfig and ICU, which the .deb and .rpm list as dependencies. There's no Flatpak.
+first time it runs. On macOS it's an `Orrery.app` bundle, not yet signed or notarized. On Linux, run
+`chmod +x Orrery` after unzipping a portable zip; the machine needs X11 (or XWayland), fontconfig and ICU, which the
+.deb and .rpm list as dependencies. There's no Flatpak.
 
 GitHub Actions builds all of these on every push and pull request. [docs/packaging.md](docs/packaging.md) has the
 details, including Linux requirements, third-party notices, lock files and the workflow.
 
+### Screenshots
+
+The screenshots in this README are drawn from made-up data by `tools/Orrery.Screenshots`.
+`dotnet run --project tools/Orrery.Screenshots` makes them again; [docs/screenshots.md](docs/screenshots.md) explains
+how.
+
 ### Repository layout
+
+<details>
+<summary>What's in each folder</summary>
 
 | Path | What's in it |
 | --- | --- |
@@ -269,10 +332,13 @@ details, including Linux requirements, third-party notices, lock files and the w
 | `src/Orrery.Core` | Model, storage, credentials, vault, import and export |
 | `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions, and local terminals |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
+| `tools/Orrery.Screenshots` | Draws the README's screenshots from made-up data |
 | `build/` | Packaging, installer and third-party notice scripts |
 | `installer/` | Inno Setup script for the Windows installer; `installer/linux/` has the Linux launcher and icons |
-| `docs/` | Design notes and the packaging guide |
+| `docs/` | Design notes, the packaging guide, and the README's images in `docs/images` |
 | `.github/` | The GitHub Actions workflow that builds the packages |
+
+</details>
 
 ## Status
 
