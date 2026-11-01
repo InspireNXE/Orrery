@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Renders the README's screenshots from made-up data with Avalonia's headless platform and Skia. Not a test
+       project, so the normal test run doesn't start it. See docs/screenshots.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" Version="$(AvaloniaVersion)" />
+    <ProjectReference Include="..\..\src\Orrery.App\Orrery.App.csproj" />
+  </ItemGroup>
+</Project>

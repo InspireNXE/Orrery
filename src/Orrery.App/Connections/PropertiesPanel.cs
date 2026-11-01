@@ -86,7 +86,7 @@ sealed class PropertiesPanel : UserControl
         }
 
         _protocolRow = new InheritRow("Protocol", _protocol, () => ShowInherited(r => SelectProtocol(r.Protocol.Value)));
-        _portRow = new InheritRow("Port", _port, () => ShowInherited(r => _port.Text = r.Port.Value.ToString()));
+        _portRow = new InheritRow("Port", _port, () => ShowInherited(r => _port.Text = InheritedPort(r, ShownProtocol(r)).ToString()));
         _credentialRow = new InheritRow("Saved credential", _credential, () => ShowInherited(r => _ = _credential.RefreshAsync(r.CredentialId.Value)));
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
@@ -211,6 +211,13 @@ sealed class PropertiesPanel : UserControl
             {
                 ShowTile(entry, chosen);
             }
+
+            // An inherited port that's only Orrery's default follows the protocol shown.
+            if (!_loading && _node is not null && _portRow.Inherit.IsChecked == true)
+            {
+                var inherited = SettingsResolver.ResolveInherited(_node);
+                _port.Text = InheritedPort(inherited, ShownProtocol(inherited)).ToString();
+            }
         };
         _credential.ChoiceChanged += (_, _) => MarkDirty();
         _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
@@ -273,7 +280,7 @@ sealed class PropertiesPanel : UserControl
             SelectProtocol(own.Protocol ?? inherited.Protocol.Value);
 
             _portRow.Load(own.Port is null, Describe(inherited.Port));
-            _port.Text = (own.Port ?? inherited.Port.Value).ToString();
+            _port.Text = (own.Port ?? InheritedPort(inherited, own.Protocol ?? inherited.Protocol.Value)).ToString();
 
             _credentialRow.Load(own.CredentialId is null, Describe(inherited.CredentialId));
             await _credential.RefreshAsync(ShownCredential(own, inherited));
@@ -667,6 +674,17 @@ sealed class PropertiesPanel : UserControl
         Margin = new Thickness(10, 0, -11, 0),
         VerticalAlignment = VerticalAlignment.Center,
     };
+
+    /// <summary>
+    /// The port a node gets when it doesn't set one: an ancestor's, or else the default for the protocol it uses. The
+    /// resolver works out that default from the ancestors' protocol, which is wrong when the node sets its own.
+    /// </summary>
+    static int InheritedPort(ResolvedSettings inherited, Protocol protocol) =>
+        inherited.Port.IsDefault ? ProtocolInfo.DefaultPort(protocol) : inherited.Port.Value;
+
+    /// <summary>The protocol picked in the panel, or the inherited one while nothing is picked.</summary>
+    Protocol ShownProtocol(ResolvedSettings inherited) =>
+        (_protocol.SelectedItem as ComboBoxItem)?.Tag is Protocol chosen ? chosen : inherited.Protocol.Value;
 
     void SelectProtocol(Protocol protocol) =>
         _protocol.SelectedItem = _protocol.Items.OfType<ComboBoxItem>().First(i => (Protocol)i.Tag! == protocol);
