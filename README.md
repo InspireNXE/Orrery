@@ -27,6 +27,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Connection tree with folders, drag and drop, multi-select and a filter
 - Settings inherited from folders
 - Host groups: a host with its guest machines below it
+- The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
+  hover), and when the last attempt failed if that came after. A folder shows the latest of its connections.
 
 ### Credentials and files
 
@@ -73,6 +75,10 @@ While a remote session has focus it gets keys first, so these shortcuts go to th
 
 A portable copy has an `orrery.portable.json` file beside the executable and asks on first launch where to keep its
 data.
+
+The times a connection last connected or failed are kept in `history.json` in the data folder, by connection, so they
+survive renames and moves. They stay on this computer: exports and `connections.json` don't carry them, and deleting
+a connection deletes its entry.
 
 Orrery keeps a log of what connected where and what went wrong: one file a day, kept for two weeks, in
 `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or `~/.local/state/orrery/logs` (a portable copy keeps it in its
