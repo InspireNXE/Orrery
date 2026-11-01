@@ -253,7 +253,8 @@ for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or `-SkipLi
 | | AppImage, x64 and arm64 | Linux, [appimagetool](https://github.com/AppImage/appimagetool/releases) |
 
 Packages are self-contained, so the target machine doesn't need .NET installed. Output goes to `artifacts/`. On
-Windows and Linux the portable app is a single executable with its native libraries beside it. On macOS it's an
+Windows and Linux the portable app is a single executable, which unpacks its native libraries to a cache folder the
+first time it runs. On macOS it's an
 `Orrery.app` bundle, not yet signed or notarized. On Linux, run `chmod +x Orrery` after unzipping a portable zip; the
 machine needs X11 (or XWayland), fontconfig and ICU, which the .deb and .rpm list as dependencies. There's no Flatpak.
 
