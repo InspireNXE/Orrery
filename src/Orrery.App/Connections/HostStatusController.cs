@@ -22,22 +22,47 @@ sealed class HostStatusController : IDisposable
 
     readonly Func<IEnumerable<NodeViewModel>> _rows;
     readonly Func<bool> _isShown;
+    readonly Func<HostCheckMethod, IHostProbe> _probes;
     readonly HostStatusMonitor _monitor;
     readonly DispatcherTimer _timer;
     CancellationTokenSource? _running;
+    HostCheckMethod _method;
     bool _enabled;
     bool _applyQueued;
 
     /// <param name="rows">The tree's top-level rows.</param>
     /// <param name="isShown">Whether the tree is on screen; nothing is probed while it isn't.</param>
-    public HostStatusController(Func<IEnumerable<NodeViewModel>> rows, Func<bool> isShown, IHostProbe? probe = null)
+    /// <param name="probes">The probe for each method; the real TCP and ping probes if null.</param>
+    public HostStatusController(Func<IEnumerable<NodeViewModel>> rows, Func<bool> isShown, Func<HostCheckMethod, IHostProbe>? probes = null)
     {
         _rows = rows;
         _isShown = isShown;
-        _monitor = new HostStatusMonitor(probe ?? new TcpHostProbe());
+        _probes = probes ?? HostProbes.For;
+        _monitor = new HostStatusMonitor(_probes(_method));
         _monitor.Updated += (_, _) => QueueApply();
         _timer = new DispatcherTimer { Interval = TickInterval };
         _timer.Tick += (_, _) => Check();
+    }
+
+    /// <summary>
+    /// How hosts are checked. A change applies from the next round, started straight away: every host is checked
+    /// again the new way, and its old mark shows until then.
+    /// </summary>
+    public HostCheckMethod Method
+    {
+        get => _method;
+        set
+        {
+            if (_method == value)
+            {
+                return;
+            }
+
+            _method = value;
+            _monitor.Probe = _probes(value);
+            Logger.LogInformation("Hosts are now checked by {Method}", value);
+            Check();
+        }
     }
 
     public bool Enabled
@@ -97,16 +122,28 @@ sealed class HostStatusController : IDisposable
             }
             else if (_monitor.Get(target) is { } check)
             {
-                var time = check.At.ToLocalTime().ToString("T");
-                row.SetReachability(check.State, check.State == HostState.Up
-                    ? $"Host up: port {target.Port} answered. Checked {time}."
-                    : $"Host down: nothing answered on port {target.Port}. Checked {time}.");
+                row.SetReachability(check.State, Describe(check));
             }
             else
             {
                 row.SetReachability(HostState.Unknown, "Host not checked: waiting for the first check.");
             }
         }
+    }
+
+    /// <summary>The tooltip for a mark: what answered, or didn't, and when.</summary>
+    static string Describe(HostCheck check)
+    {
+        var time = check.At.ToLocalTime().ToString("T");
+        bool ping = check.Method == HostCheckMethod.Ping;
+        return check.State switch
+        {
+            HostState.Up when ping => $"Host up: it answered a ping. Checked {time}.",
+            HostState.Up => $"Host up: port {check.Target.Port} answered. Checked {time}.",
+            HostState.Down when ping => $"Host down: it didn't answer a ping. Checked {time}.",
+            HostState.Down => $"Host down: nothing answered on port {check.Target.Port}. Checked {time}.",
+            _ => $"Host not checked: {check.WhyNot ?? "the check couldn't be made"}. Tried {time}.",
+        };
     }
 
     void Check()

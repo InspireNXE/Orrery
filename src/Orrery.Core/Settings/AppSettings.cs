@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Orrery.Core.Network;
 using Orrery.Core.Storage;
 
 namespace Orrery.Core.Settings;
@@ -83,19 +84,40 @@ public sealed record AppSettings
     public bool? InspectorOpen { get; init; }
 
     /// <summary>
-    /// Check from time to time whether the connections on screen are up, by opening a TCP connection to each one's
-    /// host and port. Null is on. Off sends nothing and shows no dots.
+    /// Check from time to time whether the connections on screen are up, the way <see cref="HostStatusMethod"/> says.
+    /// Null is on. Off sends nothing and shows no dots.
     /// </summary>
     public bool? HostStatusChecks { get; init; }
 
     [JsonIgnore]
     public bool ChecksHostStatus => HostStatusChecks ?? true;
 
-    /// <summary>Whether to reopen last time's sessions at start-up. Null is <see cref="RestoreSessionsMode.Ask"/>.</summary>
+    /// <summary>
+    /// How hosts are checked: a TCP connection to each one's host and port, or a ping to the host. Null is
+    /// <see cref="HostCheckMethod.Tcp"/>.
+    /// </summary>
+    public HostCheckMethod? HostStatusMethod { get; init; }
+
+    [JsonIgnore]
+    public HostCheckMethod HostCheckMethod => HostStatusMethod ?? HostCheckMethod.Tcp;
+
+    /// <summary>
+    /// Whether to reopen last time's sessions at start-up. Null is <see cref="RestoreSessionsMode.Ask"/>.
+    /// <see cref="RestoreSessionsMode.Never"/> also stops the open tabs being written down at all.
+    /// </summary>
     public RestoreSessionsMode? RestoreSessions { get; init; }
 
     [JsonIgnore]
     public RestoreSessionsMode RestoreMode => RestoreSessions ?? RestoreSessionsMode.Ask;
+
+    /// <summary>
+    /// Keep the Recent list and each connection's last connected and last failed times (<c>recent.json</c> and
+    /// <c>history.json</c>). Null is on. Turning it off deletes both files, and nothing is recorded until it's on again.
+    /// </summary>
+    public bool? RememberRecentConnections { get; init; }
+
+    [JsonIgnore]
+    public bool RemembersRecentConnections => RememberRecentConnections ?? true;
 
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }

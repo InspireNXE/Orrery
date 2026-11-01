@@ -21,14 +21,18 @@ public class HostStatusUiTests : IDisposable
 {
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
-    sealed class RecordingProbe : IHostProbe
+    sealed class RecordingProbe(HostCheckMethod method = HostCheckMethod.Tcp, ProbeAnswer? always = null) : IHostProbe
     {
         public List<string> Calls { get; } = [];
 
-        public Task<bool> IsUpAsync(string host, int port, CancellationToken cancellationToken)
+        public HostCheckMethod Method => method;
+
+        public string KeyFor(string host, int port) => method == HostCheckMethod.Ping ? host : $"{host}:{port}";
+
+        public Task<ProbeAnswer> ProbeAsync(string host, int port, CancellationToken cancellationToken)
         {
             lock (Calls) Calls.Add($"{host}:{port}");
-            return Task.FromResult(host.StartsWith("up"));
+            return Task.FromResult(always ?? (host.StartsWith("up") ? ProbeAnswer.Up : ProbeAnswer.Down));
         }
     }
 
@@ -85,7 +89,7 @@ public class HostStatusUiTests : IDisposable
     {
         var f = new Fixture();
         var probe = new RecordingProbe();
-        using var controller = new HostStatusController(() => f.Rows, () => true, probe) { Enabled = true };
+        using var controller = new HostStatusController(() => f.Rows, () => true, _ => probe) { Enabled = true };
 
         await WaitFor(() => f.Row(f.Down).Reachability == HostState.Down);
 
@@ -115,7 +119,7 @@ public class HostStatusUiTests : IDisposable
     {
         var f = new Fixture();
         var probe = new RecordingProbe();
-        using var controller = new HostStatusController(() => f.Rows, () => true, probe) { Enabled = true };
+        using var controller = new HostStatusController(() => f.Rows, () => true, _ => probe) { Enabled = true };
         await WaitFor(() => f.Row(f.Up).Reachability == HostState.Up);
 
         f.Row(f.Closed).IsExpanded = true;
@@ -129,7 +133,7 @@ public class HostStatusUiTests : IDisposable
     {
         var f = new Fixture();
         var probe = new RecordingProbe();
-        using var controller = new HostStatusController(() => f.Rows, () => false, probe) { Enabled = true };
+        using var controller = new HostStatusController(() => f.Rows, () => false, _ => probe) { Enabled = true };
         await Task.Delay(100);
         Dispatcher.UIThread.RunJobs();
 
@@ -142,7 +146,7 @@ public class HostStatusUiTests : IDisposable
     {
         var f = new Fixture();
         var probe = new RecordingProbe();
-        using var controller = new HostStatusController(() => f.Rows, () => true, probe);
+        using var controller = new HostStatusController(() => f.Rows, () => true, _ => probe);
         Assert.All(f.Rows, r => Assert.False(r.ReachabilityShown));
         controller.Refresh();
         Assert.Empty(probe.Calls);
@@ -183,6 +187,76 @@ public class HostStatusUiTests : IDisposable
 
         Assert.False(changed);
         Assert.False(settings.Load().ChecksHostStatus);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Choosing_ping_checks_every_host_again_by_ping_without_a_restart()
+    {
+        var f = new Fixture();
+        var tcp = new RecordingProbe();
+        var ping = new RecordingProbe(HostCheckMethod.Ping);
+        using var controller = new HostStatusController(() => f.Rows, () => true, m => m == HostCheckMethod.Ping ? ping : tcp) { Enabled = true };
+        await WaitFor(() => f.Row(f.Up).Reachability == HostState.Up);
+        Assert.Empty(ping.Calls);
+        Assert.Contains("port 3389 answered", f.Row(f.Up).ReachabilityTip);
+
+        controller.Method = HostCheckMethod.Ping;
+
+        await WaitFor(() => f.Row(f.Up).ReachabilityTip?.Contains("ping") == true && f.Row(f.Down).ReachabilityTip?.Contains("ping") == true);
+        Assert.Contains("up.example:3389", ping.Calls);
+        Assert.Contains("down.example:3389", ping.Calls);
+        Assert.Equal(HostState.Up, f.Row(f.Up).Reachability);
+        Assert.Equal(HostState.Down, f.Row(f.Down).Reachability);
+        Assert.StartsWith("Host down: it didn't answer a ping", f.Row(f.Down).ReachabilityTip);
+
+        // Still skipped by ping: a connection behind a jump host.
+        Assert.DoesNotContain(ping.Calls, c => c.StartsWith("up-jumped"));
+    }
+
+    [AvaloniaFact]
+    public async Task A_ping_this_computer_cannot_send_shows_the_cant_check_ring_not_down()
+    {
+        var f = new Fixture();
+        var ping = new RecordingProbe(HostCheckMethod.Ping, new ProbeAnswer(HostState.Unknown, "this computer doesn't let Orrery ping"));
+        using var controller = new HostStatusController(() => f.Rows, () => true, _ => ping) { Method = HostCheckMethod.Ping, Enabled = true };
+
+        await WaitFor(() => f.Row(f.Down).ReachabilityTip?.Contains("doesn't let Orrery ping") == true);
+
+        Assert.Equal(HostState.Unknown, f.Row(f.Down).Reachability);
+        Assert.True(f.Row(f.Down).ReachabilityUnknown);
+        Assert.False(f.Row(f.Down).ReachabilityDown);
+        Assert.StartsWith("Host not checked: this computer doesn't let Orrery ping", f.Row(f.Down).ReachabilityTip);
+    }
+
+    [AvaloniaFact]
+    public void The_check_method_is_a_named_choice_that_defaults_to_the_port_and_saves_ping()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        HostCheckMethod? changed = null;
+        view.HostStatusMethodChanged += (_, method) => changed = method;
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var combo = window.GetVisualDescendants().OfType<ComboBox>().Single(c => Avalonia.Automation.AutomationProperties.GetName(c) == "Check hosts by");
+        var items = combo.Items.OfType<ComboBoxItem>().ToList();
+        Assert.Equal(["Connection port (TCP)", "Ping (ICMP echo)"], items.Select(i => i.Content));
+        Assert.Same(items[0], combo.SelectedItem);
+        Assert.Contains("port scan", Avalonia.Automation.AutomationProperties.GetHelpText(combo));
+        Assert.Contains("block", Avalonia.Automation.AutomationProperties.GetHelpText(combo));
+
+        combo.SelectedItem = items[1];
+
+        Assert.Equal(HostCheckMethod.Ping, changed);
+        Assert.Equal(HostCheckMethod.Ping, settings.Load().HostCheckMethod);
+
+        // Off, there's nothing to choose a method for.
+        window.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Show whether hosts are up")).IsChecked = false;
+        Assert.False(combo.IsEnabled);
         window.Close();
     }
 
