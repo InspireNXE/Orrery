@@ -65,6 +65,46 @@ public class RecentConnectionsTests : IDisposable
         Assert.Empty(new RecentConnections(FilePath).Items);
     }
 
+    [Fact]
+    public void Turning_remembering_off_deletes_the_file_and_leftovers_and_records_nothing_until_it_is_on_again()
+    {
+        var recent = new RecentConnections(FilePath);
+        recent.Add(Direct("before"));
+        var leftover = FilePath + ".0123456789ABCDEF.tmp";
+        File.WriteAllText(leftover, "half a write");
+        File.WriteAllText(Path.Combine(_dir, "unrelated.json"), "{}");
+        int changes = 0;
+        recent.Changed += (_, _) => changes++;
+
+        recent.Enabled = false;
+
+        Assert.Equal(1, changes);
+        Assert.False(File.Exists(FilePath));
+        Assert.False(File.Exists(leftover));
+        Assert.True(File.Exists(Path.Combine(_dir, "unrelated.json")));
+        Assert.Empty(recent.Items);
+
+        recent.Add(Direct("while off"));
+        recent.Remove(Direct("while off"));
+        recent.Clear();
+        Assert.False(File.Exists(FilePath));
+        Assert.Empty(recent.Items);
+
+        recent.Enabled = true;
+        Assert.Empty(recent.Items);
+        recent.Add(Direct("after"));
+        Assert.Equal(["after"], new RecentConnections(FilePath).Items.Select(r => r.Host));
+    }
+
+    [Fact]
+    public void Turning_remembering_off_with_no_file_is_fine()
+    {
+        var recent = new RecentConnections(FilePath) { Enabled = false };
+
+        Assert.False(File.Exists(FilePath));
+        Assert.Empty(recent.Items);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

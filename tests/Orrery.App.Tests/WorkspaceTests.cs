@@ -4,6 +4,7 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Restore;
@@ -457,6 +458,147 @@ public class WorkspaceWindowTests : IDisposable
         choices[1].IsChecked = true;
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(RestoreSessionsMode.Always, settings.Load().RestoreMode);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void With_Never_closing_remembers_the_window_but_not_the_tabs()
+    {
+        AppSettingsStore.In(_location).Save(new AppSettings { RestoreSessions = RestoreSessionsMode.Never });
+        var window = NewWindow();
+        window.Show();
+        window.Width = 1111;
+        AddTab(window, new IdleSession(_saved.Host), new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask));
+        AddTab(window, new IdleSession("typed.example", 2222), new SessionOrigin("typed.example", Protocol.Vnc, null, () => Task.CompletedTask));
+        Dispatcher.UIThread.RunJobs();
+
+        window.Close();
+
+        var workspace = new WorkspaceStore(WorkspaceFile).Load();
+        Assert.Empty(workspace.Tabs);
+        Assert.Equal(-1, workspace.Active);
+        Assert.Equal(1111, workspace.Window!.Width, 1);
+        Assert.DoesNotContain("typed.example", File.ReadAllText(WorkspaceFile));
+    }
+
+    [AvaloniaFact]
+    public async Task With_Never_a_list_kept_from_before_is_deleted_at_start_up()
+    {
+        AppSettingsStore.In(_location).Save(new AppSettings { RestoreSessions = RestoreSessionsMode.Never });
+        new WorkspaceStore(WorkspaceFile).Save(new Workspace
+        {
+            Window = new WindowPlacement(60, 50, 1200, 800, false),
+            Tabs = [new WorkspaceTab(_saved.Id, null, 0, Protocol.Ssh), new WorkspaceTab(null, "typed.example", 22, Protocol.Ssh)],
+        });
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            await window.OfferWorkspaceAsync();
+
+            var workspace = new WorkspaceStore(WorkspaceFile).Load();
+            Assert.Empty(workspace.Tabs);
+            Assert.Equal(new WindowPlacement(60, 50, 1200, 800, false), workspace.Window);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Choosing_Never_deletes_the_saved_list_now_and_withdraws_the_offer()
+    {
+        new WorkspaceStore(WorkspaceFile).Save(new Workspace { Tabs = [new WorkspaceTab(_saved.Id, null, 0, Protocol.Ssh)], Active = 0 });
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            await window.OfferWorkspaceAsync();
+            var bar = window.FindControl<Border>("RestoreBar")!;
+            Assert.True(bar.IsVisible);
+
+            AppSettingsStore.In(_location).Save(new AppSettings { RestoreSessions = RestoreSessionsMode.Never });
+            window.ForgetOpenTabs();
+
+            Assert.False(bar.IsVisible);
+            Assert.Empty(new WorkspaceStore(WorkspaceFile).Load().Tabs);
+        }
+        finally
+        {
+            window.Close();
+        }
+
+        // Closing doesn't bring back the offer that was withdrawn.
+        Assert.Empty(new WorkspaceStore(WorkspaceFile).Load().Tabs);
+    }
+
+    [AvaloniaFact]
+    public void With_recent_connections_off_what_was_kept_is_deleted_at_start_up_and_nothing_new_is_written()
+    {
+        var recentFile = _location.FileIn(RecentConnections.FileName);
+        var historyFile = _location.FileIn(ConnectionHistory.FileName);
+        new RecentConnections(recentFile).Add(new RecentConnection(_saved.Id, _saved.Name, Protocol.Ssh, _saved.Host!, 22, null, DateTimeOffset.Now));
+        new ConnectionHistory(historyFile).RecordConnected(_saved.Id, DateTimeOffset.Now);
+        AppSettingsStore.In(_location).Save(new AppSettings { RememberRecentConnections = false });
+
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            Assert.False(File.Exists(recentFile));
+            Assert.False(File.Exists(historyFile));
+
+            AddTab(window, new IdleSession("typed.example", 2222), new SessionOrigin("typed.example", Protocol.Vnc, null, () => Task.CompletedTask));
+            AddTab(window, new IdleSession(_saved.Host!), new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(File.Exists(recentFile));
+            Assert.False(File.Exists(historyFile));
+            var panel = VaultAutoLockTests.Private<Orrery.App.Connections.RecentPanel>(window, "_recentPanel");
+            var texts = panel.GetLogicalDescendants().OfType<TextBlock>().Where(t => t.IsVisible).Select(t => t.Text).ToList();
+            Assert.Contains(texts, t => t?.StartsWith("Recent connections aren't remembered") == true);
+            Assert.DoesNotContain(texts, t => t?.Contains("typed.example") == true);
+        }
+        finally
+        {
+            window.Close();
+        }
+
+        Assert.False(File.Exists(recentFile));
+        Assert.False(File.Exists(historyFile));
+    }
+
+    [AvaloniaFact]
+    public void Remembering_recent_connections_is_on_by_default_and_turning_it_off_is_saved_and_announced()
+    {
+        var settings = AppSettingsStore.In(_location);
+        using var vault = new VaultFileStore(_location.FileIn("vault.frv"), autoLockAfter: TimeSpan.FromMinutes(30));
+        var view = new Orrery.App.Settings.SettingsView(_location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        bool? changed = null;
+        RestoreSessionsMode? mode = null;
+        view.RememberRecentConnectionsChanged += (_, on) => changed = on;
+        view.RestoreSessionsChanged += (_, chosen) => mode = chosen;
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var check = window.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, "Remember recent connections"));
+        Assert.True(check.IsChecked);
+        Assert.Contains("Turning this off clears the list", Avalonia.Automation.AutomationProperties.GetHelpText(check));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("Turning this off clears the list") == true);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("window's size and position") == true);
+
+        check.IsChecked = false;
+        Assert.False(changed);
+        Assert.False(settings.Load().RemembersRecentConnections);
+
+        check.IsChecked = true;
+        Assert.True(changed);
+        Assert.True(settings.Load().RemembersRecentConnections);
+
+        window.GetVisualDescendants().OfType<RadioButton>().Single(r => Equals(r.Content, "Never")).IsChecked = true;
+        Assert.Equal(RestoreSessionsMode.Never, mode);
         window.Close();
     }
 

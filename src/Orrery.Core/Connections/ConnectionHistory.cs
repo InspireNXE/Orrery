@@ -32,13 +32,46 @@ public sealed class ConnectionHistory(string path)
     };
 
     Dictionary<Guid, ConnectionUse>? _uses;
+    bool _enabled = true;
 
     public static ConnectionHistory In(DataLocation location) => new(location.FileIn(FileName));
 
     public event EventHandler? Changed;
 
+    /// <summary>
+    /// Whether connecting and failing are recorded. Turning it off deletes the file and every record, and nothing is
+    /// recorded until it's turned on again, which starts with none.
+    /// </summary>
+    public bool Enabled
+    {
+        get => _enabled;
+        set
+        {
+            if (_enabled == value)
+            {
+                return;
+            }
+
+            _enabled = value;
+            _uses = null;
+            if (!value)
+            {
+                try
+                {
+                    AtomicFile.Delete(path);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    Log.For("Storage").LogWarning("Couldn't delete connection history: {Message}", e.Message);
+                }
+            }
+
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>A missing or unreadable file is an empty history: losing it isn't worth refusing to start.</summary>
-    Dictionary<Guid, ConnectionUse> Uses => _uses ??= Load();
+    Dictionary<Guid, ConnectionUse> Uses => _uses ??= _enabled ? Load() : [];
 
     public ConnectionUse Get(Guid id) => Uses.GetValueOrDefault(id) ?? ConnectionUse.None;
 
@@ -87,12 +120,22 @@ public sealed class ConnectionHistory(string path)
 
     void Store(Guid id, ConnectionUse use)
     {
+        if (!_enabled)
+        {
+            return;
+        }
+
         Uses[id] = use;
         Save();
     }
 
     void Save()
     {
+        if (!_enabled)
+        {
+            return;
+        }
+
         try
         {
             AtomicFile.WriteAllText(path, JsonSerializer.Serialize(new FileModel(1, Uses), JsonOptions));

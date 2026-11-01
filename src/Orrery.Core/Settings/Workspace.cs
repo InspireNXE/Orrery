@@ -65,6 +65,9 @@ public sealed record Workspace
                 : !string.IsNullOrWhiteSpace(tab.Host)));
     }
 
+    /// <summary>The window alone, for when the open tabs aren't to be remembered.</summary>
+    public Workspace WithoutTabs() => this with { Tabs = [], Active = -1 };
+
     /// <summary>Drops whatever in a loaded file can't be used, so nothing downstream has to check.</summary>
     internal Workspace Sanitized()
     {
@@ -143,6 +146,15 @@ public sealed class WorkspaceStore(string path)
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Log.For("Storage").LogWarning("Couldn't save workspace.json: {Message}", e.Message);
+        }
+    }
+
+    /// <summary>Rewrites the file without its list of open tabs, keeping where the window was. No file, nothing to do.</summary>
+    public void ForgetTabs()
+    {
+        if (File.Exists(path))
+        {
+            Save(Load().WithoutTabs());
         }
     }
 }

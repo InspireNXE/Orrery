@@ -11,13 +11,17 @@ namespace Orrery.App.Connections;
 
 /// <summary>
 /// The side panel listing recently opened connections, newest first. Double-click or Enter opens one
-/// again; the context menu removes it from the list.
+/// again; the context menu removes it from the list. With remembering turned off it stays, empty, and says so,
+/// rather than leaving the rail with a button that has gone.
 /// </summary>
 sealed class RecentPanel : DockPanel
 {
     readonly RecentConnections _recent;
     readonly ListBox _list = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
-    readonly TextBlock _empty = Pane.EmptyText("Connections you open show up here.", side: true);
+    const string EmptyNote = "Connections you open show up here.";
+    const string OffNote = "Recent connections aren't remembered. Turn on Remember recent connections in Settings, General, to keep a list here.";
+
+    readonly TextBlock _empty = Pane.EmptyText(EmptyNote, side: true);
     readonly Button _clear;
 
     public RecentPanel(RecentConnections recent)
@@ -79,6 +83,7 @@ sealed class RecentPanel : DockPanel
         _list.ItemsSource = items.ToList();
         _list.IsVisible = _clear.IsVisible = items.Count > 0;
         _empty.IsVisible = items.Count == 0;
+        _empty.Text = _recent.Enabled ? EmptyNote : OffNote;
     }
 
     void OpenSelected()
