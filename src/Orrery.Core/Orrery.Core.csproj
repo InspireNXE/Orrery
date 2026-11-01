@@ -1,4 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WinRt.cs calls Windows Hello's WinRT methods through their vtables (docs/design-biometric-unlock.md §6.1). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="$(BouncyCastleVersion)" />
     <PackageReference Include="NSec.Cryptography" Version="26.4.0" />
@@ -6,5 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Orrery.Core.Tests" />
+    <!-- SecretLeakTests reads the vault's data key, to check it never reaches the log. -->
+    <InternalsVisibleTo Include="Orrery.App.Tests" />
   </ItemGroup>
 </Project>
