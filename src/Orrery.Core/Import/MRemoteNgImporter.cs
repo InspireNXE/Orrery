@@ -491,7 +491,7 @@ public static class MRemoteNgImporter
                 return;
             }
 
-            if (MacAddress.TryNormalise(text, out var mac))
+            if (MacAddress.TryNormalize(text, out var mac))
             {
                 entry.MacAddress = mac;
             }
@@ -627,7 +627,7 @@ public static class MRemoteNgImporter
             ["DisplayWallpaper", "DisplayThemes", "EnableFontSmoothing", "EnableDesktopComposition", "VNCCompression", "VNCColors"];
 
         /// <summary>
-        /// mRemoteNG's visual-effect switches (RDP) or VNC compression and colours as a display quality: every effect
+        /// mRemoteNG's visual-effect switches (RDP) or VNC compression and colors as a display quality: every effect
         /// on is Best, none is Fastest, a mix is Balanced. Null when there's nothing to go on, or a VNC connection
         /// doesn't ask for speed (VNC's Best and Balanced are the same).
         /// </summary>

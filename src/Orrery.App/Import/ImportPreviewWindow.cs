@@ -6,7 +6,7 @@ using Orrery.Core.Import;
 
 namespace Orrery.App.Import;
 
-/// <summary>How the user chose to import. Null from the dialog means cancelled.</summary>
+/// <summary>How the user chose to import. Null from the dialog means canceled.</summary>
 sealed record ImportChoice(bool IntoNewFolder, bool SkipAlreadyImported);
 
 /// <summary>Shows what an import will add, and what it can't, before anything changes.</summary>
@@ -85,7 +85,7 @@ sealed class ImportPreviewWindow : Window
 
         var list = new StackPanel { Spacing = 2 };
         list.Children.Add(Dialogs.Label(title));
-        // One TextBlock a line and no virtualisation, so a long list is shortened first.
+        // One TextBlock a line and no virtualization, so a long list is shortened first.
         foreach (var line in ImportReport.Shorten(lines))
         {
             list.Children.Add(new TextBlock { Text = "• " + line, Foreground = brush, FontSize = 12, TextWrapping = TextWrapping.Wrap });

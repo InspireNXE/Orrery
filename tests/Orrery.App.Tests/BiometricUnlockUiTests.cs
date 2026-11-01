@@ -53,11 +53,11 @@ public class BiometricUnlockUiTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Cancelling_the_prompt_leaves_the_password_field_and_the_button()
+    public async Task Canceling_the_prompt_leaves_the_password_field_and_the_button()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        _hello.NextAnswer = AuthenticatorStatus.Cancelled;
+        _hello.NextAnswer = AuthenticatorStatus.Canceled;
         var window = new VaultUnlockWindow(vault, Biometric);
 
         window.Show();
@@ -141,7 +141,7 @@ public class BiometricUnlockUiTests : IDisposable
         bool finished = false;
         view.BiometricLeftoversRemoved += (_, _) => finished = true;
 
-        // Cancelling the confirmation keeps it.
+        // Canceling the confirmation keeps it.
         remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Settle(() => window.OwnedWindows.Count == 1);
         var confirm = window.OwnedWindows.Single();
@@ -288,7 +288,7 @@ public class BiometricUnlockUiTests : IDisposable
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
         _hello.Hold = new TaskCompletionSource();
-        _hello.HonoursCancel = false; // Even if the prompt answers yes just after.
+        _hello.HonorsCancel = false; // Even if the prompt answers yes just after.
         var window = new VaultUnlockWindow(vault, Biometric);
         window.Show();
         await Settle(() => _hello.Prompts == 2);
@@ -349,13 +349,13 @@ public class BiometricUnlockUiTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task Callers_waiting_on_a_window_cancelled_just_as_the_prompt_opened_the_vault_get_no()
+    public async Task Callers_waiting_on_a_window_canceled_just_as_the_prompt_opened_the_vault_get_no()
     {
         using var vault = await NewVaultAsync();
         var biometric = Biometric;
         await biometric.TurnOnAsync(vault, Password);
         _hello.Hold = new TaskCompletionSource();
-        _hello.HonoursCancel = false;
+        _hello.HonorsCancel = false;
         var owner = new Window();
         owner.Show();
 
@@ -522,7 +522,7 @@ public class BiometricUnlockUiTests : IDisposable
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        _hello.NextAnswer = AuthenticatorStatus.Cancelled;
+        _hello.NextAnswer = AuthenticatorStatus.Canceled;
         var window = new VaultUnlockWindow(vault, Biometric);
         window.Show();
         await Settle(() => _hello.Prompts == 2);
@@ -583,10 +583,10 @@ sealed class TestAuthenticator : IPlatformAuthenticator
 
     public AuthenticatorStatus? NextAnswer { get; set; }
 
-    /// <summary>While set, the prompt stays up until this completes; cancelling only gives up when <see cref="HonoursCancel"/>.</summary>
+    /// <summary>While set, the prompt stays up until this completes; canceling only gives up when <see cref="HonorsCancel"/>.</summary>
     public TaskCompletionSource? Hold { get; set; }
 
-    public bool HonoursCancel { get; set; } = true;
+    public bool HonorsCancel { get; set; } = true;
 
     public bool SawCancel { get; private set; }
 
@@ -609,12 +609,12 @@ sealed class TestAuthenticator : IPlatformAuthenticator
         {
             try
             {
-                await (HonoursCancel ? hold.Task.WaitAsync(cancel) : hold.Task);
+                await (HonorsCancel ? hold.Task.WaitAsync(cancel) : hold.Task);
             }
             catch (OperationCanceledException)
             {
                 SawCancel = true;
-                return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+                return new AuthenticatorResult(AuthenticatorStatus.Canceled);
             }
 
             SawCancel |= cancel.IsCancellationRequested;

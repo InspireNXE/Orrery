@@ -14,17 +14,17 @@ public enum CredentialStoreKind
     VaultFile,
 }
 
-/// <summary>The 16 colours terminals draw with.</summary>
-public enum TerminalColourScheme
+/// <summary>The 16 colors terminals draw with.</summary>
+public enum TerminalColorScheme
 {
     Standard,
 
-    /// <summary>Red and green kept apart for colour blindness; tuned further for the <see cref="ColourVision"/> chosen.</summary>
-    ColourBlind,
+    /// <summary>Red and green kept apart for color blindness; tuned further for the <see cref="ColorVision"/> chosen.</summary>
+    ColorBlind,
 }
 
-/// <summary>A kind of colour blindness the app allows for, in its colours and by correcting remote desktops.</summary>
-public enum ColourVision
+/// <summary>A kind of color blindness the app allows for, in its colors and by correcting remote desktops.</summary>
+public enum ColorVision
 {
     None,
 
@@ -34,20 +34,20 @@ public enum ColourVision
     /// <summary>Green-weak, the most common: reds, greens and yellows run together.</summary>
     Deuteranopia,
 
-    /// <summary>Blue-yellow: blues look like greens, and yellows like pinks or greys.</summary>
+    /// <summary>Blue-yellow: blues look like greens, and yellows like pinks or grays.</summary>
     Tritanopia,
 }
 
-/// <summary>The colours that carry meaning in the interface: states, success, warnings, errors.</summary>
-public enum InterfaceColourScheme
+/// <summary>The colors that carry meaning in the interface: states, success, warnings, errors.</summary>
+public enum InterfaceColorScheme
 {
     Standard,
 
-    /// <summary>Brighter colours that are easier to tell apart for most kinds of colour blindness.</summary>
+    /// <summary>Brighter colors that are easier to tell apart for most kinds of color blindness.</summary>
     Clearer,
 
-    /// <summary>Okabe and Ito's colour-blind safe colours.</summary>
-    ColourBlind,
+    /// <summary>Okabe and Ito's color-blind safe colors.</summary>
+    ColorBlind,
 }
 
 /// <summary>
@@ -102,46 +102,62 @@ public sealed record AppSettings
 
     public const double DefaultTerminalFontSize = 14;
 
-    /// <summary>The terminal's colours. Null is <see cref="TerminalColourScheme.Standard"/>.</summary>
-    public TerminalColourScheme? TerminalColours { get; init; }
+    /// <summary>The terminal's colors. Null is <see cref="TerminalColorScheme.Standard"/>.</summary>
+    public TerminalColorScheme? TerminalColors { get; init; }
 
-    /// <summary>The interface colours. Null is <see cref="InterfaceColourScheme.Standard"/>, unless <see cref="ColourBlindColours"/> says otherwise.</summary>
-    public InterfaceColourScheme? InterfaceColours { get; init; }
+    /// <summary>The interface colors. Null is <see cref="InterfaceColorScheme.Standard"/>, unless <see cref="ColorBlindColors"/> says otherwise.</summary>
+    public InterfaceColorScheme? InterfaceColors { get; init; }
 
     /// <summary>
     /// The old on/off setting, read from existing files and never written back: <see cref="AppSettingsStore"/> turns
-    /// true into <see cref="InterfaceColourScheme.ColourBlind"/> when it loads or saves.
+    /// true into <see cref="InterfaceColorScheme.ColorBlind"/> when it loads or saves. Its key keeps the British
+    /// spelling the builds that wrote it used.
     /// </summary>
-    public bool? ColourBlindColours { get; init; }
+    [JsonPropertyName("colourBlindColours")]
+    public bool? ColorBlindColors { get; init; }
 
-    /// <summary>The interface colours in use, counting the old setting.</summary>
+    /// <summary>The interface colors in use, counting the old setting.</summary>
     [JsonIgnore]
-    public InterfaceColourScheme InterfaceColourScheme =>
-        InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : InterfaceColourScheme.Standard);
+    public InterfaceColorScheme InterfaceColorScheme =>
+        InterfaceColors ?? (ColorBlindColors == true ? InterfaceColorScheme.ColorBlind : InterfaceColorScheme.Standard);
 
-    /// <summary>Moves the old colour-blind setting into <see cref="InterfaceColours"/>.</summary>
+    /// <summary>Moves the old color-blind setting into <see cref="InterfaceColors"/>.</summary>
     public AppSettings Migrated() =>
-        ColourBlindColours is null
+        ColorBlindColors is null
             ? this
-            : this with { InterfaceColours = InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : null), ColourBlindColours = null };
+            : this with { InterfaceColors = InterfaceColors ?? (ColorBlindColors == true ? InterfaceColorScheme.ColorBlind : null), ColorBlindColors = null };
 
     /// <summary>
-    /// The user's colour vision. Null is none. Choosing one in Settings also picks the colour-blind interface and
-    /// terminal colours, which stay separate settings the user can change back.
+    /// The user's color vision. Null is none. Choosing one in Settings also picks the color-blind interface and
+    /// terminal colors, which stay separate settings the user can change back.
     /// </summary>
-    public ColourVision? ColourVision { get; init; }
+    public ColorVision? ColorVision { get; init; }
 
     [JsonIgnore]
-    public ColourVision Vision => ColourVision ?? default;
+    public ColorVision Vision => ColorVision ?? default;
 
-    /// <summary>How strongly remote desktops are corrected for <see cref="ColourVision"/>, 0 to 100 percent. Null is <see cref="DefaultColourCorrectionStrength"/>.</summary>
-    public int? ColourCorrectionStrength { get; init; }
+    /// <summary>How strongly remote desktops are corrected for <see cref="ColorVision"/>, 0 to 100 percent. Null is <see cref="DefaultColorCorrectionStrength"/>.</summary>
+    public int? ColorCorrectionStrength { get; init; }
 
-    public const int DefaultColourCorrectionStrength = 100;
+    public const int DefaultColorCorrectionStrength = 100;
 
     /// <summary>The correction strength in use, 0 to 100; a hand-edited value out of range is brought into it.</summary>
     [JsonIgnore]
-    public int CorrectionStrength => Math.Clamp(ColourCorrectionStrength ?? DefaultColourCorrectionStrength, 0, 100);
+    public int CorrectionStrength => Math.Clamp(ColorCorrectionStrength ?? DefaultColorCorrectionStrength, 0, 100);
+
+    // Builds before the switch to American spelling wrote these keys. They're read into the settings above, which
+    // win when a file has both, and never written: the getters return null, which isn't written.
+    [JsonInclude, JsonPropertyName("terminalColours")]
+    TerminalColorScheme? BritishTerminalColors { get => null; init => TerminalColors ??= value; }
+
+    [JsonInclude, JsonPropertyName("interfaceColours")]
+    InterfaceColorScheme? BritishInterfaceColors { get => null; init => InterfaceColors ??= value; }
+
+    [JsonInclude, JsonPropertyName("colourVision")]
+    ColorVision? BritishColorVision { get => null; init => ColorVision ??= value; }
+
+    [JsonInclude, JsonPropertyName("colourCorrectionStrength")]
+    int? BritishColorCorrectionStrength { get => null; init => ColorCorrectionStrength ??= value; }
 
     /// <summary>
     /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
@@ -178,7 +194,7 @@ public sealed class AppSettingsStore(string path)
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        Converters = { new BritishSpellingEnumConverter() },
     };
 
     public static AppSettingsStore In(DataLocation location) => new(location.FileIn(FileName));

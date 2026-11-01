@@ -11,7 +11,7 @@ sealed record KeyPassphraseResult(string Passphrase, bool Save);
 
 /// <summary>
 /// Asks for the passphrase of an encrypted SSH key file. It names the file (never the folder it's in) and the
-/// connection that wants it. Closes with null when cancelled.
+/// connection that wants it. Closes with null when canceled.
 /// </summary>
 sealed class KeyPassphraseWindow : Window
 {

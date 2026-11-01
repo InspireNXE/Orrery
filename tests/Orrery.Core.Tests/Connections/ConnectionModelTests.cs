@@ -205,6 +205,47 @@ public class ConnectionModelTests : IDisposable
     }
 
     [Fact]
+    public void A_connections_file_with_the_british_color_correction_key_loads_it_and_saves_the_american_one()
+    {
+        // As builds before the switch to American spelling wrote it.
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "connections.json");
+        File.WriteAllText(path, """
+            {"schemaVersion":1,"root":{"type":"folder","name":"Connections","id":"00000000-0000-0000-0000-000000000001","settings":{"colourCorrection":false},"children":[
+              {"type":"connection","name":"photos","id":"00000000-0000-0000-0000-000000000002","host":"photos.example","settings":{"protocol":"rdp","colourCorrection":true}}]}}
+            """);
+        var store = new ConnectionStore(path, Path.Combine(_dir, "backups"));
+
+        var tree = store.Load();
+        var entry = Assert.IsType<ConnectionEntry>(tree.Root.Children.Single());
+        Assert.False(tree.Root.Settings.ColorCorrection);
+        Assert.True(entry.Settings.ColorCorrection);
+
+        store.Save(tree);
+        var json = File.ReadAllText(path);
+        Assert.DoesNotContain("colour", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"colorCorrection\": false", json);
+        Assert.Contains("\"colorCorrection\": true", json);
+        var reloaded = store.Load();
+        Assert.False(reloaded.Root.Settings.ColorCorrection);
+        Assert.True(reloaded.Find(entry.Id)!.Settings.ColorCorrection);
+    }
+
+    [Theory]
+    [InlineData("""{"colourCorrection":true,"colorCorrection":false}""")]
+    [InlineData("""{"colorCorrection":false,"colourCorrection":true}""")]
+    public void The_american_color_correction_key_wins_over_the_british_one(string settings)
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "connections.json");
+        File.WriteAllText(path, $$$"""
+            {"schemaVersion":1,"root":{"type":"folder","name":"Connections","id":"00000000-0000-0000-0000-000000000001","settings":{{{settings}}},"children":[]}}
+            """);
+
+        Assert.False(new ConnectionStore(path, Path.Combine(_dir, "backups")).Load().Root.Settings.ColorCorrection);
+    }
+
+    [Fact]
     public void Store_round_trips_folders_nested_60_deep()
     {
         var tree = ConnectionTree.Empty();

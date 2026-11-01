@@ -23,7 +23,7 @@ public class MRemoteNgImporterTests
     static ConnectionEntry Entry(ImportResult result, string name) =>
         result.Root.Descendants().OfType<ConnectionEntry>().Single(e => e.Name == name);
 
-    // ---- A real mRemoteNG 2.6 export, anonymised ----
+    // ---- A real mRemoteNG 2.6 export, anonymized ----
 
     [Fact]
     public void Real_export_imports_every_folder_and_connection()

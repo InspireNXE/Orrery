@@ -7,7 +7,7 @@ using Orrery.Core.Sessions;
 namespace Orrery.App.Controls;
 
 /// <summary>
-/// A session's state as a small mark whose shape says it as well as its colour: a filled dot when connected, a broken
+/// A session's state as a small mark whose shape says it as well as its color: a filled dot when connected, a broken
 /// ring while connecting, a cross when it failed, and an empty ring when it ended or no session is open.
 /// </summary>
 public sealed class StateGlyph : Control
@@ -56,7 +56,7 @@ public sealed class StateGlyph : Control
         }
     }
 
-    // The palette changes its brushes in place; redrawing makes sure the new colour shows at once.
+    // The palette changes its brushes in place; redrawing makes sure the new color shows at once.
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -80,7 +80,7 @@ public sealed class StateGlyph : Control
         }
 
         var brush = BrushFor(State);
-        var centre = new Point(Bounds.Width / 2, Bounds.Height / 2);
+        var center = new Point(Bounds.Width / 2, Bounds.Height / 2);
         double radius = size / 2;
         double stroke = Math.Max(1.2, size / 6);
         var pen = new Pen(brush, stroke, lineCap: PenLineCap.Round);
@@ -88,7 +88,7 @@ public sealed class StateGlyph : Control
         switch (State)
         {
             case SessionState.Connected:
-                context.DrawEllipse(brush, null, centre, radius, radius);
+                context.DrawEllipse(brush, null, center, radius, radius);
                 break;
 
             case SessionState.Connecting:
@@ -97,8 +97,8 @@ public sealed class StateGlyph : Control
                 var arc = new StreamGeometry();
                 using (var g = arc.Open())
                 {
-                    g.BeginFigure(new Point(centre.X, centre.Y - r), false);
-                    g.ArcTo(new Point(centre.X - r, centre.Y), new Size(r, r), 0, true, SweepDirection.Clockwise);
+                    g.BeginFigure(new Point(center.X, center.Y - r), false);
+                    g.ArcTo(new Point(center.X - r, center.Y), new Size(r, r), 0, true, SweepDirection.Clockwise);
                     g.EndFigure(false);
                 }
 
@@ -107,13 +107,13 @@ public sealed class StateGlyph : Control
 
             case SessionState.Failed:
                 double d = radius * 0.8;
-                context.DrawLine(pen, new Point(centre.X - d, centre.Y - d), new Point(centre.X + d, centre.Y + d));
-                context.DrawLine(pen, new Point(centre.X + d, centre.Y - d), new Point(centre.X - d, centre.Y + d));
+                context.DrawLine(pen, new Point(center.X - d, center.Y - d), new Point(center.X + d, center.Y + d));
+                context.DrawLine(pen, new Point(center.X + d, center.Y - d), new Point(center.X - d, center.Y + d));
                 break;
 
             default:
                 double ring = radius - 0.6;
-                context.DrawEllipse(null, new Pen(brush, 1.2), centre, ring, ring);
+                context.DrawEllipse(null, new Pen(brush, 1.2), center, ring, ring);
                 break;
         }
     }

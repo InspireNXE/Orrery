@@ -186,11 +186,11 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
         }
         catch (OperationCanceledException)
         {
-            return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+            return new AuthenticatorResult(AuthenticatorStatus.Canceled);
         }
         catch (Exception e) when (IsCancellation(e.HResult))
         {
-            return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+            return new AuthenticatorResult(AuthenticatorStatus.Canceled);
         }
         finally
         {
@@ -229,11 +229,11 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
         }
         catch (OperationCanceledException)
         {
-            return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+            return new AuthenticatorResult(AuthenticatorStatus.Canceled);
         }
         catch (Exception e) when (IsCancellation(e.HResult))
         {
-            return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+            return new AuthenticatorResult(AuthenticatorStatus.Canceled);
         }
         finally
         {
@@ -475,7 +475,7 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
     /// <summary>
     /// Whether a 24H2 "ForWindow" call that failed with <paramref name="hresult"/> should be asked again without the
     /// window. Only for a refusal of the call itself (this Windows doesn't have it), which can only come as it starts,
-    /// or of the window. Anything else, cancelling included, may mean the user already saw a prompt, so it stands.
+    /// or of the window. Anything else, canceling included, may mean the user already saw a prompt, so it stands.
     /// </summary>
     /// <param name="whenStarting">True when the call failed as it was made, false when it finished with the error.</param>
     internal static bool RetryWithoutWindow(int hresult, bool whenStarting) =>
@@ -486,7 +486,7 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
 
     static AuthenticatorResult Failure(KeyCredentialStatus status) => status switch
     {
-        KeyCredentialStatus.UserCanceled or KeyCredentialStatus.UserPrefersPassword => new(AuthenticatorStatus.Cancelled),
+        KeyCredentialStatus.UserCanceled or KeyCredentialStatus.UserPrefersPassword => new(AuthenticatorStatus.Canceled),
         KeyCredentialStatus.NotFound => new(AuthenticatorStatus.KeyGone, Message: "Windows Hello couldn't find Orrery's key."),
         KeyCredentialStatus.SecurityDeviceLocked => new(AuthenticatorStatus.Failed, Message: "Windows Hello is locked after too many tries. Use the master password."),
         _ => new(AuthenticatorStatus.Failed, Message: $"Windows Hello didn't work ({status}). Use the master password."),

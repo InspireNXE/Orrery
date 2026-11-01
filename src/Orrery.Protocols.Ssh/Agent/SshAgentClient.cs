@@ -185,7 +185,7 @@ public sealed class SshAgentClient(IAgentTransport transport, string description
 
     /// <summary>
     /// Connects at identification level, so the server can't act as this user, and checks who the server is
-    /// before anything is sent. Asynchronous, so a read that takes too long can be cancelled.
+    /// before anything is sent. Asynchronous, so a read that takes too long can be canceled.
     /// </summary>
     [SupportedOSPlatform("windows")]
     static Stream OpenPipe(string name, bool allowSystem = true)

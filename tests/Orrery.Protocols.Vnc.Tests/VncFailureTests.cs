@@ -11,7 +11,7 @@ public class VncFailureTests
 {
     static readonly ConnectionTarget Box = new("box", 5900, null, null);
 
-    static FailureKind KindOf(Exception e) => ConnectionFailure.Classify(VncSession.Recognise(e), e.Message, Box).Kind;
+    static FailureKind KindOf(Exception e) => ConnectionFailure.Classify(VncSession.Recognize(e), e.Message, Box).Kind;
 
     [Fact]
     public void The_stream_ending_is_the_server_closing_it()

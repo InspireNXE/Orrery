@@ -131,13 +131,13 @@ public sealed class SshSession : ITerminalSession
             int columns, rows;
             lock (_lock) (columns, rows) = (_columns, _rows);
             var shell = client.CreateShellStream(TerminalType, (uint)columns, (uint)rows, 0, 0, 64 * 1024);
-            shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message, Recognise(e.Exception));
+            shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message, Recognize(e.Exception));
 
             // Output is read off the stream, not taken from its DataReceived event: the stream keeps everything
             // until it's read. The reader reports the end once the last output is out, which the stream's
             // Closed event (raised on another thread) can't promise.
             var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
-                (message, error) => Fail(message, error is null ? null : Recognise(error)));
+                (message, error) => Fail(message, error is null ? null : Recognize(error)));
             lock (_lock) (_shell, _pump) = (shell, pump);
             SetState(SessionState.Connected);
             pump.Start();
@@ -145,12 +145,12 @@ public sealed class SshSession : ITerminalSession
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Ssh").LogError(e, "SSH session to {Host} failed", Target.Host);
-            Fail(Describe(e, _allowLegacy), Recognise(e));
+            Fail(Describe(e, _allowLegacy), Recognize(e));
         }
     }
 
     /// <summary>
-    /// Connects and logs in to the server, dialling <paramref name="host"/>:<paramref name="port"/> (a loopback
+    /// Connects and logs in to the server, dialing <paramref name="host"/>:<paramref name="port"/> (a loopback
     /// forward when it's behind a jump host). Null, with the session failed, when it couldn't.
     /// </summary>
     SshClient? ConnectClient(string host, int port, SshLogin login)
@@ -162,7 +162,7 @@ public sealed class SshSession : ITerminalSession
         {
             var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = KeepAlive };
             hostKey = HostKeyCheck.Attach(client, _hostKeys, target);
-            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy), Recognise(e.Exception));
+            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy), Recognize(e.Exception));
 
             lock (_lock)
             {
@@ -187,12 +187,12 @@ public sealed class SshSession : ITerminalSession
             // The server's own refusal sends the caller back to ask for a login; a jump host's is only reported.
             Log.For("Ssh").LogWarning("{Host}: login as {User} refused: {Reason}", target.Host, login.Username, e.Message);
             AuthenticationRejected = true;
-            Fail(Refusal(e, login), Recognise(e));
+            Fail(Refusal(e, login), Recognize(e));
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Ssh").LogError(e, "SSH connection to {Host} failed", target.Host);
-            Fail(Describe(e, allowLegacy), Recognise(e));
+            Fail(Describe(e, allowLegacy), Recognize(e));
         }
 
         return null;
@@ -274,7 +274,7 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
-    /// <summary>A line of Orrery's own in the terminal, set apart from the server's output by colour.</summary>
+    /// <summary>A line of Orrery's own in the terminal, set apart from the server's output by color.</summary>
     void Notice(string text, bool warning = false) =>
         DataReceived?.Invoke(Encoding.UTF8.GetBytes($"\x1b[{(warning ? "33" : "90")}m» {text}\x1b[0m\r\n"));
     // SSH.NET may report the same failure through ErrorOccurred and by throwing; whichever lands first is shown.
@@ -284,7 +284,7 @@ public sealed class SshSession : ITerminalSession
     /// SSH.NET's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside: a refused
     /// login, its own timeout, and the server dropping or ending the connection. Socket errors already say what happened.
     /// </summary>
-    internal static Exception Recognise(Exception e) => e switch
+    internal static Exception Recognize(Exception e) => e switch
     {
         KeyFileException => new SessionFailureException(FailureKind.KeyFile, e.Message, e),
         SshAuthenticationException => new SessionFailureException(FailureKind.LoginFailed, e.Message, e),

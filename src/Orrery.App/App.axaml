@@ -15,8 +15,8 @@
     <SolidColorBrush x:Key="OrreryText" Color="#E6E8EC" />
     <SolidColorBrush x:Key="OrrerySoftText" Color="#C3C9D3" />
     <SolidColorBrush x:Key="OrreryMuted" Color="#9AA3B2" />
-    <!-- Colours that carry meaning. Palette.cs replaces these at start-up with brushes that follow the
-         colour-blind setting, and adds OrreryStateUp, OrreryStateConnecting, OrreryStateDown, OrreryStateEnded,
+    <!-- Colors that carry meaning. Palette.cs replaces these at start-up with brushes that follow the
+         color-blind setting, and adds OrreryStateUp, OrreryStateConnecting, OrreryStateDown, OrreryStateEnded,
          OrrerySuccess and OrreryWarning. Use them as DynamicResource so they change with the setting. -->
     <SolidColorBrush x:Key="OrreryAccent" Color="#5B9DFF" />
     <SolidColorBrush x:Key="OrreryDanger" Color="#FF9AA2" />
@@ -24,7 +24,7 @@
     <SolidColorBrush x:Key="OrreryFolder" Color="#E0B45A" />
     <FontFamily x:Key="OrreryMono">Cascadia Mono, Consolas, Menlo, monospace</FontFamily>
 
-    <!-- Fluent's control colours, moved onto the palette. -->
+    <!-- Fluent's control colors, moved onto the palette. -->
     <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
     <SolidColorBrush x:Key="ButtonBackground" Color="#181B21" />
     <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#20242C" />

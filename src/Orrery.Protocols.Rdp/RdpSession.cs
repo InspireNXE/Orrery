@@ -126,7 +126,7 @@ public sealed class RdpSession : IFrameBufferSession
         catch (Exception e)
         {
             Logger.LogError(e, "RDP session to {Host} failed", Target.Host);
-            SetState(SessionState.Failed, e.Message, Recognise(e));
+            SetState(SessionState.Failed, e.Message, Recognize(e));
         }
     }
 
@@ -134,7 +134,7 @@ public sealed class RdpSession : IFrameBufferSession
     /// IronRDP's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside: its own
     /// name lookup, the server hanging up, and access denied. Socket errors and timeouts already say what happened.
     /// </summary>
-    internal static Exception Recognise(Exception e)
+    internal static Exception Recognize(Exception e)
     {
         var kind = e switch
         {

@@ -259,7 +259,7 @@ public static class SshKeyFile
         return new Guid(hash.AsSpan(0, 16));
     }
 
-    // ---- Recognising what a file is, without trusting the library's messages ----
+    // ---- Recognizing what a file is, without trusting the library's messages ----
 
     static string Head(byte[] bytes) => Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 4096));
 

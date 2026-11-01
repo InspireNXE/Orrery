@@ -105,8 +105,8 @@ sealed class BiometricSetupWindow : Window
                 return;
             }
 
-            ShowError(result.Outcome == BiometricOutcome.Cancelled
-                ? $"{_biometric.Name} was cancelled, so nothing changed."
+            ShowError(result.Outcome == BiometricOutcome.Canceled
+                ? $"{_biometric.Name} was canceled, so nothing changed."
                 : result.Message ?? $"{_biometric.Name} didn't work, so nothing changed.");
         }
         catch (WrongVaultPasswordException)

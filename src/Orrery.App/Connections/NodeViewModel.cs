@@ -146,7 +146,7 @@ public sealed class NodeViewModel : INotifyPropertyChanged
 
     public bool ReachabilityShown => _reachability is not null;
 
-    // Each state has its own shape as well as colour: a filled dot, a cross, a dashed ring.
+    // Each state has its own shape as well as color: a filled dot, a cross, a dashed ring.
     public bool ReachabilityUp => _reachability == HostState.Up;
     public bool ReachabilityDown => _reachability == HostState.Down;
     public bool ReachabilityUnknown => _reachability == HostState.Unknown;

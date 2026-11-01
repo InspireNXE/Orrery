@@ -209,7 +209,7 @@ sealed class QuickConnectWindow : Window
         Refresh();
     }
 
-    /// <summary>Near the top of the owner, centred, where the eye already is.</summary>
+    /// <summary>Near the top of the owner, centerd, where the eye already is.</summary>
     void PlaceOverOwner()
     {
         if (Owner is not Window owner)
@@ -455,7 +455,7 @@ sealed class QuickConnectWindow : Window
         },
     };
 
-    /// <summary>The name with the first match of the query in the accent colour.</summary>
+    /// <summary>The name with the first match of the query in the accent color.</summary>
     static InlineCollection Highlight(string name, string query)
     {
         int at = query.Length == 0 ? -1 : name.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);

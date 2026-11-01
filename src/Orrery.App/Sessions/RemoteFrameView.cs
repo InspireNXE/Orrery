@@ -158,13 +158,13 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Whether there's a picture to save yet.</summary>
     public bool HasFrame => _bitmap is not null;
 
-    ColourCorrection? _correction;
+    ColorCorrection? _correction;
 
     /// <summary>
-    /// The colour correction for the user's colour vision, from Settings; null for none. Changing it redraws the
-    /// whole desktop. It's ignored where <see cref="AllowsColourCorrection"/> is off.
+    /// The color correction for the user's color vision, from Settings; null for none. Changing it redraws the
+    /// whole desktop. It's ignored where <see cref="AllowsColorCorrection"/> is off.
     /// </summary>
-    internal ColourCorrection? Correction
+    internal ColorCorrection? Correction
     {
         get => _correction;
         set
@@ -175,30 +175,30 @@ public sealed class RemoteFrameView : Panel
             }
 
             _correction = value;
-            if (AllowsColourCorrection && Session.State == SessionState.Connected)
+            if (AllowsColorCorrection && Session.State == SessionState.Connected)
             {
                 OnFrameUpdated(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Session.Width, Session.Height), resized: false));
             }
         }
     }
 
-    /// <summary>The connection's "Colour correction" choice: off shows the remote colours unchanged whatever Settings says.</summary>
-    public bool AllowsColourCorrection { get; init; } = true;
+    /// <summary>The connection's "Color correction" choice: off shows the remote colors unchanged whatever Settings says.</summary>
+    public bool AllowsColorCorrection { get; init; } = true;
 
     /// <summary>The correction frames are drawn with: none where the connection turns it off.</summary>
-    internal ColourCorrection? ActiveCorrection => AllowsColourCorrection ? _correction : null;
+    internal ColorCorrection? ActiveCorrection => AllowsColorCorrection ? _correction : null;
 
     /// <summary>
     /// Copies <paramref name="region"/> of the remote desktop into a bitmap's pixels and corrects just that part,
     /// since the rest is corrected already.
     /// </summary>
-    internal static void Draw(IFrameBufferSession session, ColourCorrection? correction, IntPtr pixels, int rowBytes, int width, int height, FrameRect region)
+    internal static void Draw(IFrameBufferSession session, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height, FrameRect region)
     {
         session.CopyRegion(region, pixels, rowBytes);
         correction?.Apply(pixels, rowBytes, width, height, region);
     }
 
-    /// <summary>Writes the remote screen as it is now, colour correction included, as a PNG.</summary>
+    /// <summary>Writes the remote screen as it is now, color correction included, as a PNG.</summary>
     public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream);
 
     /// <summary>Presses the keys in order on the remote computer, then lets them go in reverse.</summary>

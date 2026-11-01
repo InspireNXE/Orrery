@@ -6,13 +6,13 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Orrery.App.Sessions;
 using Orrery.Core.Sessions;
-using Vision = Orrery.Core.Settings.ColourVision;
+using Vision = Orrery.Core.Settings.ColorVision;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Orrery.App.Tests;
 
-public class ColourCorrectionTests(ITestOutputHelper output)
+public class ColorCorrectionTests(ITestOutputHelper output)
 {
     static readonly Vision[] Kinds = [Vision.Protanopia, Vision.Deuteranopia, Vision.Tritanopia];
 
@@ -32,15 +32,15 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     [Fact]
     public void Nothing_to_correct_without_a_deficiency_or_strength()
     {
-        AssertIdentity(ColourCorrection.MatrixFor(Vision.None, 1));
+        AssertIdentity(ColorCorrection.MatrixFor(Vision.None, 1));
         foreach (var kind in Kinds)
         {
-            AssertIdentity(ColourCorrection.MatrixFor(kind, 0));
-            Assert.Null(ColourCorrection.For(kind, 0));
+            AssertIdentity(ColorCorrection.MatrixFor(kind, 0));
+            Assert.Null(ColorCorrection.For(kind, 0));
         }
 
-        Assert.Null(ColourCorrection.For(Vision.None, 100));
-        Assert.NotNull(ColourCorrection.For(Vision.Deuteranopia, 100));
+        Assert.Null(ColorCorrection.For(Vision.None, 100));
+        Assert.NotNull(ColorCorrection.For(Vision.Deuteranopia, 100));
     }
 
     [Fact]
@@ -48,12 +48,12 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     {
         // Machado's protanopia matrix takes red (1, 0, 0) to (0.152286, 0.114503, -0.003882); the loss is
         // (0.847714, -0.114503, 0.003882), and 0.7 of the red loss goes to green and to blue.
-        var m = ColourCorrection.MatrixFor(Vision.Protanopia, 1);
+        var m = ColorCorrection.MatrixFor(Vision.Protanopia, 1);
         Assert.Equal(1, m[0, 0], 6);
         Assert.Equal(0.7 * 0.847714 - 0.114503, m[1, 0], 6);
         Assert.Equal(0.7 * 0.847714 + 0.003882, m[2, 0], 6);
 
-        var (r, g, b) = ColourCorrection.For(Vision.Protanopia, 100)!.Apply(255, 0, 0);
+        var (r, g, b) = ColorCorrection.For(Vision.Protanopia, 100)!.Apply(255, 0, 0);
         Assert.Equal(255, r);
         Assert.InRange(g, Math.Round(Srgb(m[1, 0]) * 255) - 1, Math.Round(Srgb(m[1, 0]) * 255) + 1);
         Assert.InRange(b, Math.Round(Srgb(m[2, 0]) * 255) - 1, Math.Round(Srgb(m[2, 0]) * 255) + 1);
@@ -62,8 +62,8 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     [Fact]
     public void Strength_scales_the_correction()
     {
-        var full = ColourCorrection.MatrixFor(Vision.Deuteranopia, 1);
-        var half = ColourCorrection.MatrixFor(Vision.Deuteranopia, 0.5);
+        var full = ColorCorrection.MatrixFor(Vision.Deuteranopia, 1);
+        var half = ColorCorrection.MatrixFor(Vision.Deuteranopia, 0.5);
         for (int row = 0; row < 3; row++)
         {
             for (int column = 0; column < 3; column++)
@@ -75,26 +75,26 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Results_outside_the_screen_colours_are_clamped()
+    public void Results_outside_the_screen_colors_are_clamped()
     {
         // Blue for protanopia comes out at 1.09 blue in linear light; green for protanopia at -0.69 blue.
-        var protan = ColourCorrection.MatrixFor(Vision.Protanopia, 1);
+        var protan = ColorCorrection.MatrixFor(Vision.Protanopia, 1);
         Assert.True(protan[2, 2] > 1.05);
-        Assert.Equal(255, ColourCorrection.For(Vision.Protanopia, 100)!.Apply(0, 0, 255).B);
+        Assert.Equal(255, ColorCorrection.For(Vision.Protanopia, 100)!.Apply(0, 0, 255).B);
         Assert.True(protan[2, 1] < -0.6);
-        Assert.Equal(0, ColourCorrection.For(Vision.Protanopia, 100)!.Apply(0, 255, 0).B);
+        Assert.Equal(0, ColorCorrection.For(Vision.Protanopia, 100)!.Apply(0, 255, 0).B);
 
         // Green for tritanopia loses 0.41 of red, below zero.
-        Assert.True(ColourCorrection.MatrixFor(Vision.Tritanopia, 1)[0, 1] < -0.4);
-        Assert.Equal(0, ColourCorrection.For(Vision.Tritanopia, 100)!.Apply(0, 255, 0).R);
+        Assert.True(ColorCorrection.MatrixFor(Vision.Tritanopia, 1)[0, 1] < -0.4);
+        Assert.Equal(0, ColorCorrection.For(Vision.Tritanopia, 100)!.Apply(0, 255, 0).R);
     }
 
     [Fact]
-    public void Greys_stay_grey()
+    public void Grays_stay_gray()
     {
         foreach (var kind in Kinds)
         {
-            var correction = ColourCorrection.For(kind, 100)!;
+            var correction = ColorCorrection.For(kind, 100)!;
             for (int v = 0; v < 256; v += 15)
             {
                 var (r, g, b) = correction.Apply((byte)v, (byte)v, (byte)v);
@@ -106,28 +106,28 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Corrected_colours_are_further_apart_for_the_viewer()
+    public void Corrected_colors_are_further_apart_for_the_viewer()
     {
-        // The same red and green as the simulation test: close together for red-green colour blindness.
+        // The same red and green as the simulation test: close together for red-green color blindness.
         Color red = Color.Parse("#C86450"), green = Color.Parse("#7D8C3C");
         foreach (var (kind, deficiency) in new[] { (Vision.Protanopia, Deficiency.Protanopia), (Vision.Deuteranopia, Deficiency.Deuteranopia) })
         {
-            var correction = ColourCorrection.For(kind, 100)!;
-            double before = ColourVision.Difference(red, green, deficiency);
-            double after = ColourVision.Difference(Corrected(correction, red), Corrected(correction, green), deficiency);
+            var correction = ColorCorrection.For(kind, 100)!;
+            double before = ColorVision.Difference(red, green, deficiency);
+            double after = ColorVision.Difference(Corrected(correction, red), Corrected(correction, green), deficiency);
             output.WriteLine($"{kind}: red/green ΔE {before:0.0} before, {after:0.0} after");
             Assert.True(after > before + 5, $"{kind}: {before:0.0} to {after:0.0}");
         }
 
         // Blue and green, which tritanopia runs together.
         Color blue = Color.Parse("#4F7FC0"), teal = Color.Parse("#3F9F8F");
-        var tritan = ColourCorrection.For(Vision.Tritanopia, 100)!;
-        double tritanBefore = ColourVision.Difference(blue, teal, Deficiency.Tritanopia);
-        double tritanAfter = ColourVision.Difference(Corrected(tritan, blue), Corrected(tritan, teal), Deficiency.Tritanopia);
+        var tritan = ColorCorrection.For(Vision.Tritanopia, 100)!;
+        double tritanBefore = ColorVision.Difference(blue, teal, Deficiency.Tritanopia);
+        double tritanAfter = ColorVision.Difference(Corrected(tritan, blue), Corrected(tritan, teal), Deficiency.Tritanopia);
         output.WriteLine($"Tritanopia: blue/teal ΔE {tritanBefore:0.0} before, {tritanAfter:0.0} after");
         Assert.True(tritanAfter > tritanBefore + 5, $"Tritanopia: {tritanBefore:0.0} to {tritanAfter:0.0}");
 
-        static Color Corrected(ColourCorrection correction, Color c)
+        static Color Corrected(ColorCorrection correction, Color c)
         {
             var (r, g, b) = correction.Apply(c.R, c.G, c.B);
             return Color.FromRgb(r, g, b);
@@ -145,7 +145,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
         return pixels;
     }
 
-    static void Apply(ColourCorrection correction, byte[] pixels, int width, int height, FrameRect region)
+    static void Apply(ColorCorrection correction, byte[] pixels, int width, int height, FrameRect region)
     {
         var pinned = GCHandle.Alloc(pixels, GCHandleType.Pinned);
         try
@@ -163,7 +163,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     {
         const int width = 64, height = 48;
         var pixels = Frame(width, height, 200, 60, 50);
-        var correction = ColourCorrection.For(Vision.Deuteranopia, 100)!;
+        var correction = ColorCorrection.For(Vision.Deuteranopia, 100)!;
         var expected = correction.Apply(200, 60, 50);
 
         Apply(correction, pixels, width, height, new FrameRect(10, 5, 20, 10));
@@ -186,7 +186,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     {
         const int width = 16, height = 8;
         var pixels = Frame(width, height, 200, 60, 50);
-        var correction = ColourCorrection.For(Vision.Protanopia, 100)!;
+        var correction = ColorCorrection.For(Vision.Protanopia, 100)!;
 
         Apply(correction, pixels, width, height, new FrameRect(-5, -5, 100, 100));
         Apply(correction, Frame(width, height, 1, 2, 3), width, height, new FrameRect(20, 20, 4, 4));
@@ -200,7 +200,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
         const int width = 1920, height = 1080;
         var pixels = new byte[width * height * 4];
         new Random(1).NextBytes(pixels);
-        var correction = ColourCorrection.For(Vision.Deuteranopia, 100)!;
+        var correction = ColorCorrection.For(Vision.Deuteranopia, 100)!;
         for (int i = 0; i < 50; i++)
         {
             Apply(correction, pixels, width, height, new FrameRect(0, 0, 256, 256)); // Warm up, past the JIT's first tier.
@@ -231,7 +231,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
 
     // ---- In the remote desktop view ----
 
-    /// <summary>A connected desktop of one colour whose pixels can be changed, drawn from a plain RGBA array.</summary>
+    /// <summary>A connected desktop of one color whose pixels can be changed, drawn from a plain RGBA array.</summary>
     sealed class PaintedDesktop(int width, int height) : IFrameBufferSession
     {
         public byte[] Pixels { get; } = Frame(width, height, 200, 60, 50);
@@ -277,7 +277,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     }
 
     // Headless bitmaps don't keep their pixels, so drawing is checked on a plain array, the way Flush draws into the bitmap.
-    static void Draw(PaintedDesktop desktop, ColourCorrection? correction, byte[] bitmap, FrameRect region)
+    static void Draw(PaintedDesktop desktop, ColorCorrection? correction, byte[] bitmap, FrameRect region)
     {
         var pinned = GCHandle.Alloc(bitmap, GCHandleType.Pinned);
         try
@@ -311,7 +311,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
     public void Each_update_is_corrected_once_and_nothing_outside_it_changes()
     {
         var desktop = new PaintedDesktop(32, 24);
-        var correction = ColourCorrection.For(Vision.Protanopia, 100)!;
+        var correction = ColorCorrection.For(Vision.Protanopia, 100)!;
         var bitmap = new byte[32 * 24 * 4];
         Draw(desktop, correction, bitmap, new FrameRect(0, 0, 32, 24));
         var red = correction.Apply(200, 60, 50);
@@ -343,7 +343,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
         Assert.Null(view.ActiveCorrection);
 
         desktop.Copied.Clear();
-        var correction = ColourCorrection.For(Vision.Tritanopia, 100);
+        var correction = ColorCorrection.For(Vision.Tritanopia, 100);
         view.Correction = correction;
         Dispatcher.UIThread.RunJobs();
         Assert.Same(correction, view.ActiveCorrection);
@@ -357,7 +357,7 @@ public class ColourCorrectionTests(ITestOutputHelper output)
         window.Close();
 
         var unchanged = new PaintedDesktop(32, 24);
-        var off = new RemoteFrameView(unchanged) { FollowsViewSize = false, AllowsColourCorrection = false };
+        var off = new RemoteFrameView(unchanged) { FollowsViewSize = false, AllowsColorCorrection = false };
         var offWindow = new Window { Content = off, Width = 400, Height = 300 };
         offWindow.Show();
         Dispatcher.UIThread.RunJobs();

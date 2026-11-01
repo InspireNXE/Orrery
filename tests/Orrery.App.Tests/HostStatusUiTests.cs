@@ -213,7 +213,7 @@ public class HostStatusUiTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void A_row_says_its_session_state_and_its_host_state_apart_in_words_and_palette_colours()
+    public void A_row_says_its_session_state_and_its_host_state_apart_in_words_and_palette_colors()
     {
         var f = new Fixture();
         var row = f.Row(f.Down);
@@ -229,7 +229,7 @@ public class HostStatusUiTests : IDisposable
         row.SetReachability(null, null);
         Assert.Equal(string.Empty, row.SpokenStatus);
 
-        // The host's mark uses the shared palette, so it follows the colour-blind setting too.
+        // The host's mark uses the shared palette, so it follows the color-blind setting too.
         Assert.Same(Palette.StateUp, Orrery.App.Controls.HostGlyph.BrushFor(HostState.Up));
         Assert.Same(Palette.StateDown, Orrery.App.Controls.HostGlyph.BrushFor(HostState.Down));
         Assert.Same(Palette.StateEnded, Orrery.App.Controls.HostGlyph.BrushFor(HostState.Unknown));

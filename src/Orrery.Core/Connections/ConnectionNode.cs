@@ -71,10 +71,15 @@ public sealed class InheritableSettings
     public DisplayQuality? DisplayQuality { get; set; }
 
     /// <summary>
-    /// RDP, VNC: correct the remote desktop's colours for the colour vision chosen in Settings (true), or show them
+    /// RDP, VNC: correct the remote desktop's colors for the color vision chosen in Settings (true), or show them
     /// unchanged (false), for design or photo work. Null inherits; with nothing set, the app setting applies.
     /// </summary>
-    public bool? ColourCorrection { get; set; }
+    public bool? ColorCorrection { get; set; }
+
+    // The key builds before the switch to American spelling wrote, in connections.json and in exports. Read into
+    // ColorCorrection, which wins when a file has both, and never written. Private, so it isn't a setting of its own.
+    [JsonInclude, JsonPropertyName("colourCorrection")]
+    bool? BritishColorCorrection { get => null; set => ColorCorrection ??= value; }
 
     /// <summary>Try again by itself when an open session drops (not when it's logged off or closed). Null inherits; on by default.</summary>
     public bool? AutoReconnect { get; set; }
@@ -103,7 +108,7 @@ public sealed class InheritableSettings
     public static readonly IReadOnlySet<string> KeptByGuests = new HashSet<string>
     {
         nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
-        nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColourCorrection),
+        nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColorCorrection),
     };
 
     /// <summary>
@@ -198,7 +203,7 @@ public sealed class ConnectionEntry : ConnectionNode
 {
     public string Host { get; set; } = string.Empty;
 
-    /// <summary>The machine's MAC address as <c>00:1A:2B:3C:4D:5E</c>, for Wake-on-LAN. Null when not set. Written normalised by the properties pane and the importers.</summary>
+    /// <summary>The machine's MAC address as <c>00:1A:2B:3C:4D:5E</c>, for Wake-on-LAN. Null when not set. Written normalized by the properties pane and the importers.</summary>
     public string? MacAddress { get; set; }
 
     /// <summary>Where the Wake-on-LAN packet goes, as an IPv4 address such as 192.168.1.255. Null is 255.255.255.255.</summary>

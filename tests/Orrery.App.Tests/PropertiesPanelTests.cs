@@ -231,7 +231,7 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaFact]
-    public async Task Colour_correction_can_be_turned_off_for_one_connection()
+    public async Task Color_correction_can_be_turned_off_for_one_connection()
     {
         var tree = ConnectionTree.Empty();
         var entry = new ConnectionEntry { Name = "design", Host = "design.example" };
@@ -242,16 +242,16 @@ public class PropertiesPanelTests
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
 
-        var correction = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ColourCorrection");
+        var correction = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ColorCorrection");
         Assert.Equal("Use app setting", (correction.SelectedItem as ComboBoxItem)?.Content);
-        Assert.Equal("Colour correction", Avalonia.Automation.AutomationProperties.GetName(correction));
+        Assert.Equal("Color correction", Avalonia.Automation.AutomationProperties.GetName(correction));
 
         InheritBoxFor(correction).IsChecked = false;
         correction.SelectedItem = correction.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, false));
         Assert.True(panel.TrySave());
 
-        Assert.False(entry.Settings.ColourCorrection);
-        Assert.False(SettingsResolver.Resolve(entry).ColourCorrection.Value);
+        Assert.False(entry.Settings.ColorCorrection);
+        Assert.False(SettingsResolver.Resolve(entry).ColorCorrection.Value);
     }
 
     [AvaloniaFact]
