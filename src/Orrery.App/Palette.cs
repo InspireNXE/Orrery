@@ -59,7 +59,7 @@ static class Palette
         StateUp: Color.Parse("#3CC6B4"),
         StateConnecting: Color.Parse("#F5DA7A"),
         StateDown: Color.Parse("#EE4B58"),
-        StateEnded: Color.Parse("#7A8494"),
+        StateEnded: Color.Parse("#707090"),
         Success: Color.Parse("#3CC6B4"),
         Warning: Color.Parse("#F5DA7A"),
         Danger: Color.Parse("#EE4B58"),
