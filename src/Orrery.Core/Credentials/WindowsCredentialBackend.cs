@@ -65,6 +65,41 @@ public sealed class WindowsCredentialBackend : ISecretBackend
 
     public void Delete(string key) => CredDelete(key, CredTypeGeneric, 0); // Missing is fine.
 
+    public IReadOnlyList<string> List(string prefix)
+    {
+        // CredEnumerateW treats a trailing "*" as a prefix match. It hands back each blob too; only the names are read.
+        if (!CredEnumerate(prefix + "*", 0, out int count, out var list))
+        {
+            return []; // ERROR_NOT_FOUND when there are none.
+        }
+
+        try
+        {
+            var names = new List<string>(count);
+            for (int i = 0; i < count; i++)
+            {
+                var credential = Marshal.ReadIntPtr(list, i * IntPtr.Size);
+                if (credential == IntPtr.Zero)
+                {
+                    continue;
+                }
+
+                var name = Marshal.PtrToStringUni(Marshal.ReadIntPtr(credential, Marshal.OffsetOf<NativeCredential>(nameof(NativeCredential.TargetName)).ToInt32()));
+                if (name is not null && name.StartsWith(prefix, StringComparison.Ordinal)
+                    && Marshal.ReadInt32(credential, Marshal.OffsetOf<NativeCredential>(nameof(NativeCredential.Type)).ToInt32()) == CredTypeGeneric)
+                {
+                    names.Add(name);
+                }
+            }
+
+            return names;
+        }
+        finally
+        {
+            CredFree(list);
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct NativeCredential
     {
@@ -90,6 +125,9 @@ public sealed class WindowsCredentialBackend : ISecretBackend
 
     [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool CredDelete(string target, int type, int flags);
+
+    [DllImport("advapi32.dll", EntryPoint = "CredEnumerateW", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool CredEnumerate(string filter, int flags, out int count, out IntPtr credentials);
 
     [DllImport("advapi32.dll")]
     static extern void CredFree(IntPtr buffer);

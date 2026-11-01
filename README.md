@@ -57,6 +57,9 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
+- Unlock the vault with Windows Hello instead of the master password, when Windows shows its key is held in the TPM
+  (not over Remote Desktop). Touch ID on macOS is written but needs a signed build. See
+  [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
 - Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
 - Import your OpenSSH `~/.ssh/config`, with its `Include` files, defaults from `Host *` and `ProxyJump` chains turned
   into jump hosts. Nothing in the config is run. The first `IdentityFile` of each host becomes its key file; the key
@@ -204,9 +207,9 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
 the Linux and macOS builds (including the .deb, .rpm and AppImage), local terminals on Linux and macOS, the ARM builds,
 VNC authentication, logging in to a real SSH server with a key file (plain and passphrase-protected, directly, in the
-file browser and through a jump host), and how each protocol reports real network failures (an RDP server refusing a login, especially)
-on the connection-lost screen. The Windows executables aren't code-signed, so SmartScreen may warn on first launch,
-and antivirus tools can flag the single-file executable as a false positive.
+file browser and through a jump host), how each protocol reports real network failures (an RDP server refusing a login,
+especially) on the connection-lost screen, and the Windows Hello and Touch ID prompts. The Windows executables aren't
+code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the single-file executable as a false positive.
 
 ## Licence and credits
 
