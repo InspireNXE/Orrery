@@ -64,6 +64,9 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
     public event EventHandler<string>? RemoteClipboardChanged;
 
+    /// <inheritdoc/>
+    public event EventHandler<string>? ClipboardRefused;
+
     /// <summary>Whether clipboard text goes through <see cref="SendClipboard"/> and <see cref="RemoteClipboardChanged"/>.</summary>
     public bool ExchangesClipboard => _textClipboard is not null;
 
@@ -138,6 +141,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
             {
                 _bridge = new RdpClipboardBridge(new CallbackChannel(this, _textClipboard), () => State == SessionState.Connected);
                 _bridge.RemoteTextChanged += (_, text) => RemoteClipboardChanged?.Invoke(this, text);
+                _bridge.TextRefused += (_, reason) => ClipboardRefused?.Invoke(this, reason);
             }
 
             SetState(SessionState.Connected);
@@ -317,7 +321,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
             return ids;
         }
 
-        static byte[]? ReadData(FormatDataResponse? response)
+        byte[]? ReadData(FormatDataResponse? response)
         {
             if (response is null)
             {
@@ -326,8 +330,14 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
 
             using (response)
             {
-                if (response.IsError() || response.DataSize() > (nuint)RdpClipboardBridge.MaxDataBytes)
+                if (response.IsError())
                 {
+                    return null;
+                }
+
+                if (response.DataSize() > (nuint)RdpClipboardBridge.MaxDataBytes)
+                {
+                    session._bridge?.RefuseRemote((long)response.DataSize());
                     return null;
                 }
 

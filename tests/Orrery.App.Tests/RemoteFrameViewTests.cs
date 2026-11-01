@@ -87,6 +87,8 @@ public class RemoteFrameViewTests
         public int Width => 64;
         public int Height => 48;
         public void CutText(string text) => RemoteClipboardChanged?.Invoke(this, text);
+        public event EventHandler<string>? ClipboardRefused;
+        public void Refuse(string reason) => ClipboardRefused?.Invoke(this, reason);
         public void SendClipboard(string text) { }
         public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
         public void SendKey(ushort scancode, bool pressed) { }
@@ -97,6 +99,20 @@ public class RemoteFrameViewTests
         public void RequestResize(int width, int height) { }
         public Task DisconnectAsync() => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [AvaloniaFact]
+    public void Clipboard_text_the_session_refused_becomes_a_notice_on_the_ui_thread()
+    {
+        var session = new CutTextDesktop();
+        var view = new RemoteFrameView(session);
+        var notices = new List<(string Text, bool OnUiThread)>();
+        view.Notice += (_, text) => notices.Add((text, Dispatcher.UIThread.CheckAccess()));
+
+        Task.Run(() => session.Refuse("too long")).Wait();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(("too long", true), Assert.Single(notices));
     }
 
     [AvaloniaFact]
