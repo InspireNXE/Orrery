@@ -553,6 +553,8 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         }
 
         var finalized = activation.State.Finalized;
+        Logger.LogInformation("{Host}: the server restarted the session's activation, desktop {Width}x{Height}",
+            Target.Host, finalized.DesktopSize.Width, finalized.DesktopSize.Height);
         lock (_stageLock)
         {
             CheckDesktopSize(finalized.DesktopSize.Width, finalized.DesktopSize.Height);

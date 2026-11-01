@@ -74,6 +74,66 @@ public class RemoteFrameViewTests
         window.Close();
     }
 
+    /// <summary>A desktop that notes whether the view had its bitmap locked each time it was asked for pixels.</summary>
+    sealed class WatchedDesktop : IFrameBufferSession
+    {
+        public RemoteFrameView? View { get; set; }
+        public List<bool> BitmapLockedDuringCopy { get; } = [];
+        public ConnectionTarget Target { get; } = new("desk", 3389, "user", null);
+        public SessionState State => SessionState.Connected;
+#pragma warning disable CS0067 // Part of the interface; this fake never raises it.
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+#pragma warning restore CS0067
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+        public int Width => 64;
+        public int Height => 48;
+        public void Update(FrameRect rect) => FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(rect, resized: false));
+
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride)
+        {
+            BitmapLockedDuringCopy.Add(View!.DrawingIntoBitmap);
+            for (int row = region.Y; row < region.Bottom; row++)
+            {
+                for (int x = region.X; x < region.Right; x++)
+                {
+                    Marshal.WriteInt32(destination + (nint)row * destinationStride + (nint)x * 4, unchecked((int)0xFF336699));
+                }
+            }
+        }
+
+        public void SendKey(ushort scancode, bool pressed) { }
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+        public void RequestResize(int width, int height) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    // Waiting for the session's lock with the bitmap locked froze the window: the wait lets Windows run a paint, which
+    // waits for the render thread, which waits for the bitmap.
+    [AvaloniaFact]
+    public void The_session_is_asked_for_pixels_before_the_bitmap_is_locked()
+    {
+        var session = new WatchedDesktop();
+        var view = new RemoteFrameView(session);
+        session.View = view;
+        var window = new Window { Content = view, Width = 800, Height = 500 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        session.Update(new FrameRect(0, 0, 64, 48));
+        Dispatcher.UIThread.RunJobs();
+        session.Update(new FrameRect(10, 5, 20, 7));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEmpty(session.BitmapLockedDuringCopy);
+        Assert.DoesNotContain(true, session.BitmapLockedDuringCopy);
+        Assert.True(view.HasFrame);
+        window.Close();
+    }
+
     /// <summary>A VNC desktop that can raise cut text.</summary>
     sealed class CutTextDesktop : IFrameBufferSession, IClipboardSession
     {
