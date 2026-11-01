@@ -42,6 +42,8 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
     public int? ProcessId { get; private set; }
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event Action<byte[]>? DataReceived;
 
     /// <summary>Starts the shell in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
@@ -217,6 +219,8 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        var change = new SessionStateChangedEventArgs(state, message);
+        LastChange = change;
+        StateChanged?.Invoke(this, change);
     }
 }

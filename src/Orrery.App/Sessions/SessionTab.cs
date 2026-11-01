@@ -133,24 +133,13 @@ sealed class SessionTab
             }
         }, RoutingStrategies.Tunnel);
 
-        session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() =>
+        session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => Apply(e));
+
+        // A try that the server turns down at once can fail before this tab exists to hear it.
+        if (session.LastChange is { } missed)
         {
-            if (e.State == SessionState.Connected)
-            {
-                HasConnected = true;
-            }
-
-            LastMessage = e.Message ?? LastMessage;
-            if (e.State == SessionState.Failed)
-            {
-                Failure = ConnectionFailure.Classify(e.Error, LastMessage, Session.Target, NetworkWatch.IsAvailable());
-                FailedAt = DateTimeOffset.Now;
-            }
-
-            ShowState();
-            ShowFailure();
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        });
+            Dispatcher.UIThread.Post(() => Apply(missed));
+        }
 
         // What a screen reader says when the focus lands in the session.
         if (string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetName(view)))
@@ -166,6 +155,33 @@ sealed class SessionTab
         _countdown.Tick += (_, _) => CountDown();
         Host = new Grid { Children = { view, BuildScreen() } };
         ShowState();
+    }
+
+    readonly HashSet<SessionStateChangedEventArgs> _applied = new(ReferenceEqualityComparer.Instance);
+
+    void Apply(SessionStateChangedEventArgs e)
+    {
+        // One raised while this tab was being made comes both from the event and as the session's last change.
+        if (!_applied.Add(e))
+        {
+            return;
+        }
+
+        if (e.State == SessionState.Connected)
+        {
+            HasConnected = true;
+        }
+
+        LastMessage = e.Message ?? LastMessage;
+        if (e.State == SessionState.Failed)
+        {
+            Failure = ConnectionFailure.Classify(e.Error, LastMessage, Session.Target, NetworkWatch.IsAvailable());
+            FailedAt = DateTimeOffset.Now;
+        }
+
+        ShowState();
+        ShowFailure();
+        StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     internal static string ViewName(Control view, string title) => view switch
@@ -220,8 +236,17 @@ sealed class SessionTab
         Session.State == SessionState.Failed && Origin.Restart is not null && !EndedByUser && !RetryStopped
         && Failure is { } failure && failure.CanRetryByItself(Dropped);
 
-    /// <summary>It failed after connecting, or while an automatic try after a failure was connecting.</summary>
-    bool Dropped => HasConnected || ReconnectAttempt > 0;
+    /// <summary>
+    /// Set when this tab reconnects one that dropped, from Reconnect as well as by itself, so failing before it
+    /// connects still counts as that drop: the same heading and icon, and still tried again by itself.
+    /// </summary>
+    public bool FollowsDrop { get; init; }
+
+    /// <summary>
+    /// It failed after connecting, while an automatic try after a failure was connecting, or while reconnecting one
+    /// that dropped.
+    /// </summary>
+    internal bool Dropped => HasConnected || ReconnectAttempt > 0 || FollowsDrop;
 
     /// <summary>The user pressed Reconnect on the connection-lost screen.</summary>
     public event EventHandler? ReconnectRequested;
@@ -235,7 +260,8 @@ sealed class SessionTab
     readonly TextBlock _advice = Themed(Centered(new TextBlock()), TextBlock.ForegroundProperty, "OrreryMuted");
     readonly TextBlock _retryText = Themed(new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }, TextBlock.ForegroundProperty, "OrrerySoftText");
     readonly Button _stop = new() { Content = "Stop" };
-    readonly StackPanel _retryRow = new() { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, IsVisible = false };
+    // Always takes its room, a button's height, so its words coming and going don't move the buttons under it.
+    readonly StackPanel _retryRow = new() { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, MinHeight = 32 };
     readonly Button _reconnect = new() { Content = "Reconnect" };
     readonly TextBlock _when = Themed(new TextBlock { FontSize = 12 }, TextBlock.ForegroundProperty, "OrreryMuted");
     readonly SelectableTextBlock _detail = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, FontFamily = Dialogs.MonoFont };
@@ -244,6 +270,11 @@ sealed class SessionTab
     DateTime _reconnectAt;
     string _attemptText = string.Empty;
     Action? _reconnectNow;
+    string? _iconBrush;
+
+    // Set while this tab is a try at the connection the screen was up for: the screen stays, saying so, until the try
+    // connects or fails, rather than going for a moment and coming back with every try.
+    string? _tryingText;
 
     Control BuildScreen()
     {
@@ -267,7 +298,7 @@ sealed class SessionTab
         var card = new Border
         {
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
             Width = 460,
             Padding = new Thickness(28, 22),
             CornerRadius = new CornerRadius(10),
@@ -289,6 +320,9 @@ sealed class SessionTab
         };
         Themed(card, Border.BackgroundProperty, "OrreryRaised");
         Themed(card, Border.BorderBrushProperty, "OrreryControlBorder");
+        // Its top stays put, a fifth of the way down, rather than centering: one failure's details can be longer than
+        // the last one's, and a centered card would jump up and down with every try.
+        _screen.SizeChanged += (_, e) => card.Margin = new Thickness(16, Math.Max(16, e.NewSize.Height / 5), 16, 16);
         _screen.Children.Add(backdrop);
         _screen.Children.Add(card);
         return _screen;
@@ -337,10 +371,24 @@ sealed class SessionTab
         if (!show)
         {
             CancelReconnect();
+            if (_tryingText is not null && Session.State == SessionState.Connecting && !EndedByUser)
+            {
+                // Pressing Reconnect now would throw this try away for another, so it waits for this one to fail.
+                _reconnect.IsEnabled = false;
+                _retryText.Text = _tryingText;
+                _retryText.IsVisible = true;
+                _screen.IsVisible = true;
+                return;
+            }
+
+            _tryingText = null;
+            _reconnect.IsEnabled = true;
             _screen.IsVisible = false;
             return;
         }
 
+        _tryingText = null;
+        _reconnect.IsEnabled = true;
         var failure = Failure!;
         var (icon, brush) = Shown switch
         {
@@ -349,6 +397,7 @@ sealed class SessionTab
             _ => (Icons.Alert, "OrreryMuted"),
         };
         IconShown = icon;
+        _iconBrush = brush;
         _icon.Child = Themed(StrokeIcon.Create(icon, 30), StrokeIcon.ForegroundProperty, brush);
         _heading.Text = Heading(failure);
         _summary.Text = failure.Summary;
@@ -362,7 +411,7 @@ sealed class SessionTab
         _retryText.Text = failure.NeedsUser ? "This needs you, so Orrery won't try again by itself."
             : failure.CanRetryByItself(Dropped) && Origin.Restart is null ? "Reconnecting by itself is off for this connection."
             : null;
-        _retryRow.IsVisible = _retryText.Text is not null;
+        _retryText.IsVisible = _retryText.Text is not null;
         _screen.IsVisible = true;
 
         // The focus lands on Reconnect, so a screen reader hears what happened along with the button.
@@ -397,7 +446,11 @@ sealed class SessionTab
 
         if (_screen.IsVisible)
         {
-            _reconnect.Focus();
+            // While a try is connecting, Reconnect is off; it gets the focus back if the try fails.
+            if (_reconnect.IsEnabled)
+            {
+                _reconnect.Focus();
+            }
         }
         else
         {
@@ -443,9 +496,38 @@ sealed class SessionTab
         _reconnectNow = reconnect;
         _reconnectAt = DateTime.UtcNow + delay;
         _attemptText = $"(try {attempt} of {attempts})";
-        _stop.IsVisible = _retryRow.IsVisible = true;
+        _stop.IsVisible = _retryText.IsVisible = true;
         CountDown();
         _countdown.Start();
+    }
+
+    /// <summary>
+    /// This tab is a new try at <paramref name="previous"/>'s connection, whose connection-lost screen was up: it shows
+    /// the same screen, with <paramref name="trying"/> where the countdown was, while it connects. Connecting takes the
+    /// screen away; failing shows the new failure on it.
+    /// </summary>
+    public void ContinueFrom(SessionTab previous, string trying)
+    {
+        Failure = previous.Failure;
+        FailedAt = previous.FailedAt;
+        LastMessage = previous.LastMessage;
+        if (previous.IconShown is { } icon && previous._iconBrush is { } brush)
+        {
+            IconShown = icon;
+            _iconBrush = brush;
+            _icon.Child = Themed(StrokeIcon.Create(icon, 30), StrokeIcon.ForegroundProperty, brush);
+        }
+
+        _heading.Text = previous._heading.Text;
+        _summary.Text = previous._summary.Text;
+        _advice.Text = previous._advice.Text;
+        _advice.IsVisible = previous._advice.IsVisible;
+        _when.Text = previous._when.Text;
+        _detail.Text = previous._detail.Text;
+        _details.IsExpanded = previous._details.IsExpanded;
+        Avalonia.Automation.AutomationProperties.SetHelpText(_reconnect, Avalonia.Automation.AutomationProperties.GetHelpText(previous._reconnect));
+        _tryingText = trying;
+        ShowFailure();
     }
 
     /// <summary>Says the automatic tries have run out. Reconnect still works, and so does the network coming back.</summary>
@@ -453,7 +535,7 @@ sealed class SessionTab
     {
         CancelReconnect();
         _retryText.Text = $"Stopped trying after {attempts} tries.";
-        _retryRow.IsVisible = true;
+        _retryText.IsVisible = true;
     }
 
     /// <summary>
@@ -482,7 +564,7 @@ sealed class SessionTab
         RetryStopped = true;
         CancelReconnect();
         _retryText.Text = "Stopped. Press Reconnect to try again.";
-        _retryRow.IsVisible = true;
+        _retryText.IsVisible = true;
     }
 
     public void CancelReconnect()
@@ -490,7 +572,7 @@ sealed class SessionTab
         _countdown.Stop();
         _reconnectNow = null;
         _stop.IsVisible = false;
-        _retryRow.IsVisible = false;
+        _retryText.IsVisible = false;
     }
 
     void CountDown()
