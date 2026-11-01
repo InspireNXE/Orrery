@@ -285,9 +285,10 @@ dotnet run --project src/Orrery.App
 ### The IronRDP package
 
 The RDP clipboard on Linux and macOS, sound, shared drives, the console session, spreading over displays and a
-broker's routing token need changes to IronRDP's .NET binding that haven't been released yet. Until they are, Orrery builds with a `Devolutions.IronRdp` made from a fork of IronRDP, at the version set in
+broker's routing token need changes to IronRDP's .NET binding that haven't been released yet. Until they are,
+Orrery builds with a `Devolutions.IronRdp` made from a fork of IronRDP, at the version set in
 `Directory.Build.props` (`IronRdpVersion`). It isn't on nuget.org. `nuget.config` looks for it in `.nuget-local`, a
-folder in the repo that git ignores, and `build/Get-IronRdp.ps1` downloads it there from this repo's releases. It
+folder in the repo that git ignores, and `build/Get-IronRdp.ps1` downloads it there from the fork's releases. It
 checks the file against the SHA-256 in `build/ironrdp-package.json` and won't use a file that doesn't match. If a
 restore fails with NU1301 or NU1101 for the `ironrdp-local` source, the script hasn't been run yet.
 
@@ -335,8 +336,8 @@ for tools that aren't on PATH, and `-SkipPortable`, `-SkipInstaller` or `-SkipLi
 Packages are self-contained, so the target machine doesn't need .NET installed. Output goes to `artifacts/`. On
 Windows and Linux the portable app is a single executable, which unpacks its native libraries to a cache folder the
 first time it runs. On macOS it's an `Orrery.app` bundle, not yet signed or notarized. On Linux, run
-`chmod +x Orrery` after unzipping a portable zip; the machine needs X11 (or XWayland), fontconfig and ICU, which the
-.deb and .rpm list as dependencies. There's no Flatpak.
+`chmod +x Orrery` after unzipping a portable zip; the machine needs what [Linux](#linux-wayland-only) lists, which
+the .deb and .rpm pull in. There's no Flatpak.
 
 GitHub Actions builds all of these on every push and pull request. [docs/packaging.md](docs/packaging.md) has the
 details, including Linux requirements, third-party notices, lock files and the workflow.
@@ -366,38 +367,80 @@ how.
 
 </details>
 
-## Status
+## Status and platforms
 
 On Windows, RDP resizing, the clipboard and the installer all work. That includes the text-only RDP clipboard that
-Linux and macOS use, tested against a Windows Server 2019 machine.
+Linux and macOS use, tested against a Windows Server 2019 machine. Everything else below is what each system needs,
+what works differently there, and what hasn't been tried on a real machine yet.
+
+### Every platform
+
+RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
+`2026.10.29-orrery.3` or later. With a package built on one machine, whose libraries for the other platforms are
+older, Orrery connects there without them and logs which it left out. IronRDP is built without Opus, which needs
+CMake to build, so the server sends sound as PCM, ADPCM or G.711 instead (or AAC, on Windows only).
 
 Not yet checked on real machines:
 
-- The Linux and macOS builds, including the .deb, .rpm and AppImage, and the ARM builds
-- Local terminals on Linux and macOS
-- The RDP clipboard on Linux and macOS
 - VNC authentication
 - Logging in to a real SSH server with a key file, plain and with a passphrase, directly, in the file browser and
   through a jump host
 - How each protocol reports real network failures on the connection-lost screen (an RDP server refusing a login,
   especially)
-- The Windows Hello and Touch ID prompts
 - RDP touch and pen input
 - Following an RD Connection Broker's redirection and sending its routing token back (tested against made-up
   redirections, not a real farm)
 - RDP sound, shared drives and folders, and the console session
-- Full screen over several displays, especially displays with different scaling
 - A serial console on real hardware (tested against a stand-in port)
 - The SSH keep-alive interval and a folder's SOCKS proxy against a real server
 - Remote Desktop files saved by Remote Desktop Connection itself (tested against files written to match its format)
 
-RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
-`2026.10.29-orrery.3` or later, with a native library built from the same commit. Where the package's library for a
-platform is older, as a package built on one machine has for the others, Orrery connects without them and logs which
-it left out.
+### Windows
 
-The Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
-single-file executable as a false positive.
+- **Needs:** nothing beyond the download; the packages are self-contained.
+- **Keys:** while a session has the keyboard, Orrery takes the Windows keys for it, as mstsc does. Windows keeps
+  Ctrl+Alt+Del for itself, so Ctrl+Alt+End sends it.
+- **Shared drives:** every drive, or any number of folders, each as its own drive.
+- **Full screen** can spread a remote desktop over every display, when they sit against each other.
+- **Sound** can also come as AAC.
+- **Not yet checked:** full screen over several displays, especially with different scaling on each; the Windows
+  Hello prompt; the win-arm64 build.
+- The executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
+  single-file executable as a false positive.
+
+### macOS
+
+- **Needs:** nothing beyond the download. The app isn't signed or notarized yet, so Gatekeeper asks before the first
+  launch. Serial ports are the `/dev/cu.*` and `/dev/tty.*` devices.
+- **Keys:** Cmd+Tab, Cmd+Space and the other shortcuts macOS keeps for itself stay with macOS. The session's Send
+  keys menu sends Alt+Tab, the Windows key and the rest.
+- **Shared drives:** one folder: your home folder when sharing every drive, else the first folder you chose.
+- **Full screen** is on one display: macOS gives each display its own full-screen space. Orrery says so when the
+  connection is set to use every display.
+- **RDP clipboard:** text only.
+- **Not yet checked:** any of it on a real Mac, including local terminals, the RDP clipboard, Touch ID (which needs a
+  signed build) and VoiceOver.
+
+### Linux (Wayland only)
+
+Orrery supports Wayland sessions only. Avalonia 11.3 has no Wayland backend yet and draws through X11, so Orrery runs
+under XWayland, but it has no X11-specific code and doesn't rely on X11 behavior. X11 sessions aren't supported.
+
+- **Needs:** XWayland, fontconfig and ICU, which most desktops have. The ALSA library (`libasound.so.2`, from
+  `libasound2t64` or `libasound2` on Debian and Ubuntu, `alsa-lib` on Fedora): IronRDP's library links it for sound
+  and won't load without it, so RDP can't connect. The .deb and .rpm pull these in; the portable zip and AppImage
+  don't. For saved credentials in the system keyring, libsecret and a Secret Service (GNOME Keyring or KWallet);
+  without them, or when portable, they go in the encrypted vault file. For a serial port, your user must be in the
+  `dialout` group (`uucp` on Arch); log out and back in after adding it.
+- **Keys:** Super, Alt+Tab and the other shortcuts your desktop keeps go to the desktop, not the session; Orrery
+  doesn't capture them on Linux. The session's Send keys menu sends them instead.
+- **Shared drives:** one folder: your home folder when sharing every drive, else the first folder you chose.
+- **Full screen** is on one display: Wayland doesn't let a window place itself or span several displays. Orrery says
+  so when the connection is set to use every display.
+- **RDP clipboard:** text only.
+- **Screen readers:** Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
+- **Not yet checked:** any of it on a real machine: the .deb, .rpm and AppImage, the arm64 builds, local terminals,
+  the RDP clipboard, sound, a serial device and the Secret Service.
 
 ## License and credits
 

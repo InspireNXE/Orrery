@@ -201,7 +201,7 @@ public sealed class SerialSession : ITerminalSession
     internal static string Describe(Exception e, string port) => e switch
     {
         UnauthorizedAccessException => $"{port} is in use by another program, or you aren't allowed to open it."
-            + (OperatingSystem.IsLinux() ? " On Linux, your user may need to be in the dialout group." : string.Empty),
+            + (OperatingSystem.IsLinux() ? " On Linux, your user may need to be in the dialout group (uucp on Arch), then log out and back in." : string.Empty),
         FileNotFoundException or DirectoryNotFoundException => $"There's no serial port called {port} on this computer. Check that the cable is plugged in.",
         ArgumentException argument when argument.ParamName == "portName" || argument.Message.Contains("port name", StringComparison.OrdinalIgnoreCase)
             => $"\"{port}\" isn't a serial port name. Use something like COM3 on Windows or /dev/ttyUSB0 on Linux.",

@@ -1000,9 +1000,21 @@ public partial class MainWindow : Window
     /// </summary>
     bool TrySpanDisplays(SessionTab tab)
     {
-        if (!OperatingSystem.IsWindows() || tab.View is not RemoteFrameView { Session: IMultiMonitorSession, FollowsViewSize: true } desktop
+        if (tab.View is not RemoteFrameView { Session: IMultiMonitorSession, FollowsViewSize: true } desktop
             || tab.Origin.EntryId is not { } id || _tree.Find(id) is not { } node || !SettingsResolver.Resolve(node).UseAllMonitors.Value)
         {
+            return false;
+        }
+
+        // Wayland gives a window no say in where it goes or which displays it covers, and macOS gives each display its
+        // own full-screen space, so only Windows can put one window over all of them.
+        if (!OperatingSystem.IsWindows())
+        {
+            if (Screens.All.Count > 1)
+            {
+                desktop.ShowNotice("Full screen is on this display only. Spreading a remote desktop over every display works on Windows only.");
+            }
+
             return false;
         }
 

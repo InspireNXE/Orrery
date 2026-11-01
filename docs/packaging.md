@@ -151,7 +151,12 @@ The first package (`2026.10.29-orrery.2`) was built by an Orrery workflow run be
 None of the Linux builds has been run on a real machine yet. The .deb and .rpm pull in what they need. For the
 portable zip and the AppImage, the machine needs:
 
-- **An X11 session.** Avalonia draws through X11; on Wayland it runs under XWayland.
+- **A Wayland session with XWayland.** Orrery supports Wayland only. Avalonia 11.3 has no Wayland backend yet and
+  draws through X11, so it runs under XWayland; Orrery itself has no X11-specific code and doesn't rely on X11
+  behavior. X11 sessions aren't supported.
+- **The ALSA library** (`libasound2t64` or `libasound2` on Debian and Ubuntu, `alsa-lib` on Fedora).
+  IronRDP's native library links `libasound.so.2` for remote sound and won't load without it, so RDP fails to
+  connect. The .deb and .rpm depend on it.
 - **fontconfig and ICU** (`libfontconfig1` and `libicu` on Debian and Ubuntu, `fontconfig` and `libicu` on Fedora).
   Globalization isn't set to invariant, so .NET won't start without ICU. Most desktop installs already have both.
 - **libsecret and a Secret Service** (GNOME Keyring or KWallet) to keep credentials in the system keyring. Without
