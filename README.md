@@ -15,6 +15,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
+- Local terminal tabs: PowerShell, cmd or a WSL distribution on Windows (chosen in settings), your login shell on Linux
+  and macOS, starting in your home folder
 
 ### Display
 
@@ -52,6 +54,7 @@ On macOS, Cmd replaces Ctrl.
 | Keys | Action |
 | --- | --- |
 | Ctrl+K | Quick connect |
+| Ctrl+Shift+T | Local terminal |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel |
 | Ctrl+Alt+B | Show or hide the properties pane |
@@ -61,7 +64,8 @@ On macOS, Cmd replaces Ctrl.
 | Ctrl+D | Duplicate |
 | Delete | Delete the selected rows |
 
-While a remote session has focus it gets keys first, so these shortcuts go to the remote machine.
+While a remote session has focus it gets keys first, so these shortcuts go to the remote machine. Ctrl+Shift+T still
+opens a local terminal from inside a terminal, but not from a remote desktop.
 
 ## Where data lives
 
@@ -120,7 +124,7 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 | --- | --- |
 | `src/Orrery.App` | The Avalonia app: windows, connection tree, properties pane, settings |
 | `src/Orrery.Core` | Model, storage, credentials, vault, import and export |
-| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions |
+| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions, and local terminals |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
 | `build/` | Packaging, installer and third-party notice scripts |
 | `installer/` | Inno Setup script for the Windows installer; `installer/linux/` holds the Linux launcher and icons |
@@ -129,7 +133,8 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, and VNC authentication. The
+the Linux and macOS builds (including the .deb, .rpm and AppImage), local terminals on Linux and macOS, the ARM builds,
+and VNC authentication. The
 Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
 single-file executable as a false positive.
 

@@ -115,6 +115,7 @@ public static class FullScreenShortcut
             }
 
             yield return (new KeyGesture(Key.B, Alt | Cmd), "Orrery uses it to show and hide the settings pane.");
+            yield return (new KeyGesture(Key.T, Shift | Cmd), "Orrery uses it to open a local terminal.");
             yield break;
         }
 
@@ -124,6 +125,7 @@ public static class FullScreenShortcut
         yield return (new KeyGesture(Key.Tab, Alt | Shift), System);
         yield return (new KeyGesture(Key.F4, Ctrl | Alt), System);
         yield return (new KeyGesture(Key.B, Ctrl | Alt), "Orrery uses it to show and hide the settings pane.");
+        yield return (new KeyGesture(Key.T, Ctrl | Shift), "Orrery uses it to open a local terminal.");
         yield return (new KeyGesture(Key.C, Ctrl | Shift), "terminals use it to copy.");
         yield return (new KeyGesture(Key.V, Ctrl | Shift), "terminals use it to paste.");
 
