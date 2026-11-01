@@ -102,10 +102,10 @@ public class SettingsViewTests : IDisposable
         Assert.Null(changed);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("Ctrl+Alt+Q can't be used") == true);
 
-        window.KeyPressQwerty(PhysicalKey.End, RawInputModifiers.Control | RawInputModifiers.Alt);
+        window.KeyPressQwerty(PhysicalKey.F12, RawInputModifiers.Control | RawInputModifiers.Alt);
         Assert.False(recorder.IsRecording);
-        Assert.Equal(Key.End, changed?.Key);
-        Assert.Equal("Ctrl+Alt+End", settings.Load().FullScreenShortcut);
+        Assert.Equal(Key.F12, changed?.Key);
+        Assert.Equal("Ctrl+Alt+F12", settings.Load().FullScreenShortcut);
         window.Close();
     }
 

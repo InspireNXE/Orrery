@@ -170,6 +170,8 @@ public static class MRemoteNgImporter
         ["SSH1"] = Protocol.Ssh,
         ["VNC"] = Protocol.Vnc,
         ["Telnet"] = Protocol.Telnet,
+        ["HTTP"] = Protocol.Http,
+        ["HTTPS"] = Protocol.Https,
     };
 
     public static ImportResult ImportFile(string path, string? masterPassword = null)
@@ -354,9 +356,14 @@ public static class MRemoteNgImporter
 
         public string Raw(string attribute) => _attributes.GetValueOrDefault(attribute, string.Empty);
 
-        /// <summary>mRemoteNG's flag names don't always match the setting (Descr → InheritDescription).</summary>
+        /// <summary>mRemoteNG's flag names don't always match the setting (Descr → InheritDescription, ConnectToConsole → InheritUseConsoleSession).</summary>
         public bool Inherits(string attribute) =>
-            string.Equals(Raw("Inherit" + (attribute == "Descr" ? "Description" : attribute)), "true", StringComparison.OrdinalIgnoreCase);
+            string.Equals(Raw("Inherit" + attribute switch
+            {
+                "Descr" => "Description",
+                "ConnectToConsole" => "UseConsoleSession",
+                _ => attribute,
+            }), "true", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>The value mRemoteNG would use: its own, or the parent's when inheriting.</summary>
         public string Effective(string attribute) =>
@@ -436,6 +443,8 @@ public static class MRemoteNgImporter
                     SetQuality(folder, node, MapProtocol(node.Effective("Protocol")) ?? Protocol.Rdp);
                 }
 
+                SetMoreSettings(folder, node, attribute => node.Children.Any(c => c.Inherits(attribute)));
+
                 foreach (var child in node.Children)
                 {
                     Add(child, folder);
@@ -478,6 +487,7 @@ public static class MRemoteNgImporter
             SetText(entry, node.Effective("Domain"), s => s.Domain, (s, v) => s.Domain = v);
             SetClipboard(entry, node);
             SetQuality(entry, node, mapped);
+            SetMoreSettings(entry, node, _ => true, mapped);
             AddCredential(entry, node);
             SetMacAddress(entry, node);
             NoteUnsupported(node, mapped);
@@ -566,12 +576,10 @@ public static class MRemoteNgImporter
 
             bool On(string attribute) => string.Equals(node.Effective(attribute), "true", StringComparison.OrdinalIgnoreCase);
             Count("RD Gateway", node.Effective("RDGatewayUsageMethod") is { Length: > 0 } g && !g.Equals("Never", StringComparison.OrdinalIgnoreCase));
-            Count("Connect to console session", On("ConnectToConsole"));
-            Count("Drive redirection", On("RedirectDiskDrives"));
             Count("Printer redirection", On("RedirectPrinters"));
             Count("Smart card redirection", On("RedirectSmartCards"));
             Count("Port redirection", On("RedirectPorts"));
-            Count("Remote audio", node.Effective("RedirectSound") is { Length: > 0 } s && !s.Equals("DoNotPlay", StringComparison.OrdinalIgnoreCase));
+            Count("Sound left playing on the remote computer (now not played on either)", node.Effective("RedirectSound").Equals("LeaveAtRemoteComputer", StringComparison.OrdinalIgnoreCase));
             Count("Fixed resolution", node.Effective("Resolution") is { Length: > 0 } r
                 && !r.Equals("FitToWindow", StringComparison.OrdinalIgnoreCase) && !r.Equals("SmartSize", StringComparison.OrdinalIgnoreCase));
             Count("Load balance info", node.Effective("LoadBalanceInfo").Length > 0);
@@ -659,6 +667,104 @@ public static class MRemoteNgImporter
             if (SettingsResolver.Resolve(node).DisplayQuality.Value != quality)
             {
                 node.Settings.DisplayQuality = quality;
+            }
+        }
+
+        /// <summary>
+        /// The settings mRemoteNG and Orrery share beyond the basics: remote audio, drive sharing and the console session
+        /// for RDP, view only and scaling for VNC. <paramref name="wanted"/> says, by mRemoteNG attribute, which to set; a
+        /// folder only gets the ones a child inherits. <paramref name="protocol"/> limits a connection to its own
+        /// protocol's settings; a folder (null) gets them all.
+        /// </summary>
+        static void SetMoreSettings(ConnectionNode target, MNode source, Func<string, bool> wanted, Protocol? protocol = null)
+        {
+            bool rdp = protocol is null or Protocol.Rdp, vnc = protocol is null or Protocol.Vnc;
+            if (rdp && wanted("RedirectSound"))
+            {
+                Set(target, AudioFrom(source.Effective("RedirectSound")), r => r.RemoteAudio.Value, (s, v) => s.RemoteAudio = v);
+            }
+
+            if (rdp && wanted("RedirectDiskDrives"))
+            {
+                SetDrives(target, source);
+            }
+
+            if (rdp && wanted("ConnectToConsole"))
+            {
+                Set(target, Flag(source.Effective("ConnectToConsole")), r => r.AdminSession.Value, (s, v) => s.AdminSession = v);
+            }
+
+            if (vnc && wanted("VNCViewOnly"))
+            {
+                Set(target, Flag(source.Effective("VNCViewOnly")), r => r.ViewOnly.Value, (s, v) => s.ViewOnly = v);
+            }
+
+            if (vnc && wanted("VNCSmartSizeMode"))
+            {
+                Set(target, ScalingFrom(source.Effective("VNCSmartSizeMode")), r => r.Scaling.Value, (s, v) => s.Scaling = v);
+            }
+        }
+
+        static bool? Flag(string value) => bool.TryParse(value, out var on) ? on : null;
+
+        /// <summary>mRemoteNG's RedirectSound. Leaving the sound on the remote computer isn't something Orrery can do, so it isn't played.</summary>
+        static RemoteAudio? AudioFrom(string value) => value.ToLowerInvariant() switch
+        {
+            "bringtothiscomputer" => RemoteAudio.PlayHere,
+            "donotplay" or "leaveatremotecomputer" => RemoteAudio.DoNotPlay,
+            _ => null,
+        };
+
+        /// <summary>mRemoteNG's VNC smart sizing: off is pixel for pixel; free and keeping the shape both fill the tab.</summary>
+        static DesktopScaling? ScalingFrom(string value) => value.ToLowerInvariant() switch
+        {
+            "smartsno" => DesktopScaling.ActualSize,
+            "smartsfree" or "smartsaspect" => DesktopScaling.Fit,
+            _ => null,
+        };
+
+        /// <summary>
+        /// RedirectDiskDrives: "true" (or a newer mRemoteNG's "All" or "Local") shares every drive; "Custom" shares the
+        /// drives listed in RedirectDiskDrivesCustom.
+        /// </summary>
+        static void SetDrives(ConnectionNode target, MNode source)
+        {
+            var value = source.Effective("RedirectDiskDrives");
+            if (value.Equals("Custom", StringComparison.OrdinalIgnoreCase))
+            {
+                var drives = source.Effective("RedirectDiskDrivesCustom").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(RdpFileImporter.DriveAsFolder).ToList();
+                Set(target, false, r => r.ShareAllDrives.Value, (s, v) => s.ShareAllDrives = v);
+                target.Settings.SharedFolders = null;
+                if (!SettingsResolver.Resolve(target).SharedFolders.Value.SequenceEqual(drives, StringComparer.OrdinalIgnoreCase))
+                {
+                    target.Settings.SharedFolders = drives;
+                }
+
+                return;
+            }
+
+            bool? all = value.ToLowerInvariant() switch
+            {
+                "true" or "all" or "local" => true,
+                "false" or "none" => false,
+                _ => null,
+            };
+            Set(target, all, r => r.ShareAllDrives.Value, (s, v) => s.ShareAllDrives = v);
+        }
+
+        /// <summary>Stores <paramref name="value"/> only where inheriting wouldn't give the same; nothing when it's null.</summary>
+        static void Set<T>(ConnectionNode node, T? value, Func<ResolvedSettings, T> resolved, Action<InheritableSettings, T?> set) where T : struct
+        {
+            if (value is not { } wanted)
+            {
+                return;
+            }
+
+            set(node.Settings, null);
+            if (!EqualityComparer<T>.Default.Equals(resolved(SettingsResolver.Resolve(node)), wanted))
+            {
+                set(node.Settings, wanted);
             }
         }
 

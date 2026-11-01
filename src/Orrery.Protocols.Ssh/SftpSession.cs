@@ -25,13 +25,15 @@ public sealed class SftpSession : IConnectionSession
     readonly HostKeyValidator _hostKeys;
     readonly bool _allowLegacy;
     readonly IReadOnlyList<SshHop> _jumps;
+    readonly TimeSpan _keepAlive;
     readonly object _lock = new();
     SshTunnel? _tunnel;
     SftpClient? _client;
     bool _closing;
 
-    SftpSession(ConnectionTarget target, HostKeyValidator hostKeys, bool allowLegacy, IReadOnlyList<SshHop> jumps)
+    SftpSession(ConnectionTarget target, HostKeyValidator hostKeys, bool allowLegacy, IReadOnlyList<SshHop> jumps, TimeSpan keepAlive)
     {
+        _keepAlive = keepAlive;
         Target = target;
         _hostKeys = hostKeys;
         _allowLegacy = allowLegacy;
@@ -52,9 +54,11 @@ public sealed class SftpSession : IConnectionSession
     public SessionStateChangedEventArgs? LastChange { get; private set; }
 
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
-    public static SftpSession Start(ConnectionTarget target, SshLogin login, HostKeyValidator hostKeys, bool allowLegacy = false, IReadOnlyList<SshHop>? jumps = null)
+    /// <param name="keepAlive">How often to send a keep-alive message; <see cref="SshSession.KeepAlive"/> when null, none when infinite.</param>
+    public static SftpSession Start(ConnectionTarget target, SshLogin login, HostKeyValidator hostKeys, bool allowLegacy = false, IReadOnlyList<SshHop>? jumps = null,
+        TimeSpan? keepAlive = null)
     {
-        var session = new SftpSession(target, hostKeys, allowLegacy, jumps ?? []);
+        var session = new SftpSession(target, hostKeys, allowLegacy, jumps ?? [], keepAlive ?? SshSession.KeepAlive);
         _ = Task.Run(() => session.Run(login));
         return session;
     }
@@ -78,7 +82,7 @@ public sealed class SftpSession : IConnectionSession
                 (host, port) = tunnel.Open(Target.Host, Target.Port);
             }
 
-            var client = new SftpClient(SshSession.ConnectionInfoFor(host, port, login, _allowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
+            var client = new SftpClient(SshSession.ConnectionInfoFor(host, port, login, _allowLegacy)) { KeepAliveInterval = _keepAlive };
             hostKey = HostKeyCheck.Attach(client, _hostKeys, Target);
             client.ErrorOccurred += (_, e) => Fail(SshSession.Describe(e.Exception, _allowLegacy), SshSession.Recognize(e.Exception));
             lock (_lock)

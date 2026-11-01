@@ -27,6 +27,27 @@ public sealed record ResolvedSettings(
 {
     /// <summary>Whether to enlarge the remote desktop: the tree's value, else <paramref name="appSetting"/>.</summary>
     public bool Enlarge(bool appSetting) => EnlargeRemoteDesktop.Value ?? appSetting;
+
+    public required Resolved<RemoteAudio> RemoteAudio { get; init; }
+    public required Resolved<bool> ShareAllDrives { get; init; }
+
+    /// <summary>The folders to share, as set (a leading ~ not yet expanded); empty for none.</summary>
+    public required Resolved<IReadOnlyList<string>> SharedFolders { get; init; }
+
+    public required Resolved<bool> UseAllMonitors { get; init; }
+    public required Resolved<bool> AdminSession { get; init; }
+    public required Resolved<bool> ViewOnly { get; init; }
+    public required Resolved<DesktopScaling> Scaling { get; init; }
+    public required Resolved<int> KeepAliveSeconds { get; init; }
+
+    /// <summary>The SOCKS proxy SSH connections open, as set ("1080", "127.0.0.1:1080"); null for none.</summary>
+    public required Resolved<string?> SocksProxy { get; init; }
+
+    public required Resolved<int> BaudRate { get; init; }
+    public required Resolved<int> DataBits { get; init; }
+    public required Resolved<SerialParity> Parity { get; init; }
+    public required Resolved<SerialStopBits> StopBits { get; init; }
+    public required Resolved<SerialFlowControl> FlowControl { get; init; }
 }
 
 public static class SettingsResolver
@@ -54,8 +75,15 @@ public static class SettingsResolver
             ? new Resolved<Guid?>(j.Value == InheritableSettings.NoJumpHost ? null : j.Value, j.Source)
             : new Resolved<Guid?>(null, null);
 
-        Resolved<bool> Flag(string setting, Func<InheritableSettings, bool?> select, bool fallback) =>
-            Find(node, includeSelf, setting, select) is { } found ? new Resolved<bool>(found.Value!.Value, found.Source) : new Resolved<bool>(fallback, null);
+        Resolved<bool> Flag(string setting, Func<InheritableSettings, bool?> select, bool fallback) => Value(setting, select, fallback);
+
+        Resolved<T> Value<T>(string setting, Func<InheritableSettings, T?> select, T fallback) where T : struct =>
+            Find(node, includeSelf, setting, select) is { } found ? new Resolved<T>(found.Value!.Value, found.Source) : new Resolved<T>(fallback, null);
+
+        // An empty list set on a node means "none", overriding a parent's.
+        var shared = Chain(node, includeSelf, nameof(InheritableSettings.SharedFolders)).FirstOrDefault(n => n.Settings.SharedFolders is not null) is { } sharedSource
+            ? new Resolved<IReadOnlyList<string>>(sharedSource.Settings.SharedFolders!.ToList(), sharedSource)
+            : new Resolved<IReadOnlyList<string>>([], null);
 
         return new ResolvedSettings(
             protocol,
@@ -78,8 +106,30 @@ public static class SettingsResolver
                 ? new Resolved<DisplayQuality>(quality.Value!.Value, quality.Source)
                 : new Resolved<DisplayQuality>(Sessions.DisplayQuality.Balanced, null),
             // On means "as Settings says", so with no color vision chosen it changes nothing.
-            Flag(nameof(InheritableSettings.ColorCorrection), s => s.ColorCorrection, true));
+            Flag(nameof(InheritableSettings.ColorCorrection), s => s.ColorCorrection, true))
+        {
+            RemoteAudio = Value(nameof(InheritableSettings.RemoteAudio), s => s.RemoteAudio, Connections.RemoteAudio.PlayHere),
+            ShareAllDrives = Flag(nameof(InheritableSettings.ShareAllDrives), s => s.ShareAllDrives, false),
+            SharedFolders = shared,
+            UseAllMonitors = Flag(nameof(InheritableSettings.UseAllMonitors), s => s.UseAllMonitors, false),
+            AdminSession = Flag(nameof(InheritableSettings.AdminSession), s => s.AdminSession, false),
+            ViewOnly = Flag(nameof(InheritableSettings.ViewOnly), s => s.ViewOnly, false),
+            Scaling = Value(nameof(InheritableSettings.Scaling), s => s.Scaling, DesktopScaling.ShrinkToFit),
+            KeepAliveSeconds = Value(nameof(InheritableSettings.KeepAliveSeconds), s => s.KeepAliveSeconds, DefaultKeepAliveSeconds),
+            SocksProxy = FindString(node, includeSelf, nameof(InheritableSettings.SocksProxy), s => s.SocksProxy),
+            BaudRate = Value(nameof(InheritableSettings.BaudRate), s => s.BaudRate, DefaultBaudRate),
+            DataBits = Value(nameof(InheritableSettings.DataBits), s => s.DataBits, DefaultDataBits),
+            Parity = Value(nameof(InheritableSettings.Parity), s => s.Parity, SerialParity.None),
+            StopBits = Value(nameof(InheritableSettings.StopBits), s => s.StopBits, SerialStopBits.One),
+            FlowControl = Value(nameof(InheritableSettings.FlowControl), s => s.FlowControl, SerialFlowControl.None),
+        };
     }
+
+    /// <summary>SSH keep-alive interval when nothing sets one, as before it could be set.</summary>
+    public const int DefaultKeepAliveSeconds = 30;
+
+    /// <summary>The serial line settings most consoles use: 9600 8N1, no flow control.</summary>
+    public const int DefaultBaudRate = 9600, DefaultDataBits = 8;
 
     /// <summary>
     /// The jump hosts to go through to reach <paramref name="entry"/>, outermost first: its jump host's own

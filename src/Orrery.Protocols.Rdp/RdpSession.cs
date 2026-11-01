@@ -1,11 +1,15 @@
 using System.Diagnostics;
+using System.Net.Security;
 using System.Runtime.InteropServices;
+using System.Threading.Channels;
 using Devolutions.IronRdp;
 using Microsoft.Extensions.Logging;
 using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using RdpPixelFormat = Devolutions.IronRdp.PixelFormat;
 using RdpPointerButton = Devolutions.IronRdp.MouseButtonType;
+using RdpPenPhase = Devolutions.IronRdp.PenPhase;
+using RdpTouchPhase = Devolutions.IronRdp.TouchPhase;
 
 namespace Orrery.Protocols.Rdp;
 
@@ -18,14 +22,25 @@ namespace Orrery.Protocols.Rdp;
 /// directly and also copies images and files. Elsewhere, clipboard text goes through <see cref="IClipboardSession"/>,
 /// so the view exchanges it with the local clipboard as it does for VNC. Setting <c>ORRERY_RDP_TEXT_CLIPBOARD=1</c>
 /// uses the text-only way on Windows too, for testing it.
+/// <para>
+/// A server that redirects the connection (an RD Connection Broker sending it to a session host) is followed, up to
+/// <see cref="RdpRedirection.MaxHops"/> times, carrying back what the broker sent; see <see cref="RdpRedirection"/>.
+/// </para>
+/// <para>
+/// Sound, shared drives and the console session (<see cref="RdpOptions"/>) need IronRDP's native library to have them,
+/// which Orrery's own build does on Windows. Where it doesn't, each is logged and left off, and the session goes on.
+/// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IClipboardSession
+public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchInput, IMultiMonitorSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
     const uint MaxQueuedClipboardEvents = 64;
     const int MaxRemoteFormats = 256;
     static readonly TimeSpan ClipboardTimeoutsInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>How often shared drives' file operations that finish later (on Windows) are passed to the server.</summary>
+    static readonly TimeSpan DrivesPollInterval = TimeSpan.FromMilliseconds(100);
 
     readonly object _stageLock = new();
     readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -39,20 +54,29 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
     bool _pointerSoftwareRendering;
     Task? _readLoop;
     Task? _clipboardLoop;
+    Task? _drivesLoop;
     WinCliprdr? _clipboard;
     CallbackCliprdr? _textClipboard;
     RdpClipboardBridge? _bridge;
+
+    // Touch and pen frames for the input channel (MS-RDPEI): built under _stageLock, written in order by one loop.
+    TouchFrameBuilder? _touches;
+    PenFrameBuilder? _pens;
+    readonly Channel<byte[]> _inputFrames = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+    Task? _inputFrameLoop;
 
     static readonly ILogger Logger = Orrery.Core.Diagnostics.Log.For("Rdp");
 
     readonly ServerCertificateValidator _certificateValidator;
     readonly ISessionRoute? _route;
+    readonly RdpOptions _options;
 
-    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator, ISessionRoute? route)
+    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator, ISessionRoute? route, RdpOptions options)
     {
         Target = target;
         _certificateValidator = certificateValidator;
         _route = route;
+        _options = options;
     }
 
     public ConnectionTarget Target { get; }
@@ -79,11 +103,12 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
     /// </summary>
     /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
     /// <param name="quality">Which of the remote desktop's visual effects to ask for.</param>
+    /// <param name="options">Sound, shared drives and the console session; IronRDP's defaults and sound here when null.</param>
     public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight,
         ServerCertificateValidator certificateValidator, bool shareClipboard = true, ISessionRoute? route = null,
-        DisplayQuality quality = DisplayQuality.Balanced)
+        DisplayQuality quality = DisplayQuality.Balanced, RdpOptions? options = null)
     {
-        var session = new RdpSession(target, certificateValidator, route);
+        var session = new RdpSession(target, certificateValidator, route, options ?? new RdpOptions());
         if (shareClipboard)
         {
             try
@@ -121,10 +146,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         var token = _cts.Token;
         try
         {
-            var config = BuildConfig(Target, password, desktopWidth, desktopHeight, quality);
-            var dial = await _route.DialAsync(Target, token);
-            var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
-            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, dial, _certificateValidator, clipboardFactory, token);
+            var (result, framed, drivesShared) = await ConnectFollowingRedirectionsAsync(password, desktopWidth, desktopHeight, quality, token);
             _framed = new Framed<Stream>(framed.GetInner().Item1);
 
             lock (_stageLock)
@@ -137,9 +159,11 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
                 _activeStage = ActiveStage.New(result);
             }
 
-            Logger.LogInformation("Connected to {Host}: desktop {Width}x{Height} (asked for {AskedWidth}x{AskedHeight}), {Quality} quality, clipboard {Clipboard}",
+            Logger.LogInformation("Connected to {Host}: desktop {Width}x{Height} (asked for {AskedWidth}x{AskedHeight}), {Quality} quality, clipboard {Clipboard}, "
+                + "sound {Sound}, {Drives} shared drive(s), {Session} session",
                 Target.Host, Width, Height, desktopWidth, desktopHeight, quality.ToString(),
-                _clipboard is not null ? "on" : _textClipboard is not null ? "text" : "off");
+                _clipboard is not null ? "on" : _textClipboard is not null ? "text" : "off",
+                _options.PlayAudio ? "here" : "off", drivesShared ? _options.Drives.Count : 0, _options.AdminSession ? "console" : "own");
 
             // Before the state changes: the view sends the local clipboard as soon as the session is connected.
             if (_textClipboard is not null)
@@ -151,6 +175,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
 
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
+            _inputFrameLoop = Task.Run(() => InputFrameLoopAsync(token));
             if (_clipboard is not null)
             {
                 _clipboardLoop = Task.Run(() => ClipboardLoopAsync(_clipboard, token));
@@ -158,6 +183,11 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
             else if (_bridge is not null)
             {
                 _clipboardLoop = Task.Run(() => BridgeLoopAsync(_bridge, token));
+            }
+
+            if (drivesShared)
+            {
+                _drivesLoop = Task.Run(() => DrivesLoopAsync(token));
             }
 
             await ReadLoopAsync(token);
@@ -176,6 +206,86 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         {
             Logger.LogError(e, "RDP session to {Host} failed", Target.Host);
             SetState(SessionState.Failed, e.Message, Recognize(e));
+        }
+    }
+
+    /// <summary>
+    /// Connects, following the server when it redirects the connection to another session host, as an RD Connection
+    /// Broker does, at most <see cref="RdpRedirection.MaxHops"/> times. Each host's certificate is checked under its own
+    /// name, and the login goes to each through CredSSP again.
+    /// </summary>
+    async Task<(ConnectionResult Result, Framed<SslStream> Framed, bool DrivesShared)> ConnectFollowingRedirectionsAsync(string password,
+        int width, int height, DisplayQuality quality, CancellationToken token)
+    {
+        var target = Target;
+        RdpRedirection? redirectedFrom = null;
+        for (int hop = 0; ; hop++)
+        {
+            var config = BuildConfig(target, password, width, height, quality, _options.PlayAudio);
+            var dial = await _route.DialAsync(target, token);
+            var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
+            try
+            {
+                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token);
+            }
+            catch (ServerRedirectedException e)
+            {
+                var redirection = e.Redirection;
+                Logger.LogInformation("{Host} redirected the connection to {Next} (session {Session}{Token}{Cookie})", target.Host,
+                    redirection.StayOnServer ? "itself, to call back with its routing token" : redirection.NextHost ?? "nowhere", redirection.SessionId,
+                    redirection.RoutingToken.Length > 0 ? ", with a routing token" : string.Empty,
+                    redirection.Cookie.Length > 0 ? ", with a password cookie" : string.Empty);
+                Logger.LogDebug("{Host} routing token: {Token}", target.Host, redirection.RoutingTokenText);
+                target = NextHop(redirection, target, hop);
+                redirectedFrom = redirection;
+            }
+        }
+    }
+
+    /// <summary>Where a redirection sends the connection, or why it can't be followed.</summary>
+    /// <param name="hop">How many redirections came before this one.</param>
+    internal static ConnectionTarget NextHop(RdpRedirection redirection, ConnectionTarget current, int hop)
+    {
+        if (redirection.Next(current) is not { } next)
+        {
+            throw new NotSupportedException("The server redirected the connection without saying where to.");
+        }
+
+        if (hop + 1 >= RdpRedirection.MaxHops)
+        {
+            throw new NotSupportedException($"The server redirected the connection {RdpRedirection.MaxHops} times without letting Orrery in. "
+                + "Connect to the session host directly instead.");
+        }
+
+        return next;
+    }
+
+    /// <summary>
+    /// Passes the server shared drives' file operations that finished after their request was answered, which the
+    /// Windows file backend does for some. Stops at the first failure; the read loop reports a dropped connection.
+    /// </summary>
+    async Task DrivesLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested && State == SessionState.Connected)
+        {
+            try
+            {
+                await Task.Delay(DrivesPollInterval, token);
+                var outputs = WithStageLock(() => _activeStage!.PollRdpdrDeferred());
+                if (!await HandleOutputsAsync(outputs, token))
+                {
+                    return;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                Logger.LogWarning("RDP shared drives stopped: {Message}", e.Message);
+                return;
+            }
         }
     }
 
@@ -587,6 +697,151 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         SendInput(rotation.AsOperation());
     }
 
+    /// <inheritdoc/>
+    public bool AcceptsTouch => RdpeiState() is { Touch: true, Suspended: false };
+
+    /// <inheritdoc/>
+    public bool AcceptsPen => RdpeiState() is { Touch: true, Pen: true, Suspended: false };
+
+    /// <summary>What the input channel takes now; null until connected.</summary>
+    RdpeiInputState? RdpeiState()
+    {
+        if (State != SessionState.Connected)
+        {
+            return null;
+        }
+
+        lock (_stageLock)
+        {
+            return _activeStage?.RdpeiInputState;
+        }
+    }
+
+    public void SendTouch(ulong contact, TouchContactPhase phase, int x, int y, double? pressure)
+    {
+        var frames = new List<byte[]>();
+        lock (_stageLock)
+        {
+            if (State != SessionState.Connected || _activeStage is not { } stage)
+            {
+                return;
+            }
+
+            var touches = _touches ??= TouchFrameBuilder.New(RdpConnector.MaxTouchContacts);
+            var rdpPhase = phase switch
+            {
+                TouchContactPhase.Started => RdpTouchPhase.Started,
+                TouchContactPhase.Moved => RdpTouchPhase.Moved,
+                TouchContactPhase.Ended => RdpTouchPhase.Ended,
+                _ => RdpTouchPhase.Canceled,
+            };
+            if (pressure is { } known)
+            {
+                touches.PushWithPressure(contact, rdpPhase, x, y, RdpeiValues.Pressure(known));
+            }
+            else
+            {
+                touches.Push(contact, rdpPhase, x, y);
+            }
+
+            EncodePending(() => stage.EncodeRdpeiTouch(touches), () => touches.HasPendingFrames, touches.Reset, frames);
+        }
+
+        QueueInputFrames(frames);
+    }
+
+    public void SendPen(ulong pen, PenContactPhase phase, int x, int y, PenState state)
+    {
+        var frames = new List<byte[]>();
+        lock (_stageLock)
+        {
+            if (State != SessionState.Connected || _activeStage is not { } stage)
+            {
+                return;
+            }
+
+            var pens = _pens ??= PenFrameBuilder.New();
+            var rdpPhase = phase switch
+            {
+                PenContactPhase.Hovering => RdpPenPhase.Hovering,
+                PenContactPhase.Touching => RdpPenPhase.Touching,
+                PenContactPhase.OutOfRange => RdpPenPhase.OutOfRange,
+                _ => RdpPenPhase.Canceled,
+            };
+            pens.PushWithAttributes(pen, rdpPhase, x, y, new PenAttributes
+            {
+                BarrelPressed = state.Barrel,
+                EraserPressed = state.Eraser,
+                Inverted = state.Inverted,
+                HasPressure = state.Pressure is not null,
+                Pressure = RdpeiValues.Pressure(state.Pressure ?? 0),
+                HasTiltX = state.TiltX is not null,
+                TiltX = RdpeiValues.Tilt(state.TiltX ?? 0),
+                HasTiltY = state.TiltY is not null,
+                TiltY = RdpeiValues.Tilt(state.TiltY ?? 0),
+                HasRotation = state.Rotation is not null,
+                Rotation = RdpeiValues.Rotation(state.Rotation ?? 0),
+            });
+            EncodePending(() => stage.EncodeRdpeiPen(pens), () => pens.HasPendingFrames, pens.Reset, frames);
+        }
+
+        QueueInputFrames(frames);
+    }
+
+    /// <summary>
+    /// Encodes every pending frame. When the channel can't take them (it closed, or the server paused input), what's
+    /// pending is dropped rather than kept to grow, and the next touch starts afresh. Caller holds _stageLock.
+    /// </summary>
+    static void EncodePending(Func<VecU8?> encode, Func<bool> pending, System.Action drop, List<byte[]> into)
+    {
+        try
+        {
+            while (pending())
+            {
+                using var frame = encode();
+                if (frame is null)
+                {
+                    break;
+                }
+
+                into.Add(ToBytes(frame));
+            }
+        }
+        catch (IronRdpException e)
+        {
+            Logger.LogDebug("Touch or pen input not sent: {Message}", e.Message);
+            drop();
+        }
+    }
+
+    void QueueInputFrames(List<byte[]> frames)
+    {
+        foreach (var frame in frames)
+        {
+            _inputFrames.Writer.TryWrite(frame);
+        }
+    }
+
+    /// <summary>Writes touch and pen frames in the order they were made, which one task per frame wouldn't keep.</summary>
+    async Task InputFrameLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            await foreach (var frame in _inputFrames.Reader.ReadAllAsync(token))
+            {
+                await WriteAsync(frame, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception e)
+        {
+            // A write to a dropped connection, say. The read loop reports the disconnect.
+            Logger.LogWarning("RDP touch input stopped: {Message}", e.Message);
+        }
+    }
+
     public void RequestResize(int width, int height)
     {
         if (State != SessionState.Connected)
@@ -623,6 +878,55 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
                 Logger.LogError("RDP resize to {Width}x{Height} failed: {Message}", width, height, e.Message);
             }
         });
+    }
+
+    /// <summary>
+    /// Asks for a desktop of several monitors through the display-control channel, as for a resize. False when the
+    /// server hasn't opened that channel, or IronRDP refuses the layout; the caller then asks for one monitor.
+    /// </summary>
+    public bool RequestMonitorLayout(IReadOnlyList<RemoteMonitor> monitors)
+    {
+        if (State != SessionState.Connected)
+        {
+            return false;
+        }
+
+        ActiveStageOutputIterator? outputs;
+        try
+        {
+            var layout = DisplayMonitorLayout.New();
+            foreach (var monitor in monitors)
+            {
+                layout.AddMonitor(monitor.Left, monitor.Top, (uint)monitor.Width, (uint)monitor.Height, monitor.IsPrimary);
+            }
+
+            outputs = WithStageLock(() => _activeStage!.EncodedMonitorLayout(layout));
+        }
+        catch (Exception e) when (e is IronRdpException or EntryPointNotFoundException)
+        {
+            Logger.LogWarning("{Host}: can't spread the desktop over {Count} displays: {Message}", Target.Host, monitors.Count, e.Message);
+            return false;
+        }
+
+        if (outputs is null)
+        {
+            Logger.LogDebug("{Host}: can't spread the desktop over displays, the server has no display control channel", Target.Host);
+            return false;
+        }
+
+        Logger.LogDebug("{Host}: asking for {Count} monitors", Target.Host, monitors.Count);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await HandleOutputsAsync(outputs, _cts.Token);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                Logger.LogError("RDP monitor layout failed: {Message}", e.Message);
+            }
+        });
+        return true;
     }
 
     void SendInput(Operation operation)
@@ -676,9 +980,12 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         }
 
         _cts.Cancel();
+        _inputFrames.Writer.TryComplete();
         // Each loop has already reported its own outcome, so a fault here is only traced.
         await AwaitLoopAsync(_readLoop);
         await AwaitLoopAsync(_clipboardLoop);
+        await AwaitLoopAsync(_inputFrameLoop);
+        await AwaitLoopAsync(_drivesLoop);
         _route?.Dispose();
     }
 
@@ -706,6 +1013,10 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         {
             _image?.Dispose();
             _image = null;
+            _touches?.Dispose();
+            _touches = null;
+            _pens?.Dispose();
+            _pens = null;
         }
 
         // The loop has ended, so nothing is waiting on the clipboard any more.
@@ -769,7 +1080,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         _ => [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing],
     };
 
-    static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality)
+    static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality, bool playAudio)
     {
         var builder = ConfigBuilder.New();
         builder.WithUsernameAndPassword(target.Username ?? string.Empty, password);
@@ -780,7 +1091,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
 
         // IronRDP takes height first.
         builder.SetDesktopSize((ushort)height, (ushort)width);
-        builder.ClientName = "Orrery";
+        builder.ClientName = RdpConnector.ClientName;
         builder.ClientDir = "C:\\";
         var flags = PerformanceFlags.NewEmpty();
         foreach (var flag in VisualEffects(quality))
@@ -789,11 +1100,45 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         }
 
         builder.PerformanceFlags = flags;
+        if (!playAudio)
+        {
+            try
+            {
+                // Tells the server not to send sound at all, rather than sending it to no one.
+                builder.EnableAudioPlayback = false;
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                Logger.LogWarning("Can't ask the server to keep its sound: {Message}", e.Message);
+            }
+        }
 
         // NLA is required: credentials only ever go through CredSSP, inside a certificate-checked TLS session.
         // These are IronRDP's defaults today; they're set here so a changed default can't weaken the sign-in.
         builder.EnableCredssp = true;
         builder.EnableTls = false;
         return builder.Build();
+    }
+}
+
+/// <summary>Touch and pen values in the units MS-RDPEI wants (2.2.3.3.1.1, 2.2.3.7.1.1).</summary>
+internal static class RdpeiValues
+{
+    /// <summary>Pressure from 0 to 1 as 0 to 1024.</summary>
+    public static uint Pressure(double pressure) => (uint)Math.Round(Math.Clamp(double.IsNaN(pressure) ? 0 : pressure, 0, 1) * 1024);
+
+    /// <summary>Tilt in degrees, -90 to 90.</summary>
+    public static short Tilt(double degrees) => (short)Math.Round(Math.Clamp(double.IsNaN(degrees) ? 0 : degrees, -90, 90));
+
+    /// <summary>Rotation in degrees, wrapped into 0 to 359.</summary>
+    public static ushort Rotation(double degrees)
+    {
+        if (double.IsNaN(degrees) || double.IsInfinity(degrees))
+        {
+            return 0;
+        }
+
+        int whole = (int)Math.Round(degrees % 360);
+        return (ushort)((whole % 360 + 360) % 360);
     }
 }

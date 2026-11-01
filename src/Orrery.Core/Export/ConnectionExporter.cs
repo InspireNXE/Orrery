@@ -52,8 +52,8 @@ public static class ConnectionExporter
 {
     /// <summary>Marks an Orrery export file, so it isn't mistaken for connections.json or anything else.</summary>
     internal const string OrreryFormatName = "orrery-connections";
-    /// <summary>The newest schema the importer reads. Files are written with the oldest that holds them (2 only with hosts).</summary>
-    internal const int OrrerySchemaVersion = 2;
+    /// <summary>The newest schema the importer reads. Files are written with the oldest that holds them, as connections.json is.</summary>
+    internal const int OrrerySchemaVersion = 3;
 
     public static ExportFormat? FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
@@ -78,7 +78,8 @@ public static class ConnectionExporter
         var snapshot = Snapshot(node, credentials, secrets, keepCredentials: format == ExportFormat.Orrery, warnings);
         var tree = snapshot.Tree;
         int folders = tree.Root.Descendants().OfType<ConnectionFolder>().Count();
-        int connections = tree.AllConnections().Count();
+        // A serial connection isn't written to a confCons.xml, so it isn't counted there.
+        int connections = tree.AllConnections().Count(e => format != ExportFormat.MRemoteNg || InMRemoteNg(e));
         var content = format switch
         {
             ExportFormat.Orrery => WriteOrrery(snapshot, now, secrets),
@@ -320,7 +321,7 @@ public static class ConnectionExporter
                 // mRemoteNG checks whether this decrypts with its default password to know if there's a master password.
                 new XAttribute("Protected", marker),
                 new XAttribute("ConfVersion", "2.6"),
-                tree.Root.Children.Select(n => MRemoteNgNode(n, PasswordFor))));
+                MRemoteNgNodes(tree.Root.Children, PasswordFor)));
 
         int keys = snapshot.ConnectionSecrets.Values.Count(c => c.Kind != CredentialKind.Password);
         if (keys > 0)
@@ -334,13 +335,19 @@ public static class ConnectionExporter
             warnings.Add($"mRemoteNG has no hosts, so {Count(hosts, "host was", "hosts were")} written as a folder holding the host and its guests.");
         }
 
+        int serial = tree.AllConnections().Count(e => !InMRemoteNg(e));
+        if (serial > 0)
+        {
+            warnings.Add($"mRemoteNG has no serial connections, so {Count(serial, "was", "were")} left out.");
+        }
+
         var lost = new Dictionary<string, int>();
         void Lost(string what, bool when)
         {
             if (when) lost[what] = lost.GetValueOrDefault(what) + 1;
         }
 
-        foreach (var entry in tree.AllConnections())
+        foreach (var entry in tree.AllConnections().Where(InMRemoteNg))
         {
             var resolved = SettingsResolver.Resolve(entry);
             Lost("Jump hosts", resolved.JumpHostId.Value is not null);
@@ -354,6 +361,11 @@ public static class ConnectionExporter
             Lost("Reconnect turned off", !resolved.AutoReconnect.Value);
             Lost("Enlarge setting chosen per connection", resolved.EnlargeRemoteDesktop.Value is not null);
             Lost("Color correction turned off", !resolved.ColorCorrection.Value);
+            bool rdp = resolved.Protocol.Value == Protocol.Rdp;
+            Lost("Shared folders (only sharing every drive carries over)", rdp && !resolved.ShareAllDrives.Value && resolved.SharedFolders.Value.Count > 0);
+            Lost("Full screen over every display", rdp && resolved.UseAllMonitors.Value);
+            Lost("SSH keep-alive intervals", resolved.Protocol.Value == Protocol.Ssh && !resolved.KeepAliveSeconds.IsDefault);
+            Lost("SOCKS proxies", resolved.Protocol.Value == Protocol.Ssh && resolved.SocksProxy.Value is not null);
         }
 
         foreach (var (what, count) in lost.OrderByDescending(l => l.Value))
@@ -370,13 +382,20 @@ public static class ConnectionExporter
         return output.ToString();
     }
 
+    /// <summary>Whether mRemoteNG can hold the connection: every protocol but a serial port.</summary>
+    static bool InMRemoteNg(ConnectionNode node) => node is not ConnectionEntry entry || SettingsResolver.Resolve(entry).Protocol.Value != Protocol.Serial;
+
+    /// <param name="passwordFor">A connection's encrypted password, or empty.</param>
+    static IEnumerable<XElement> MRemoteNgNodes(IEnumerable<ConnectionNode> nodes, Func<ConnectionNode, string> passwordFor) =>
+        nodes.Where(n => InMRemoteNg(n) || n is ConnectionEntry { IsHost: true }).Select(n => MRemoteNgNode(n, passwordFor));
+
     /// <param name="passwordFor">A connection's encrypted password, or empty.</param>
     static XElement MRemoteNgNode(ConnectionNode node, Func<ConnectionNode, string> passwordFor) =>
         node is ConnectionEntry { IsHost: true } host
             ? MRemoteNgNode(host, asFolder: true,
-                [MRemoteNgNode(host, asFolder: false, [], passwordFor), .. host.Guests.Select(g => MRemoteNgNode(g, passwordFor))], passwordFor)
+                [.. InMRemoteNg(host) ? [MRemoteNgNode(host, asFolder: false, [], passwordFor)] : Array.Empty<XElement>(), .. MRemoteNgNodes(host.Guests, passwordFor)], passwordFor)
             : MRemoteNgNode(node, asFolder: node is ConnectionFolder,
-                ((node as ConnectionFolder)?.Children ?? []).Select(c => MRemoteNgNode(c, passwordFor)).ToList(), passwordFor);
+                MRemoteNgNodes((node as ConnectionFolder)?.Children ?? [], passwordFor).ToList(), passwordFor);
 
     /// <param name="asFolder">Written as a container. A host is written twice: as a folder named after it, and inside that as the connection.</param>
     static XElement MRemoteNgNode(ConnectionNode node, bool asFolder, List<XElement> children, Func<ConnectionNode, string> passwordFor)
@@ -399,6 +418,8 @@ public static class ConnectionExporter
                 Protocol.Ssh => "SSH2",
                 Protocol.Vnc => "VNC",
                 Protocol.Telnet => "Telnet",
+                Protocol.Http => "HTTP",
+                Protocol.Https => "HTTPS",
                 _ => "RDP",
             },
             ["Port"] = resolved.Port.Value.ToString(CultureInfo.InvariantCulture),
@@ -409,6 +430,13 @@ public static class ConnectionExporter
             ["EnableFontSmoothing"] = resolved.DisplayQuality.Value != DisplayQuality.Fastest ? "true" : "false",
             ["EnableDesktopComposition"] = resolved.DisplayQuality.Value == DisplayQuality.Best ? "true" : "false",
             ["VNCCompression"] = resolved.DisplayQuality.Value == DisplayQuality.Fastest ? "Comp9" : "CompNone",
+            ["RedirectSound"] = resolved.RemoteAudio.Value == RemoteAudio.PlayHere ? "BringToThisComputer" : "DoNotPlay",
+            // mRemoteNG 2.6 can share every drive or none; chosen folders are counted as lost above.
+            ["RedirectDiskDrives"] = resolved.ShareAllDrives.Value ? "true" : "false",
+            ["ConnectToConsole"] = resolved.AdminSession.Value ? "true" : "false",
+            ["VNCViewOnly"] = resolved.ViewOnly.Value ? "true" : "false",
+            // mRemoteNG can't shrink without also enlarging, so shrink to fit is written as filling the tab.
+            ["VNCSmartSizeMode"] = resolved.Scaling.Value == DesktopScaling.ActualSize ? "SmartSNo" : "SmartSAspect",
         };
 
         var element = new XElement("Node");

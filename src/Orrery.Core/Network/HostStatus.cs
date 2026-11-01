@@ -36,13 +36,21 @@ public sealed record ProbeTarget(Guid Id, string Host, int Port)
     {
         whyNot = null;
         var resolved = SettingsResolver.Resolve(entry);
+        if (!ProtocolInfo.UsesNetwork(resolved.Protocol.Value))
+        {
+            whyNot = "a serial port on this computer, not a host on the network";
+            return null;
+        }
+
         if (resolved.JumpHostId.Value is not null)
         {
             whyNot = "behind a jump host, so it can't be checked from here";
             return null;
         }
 
-        if (!HostAddress.TryParse(entry.Host, resolved.Port.Value, out var host, out var port))
+        // A web page's host can have a path after it, which isn't part of what's checked.
+        var address = ProtocolInfo.IsWeb(resolved.Protocol.Value) && entry.Host is { } web ? WebAddress.HostOf(web) : entry.Host;
+        if (!HostAddress.TryParse(address, resolved.Port.Value, out var host, out var port))
         {
             whyNot = string.IsNullOrWhiteSpace(entry.Host) ? "no host is set" : "the host isn't a name or address Orrery can check";
             return null;

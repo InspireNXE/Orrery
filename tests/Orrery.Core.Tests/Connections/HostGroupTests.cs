@@ -201,7 +201,7 @@ public class HostGroupTests : IDisposable
     public void A_file_from_a_newer_schema_is_still_refused()
     {
         Directory.CreateDirectory(_dir);
-        File.WriteAllText(Path.Combine(_dir, "connections.json"), """{"schemaVersion":3,"root":{"type":"folder","name":"Connections"}}""");
+        File.WriteAllText(Path.Combine(_dir, "connections.json"), """{"schemaVersion":4,"root":{"type":"folder","name":"Connections"}}""");
 
         Assert.Throws<InvalidDataException>(() => Store().Load());
     }
