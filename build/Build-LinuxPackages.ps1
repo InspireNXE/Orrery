@@ -131,7 +131,8 @@ function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
     $lines.Add('    recommends:')
     $lines.Add("      - libsecret")
 
-    Set-Content -Path $Path -Value $lines -Encoding utf8NoBOM
+    # UTF-8 without a BOM in Windows PowerShell 5.1 too, which has no utf8NoBOM encoding.
+    [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))
 }
 
 function Build-AppImage([string] $Rid, [string] $Publish, [string] $Tool) {

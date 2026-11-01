@@ -64,7 +64,7 @@ foreach ($rid in $Runtimes) {
         New-Item -ItemType Directory -Force (Join-Path $bundle 'MacOS'), (Join-Path $bundle 'Resources') | Out-Null
         Copy-Item -Recurse (Join-Path $publish '*') (Join-Path $bundle 'MacOS')
         Copy-Item (Join-Path $root 'src/Orrery.App/Assets/orrery.icns') (Join-Path $bundle 'Resources/Orrery.icns')
-        @"
+        $plist = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -82,7 +82,9 @@ foreach ($rid in $Runtimes) {
   <key>NSHumanReadableCopyright</key><string>Copyright © 2026 InspireNXE. MIT License.</string>
 </dict>
 </plist>
-"@ | Set-Content -Encoding utf8NoBOM (Join-Path $bundle 'Info.plist')
+"@
+        # UTF-8 without a BOM in Windows PowerShell 5.1 too, which has no utf8NoBOM encoding.
+        [IO.File]::WriteAllText((Join-Path $bundle 'Info.plist'), $plist + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     }
     else {
         Copy-Item -Recurse (Join-Path $publish '*') $stage
@@ -95,7 +97,19 @@ foreach ($rid in $Runtimes) {
     New-Item -ItemType File (Join-Path $stage 'orrery.portable.json') | Out-Null
 
     # Zip archives keep no Unix permissions from Windows, so on Linux and macOS: chmod +x Orrery after unzipping.
-    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+    # Not Compress-Archive: Windows PowerShell 5.1's writes backslashes into entry names, which macOS and Linux
+    # unpack as one file per path rather than folders.
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in Get-ChildItem -Recurse -File $stage) {
+            $entry = $file.FullName.Substring($stage.Length + 1).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entry) | Out-Null
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
     Write-Host "   $zip" -ForegroundColor Green
 }
 
