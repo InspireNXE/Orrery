@@ -8,7 +8,7 @@ enum FocusPlace
     /// <summary>The tree, the tab strip, a settings field: anything outside a session.</summary>
     App,
 
-    /// <summary>An SSH or Telnet terminal.</summary>
+    /// <summary>A terminal: SSH, Telnet or a local shell.</summary>
     Terminal,
 
     /// <summary>An RDP or VNC desktop, which gets nearly every key.</summary>
@@ -27,7 +27,7 @@ enum TabCommandKind
 }
 
 /// <summary>
-/// The keys that move between and close session tabs, browser style. What's taken depends on focus:
+/// The keys that move between and close session tabs, browser style, and the one that opens a local terminal. What's taken depends on focus:
 /// Ctrl+Alt+PageUp/PageDown work everywhere, even in a remote desktop; Ctrl+Tab, Ctrl+PageUp/PageDown,
 /// Ctrl+1–9 and Ctrl+F4 work everywhere but a remote desktop, which gets them; Ctrl+W only outside a session,
 /// since shells use it to delete a word. On macOS, Cmd takes Ctrl's place except in Ctrl+Tab.
@@ -69,6 +69,13 @@ static class TabShortcuts
                 return null;
         }
     }
+
+    /// <summary>
+    /// Ctrl+Shift+T (Cmd+Shift+T on macOS) opens a local terminal, as it opens a new tab in most terminals: outside a
+    /// session and in a terminal, but not in a remote desktop, which gets it.
+    /// </summary>
+    public static bool OpensLocalTerminal(Key key, KeyModifiers modifiers, FocusPlace place, bool mac) =>
+        key == Key.T && modifiers == ((mac ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift) && place != FocusPlace.Desktop;
 
     /// <summary>The index <paramref name="command"/> leads to from <paramref name="current"/>, among <paramref name="count"/> tabs; null for none.</summary>
     public static int? Target(TabCommand command, int current, int count)

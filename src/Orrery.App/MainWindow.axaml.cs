@@ -17,6 +17,7 @@ using Orrery.App.Logging;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
+using Orrery.Core.Network;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.App.Settings;
@@ -26,6 +27,7 @@ using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
 using Orrery.Protocols.Ssh.Agent;
@@ -81,13 +83,18 @@ public partial class MainWindow : Window
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
+    readonly ConnectionHistory _history;
     readonly RecentPanel _recentPanel;
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
+    readonly HostStatusController _hostStatus;
+    readonly TextBlock _noticeText;
+    int _noticeVersion;
+    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
+    readonly NetworkWatch _network = new();
 
     bool _rebuilding;
     Point? _dragStart;
@@ -110,6 +117,7 @@ public partial class MainWindow : Window
         _location = location;
         _movedFrom = movedFrom;
         _settingsStore = AppSettingsStore.In(location);
+        Palette.Use(_settingsStore.Load().UseColourBlindColours);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";
@@ -117,9 +125,9 @@ public partial class MainWindow : Window
         if (FolderAccess.IsOpenToOthers(location.DataDir))
         {
             // Said once, at start-up; it doesn't stop anything.
-            var accessText = this.FindControl<TextBlock>("DataAccessText")!;
+            var accessText = this.FindControl<Controls.Notice>("DataAccessText")!;
             accessText.Text = "Other people who use this computer can change the data folder";
-            accessText.Foreground = Dialogs.WarningBrush;
+            accessText.Message.FontSize = 11;
             accessText.IsVisible = true;
             ToolTip.SetTip(accessText, $"{location.DataDir}\n\nOrrery's saved hosts and trusted keys live here, so someone else could change them. "
                 + "Settings › Move data can move them to a folder only you can use.");
@@ -128,6 +136,8 @@ public partial class MainWindow : Window
         if (OperatingSystem.IsMacOS())
         {
             this.FindControl<TextBlock>("QuickConnectShortcut")!.Text = "⌘K";
+            this.FindControl<TextBlock>("EmptyStateLocal")!.Text = "Cmd+Shift+T opens a terminal on this computer.";
+            ToolTip.SetTip(this.FindControl<Button>("LocalTerminalButton")!, "Local terminal (Cmd+Shift+T)");
         }
 
         _treeView = this.FindControl<TreeView>("Tree")!;
@@ -167,6 +177,8 @@ public partial class MainWindow : Window
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
         _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
+        _wakeMenuItem = this.FindControl<MenuItem>("WakeMenuItem")!;
+        _noticeText = this.FindControl<TextBlock>("NoticeText")!;
         _addGuestMenuItem = this.FindControl<MenuItem>("AddGuestMenuItem")!;
         _moveOutOfHostMenuItem = this.FindControl<MenuItem>("MoveOutOfHostMenuItem")!;
         _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
@@ -218,7 +230,9 @@ public partial class MainWindow : Window
         _saveTimer = new DispatcherTimer { Interval = SaveDelay };
         _saveTimer.Tick += (_, _) => SaveNow();
 
-        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops);
+        _history = ConnectionHistory.In(location);
+        _tree.Removed += (_, e) => _history.Forget(e.Ids);
+        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
         _propertiesHost.Child = _properties;
 
@@ -236,6 +250,10 @@ public partial class MainWindow : Window
         _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
 
+        _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
+            () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
+        _hostStatus.Enabled = _settingsStore.Load().ChecksHostStatus;
+
         WireTree();
         WireTitleBar();
         WireFullScreen();
@@ -243,6 +261,9 @@ public partial class MainWindow : Window
         var layout = _settingsStore.Load();
         ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
         ShowInspector(layout.InspectorOpen ?? true, save: false);
+        _workspaceStore = WorkspaceStore.In(location);
+        _savedWorkspace = _workspaceStore.Load();
+        InitWorkspace();
         RebuildTree();
         UpdateVaultButton();
         UpdateSessionChrome();
@@ -268,12 +289,18 @@ public partial class MainWindow : Window
             {
                 await OfferMRemoteNgImportAsync();
             }
+
+            await OfferWorkspaceAsync();
         };
 
+        _network.Back += (_, _) => NetworkBack();
         Closing += (_, _) =>
         {
+            _network.Dispose();
             _properties.TrySave();
             SaveNow();
+            SaveWorkspace();
+            _hostStatus.Dispose();
             SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
             {
@@ -394,6 +421,11 @@ public partial class MainWindow : Window
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
             _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
+            int wakeable = nodes.OfType<ConnectionEntry>().Count(e => !string.IsNullOrEmpty(e.MacAddress));
+            _wakeMenuItem.IsVisible = nodes.OfType<ConnectionEntry>().Any();
+            _wakeMenuItem.IsEnabled = wakeable > 0;
+            _wakeMenuItem.Header = wakeable > 1 ? $"Wake {wakeable}" : "Wake";
+            ToolTip.SetTip(_wakeMenuItem, wakeable == 0 ? "Set a MAC address in the connection's settings to wake it." : null);
             _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
             _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
             _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
@@ -671,6 +703,24 @@ public partial class MainWindow : Window
                     EnterFullScreen();
                 }
             }
+            else if (Input.SessionEscape.Matches(e.Key, e.KeyModifiers) && _currentTab is { } tab
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true })
+            {
+                // Out of the session, which keeps every other key, to its tab: keyboard-only and screen reader users'
+                // way back to the rest of the window. Enter on the tab goes back in.
+                e.Handled = true;
+                if (_fullScreen)
+                {
+                    // Leaving full screen puts the focus back in the session once the layout settles; the tab
+                    // takes it after that.
+                    ExitFullScreen();
+                    Dispatcher.UIThread.Post(() => tab.Header.Focus(NavigationMethod.Tab), DispatcherPriority.Background);
+                }
+                else
+                {
+                    tab.Header.Focus(NavigationMethod.Tab);
+                }
+            }
         }, RoutingStrategies.Tunnel);
 
         _fullScreenHotZone.PointerEntered += (_, _) =>
@@ -712,6 +762,18 @@ public partial class MainWindow : Window
             else if (Input.TabShortcuts.Target(command, _currentTab is null ? 0 : _tabs.IndexOf(_currentTab), _tabs.Count) is { } index)
             {
                 SelectTab(_tabs[index]);
+            }
+        }, RoutingStrategies.Tunnel);
+
+        // A local terminal, caught on the way down too so a focused terminal doesn't take it as Ctrl+T.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (!e.Handled && !_dimmer.IsVisible
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true }
+                && Input.TabShortcuts.OpensLocalTerminal(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
+            {
+                e.Handled = true;
+                OpenLocalTerminal();
             }
         }, RoutingStrategies.Tunnel);
 
@@ -889,7 +951,7 @@ public partial class MainWindow : Window
         // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
         ExtendClientAreaToDecorationsHint = false;
         WindowState = WindowState.FullScreen;
-        Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
     }
 
     void ExitFullScreen()
@@ -917,7 +979,7 @@ public partial class MainWindow : Window
         UpdateSessionToolbar();
         if (_currentTab is { } tab)
         {
-            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
     }
 
@@ -995,7 +1057,11 @@ public partial class MainWindow : Window
         _rebuilding = true;
         try
         {
-            _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, ScheduleSave);
+            _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, () =>
+            {
+                ScheduleSave();
+                _hostStatus.Refresh();
+            });
             Select(selected);
         }
         finally
@@ -1005,6 +1071,7 @@ public partial class MainWindow : Window
 
         _treeEmptyState.IsVisible = _tree.Root.Children.Count == 0;
         UpdateTreeStatus();
+        _hostStatus.Refresh();
         if (SelectedNode != _properties.Node)
         {
             _ = _properties.ShowAsync(SelectedNode);
@@ -1088,6 +1155,59 @@ public partial class MainWindow : Window
         if (SingleSelectedNode is ConnectionEntry entry)
         {
             await ConnectAsync(entry, files: true);
+        }
+    }
+
+    async void OnWakeMenuClick(object? sender, RoutedEventArgs e) => await WakeSelectedAsync();
+
+    /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
+    async Task WakeSelectedAsync()
+    {
+        var problems = new List<string>();
+        var woken = new List<string>();
+        foreach (var entry in SelectedNodes().OfType<ConnectionEntry>().Where(en => !string.IsNullOrEmpty(en.MacAddress)))
+        {
+            if (WakeOnLan.PlanFor(entry, out var whyNot) is not { } plan)
+            {
+                problems.Add($"{entry.Name}: {whyNot}");
+                continue;
+            }
+
+            try
+            {
+                await WakeOnLan.SendAsync(plan.Mac, plan.Destination);
+                woken.Add(entry.Name);
+                WakeLog.LogInformation("Sent a wake-up packet for \"{Name}\" ({Mac}) to {Destination}", entry.Name, entry.MacAddress, plan.Destination);
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                problems.Add($"{entry.Name}: {ex.Message}");
+                WakeLog.LogWarning("Couldn't send a wake-up packet for \"{Name}\" to {Destination}: {Message}", entry.Name, plan.Destination, ex.Message);
+            }
+        }
+
+        if (woken.Count > 0)
+        {
+            ShowNotice(woken.Count == 1 ? $"Sent a wake-up packet to {woken[0]}" : $"Sent wake-up packets to {woken.Count} connections");
+        }
+
+        if (problems.Count > 0)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't send the wake-up packet", string.Join("\n", problems));
+        }
+    }
+
+    /// <summary>A line in the status bar for a few seconds.</summary>
+    async void ShowNotice(string text)
+    {
+        int version = ++_noticeVersion;
+        _noticeText.Text = text;
+        _noticeText.IsVisible = true;
+        Controls.ScreenReader.Announce(_noticeText, text, "Orrery.Notice", Controls.ScreenReader.MostRecent);
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        if (version == _noticeVersion)
+        {
+            _noticeText.IsVisible = false;
         }
     }
 
@@ -1265,7 +1385,7 @@ public partial class MainWindow : Window
         _dimmer.IsVisible = true;
         try
         {
-            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol)).ToList();
+            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol, t.Origin.Label)).ToList();
             choice = await new QuickConnectWindow(_tree, open).ShowOver(this);
         }
         finally
@@ -1507,6 +1627,31 @@ public partial class MainWindow : Window
         UpdateVaultButton();
     }
 
+    void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
+
+    /// <summary>
+    /// A shell on this computer in a new tab, starting in the home folder: <paramref name="shellId"/>, or the one
+    /// chosen in settings. Duplicating or restarting the tab opens the same shell again.
+    /// </summary>
+    void OpenLocalTerminal(string? shellId = null)
+    {
+        var shell = LocalShells.Find(shellId ?? _settingsStore.Load().LocalShell);
+        var origin = new SessionOrigin(shell.Name, Protocol.Ssh, null, () =>
+        {
+            OpenLocalTerminal(shell.Id);
+            return Task.CompletedTask;
+        })
+        {
+            Local = true,
+            LocalShell = shell.Id,
+        };
+        Open(origin, () =>
+        {
+            var session = LocalTerminalSession.Start(shell, 80, 24);
+            return (NewTerminalView(session), session);
+        });
+    }
+
     void StartTelnet(SessionOrigin origin, ConnectionTarget target, IReadOnlyList<SshHop>? jumps = null) => Open(origin, () =>
     {
         var session = TelnetSession.Start(target, 80, 24, Tunnel(jumps));
@@ -1612,6 +1757,7 @@ public partial class MainWindow : Window
 
     static readonly ILogger ConnectLog = Log.For("Connect");
     static readonly ILogger StorageLog = Log.For("Storage");
+    static readonly ILogger WakeLog = Log.For("Wake");
 
     /// <summary>A username as the log shows it, with its domain when there is one.</summary>
     static string Account(string? username, string? domain) =>
@@ -1684,13 +1830,16 @@ public partial class MainWindow : Window
         return hops;
     }
 
-    /// <summary>A terminal at the saved text size; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
+    /// <summary>A terminal at the saved text size and colours; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
     TerminalView NewTerminalView(ITerminalSession session)
     {
+        var settings = _settingsStore.Load();
         var view = new TerminalView(session)
         {
             Margin = TerminalMargin,
-            TextSize = _settingsStore.Load().TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            TextSize = settings.TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            ColourScheme = settings.TerminalColours ?? TerminalColourScheme.Standard,
+            Announcements = Controls.ScreenReader.TerminalAnnouncements(settings),
         };
         view.TextSizeRequested += (_, step) => ChangeTerminalTextSize(step);
         return view;
@@ -1721,8 +1870,12 @@ public partial class MainWindow : Window
     void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
         var tab = NewTab(view, session, origin);
-        _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
-            session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
+        if (!origin.Local)
+        {
+            _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
+                session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
+        }
+
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
         _sessionHost.Children.Add(tab.Host);
@@ -1741,7 +1894,9 @@ public partial class MainWindow : Window
         SessionLogger.Attach(tab);
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
+        tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
+        HistoryRecorder.Attach(tab, _tree, _history);
         tab.StateChanged += (_, _) =>
         {
             UpdateTreeStatus();
@@ -1760,20 +1915,59 @@ public partial class MainWindow : Window
 
     // ---- Reconnecting by itself ----
 
-    static readonly TimeSpan[] ReconnectDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30)];
+    bool ShouldReconnect(SessionTab tab) => tab.CanRetryByItself && !tab.IsReconnecting && _tabs.Contains(tab);
 
-    bool ShouldReconnect(SessionTab tab) => tab.WasCutOff && !tab.IsReconnecting && _tabs.Contains(tab);
-
-    void BeginReconnect(SessionTab tab)
+    /// <param name="fresh">Count from the first try again, as when the network has just come back.</param>
+    void BeginReconnect(SessionTab tab, bool fresh = false)
     {
         // A try that got connected starts the count again.
-        int attempt = tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
-        if (attempt > ReconnectDelays.Length)
+        int attempt = fresh || tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
+        if (attempt > ReconnectSchedule.MaxAttempts)
+        {
+            tab.ShowGaveUp(ReconnectSchedule.MaxAttempts);
+            return;
+        }
+
+        var delay = fresh ? NetworkWatch.Settle : ReconnectSchedule.Delay(attempt);
+        tab.ShowReconnecting(attempt, ReconnectSchedule.MaxAttempts, delay, () => _ = RestartTabAsync(tab, attempt));
+    }
+
+    /// <summary>
+    /// The OS says the network is back: sessions counting down try now, and ones that gave up start again, unless
+    /// the user pressed Stop or the failure needs them.
+    /// </summary>
+    void NetworkBack()
+    {
+        foreach (var tab in _tabs.ToList())
+        {
+            if (!tab.RetrySoon(TimeSpan.FromSeconds(1)) && ShouldReconnect(tab))
+            {
+                BeginReconnect(tab, fresh: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reconnect, from the connection-lost screen or the toolbar. A session that can reopen itself does so in its
+    /// own tab with the same login; one whose login, host key or certificate was refused is opened afresh, so the
+    /// login is asked for and the key or certificate shown again.
+    /// </summary>
+    async Task ReconnectAsync(SessionTab tab)
+    {
+        if (!_tabs.Contains(tab))
         {
             return;
         }
 
-        tab.ShowReconnecting(attempt, ReconnectDelays.Length, ReconnectDelays[attempt - 1], () => _ = RestartTabAsync(tab, attempt));
+        tab.CancelReconnect();
+        if (tab.Origin.Restart is not null && tab.Failure is not { NeedsUser: true })
+        {
+            await RestartTabAsync(tab, 0);
+            return;
+        }
+
+        await CloseTabAsync(tab.Session);
+        await tab.Origin.Reconnect();
     }
 
     /// <summary>Puts a new session, opened the same way, in place of <paramref name="old"/>.</summary>
@@ -1817,7 +2011,7 @@ public partial class MainWindow : Window
         if (tab is not null)
         {
             tab.Header.BringIntoView();
-            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
     }
 
@@ -1861,12 +2055,17 @@ public partial class MainWindow : Window
         var state = session.State;
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
-        _sessionDetail.Text = $"{(tab.Origin.Files ? "SFTP" : ProtocolInfo.Label(tab.Origin.Protocol))} · " + state switch
+        _sessionDetail.Text = $"{tab.Origin.Label} · " + (session, state) switch
         {
-            SessionState.Connecting => "Connecting…",
-            SessionState.Disconnected => "Disconnected",
-            SessionState.Failed => "Couldn't connect",
-            _ when session is IFrameBufferSession frame && frame.Width > 0 => $"{frame.Width}×{frame.Height}",
+            (ILocalSession, SessionState.Connecting) => "Starting…",
+            (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
+            (ILocalSession, SessionState.Disconnected) => "Ended",
+            (ILocalSession, SessionState.Failed) => "Couldn't start",
+            (ILocalSession, _) => "Running",
+            (_, SessionState.Connecting) => "Connecting…",
+            (_, SessionState.Disconnected) => "Disconnected",
+            (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
+            (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
             _ => "Connected",
         } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
 
@@ -1903,7 +2102,7 @@ public partial class MainWindow : Window
 
         if (state is SessionState.Connecting or SessionState.Connected)
         {
-            var disconnect = new Button { Content = "Disconnect" };
+            var disconnect = new Button { Content = tab.Origin.Local ? "End" : "Disconnect" };
             disconnect.Classes.Add("danger");
             disconnect.Click += async (_, _) =>
             {
@@ -1914,13 +2113,9 @@ public partial class MainWindow : Window
         }
         else
         {
-            var reconnect = new Button { Content = "Reconnect" };
+            var reconnect = new Button { Content = tab.Origin.Local ? "Restart" : "Reconnect" };
             reconnect.Classes.Add("accent");
-            reconnect.Click += async (_, _) =>
-            {
-                await CloseTabAsync(session);
-                await tab.Origin.Reconnect();
-            };
+            reconnect.Click += async (_, _) => await ReconnectAsync(tab);
             _sessionActions.Children.Add(reconnect);
         }
     }
@@ -2036,7 +2231,7 @@ public partial class MainWindow : Window
         }
 
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
-        yield return MenuItemFor("Reconnect", async () =>
+        yield return MenuItemFor(tab.Origin.Local ? "Restart" : "Reconnect", async () =>
         {
             await CloseTabAsync(tab.Session);
             await tab.Origin.Reconnect();
@@ -2496,7 +2691,22 @@ public partial class MainWindow : Window
                 _fullScreenShortcut = shortcut;
                 UpdateSessionToolbar();
             };
+            view.TerminalAnnouncementsChanged += (_, on) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.Announcements = on;
+                }
+            };
+            view.HostStatusChecksChanged += (_, on) => _hostStatus.Enabled = on;
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
+            view.TerminalColoursChanged += (_, scheme) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.ColourScheme = scheme;
+                }
+            };
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;
 
@@ -2518,7 +2728,7 @@ public partial class MainWindow : Window
         _settingsHost.Content = null;
         _settingsRailButton.Classes.Set("active", false);
         ShowSidePanel(_sidePanel.IsVisible, save: false);
-        _currentTab?.View.Focus();
+        _currentTab?.FocusContent();
     }
 
     /// <summary>

@@ -105,9 +105,12 @@ public class SecretLeakTests : IDisposable
         Assert.Contains("127.0.0.1", log);
         Assert.Contains("Vault unlocked with Test Hello", log);
         Assert.Contains("Test Hello unlock turned off", log);
+        string details;
+        lock (FailureDetails) details = string.Join("\n", FailureDetails);
         foreach (var secret in Secrets)
         {
             Assert.DoesNotContain(secret, log);
+            Assert.DoesNotContain(secret, details);
         }
 
         Assert.NotEmpty(hello.Secrets);
@@ -118,11 +121,20 @@ public class SecretLeakTests : IDisposable
         }
     }
 
+    /// <summary>What the connection-lost screen showed and would copy for the failed sessions.</summary>
+    static readonly List<string> FailureDetails = [];
+
     static async Task RunToEnd(SshSession session)
     {
         var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         session.StateChanged += (_, e) =>
         {
+            if (e.State == SessionState.Failed)
+            {
+                var failure = ConnectionFailure.Classify(e.Error, e.Message, session.Target);
+                lock (FailureDetails) FailureDetails.Add($"{failure.Summary} {failure.Advice} {failure.Detail}");
+            }
+
             if (e.State is SessionState.Failed or SessionState.Disconnected) ended.TrySetResult();
         };
         if (session.State is SessionState.Failed or SessionState.Disconnected) ended.TrySetResult();

@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Credentials;
 
 namespace Orrery.App.Credentials;
@@ -12,10 +13,10 @@ sealed class ChangeMasterPasswordWindow : Window
     const int MinimumPasswordLength = 8;
 
     readonly VaultFileStore _vault;
-    readonly TextBox _current = new() { PasswordChar = '•' };
-    readonly TextBox _new = new() { PasswordChar = '•' };
-    readonly TextBox _confirm = new() { PasswordChar = '•' };
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly TextBox _current = new PasswordBox();
+    readonly TextBox _new = new PasswordBox();
+    readonly TextBox _confirm = new PasswordBox();
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
 
     public ChangeMasterPasswordWindow(VaultFileStore vault)
@@ -41,12 +42,7 @@ sealed class ChangeMasterPasswordWindow : Window
             Children =
             {
                 new TextBlock { Text = "Change the vault's master password", FontSize = 18, FontWeight = FontWeight.SemiBold },
-                new TextBlock
-                {
-                    Text = "Your saved credentials stay as they are. If you forget the new password, there is no way to recover the vault.",
-                    Foreground = Dialogs.WarningBrush,
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                new Notice(NoticeKind.Warning, "Your saved credentials stay as they are. If you forget the new password, there is no way to recover the vault."),
                 Dialogs.Field("Current master password", _current),
                 Dialogs.Field("New master password", _new),
                 Dialogs.Field("Confirm new master password", _confirm),

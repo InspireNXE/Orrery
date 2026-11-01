@@ -85,6 +85,12 @@ public sealed class TerminalEmulator
     /// <summary>Lines that scrolled off the top of the main screen, oldest first.</summary>
     public int ScrollbackCount => _scrollback.Count;
 
+    /// <summary>
+    /// How many times a line has scrolled off the top of the screen, on either screen, scrollback or not. Comparing
+    /// two readings tells how far the lines moved up in between.
+    /// </summary>
+    public long LinesScrolled { get; private set; }
+
     /// <summary>Bytes the terminal must send back to the host (status and device reports).</summary>
     public event Action<string>? Reply;
     public event Action<string>? TitleChanged;
@@ -828,6 +834,11 @@ public sealed class TerminalEmulator
             var leaving = screen[_top];
             screen.RemoveAt(_top);
             screen.Insert(_bottom, new TerminalLine(Columns, _style.ForErase));
+            if (_top == 0)
+            {
+                LinesScrolled++;
+            }
+
             if (_top == 0 && !_altActive)
             {
                 AddToScrollback(leaving);

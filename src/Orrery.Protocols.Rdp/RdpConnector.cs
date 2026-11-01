@@ -10,7 +10,7 @@ using Orrery.Core.Sessions;
 namespace Orrery.Protocols.Rdp;
 
 public sealed class CertificateRejectedException(string host)
-    : Exception($"The certificate presented by {host} was not trusted.");
+    : SessionFailureException(FailureKind.CertificateNotTrusted, $"The certificate presented by {host} was not trusted.");
 
 /// <summary>
 /// The RDP connection sequence, following IronRDP's <c>Connection.Connect</c> (MIT/Apache-2.0) but with
@@ -73,6 +73,13 @@ static class RdpConnector
             {
                 ssl.Dispose();
                 throw new TimeoutException("The server took too long to sign in.");
+            }
+            catch (Exception e) when (e is IronRdpException or IronRdpLibException { ErrorType: IronRdpLibExceptionType.EndOfFile })
+            {
+                // CredSSP is the login. A server that turns it down reports an error or just hangs up, and either way
+                // trying the same login again by itself could lock the account, so it counts as a refused login.
+                ssl.Dispose();
+                throw new SessionFailureException(FailureKind.LoginFailed, "The server didn't accept the login.", e);
             }
             catch
             {

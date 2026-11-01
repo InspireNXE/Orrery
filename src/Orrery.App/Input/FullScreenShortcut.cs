@@ -103,6 +103,8 @@ public static class FullScreenShortcut
         const KeyModifiers Ctrl = KeyModifiers.Control, Alt = KeyModifiers.Alt, Shift = KeyModifiers.Shift, Cmd = KeyModifiers.Meta;
         const string System = "the system keeps it for itself.";
 
+        yield return (SessionEscape.For(on), "Orrery uses it to leave a session for its tab.");
+
         if (on == ShortcutPlatform.MacOS)
         {
             yield return (new KeyGesture(Key.Q, Ctrl | Cmd), "macOS uses it to lock the screen.");
@@ -115,6 +117,7 @@ public static class FullScreenShortcut
             }
 
             yield return (new KeyGesture(Key.B, Alt | Cmd), "Orrery uses it to show and hide the settings pane.");
+            yield return (new KeyGesture(Key.T, Shift | Cmd), "Orrery uses it to open a local terminal.");
             yield break;
         }
 
@@ -124,6 +127,7 @@ public static class FullScreenShortcut
         yield return (new KeyGesture(Key.Tab, Alt | Shift), System);
         yield return (new KeyGesture(Key.F4, Ctrl | Alt), System);
         yield return (new KeyGesture(Key.B, Ctrl | Alt), "Orrery uses it to show and hide the settings pane.");
+        yield return (new KeyGesture(Key.T, Ctrl | Shift), "Orrery uses it to open a local terminal.");
         yield return (new KeyGesture(Key.C, Ctrl | Shift), "terminals use it to copy.");
         yield return (new KeyGesture(Key.V, Ctrl | Shift), "terminals use it to paste.");
 

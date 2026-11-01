@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Orrery.App.Controls;
 using Orrery.App.Sessions;
 using Orrery.Core.Sessions;
 using Xunit;
@@ -67,7 +68,7 @@ public class RemoteFrameViewTests
 
         Assert.Equal(1, session.Disconnects);
         Assert.False(view.HasFrame);
-        var status = view.Children.OfType<TextBlock>().Single();
+        var status = view.Children.OfType<Notice>().Single();
         Assert.True(status.IsVisible);
         Assert.StartsWith("Couldn't", status.Text); // The failure stays up after the session reports it disconnected.
         window.Close();

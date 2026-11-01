@@ -1,7 +1,9 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 
 namespace Orrery.App;
 
@@ -10,14 +12,16 @@ static class Dialogs
 {
     public static readonly IBrush PanelBrush = new SolidColorBrush(Color.Parse("#14161B"));
     public static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    public static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
-    public static readonly IBrush WarningBrush = new SolidColorBrush(Color.Parse("#F3B672"));
+    /// <summary>Errors and destructive actions; one brush app-wide, see <see cref="Palette"/>.</summary>
+    public static IBrush DangerBrush => Palette.Danger;
+    public static IBrush WarningBrush => Palette.Warning;
     public static readonly FontFamily MonoFont = new("Cascadia Mono, Consolas, Menlo, monospace");
 
     public static Window MessageWindow(string title, string body)
     {
         var close = new Button { Content = "Close", IsDefault = true, IsCancel = true, HorizontalAlignment = HorizontalAlignment.Right };
         var window = Shell(title, close);
+        AutomationProperties.SetHelpText(window, body);
         close.Click += (_, _) => window.Close();
         ((StackPanel)window.Content!).Children.Insert(1, new SelectableTextBlock { Text = body, TextWrapping = TextWrapping.Wrap });
         return window;
@@ -34,6 +38,7 @@ static class Dialogs
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { confirm, cancel } };
 
         var window = Shell(title, buttons);
+        AutomationProperties.SetHelpText(window, body);
         ((StackPanel)window.Content!).Children.Insert(1, new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap });
         cancel.Click += (_, _) => window.Close(false);
         confirm.Click += (_, _) => window.Close(true);
@@ -43,7 +48,9 @@ static class Dialogs
     /// <summary>Asks for a password. Null if cancelled.</summary>
     public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error = null)
     {
-        var box = new TextBox { PasswordChar = '•' };
+        var box = new PasswordBox();
+        AutomationProperties.SetName(box, "Password");
+        AutomationProperties.SetHelpText(box, error is null ? body : $"{error} {body}");
         var ok = new Button { Content = "OK", IsDefault = true };
         ok.Classes.Add("accent");
         var cancel = new Button { Content = "Cancel", IsCancel = true };
@@ -55,7 +62,7 @@ static class Dialogs
         panel.Children.Insert(2, box);
         if (error is not null)
         {
-            panel.Children.Insert(3, new TextBlock { Text = error, Foreground = DangerBrush, TextWrapping = TextWrapping.Wrap });
+            panel.Children.Insert(3, new Notice(NoticeKind.Error, error));
         }
 
         ok.Click += (_, _) => window.Close(box.Text ?? string.Empty);
@@ -89,9 +96,10 @@ static class Dialogs
         return window.ShowDialog<string?>(owner);
     }
 
+    // The window is named after the question, which is what a screen reader says when it opens.
     static Window Shell(string title, Control buttons) => new()
     {
-        Title = "Orrery",
+        Title = title,
         Width = 460,
         SizeToContent = SizeToContent.Height,
         CanResize = false,
@@ -103,14 +111,50 @@ static class Dialogs
             Spacing = 12,
             Children =
             {
-                new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap },
+                Heading(new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap }),
                 buttons,
             },
         },
     };
 
+    /// <summary>Marks a dialog's title as a heading, for screen readers that list them.</summary>
+    public static TextBlock Heading(TextBlock title)
+    {
+        AutomationProperties.SetHeadingLevel(title, 1);
+        return title;
+    }
+
+    /// <summary>
+    /// A trust prompt's heading. For a changed host key or certificate it's in the danger colour with the error icon
+    /// beside it, so the change is plain without colour.
+    /// </summary>
+    public static Control TrustHeading(string text, bool changed)
+    {
+        if (!changed)
+        {
+            return Heading(new TextBlock { Text = text, FontSize = 18, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+        }
+
+        var heading = new Notice(NoticeKind.Error, text) { IconSize = 22, Prefix = "Warning" };
+        heading.Message.FontSize = 18;
+        heading.Message.FontWeight = FontWeight.SemiBold;
+        AutomationProperties.SetHeadingLevel(heading, 1);
+        return heading;
+    }
+
     public static TextBlock Label(string text) => new() { Text = text, FontSize = 12, Foreground = MutedBrush };
 
-    public static Control Field(string label, Control input) =>
-        new StackPanel { Spacing = 4, Children = { Label(label), input } };
+    /// <summary>
+    /// A label over an input. The input is named after the label, since a screen reader doesn't connect the two by
+    /// position; text shown as the value (not an input) keeps its own text.
+    /// </summary>
+    public static Control Field(string label, Control input)
+    {
+        if (input is not TextBlock and not Panel && string.IsNullOrEmpty(AutomationProperties.GetName(input)))
+        {
+            AutomationProperties.SetName(input, label);
+        }
+
+        return new StackPanel { Spacing = 4, Children = { Label(label), input } };
+    }
 }

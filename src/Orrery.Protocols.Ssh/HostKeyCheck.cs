@@ -35,6 +35,13 @@ internal sealed class HostKeyCheck
     /// <summary>The key was turned down, so the connection failing is that and not a network fault.</summary>
     public bool Rejected { get; private set; }
 
+    /// <summary>The key turned down was a different one from the key pinned for this host.</summary>
+    public bool Changed { get; private set; }
+
+    /// <summary>The rejection as a failure the connection-lost screen can name, with SSH.NET's own exception inside.</summary>
+    public SessionFailureException Failure(string message, Exception inner) =>
+        new(Changed ? FailureKind.HostKeyChanged : FailureKind.HostKeyNotTrusted, message, inner);
+
     /// <summary>Checks the keys <paramref name="client"/> is offered.</summary>
     public static HostKeyCheck Attach(BaseClient client, HostKeyValidator hostKeys, ConnectionTarget target)
     {
@@ -52,8 +59,9 @@ internal sealed class HostKeyCheck
         }
 
         var asked = Stopwatch.StartNew();
-        bool trusted = _hostKeys.ValidateAsync(Target.Host, Target.Port, keyType, sha256Fingerprint).GetAwaiter().GetResult();
+        var (trusted, changed) = _hostKeys.CheckAsync(Target.Host, Target.Port, keyType, sha256Fingerprint).GetAwaiter().GetResult();
         Rejected = !trusted;
+        Changed = !trusted && changed;
         Logger.Log(trusted ? LogLevel.Information : LogLevel.Warning, "{Host}:{Port} host key {KeyType} SHA256:{Fingerprint} {Decision}",
             Target.Host, Target.Port, keyType, sha256Fingerprint, trusted ? "trusted" : "not trusted");
         if (trusted)

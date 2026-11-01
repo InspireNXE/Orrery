@@ -4,6 +4,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.Core.Import;
@@ -460,7 +461,26 @@ public static class MRemoteNgImporter
             SetClipboard(entry, node);
             SetQuality(entry, node, mapped);
             AddCredential(entry, node);
+            SetMacAddress(entry, node);
             NoteUnsupported(node, mapped);
+        }
+
+        void SetMacAddress(ConnectionEntry entry, MNode node)
+        {
+            var text = node.Effective("MacAddress").Trim();
+            if (text.Length == 0)
+            {
+                return;
+            }
+
+            if (MacAddress.TryNormalise(text, out var mac))
+            {
+                entry.MacAddress = mac;
+            }
+            else
+            {
+                _warnings.Add($"{node.Path}: its MAC address isn't valid, so it wasn't imported.");
+            }
         }
 
         void AddCredential(ConnectionEntry entry, MNode node)

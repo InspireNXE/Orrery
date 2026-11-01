@@ -15,18 +15,35 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
+- When a connection fails or drops, the tab says in a sentence what happened and what to try, with Reconnect
+  (Enter), the technical details and a button to copy them
+- Reconnects by itself after a drop or a network error, waiting a little longer each time (up to a minute), and
+  straight away when the network comes back. It never retries a refused login or an untrusted host key or
+  certificate, since those need you. On by default; can be turned off per connection or folder
+- Wake-on-LAN: give a connection a MAC address, then choose Wake in its right-click menu
+- Local terminal tabs: PowerShell, cmd or a WSL distribution on Windows (chosen in settings), your login shell on Linux
+  and macOS, starting in your home folder
 
 ### Display
 
 - Display quality per connection or folder: Balanced, Best look or Fastest
 - RDP fits the window and follows it as it resizes, or keeps a fixed size
 - *Enlarge to match display scaling* for high-DPI screens
+- Colour-blind friendly colours for the interface and, separately, the terminal, in Settings
+- Session states, warnings and errors have a shape, an icon or a word as well as a colour
 
 ### Organising
 
 - Connection tree with folders, drag and drop, multi-select and a filter
 - Settings inherited from folders
 - Host groups: a host with its guest machines below it
+- Each connection's row has two marks. The one before the name is its session: a filled dot when connected, a broken
+  ring while connecting, a cross when it failed, an empty ring when none is open. The one beside the protocol is its
+  host: a filled dot when it answered, a cross when it didn't, a dashed ring when it can't be checked. Hover either
+  for it in words. The host check is a plain TCP connect to the host and port about once a minute, only for
+  connections you can see and never through a jump host; it can be turned off in Settings
+- The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
+  hover), and when the last attempt failed if that came after. A folder shows the latest of its connections.
 
 ### Credentials and files
 
@@ -34,7 +51,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
 - Unlock the vault with Windows Hello instead of the master password, on a computer with a TPM. Touch ID on macOS is
   written but needs a signed build. See [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
-- Import mRemoteNG `confCons.xml` and Orrery `.json`
+- Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
 
@@ -43,6 +60,10 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Installed, or portable with its data wherever you choose
 - Windows, Linux and macOS
 - Dark-first interface
+- Remembers the window and the tabs you had open, and reopens them at the next start if you want (ask, always or
+  never, in Settings). A host typed into quick connect comes back by address only and asks for its login again; a
+  local terminal comes back with the same shell
+- Works with screen readers on Windows, terminals included (see [Accessibility](#accessibility))
 
 HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet because IronRDP's .NET binding doesn't
 pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.
@@ -54,16 +75,45 @@ On macOS, Cmd replaces Ctrl.
 | Keys | Action |
 | --- | --- |
 | Ctrl+K | Quick connect |
+| Ctrl+Shift+T | Local terminal |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel |
 | Ctrl+Alt+B | Show or hide the properties pane |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (can be changed in settings) |
+| Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back in |
 | Enter | Connect the selected connections |
 | F2 | Rename |
 | Ctrl+D | Duplicate |
 | Delete | Delete the selected rows |
 
-While a remote session has focus it gets keys first, so these shortcuts go to the remote machine.
+While a remote session has focus it gets keys first, so these shortcuts go to the remote machine. Full screen and
+Ctrl+Alt+Home always reach Orrery. Ctrl+Shift+T still opens a local terminal from inside a terminal, but not from a
+remote desktop.
+
+## Accessibility
+
+Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
+
+- Every button, field and list says what it is. Rows in the connection tree give their name, what they are
+  (protocol and host, or how many connections a folder holds), whether they're open and whether they're connected.
+- Session tabs say which connection they are, its state and which tab is current.
+- Password fields give screen readers a dot per character, never the password.
+- A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
+  on while a screen reader is running. Turn it on or off in Settings, under Accessibility.
+- A screen reader can also read the whole terminal screen and the cursor's line and column.
+- Terminals and remote desktops keep every key, Tab included. Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the
+  session for its tab, and leaves full screen first. Enter on the tab goes back in.
+
+What doesn't work yet:
+
+- A remote desktop is a picture, so a screen reader can only tell you its name, "Remote desktop:" and the connection.
+- Avalonia, the toolkit Orrery is built with, doesn't let screen readers move through the terminal by line or word.
+  They get the screen as one block of text.
+- Tree rows don't report their level or "2 of 5", and password fields aren't marked as passwords, so a screen reader
+  that reads out typed characters will read out a password as you type it. Turn off typed character echo while you
+  type one.
+- VoiceOver on macOS hasn't been tested. On Linux, Avalonia has no screen reader support yet, so Orca can't read
+  Orrery.
 
 ## Where data lives
 
@@ -75,6 +125,10 @@ While a remote session has focus it gets keys first, so these shortcuts go to th
 
 A portable copy has an `orrery.portable.json` file beside the executable and asks on first launch where to keep its
 data.
+
+The times a connection last connected or failed are kept in `history.json` in the data folder, by connection, so they
+survive renames and moves. They stay on this computer: exports and `connections.json` don't carry them, and deleting
+a connection deletes its entry.
 
 Orrery keeps a log of what connected where and what went wrong: one file a day, kept for two weeks, in
 `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or `~/.local/state/orrery/logs` (a portable copy keeps it in its
@@ -122,7 +176,7 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 | --- | --- |
 | `src/Orrery.App` | The Avalonia app: windows, connection tree, properties pane, settings |
 | `src/Orrery.Core` | Model, storage, credentials, vault, import and export |
-| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions |
+| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions, and local terminals |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
 | `build/` | Packaging, installer and third-party notice scripts |
 | `installer/` | Inno Setup script for the Windows installer; `installer/linux/` holds the Linux launcher and icons |
@@ -131,10 +185,10 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, VNC authentication, and the
-Windows Hello and Touch ID prompts. The
-Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
-single-file executable as a false positive.
+the Linux and macOS builds (including the .deb, .rpm and AppImage), local terminals on Linux and macOS, the ARM builds,
+VNC authentication, how each protocol reports real network failures (an RDP server refusing a login, especially)
+on the connection-lost screen, and the Windows Hello and Touch ID prompts. The Windows executables aren't code-signed,
+so SmartScreen may warn on first launch, and antivirus tools can flag the single-file executable as a false positive.
 
 ## Licence and credits
 
