@@ -114,9 +114,10 @@ public class LocalTerminalSessionTests : IAsyncLifetime
         var run = await StartAsync();
 
         run.Session.Resize(100, 30);
-        run.Type(Windows ? "powershell -NoProfile -Command \"'size=' + ([Console]::WindowWidth * 1000 + [Console]::WindowHeight)\"" : "echo size=$(stty size)");
+        // mode is part of cmd, so this doesn't wait on a program starting (PowerShell on a CI runner can take 30 s).
+        run.Type(Windows ? "mode con" : "echo size=$(stty size)");
 
-        await run.WaitForAsync(Windows ? @"size=100030\b" : @"size=30 100\b");
+        await run.WaitForAsync(Windows ? @"Lines:\s+30\b[\s\S]*Columns:\s+100\b" : @"size=30 100\b");
     }
 
     [Fact]
