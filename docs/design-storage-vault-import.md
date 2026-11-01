@@ -184,6 +184,7 @@ vault.frv = JSON header (plaintext) + encrypted payload
 - The vault unlocks on first use: when a connection needs a secret, or when the Credentials section opens. The app starts without asking.
 - **Auto-lock** after an idle period (default 30 min; configurable; "never" allowed). Live sessions keep running when the vault locks.
 - **"Remember on this device"** (installed mode only): store the DEK in the OS keychain so the vault opens without the password on this machine. Offered in portable mode only with a clear warning, because it leaves a key on the host.
+- **Windows Hello or Touch ID** (2026-10-31): a second wrap of the DEK under a key only the platform authenticator releases, kept per user on this computer and never in the data folder. The vault file doesn't change and the master password keeps working. See [design-biometric-unlock.md](design-biometric-unlock.md).
 - Five failed attempts trigger an increasing delay. There is no lockout or wipe.
 - There is **no recovery** if the master password is forgotten. Say so plainly when the vault is created, and offer an encrypted export.
 

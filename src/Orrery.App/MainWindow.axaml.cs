@@ -2489,7 +2489,7 @@ public partial class MainWindow : Window
                 _properties.TrySave();
                 SaveNow();
                 return Task.CompletedTask;
-            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root));
+            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), VaultUnlockWindow.Biometric);
             view.CloseRequested += (_, _) => CloseSettings();
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {
