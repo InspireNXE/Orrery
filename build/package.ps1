@@ -10,7 +10,7 @@
     orrery.portable.json, so the first launch asks where to keep its data (docs/design-storage-vault-import.md §2.1).
 
     macOS: Orrery-<version>-<rid>-portable.zip holding Orrery.app (Info.plist, icon) with the marker beside it,
-    since the marker belongs next to the bundle, never inside it. The bundle isn't signed or notarised, so
+    since the marker belongs next to the bundle, never inside it. The bundle isn't signed or notarized, so
     macOS asks before the first launch.
 
 .EXAMPLE
