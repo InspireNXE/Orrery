@@ -209,7 +209,7 @@ sealed class QuickConnectWindow : Window
         Refresh();
     }
 
-    /// <summary>Near the top of the owner, centerd, where the eye already is.</summary>
+    /// <summary>Near the top of the owner, centered, where the eye already is.</summary>
     void PlaceOverOwner()
     {
         if (Owner is not Window owner)

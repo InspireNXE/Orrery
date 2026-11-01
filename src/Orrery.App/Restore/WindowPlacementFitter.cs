@@ -15,7 +15,7 @@ static class WindowPlacementFitter
     /// <summary>A screen's usable area (clear of the taskbar) in pixels, and its scale (1.5 for 150%).</summary>
     public readonly record struct ScreenArea(PixelRect WorkArea, double Scaling);
 
-    /// <param name="Position">Null when the window should be centerd instead.</param>
+    /// <param name="Position">Null when the window should be centered instead.</param>
     /// <param name="Size">Device-independent units, no larger than the screen.</param>
     public readonly record struct Fitted(PixelPoint? Position, Size Size);
 

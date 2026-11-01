@@ -231,8 +231,8 @@ sealed class SessionTab
     readonly Panel _screen = new() { IsVisible = false };
     readonly Border _icon = new() { HorizontalAlignment = HorizontalAlignment.Center };
     readonly TextBlock _heading = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
-    readonly TextBlock _summary = Centerd(new TextBlock());
-    readonly TextBlock _advice = Themed(Centerd(new TextBlock()), TextBlock.ForegroundProperty, "OrreryMuted");
+    readonly TextBlock _summary = Centered(new TextBlock());
+    readonly TextBlock _advice = Themed(Centered(new TextBlock()), TextBlock.ForegroundProperty, "OrreryMuted");
     readonly TextBlock _retryText = Themed(new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }, TextBlock.ForegroundProperty, "OrrerySoftText");
     readonly Button _stop = new() { Content = "Stop" };
     readonly StackPanel _retryRow = new() { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, IsVisible = false };
@@ -294,7 +294,7 @@ sealed class SessionTab
         return _screen;
     }
 
-    static TextBlock Centerd(TextBlock text)
+    static TextBlock Centered(TextBlock text)
     {
         text.TextWrapping = TextWrapping.Wrap;
         text.TextAlignment = TextAlignment.Center;

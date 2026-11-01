@@ -7,6 +7,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Orrery.App.Connections;
 using Orrery.App.Restore;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
@@ -169,6 +170,15 @@ public class WorkspaceWindowTests : IDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    sealed class StateSession(string host, SessionState state) : IConnectionSession
+    {
+        public ConnectionTarget Target { get; } = new(host, 22, "someone", null);
+        public SessionState State => state;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     public WorkspaceWindowTests()
     {
         _location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
@@ -201,6 +211,30 @@ public class WorkspaceWindowTests : IDisposable
         }
 
         Assert.True(condition(), "timed out waiting");
+    }
+
+    [AvaloniaFact]
+    public void A_failed_session_marks_its_row_failed_and_a_connected_tab_of_the_same_connection_wins()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var origin = new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask);
+            var row = VaultAutoLockTests.Private<TreeView>(window, "_treeView").ItemsSource!.OfType<NodeViewModel>().Single(r => r.Node.Id == _saved.Id);
+
+            AddTab(window, new StateSession(_saved.Host, SessionState.Failed), origin);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(SessionState.Failed, row.Status);
+
+            AddTab(window, new StateSession(_saved.Host, SessionState.Connected), origin);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(SessionState.Connected, row.Status);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
