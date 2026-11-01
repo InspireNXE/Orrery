@@ -47,7 +47,9 @@ public class LocalTerminalTabTests : IDisposable
 
             await UntilAsync(() => session.State == SessionState.Connected);
             processes.Add(Held(session.ProcessId!.Value));
-            Assert.Equal("LOCAL · Running", VaultAutoLockTests.Private<TextBlock>(window, "_sessionDetail").Text);
+            // The status line follows the session's state on a later UI-thread job.
+            var detail = VaultAutoLockTests.Private<TextBlock>(window, "_sessionDetail");
+            await UntilAsync(() => detail.Text == "LOCAL · Running");
             Assert.Empty(Orrery.Core.Connections.RecentConnections.In(location).Items); // Not a connection to come back to.
 
             // Again from inside the terminal, which would otherwise take it as Ctrl+T.
