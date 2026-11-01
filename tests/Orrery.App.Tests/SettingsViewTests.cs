@@ -46,6 +46,37 @@ public class SettingsViewTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void The_import_ssh_config_button_runs_what_it_was_given_and_is_absent_without_one()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+
+        int imported = 0;
+        var window = new Window
+        {
+            Content = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask,
+                () =>
+                {
+                    imported++;
+                    return Task.CompletedTask;
+                }),
+        };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => b.Content as string == "Import SSH config");
+        button.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(1, imported);
+        window.Close();
+
+        var without = new Window { Content = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask) };
+        without.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.DoesNotContain(without.GetVisualDescendants().OfType<Button>(), b => b.Content as string == "Import SSH config");
+        without.Close();
+    }
+
+    [AvaloniaFact]
     public void Shows_the_data_folder_and_saves_a_new_auto_lock_time()
     {
         var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
