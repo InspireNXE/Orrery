@@ -541,7 +541,9 @@ sealed class SettingsView : UserControl
     static StackPanel Section(string title, params Control[] children)
     {
         var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
+        var heading = new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } };
+        Avalonia.Automation.AutomationProperties.SetHeadingLevel(heading, 2);
+        panel.Children.Add(heading);
         panel.Children.AddRange(children);
         return panel;
     }
