@@ -385,7 +385,7 @@ what works differently there, and what hasn't been tried on a real machine yet.
 ### Every platform
 
 RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
-`2026.10.29-orrery.3` or later, and sound without shared drives `orrery.4`. With a package built on one machine,
+`2026.10.29-orrery.3` or later, sound without shared drives `orrery.4`, and the graphics pipeline and display scaling `orrery.6`. With a package built on one machine,
 whose libraries for the other platforms are older, Orrery connects there without them and logs which it left out. IronRDP is built without Opus, which needs
 CMake to build, so the server sends sound as PCM, ADPCM or G.711 instead (or AAC, on Windows only).
 
