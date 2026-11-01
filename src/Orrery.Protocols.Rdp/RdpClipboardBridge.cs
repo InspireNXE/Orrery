@@ -88,12 +88,23 @@ sealed class RdpClipboardBridge
     /// <summary>The server copied text. Raised on the bridge's thread.</summary>
     public event EventHandler<string>? RemoteTextChanged;
 
+    /// <summary>Clipboard text wasn't shared, with a sentence saying why. Raised on the thread that refused it.</summary>
+    public event EventHandler<string>? TextRefused;
+
+    /// <summary>The server's clipboard text was <paramref name="bytes"/> long, too long to take.</summary>
+    internal void RefuseRemote(long bytes)
+    {
+        Logger.LogWarning("Server clipboard text not used: {Length} bytes is more than {Max}", bytes, MaxDataBytes);
+        TextRefused?.Invoke(this, $"Clipboard text from the remote desktop wasn't copied here: it's over the {MaxTextLength:N0}-character limit.");
+    }
+
     /// <summary>Offers <paramref name="text"/> to the server. Any thread; the bridge's loop tells the server.</summary>
     public void SetLocalText(string text)
     {
         if (text.Length > MaxTextLength)
         {
             Logger.LogWarning("Local clipboard text not shared: {Length} characters is more than {Max}", text.Length, MaxTextLength);
+            TextRefused?.Invoke(this, $"Clipboard text wasn't sent to the remote desktop: {text.Length:N0} characters is over the {MaxTextLength:N0}-character limit.");
             return;
         }
 
@@ -202,6 +213,12 @@ sealed class RdpClipboardBridge
         // The response doesn't say which format it carries; responses come in the order they were asked for.
         if (!_requested.TryDequeue(out var format) || data is null)
         {
+            return;
+        }
+
+        if (data.Length > MaxDataBytes)
+        {
+            RefuseRemote(data.Length);
             return;
         }
 

@@ -227,10 +227,28 @@ public class RdpClipboardBridgeTests
     [Fact]
     public async Task Does_not_share_local_text_over_the_limit()
     {
+        var refused = new List<string>();
+        _bridge.TextRefused += (_, reason) => refused.Add(reason);
         _bridge.SetLocalText(new string('x', MaxTextLength + 1));
         await Handle(RdpClipboardEventKind.FormatListRequested);
 
         Assert.Empty(Assert.Single(_channel.Announced));
+        Assert.Contains("wasn't sent to the remote desktop: 1,048,577 characters is over the 1,048,576-character limit", Assert.Single(refused));
+    }
+
+    [Fact]
+    public async Task Says_when_the_servers_text_is_over_the_limit()
+    {
+        var refused = new List<string>();
+        _bridge.TextRefused += (_, reason) => refused.Add(reason);
+        await ReceiveAsync(CfUnicodeText, new byte[MaxDataBytes + 2]);
+
+        Assert.Empty(_remoteText);
+        Assert.Contains("from the remote desktop wasn't copied here", Assert.Single(refused));
+
+        // Within the limit, nothing is said.
+        await ReceiveAsync(CfUnicodeText, Utf16("fine"));
+        Assert.Single(refused);
     }
 
     [Fact]

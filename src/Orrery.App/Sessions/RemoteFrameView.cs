@@ -80,6 +80,7 @@ public sealed class RemoteFrameView : Panel
         _windowsKey = OnWindowsKey;
         if (session is IClipboardSession clipboardSession)
         {
+            clipboardSession.ClipboardRefused += (_, reason) => Dispatcher.UIThread.Post(() => Notice?.Invoke(this, reason));
             clipboardSession.RemoteClipboardChanged += (_, text) => Dispatcher.UIThread.Post(async () =>
             {
                 _lastClipboard = text;
@@ -132,6 +133,9 @@ public sealed class RemoteFrameView : Panel
 
     /// <summary>Replaces the write to the local clipboard, which tests can't make fail: IClipboard can't be implemented outside Avalonia.</summary>
     internal Func<string, Task>? SetClipboardText { get; set; }
+
+    /// <summary>Something the user should be told in a line, such as clipboard text that wasn't shared. Raised on the UI thread.</summary>
+    public event EventHandler<string>? Notice;
 
     bool _viewOnly;
 

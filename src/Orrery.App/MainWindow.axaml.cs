@@ -1655,12 +1655,14 @@ public partial class MainWindow : Window
     {
         var settings = _settingsStore.Load();
         bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
-        return new RemoteFrameView(session, zoom)
+        var view = new RemoteFrameView(session, zoom)
         {
             FollowsViewSize = followsViewSize,
             AllowsColorCorrection = allowed,
             Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
         };
+        view.Notice += (_, text) => ShowNotice(text);
+        return view;
     }
 
     void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
