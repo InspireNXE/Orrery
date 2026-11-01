@@ -75,8 +75,11 @@ folder, and the authenticator secret never exists anywhere on disk.
 - **Record:** a generic credential in Windows Credential Manager, `orrery:biometric:<id>`, stored for this computer
   only (it doesn't roam with the profile). Windows protects it with DPAPI under the user's login.
 - **Prompt:** on Windows 11 24H2 and later the Hello prompt belongs to Orrery's window
-  (`RequestCreateForWindowAsync`, `RequestSignForWindowAsync`); if Windows refuses the window, straight away or when the
-  call finishes with an error, Orrery asks again without it. Older builds use the original calls, and Orrery brings
+  (`RequestCreateForWindowAsync`, `RequestSignForWindowAsync`). Orrery asks again without the window only when Windows
+  refuses the call as it's made (no such interface or class, `E_NOTIMPL`, `E_NOINTERFACE`, `REGDB_E_CLASSNOTREG`) or
+  refuses the window (`E_INVALIDARG`, or `ERROR_INVALID_WINDOW_HANDLE` as `0x80070578`), straight away or when the call
+  finishes. Any other error is the answer: the user may already have seen a prompt, and shouldn't get a second. Older
+  builds use the original calls, and Orrery brings
   the prompt to the front itself: only a visible window of class `Credential Dialog Xaml Host` whose process is
   `%SystemRoot%\System32\CredentialUIBroker.exe`, never another program's window of that class.
 - `Windows.UI.dll` and `tbs.dll` are only loaded from System32.
@@ -91,6 +94,10 @@ folder, and the authenticator secret never exists anywhere on disk.
   between `errSecItemNotFound` and `errSecAuthFailed`, so both are treated as "key not found" (§3.4), which never
   deletes anything by itself.
 - **Cancelling:** the read runs under an `LAContext`; closing the unlock window calls `invalidate` on it.
+- **Clearing the secret:** Orrery copies the secret out of the `CFData` the keychain returns and clears its own copy
+  when done. That `CFData` is immutable: CoreFoundation has no call to clear one, and writing through its read-only
+  pointer isn't allowed, so it's released without being wiped. The copy Orrery hands the keychain when turning it on
+  is a `CFMutableData`, cleared before it's released.
 - **Record:** the wrapped DEK, in the login keychain beside saved credentials (service "Orrery"). Records are listed
   with `SecItemCopyMatching` for attributes only, which reads no secret.
 - **Signing:** the data-protection keychain only serves apps signed with a `keychain-access-groups` entitlement. Orrery's
@@ -121,8 +128,9 @@ folder, and the authenticator secret never exists anywhere on disk.
   or a new drive letter change nothing, and an installed vault and a portable one (different vaults) each get their
   own record and key. After a master password change no record has the new id, so it's off.
 - **`place`**: SHA-256 of the vault file's full path (upper-cased on Windows), first 32 hex digits. Only a hint for
-  finding records left from before a password change made elsewhere (§3.4); updated after each biometric unlock, and
-  left out of the associated data so it can change.
+  noticing a password change made elsewhere (§3.4); updated after each biometric unlock, and left out of the associated
+  data so it can change. A path says nothing about which vault is there, so a record found only by its `place` is
+  never removed by itself.
 - **Wrapping key:** HKDF-SHA256 with the authenticator secret as input, the challenge as salt and
   `orrery-biometric|v2|<authenticator>|<keyName>` as info.
 - **Associated data:** format, version, authenticator, key name, challenge and vault fingerprint, so a record edited or
@@ -130,9 +138,16 @@ folder, and the authenticator secret never exists anywhere on disk.
   key name and fingerprint match its name before asking for a gesture.
 - **Records for this vault** are found by listing `orrery:biometric:*` (`CredEnumerateW` on Windows): the one named for
   the current key block, plus any whose fingerprint is one this vault had before a password change made in this run of
-  Orrery, or whose `place` is this vault's path.
+  Orrery. Those are certainly this vault's, and are removed when stale. A record whose `place` is this vault's path but
+  whose fingerprint this run never saw is only probably this vault's: another copy of Orrery may have changed the
+  password, or a different vault may have been made where this one was (and this one may come back from a backup). It's
+  left alone, and only means the feature reads as off here (§3.4).
 - **Keys waiting to be deleted:** when a stale record is removed without the user (§3.4), its Hello key's name goes in
-  `orrery:biometric-retired-keys`, and those keys are deleted the next time the user turns the feature on or off.
+  `orrery:biometric-retired-keys`, and those keys are deleted the next time the user turns the feature on or off. A
+  record found only by its `place` never puts its key there.
+- **Other versions:** a record whose `version` isn't 2 (from a newer Orrery, say) is left alone and reads as off in this
+  build. Only a record that doesn't parse, or claims version 2 and doesn't fit, is removed. (§2.5 covers version 1
+  records found by the old path-based names.)
 
 ### 2.4 Remote sessions
 
@@ -170,11 +185,14 @@ After the prompt: secret → wrapping key → DEK → contents. Cancelling leave
   cancels the prompt (`IAsyncInfo.Cancel` on Windows); an answer that arrives anyway is thrown away, and if the vault
   opened in the meantime it's locked again.
 - **One prompt at a time.** Callers that ask for the vault while an unlock window is open wait for that window rather
-  than opening another, and Orrery never runs two prompts at once.
+  than opening another, and Orrery never runs two prompts at once. They get the window's answer: if it was cancelled
+  just as the prompt opened the vault, the vault is locked again before any of them carries on, and each hears no.
 
 ### 3.3 Turning it off
 Clearing the setting deletes this vault's record and Hello key or keychain item, any records and keys left from before a
-master password change or under an earlier path, and the keys waiting to be deleted (§2.3).
+master password change or by the first test builds, any record (and its key) found only by this vault's path, and the
+keys waiting to be deleted (§2.3). Turning it on again doesn't remove a record found only by the path, since it might be
+another vault's.
 
 ### 3.4 When it stops working
 
@@ -184,7 +202,8 @@ Nothing that might be temporary deletes anything.
 | Event | When Orrery notices | What happens | What the user sees |
 |---|---|---|---|
 | Master password changed in Orrery | Straight away | Records and keys for the old and new key blocks deleted | The change confirmation says Windows Hello unlock was turned off |
-| Master password changed by another copy of Orrery | Next unlock, or when Settings opens | The old record deleted (found by `place`); its key waits for the user | "The master password was changed, so … was turned off" |
+| Master password changed by another copy of Orrery | Next unlock, or when Settings opens | Nothing deleted: the old record is only found by `place`, which could be another vault's (§2.3). It and its key stay until the user turns the feature off | "The master password was changed, so … was turned off", each time until it's turned on again |
+| A different vault made at the same path | As above | As above: the first vault's record and key are kept, and it opens with them if it's put back | As above |
 | The record no longer decrypts | Next unlock | Record deleted; its key waits for the user | "The key saved for … no longer matches …" |
 | Windows Hello can't find the key (Hello reset, PIN removed, or something temporary) | Next unlock | Nothing deleted; not offered again until Orrery restarts | "Windows Hello couldn't find Orrery's key. Use the master password this time. If this keeps happening, turn … off and on again in Settings." |
 | Touch ID fingers added or removed | Next unlock | As above | As above |
@@ -193,6 +212,15 @@ Nothing that might be temporary deletes anything.
 | Hello enrolment changes on Windows (new PIN, face or finger) | Never | Nothing changes: it keeps working | Nothing; the setup window said so |
 
 Each message ends with how to turn it on again.
+
+**What a record left by another copy's password change still does.** It can't open the vault as it is now: the change
+made a new data key, and the record holds the old one. But it still holds the old data key, so a backup or other copy
+of the vault from before the change, with the old key block, still opens with Windows Hello or Touch ID on this
+computer until the user turns the feature off in Settings. Since the switch already shows it as off, that means turning
+it on and then off again; turning it on alone doesn't remove the old record. That's no more than
+the old master password opens, and it still needs a Hello or Touch ID gesture at this computer, but a user who changed
+the password because the old one leaked, and keeps old copies, should turn the feature off here too. When the change is
+made in this copy of Orrery, the old record and key are deleted straight away.
 
 ### 3.5 Move data and the old copy
 
@@ -278,14 +306,16 @@ No test makes a real Hello key, keychain item or Credential Manager entry.
 
 - `BiometricUnlockTests`: turning on, unlocking, wrong master password, cancelling (before, during and after the
   prompt answers), one prompt at a time, every case in §3.4, the vault file moving, a different drive root, Move data,
-  version 1 records, remote sessions, keys not shown to be in hardware, short secrets, records edited or moved to
+  version 1 records, records from a newer version, records found only by the vault's path (another copy's password
+  change, a different vault made in the same place), remote sessions, keys not shown to be in hardware, short secrets, records edited or moved to
   another vault, an old record that decrypts but whose data key no longer opens the vault, and that turning it on
   leaves the data folder untouched.
 - `WindowsHelloTests` (Windows only, no prompt): the WinRT plumbing for real (activation, strings, buffers, wiping a
-  buffer, waiting on an async call), the availability check, the attestation decision for each status, and which
-  window is brought forward. `DeterministicSignatureTests`: the RSA check over public-key blobs made in the test.
+  buffer, waiting on an async call), the availability check, the attestation decision for each status, which errors
+  from a 24H2 "ForWindow" call mean asking again without the window, and which window is brought forward. `DeterministicSignatureTests`: the RSA check over public-key blobs made in the test.
 - `SecretLeakTests`: master passwords, authenticator secrets and the vault's data keys stay out of the log.
-- Headless UI tests for the unlock window (cancel, closing, one window for several callers, remote sessions, a key not
+- Headless UI tests for the unlock window (cancel, closing, one window for several callers and what they hear when it's
+  cancelled just as the vault opened, remote sessions, a key not
   found), the setup window (the trade-off, the password box, automation names) and the Settings switch (rechecked
   after each change, the password change, the store switch), with a fake authenticator.
 

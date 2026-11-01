@@ -397,9 +397,57 @@ public class BiometricUnlockTests : IDisposable
             await elsewhere.ChangePasswordAsync(Password, NewPassword);
         }
 
+        // It's off, and said so, but the old record is only found by where it was used: it could be another vault's,
+        // so it and its key are left until the user turns this off.
         using var reopened = new VaultFileStore(VaultPath, FastKdf);
         Assert.Contains("master password was changed", await Biometric.TurnOffIfStaleAsync(reopened));
-        Assert.Empty(_records.Records);
+        Assert.False(Biometric.IsOn(reopened));
+        Assert.Equal(BiometricOutcome.TurnedOff, (await Biometric.UnlockAsync(reopened)).Outcome);
+        Assert.Single(_records.Records);
+        Assert.False(_records.Items.ContainsKey("orrery:biometric-retired-keys"));
+
+        // Turning it on for the new password leaves the old record too; turning it off removes both, with their keys.
+        await Biometric.TurnOnAsync(reopened, NewPassword);
+        Assert.Null(await Biometric.TurnOffIfStaleAsync(reopened));
+        Assert.Equal(2, _records.Records.Count);
+        Assert.True(await Biometric.TurnOffAsync(reopened));
+        Assert.Empty(_records.Items);
+        Assert.Empty(_hello.KeyNames);
+    }
+
+    [Fact]
+    public async Task A_different_vault_made_where_one_was_doesnt_take_away_the_first_ones_unlock()
+    {
+        var keptCopy = Path.Combine(_dir, "kept", "vault.frv");
+        using (var first = await NewVaultAsync())
+        {
+            await Biometric.TurnOnAsync(first, Password);
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(keptCopy)!);
+        File.Move(VaultPath, keptCopy);
+        var firstKey = Assert.Single(_hello.KeyNames);
+
+        // A new vault in the same place: it reads as off, and neither checking nor turning it on touches the first's.
+        using (var second = await NewVaultAsync())
+        {
+            await Biometric.TurnOffIfStaleAsync(second);
+            Assert.Equal(BiometricOutcome.TurnedOff, (await Biometric.UnlockAsync(second)).Outcome);
+            Assert.Equal(BiometricOutcome.Done, (await Biometric.TurnOnAsync(second, Password)).Outcome);
+            Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(second)).Outcome);
+            second.Lock();
+            await Biometric.TurnOffIfStaleAsync(second);
+        }
+
+        Assert.DoesNotContain(firstKey, _hello.Deleted);
+        Assert.False(_records.Items.ContainsKey("orrery:biometric-retired-keys"));
+
+        // The first vault, put back, still opens with it.
+        File.Delete(VaultPath);
+        File.Move(keptCopy, VaultPath);
+        using var restored = new VaultFileStore(VaultPath, FastKdf);
+        Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(restored)).Outcome);
+        Assert.Equal(_saved, await restored.GetAsync(_saved.Id));
     }
 
     [Fact]
@@ -539,6 +587,46 @@ public class BiometricUnlockTests : IDisposable
         Assert.False(Biometric.IsOn(vault));
         Assert.Equal(BiometricOutcome.NotOn, (await Biometric.UnlockAsync(vault)).Outcome);
         Assert.Empty(_records.Items);
+    }
+
+    [Fact]
+    public async Task A_version_2_record_missing_a_field_is_dropped()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var (name, bytes) = Assert.Single(_records.Items);
+        var record = JsonNode.Parse(bytes)!.AsObject();
+        record.Remove("nonce");
+        _records.Items[name] = Encoding.UTF8.GetBytes(record.ToJsonString());
+
+        Assert.False(Biometric.IsOn(vault));
+        Assert.Empty(_records.Records);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(42)]
+    public async Task A_record_from_a_newer_version_is_left_alone_and_reads_as_off(int version)
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var (name, bytes) = Assert.Single(_records.Items);
+        var record = JsonNode.Parse(bytes)!.AsObject();
+        record["version"] = version;
+        record["challenge"] = 12345; // A layout this build doesn't know.
+        var newer = Encoding.UTF8.GetBytes(record.ToJsonString());
+        _records.Items[name] = newer;
+        int prompts = _hello.Prompts;
+
+        Assert.False(Biometric.IsOn(vault));
+        Assert.Null(await Biometric.TurnOffIfStaleAsync(vault));
+        Assert.Equal(BiometricOutcome.NotOn, (await Biometric.UnlockAsync(vault)).Outcome);
+
+        Assert.Equal(prompts, _hello.Prompts);
+        Assert.True(vault.IsLocked);
+        Assert.Equal(newer, _records.Items[name]);
+        Assert.Empty(_hello.Deleted);
+        Assert.False(_records.Items.ContainsKey("orrery:biometric-retired-keys"));
     }
 
     [Fact]
