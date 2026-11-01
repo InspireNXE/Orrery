@@ -28,6 +28,9 @@ sealed class VaultUnlockWindow : Window
     CancellationTokenSource? _prompt;
     bool _closed;
 
+    // Set just before closing because the prompt opened the vault, so closing doesn't lock it again.
+    bool _unlocked;
+
     // The unlock window open for each store, so several callers asking at once share one window and one prompt.
     static readonly Dictionary<ICredentialStore, Task<bool>> OpenWindows = [];
 
@@ -118,13 +121,25 @@ sealed class VaultUnlockWindow : Window
 
             await UseBiometricAsync();
         };
+    }
 
-        // Closing the window (Cancel, Escape, the close box) dismisses a prompt that's still showing.
-        Closed += (_, _) =>
+    /// <summary>
+    /// Closing the window (Cancel, Escape, the close box) dismisses a prompt that's still showing. If the prompt's
+    /// answer already opened the vault, it's locked again here, before anyone waiting on this window hears it closed.
+    /// </summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _closed = true;
+        if (_prompt is { } prompt)
         {
-            _closed = true;
-            _prompt?.Cancel();
-        };
+            prompt.Cancel();
+            if (!_unlocked && _store is VaultFileStore vault)
+            {
+                vault.Lock();
+            }
+        }
+
+        base.OnClosed(e);
     }
 
     static Control Field(string label, Control input) => Dialogs.Field(label, input);
@@ -171,6 +186,7 @@ sealed class VaultUnlockWindow : Window
             switch (result.Outcome)
             {
                 case BiometricOutcome.Done:
+                    _unlocked = true;
                     Close(true);
                     return;
                 case BiometricOutcome.TurnedOff or BiometricOutcome.NotOn or BiometricOutcome.Unavailable:
@@ -264,8 +280,8 @@ sealed class VaultUnlockWindow : Window
 
         if (OpenWindows.TryGetValue(store, out var open))
         {
-            await open;
-            return !store.IsLocked;
+            // The window's answer, not just the store's state: a window cancelled as its prompt answered is a no.
+            return await open && !store.IsLocked;
         }
 
         var shown = new VaultUnlockWindow(store, biometric).ShowDialog<bool>(owner);
