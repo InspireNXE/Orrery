@@ -38,6 +38,7 @@ public class FullScreenShortcutTests
     [InlineData(Key.Escape, KeyModifiers.Control | KeyModifiers.Shift)]
     [InlineData(Key.B, KeyModifiers.Control | KeyModifiers.Alt)]   // Orrery's settings pane.
     [InlineData(Key.C, KeyModifiers.Control | KeyModifiers.Shift)] // Terminal copy.
+    [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Shift)] // Orrery's local terminal.
     [InlineData(Key.LeftCtrl, KeyModifiers.Control | KeyModifiers.Alt)]
     public void Refuses_shortcuts_that_would_get_in_the_way_on_windows(Key key, KeyModifiers modifiers)
     {

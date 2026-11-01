@@ -23,6 +23,12 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
 
     /// <summary>SSH: a file browser (SFTP) instead of a terminal.</summary>
     public bool Files { get; init; }
+
+    /// <summary>A shell on this computer rather than a connection; <see cref="Protocol"/> only picks its colours.</summary>
+    public bool Local { get; init; }
+
+    /// <summary>What the tab and toolbar call it: the protocol, SFTP or LOCAL.</summary>
+    public string Label => Local ? "LOCAL" : Files ? "SFTP" : ProtocolInfo.Label(Protocol);
 }
 
 /// <summary>
@@ -59,7 +65,7 @@ sealed class SessionTab
         var title = new TextBlock { Text = origin.Title, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 200, TextTrimming = TextTrimming.CharacterEllipsis };
         var protocol = new TextBlock
         {
-            Text = origin.Files ? "SFTP" : ProtocolInfo.Label(origin.Protocol),
+            Text = origin.Label,
             FontFamily = Dialogs.MonoFont,
             FontSize = 10,
             Foreground = ProtocolStyle.Foreground(origin.Protocol),
@@ -69,7 +75,7 @@ sealed class SessionTab
         var close = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center };
         close.Classes.Add("icon");
         close.Classes.Add("tabclose");
-        ToolTip.SetTip(close, "Disconnect and close");
+        ToolTip.SetTip(close, origin.Local ? "End the shell and close" : "Disconnect and close");
         Avalonia.Automation.AutomationProperties.SetName(close, $"Close {origin.Title}");
         close.Click += (_, e) =>
         {
@@ -263,12 +269,17 @@ sealed class SessionTab
     /// <summary>Raised on the UI thread when the session connects, ends or fails.</summary>
     public event EventHandler? StateChanged;
 
-    /// <summary>user@host, plus the port when it isn't the protocol's usual one.</summary>
+    /// <summary>user@host, plus the port when it isn't the protocol's usual one; user@computer for a local shell.</summary>
     public string Address
     {
         get
         {
             var target = Session.Target;
+            if (Origin.Local)
+            {
+                return $"{target.Username}@{target.Host}";
+            }
+
             var user = string.IsNullOrEmpty(target.Username) ? string.Empty : $"{target.Username}@";
             var port = target.Port == ProtocolInfo.DefaultPort(Origin.Protocol) ? string.Empty : $":{target.Port}";
             return $"{user}{target.Host}{port}";

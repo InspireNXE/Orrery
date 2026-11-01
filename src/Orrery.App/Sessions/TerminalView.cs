@@ -122,11 +122,15 @@ public sealed class TerminalView : Control
     {
         // Each line resets attributes first, so a host's hidden or odd colours can't hide or disguise it.
         var target = $"{Session.Target.Host}:{Session.Target.Port}";
-        var text = state switch
+        var text = (state, Session as ILocalSession) switch
         {
-            SessionState.Connecting => $"\u001b[0m\u001b[90mConnecting to {target}…\u001b[0m\r\n",
-            SessionState.Failed => $"\r\n\u001b[0m\u001b[31mConnection failed: {Printable(message)}\u001b[0m\r\n",
-            SessionState.Disconnected => "\r\n\u001b[0m\u001b[90m[Disconnected]\u001b[0m\r\n",
+            (SessionState.Connecting, { } local) => $"\u001b[0m\u001b[90mStarting {Printable(local.ProgramName)}…\u001b[0m\r\n",
+            (SessionState.Connecting, _) => $"\u001b[0m\u001b[90mConnecting to {target}…\u001b[0m\r\n",
+            (SessionState.Failed, { } local) => $"\r\n\u001b[0m\u001b[31mCouldn't start {Printable(local.ProgramName)}: {Printable(message)}\u001b[0m\r\n",
+            (SessionState.Failed, _) => $"\r\n\u001b[0m\u001b[31mConnection failed: {Printable(message)}\u001b[0m\r\n",
+            (SessionState.Disconnected, { ExitCode: { } code }) => $"\r\n\u001b[0m\u001b[90m[Exited with code {code}]\u001b[0m\r\n",
+            (SessionState.Disconnected, { }) => "\r\n\u001b[0m\u001b[90m[Ended]\u001b[0m\r\n",
+            (SessionState.Disconnected, _) => "\r\n\u001b[0m\u001b[90m[Disconnected]\u001b[0m\r\n",
             _ => null,
         };
 

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
@@ -192,5 +193,22 @@ public class SessionTabTests
 
         Assert.Equal(0, reconnects);
         Assert.False(tab.IsReconnecting);
+    }
+
+    [AvaloniaFact]
+    public void A_local_shell_tab_says_local_and_names_the_user_and_computer()
+    {
+        var session = new ScriptedSession();
+        var tab = new SessionTab(session, new Border(), new SessionOrigin("PowerShell 7", Protocol.Ssh, null, () => Task.CompletedTask) { Local = true });
+
+        Assert.Equal("LOCAL", tab.Origin.Label);
+        Assert.Equal("user@box", tab.Address);
+        Assert.Contains(tab.Header.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "LOCAL");
+
+        // Nothing to reconnect to: a local shell is never started again by itself.
+        session.Become(SessionState.Connected);
+        session.Become(SessionState.Failed);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(tab.WasCutOff);
     }
 }

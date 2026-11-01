@@ -62,8 +62,8 @@ public class SettingsViewTests : IDisposable
         Assert.Contains("Portable", texts);
         Assert.Contains(texts, t => t?.Contains("InspireNXE") == true);
 
-        // Portable copies have no store choice, so the only combo box is the auto-lock time.
-        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>());
+        // Portable copies have no store choice, so the only combo box of times is the auto-lock one (the shell's has names).
+        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().All(i => i.Tag is int));
         Assert.Equal(30, (int)((ComboBoxItem)autoLock.SelectedItem!).Tag!);
 
         autoLock.SelectedItem = autoLock.Items.OfType<ComboBoxItem>().Single(i => (int)i.Tag! == 0);
@@ -71,6 +71,37 @@ public class SettingsViewTests : IDisposable
 
         Assert.Equal(0, settings.Load().AutoLockMinutes);
         Assert.Null(vault.AutoLockAfter);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Saves_the_shell_for_local_terminals()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var shells = Orrery.Protocols.Local.LocalShells.Available();
+        if (shells.Count == 1)
+        {
+            // Linux and macOS: the login shell, shown but not chosen here.
+            Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == shells[0].Program);
+        }
+        else
+        {
+            var choice = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is "cmd"));
+            Assert.Equal(shells[0].Id, ((ComboBoxItem)choice.SelectedItem!).Tag);
+
+            choice.SelectedItem = choice.Items.OfType<ComboBoxItem>().Single(i => i.Tag is "cmd");
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("cmd", settings.Load().LocalShell);
+        }
+
         window.Close();
     }
 
