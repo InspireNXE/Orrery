@@ -61,6 +61,16 @@
         </Grid>
       </Border>
 
+      <!-- Offered at start-up when sessions were open last time. -->
+      <Border x:Name="RestoreBar" DockPanel.Dock="Top" IsVisible="False" Padding="14,4"
+              Background="{StaticResource OrreryPanel}" BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1">
+        <DockPanel>
+          <Button x:Name="RestoreDismissButton" DockPanel.Dock="Right" MinHeight="26" Content="Not now" />
+          <Button x:Name="RestoreReopenButton" DockPanel.Dock="Right" Classes="accent" MinHeight="26" Content="Reopen" Margin="0,0,8,0" />
+          <TextBlock x:Name="RestoreText" VerticalAlignment="Center" Foreground="{StaticResource OrrerySoftText}" TextTrimming="CharacterEllipsis" />
+        </DockPanel>
+      </Border>
+
       <!-- Status bar -->
       <Border x:Name="StatusBar" DockPanel.Dock="Bottom" Height="26" Padding="14,0"
               BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,1,0,0">

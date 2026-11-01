@@ -64,6 +64,12 @@ public sealed record AppSettings
     [JsonIgnore]
     public bool ChecksHostStatus => HostStatusChecks ?? true;
 
+    /// <summary>Whether to reopen last time's sessions at start-up. Null is <see cref="RestoreSessionsMode.Ask"/>.</summary>
+    public RestoreSessionsMode? RestoreSessions { get; init; }
+
+    [JsonIgnore]
+    public RestoreSessionsMode RestoreMode => RestoreSessions ?? RestoreSessionsMode.Ask;
+
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }
 

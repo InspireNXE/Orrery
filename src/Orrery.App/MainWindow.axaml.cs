@@ -261,6 +261,9 @@ public partial class MainWindow : Window
         var layout = _settingsStore.Load();
         ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
         ShowInspector(layout.InspectorOpen ?? true, save: false);
+        _workspaceStore = WorkspaceStore.In(location);
+        _savedWorkspace = _workspaceStore.Load();
+        InitWorkspace();
         RebuildTree();
         UpdateVaultButton();
         UpdateSessionChrome();
@@ -286,6 +289,8 @@ public partial class MainWindow : Window
             {
                 await OfferMRemoteNgImportAsync();
             }
+
+            await OfferWorkspaceAsync();
         };
 
         _network.Back += (_, _) => NetworkBack();
@@ -294,6 +299,7 @@ public partial class MainWindow : Window
             _network.Dispose();
             _properties.TrySave();
             SaveNow();
+            SaveWorkspace();
             _hostStatus.Dispose();
             SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
@@ -1623,17 +1629,21 @@ public partial class MainWindow : Window
 
     void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
 
-    /// <summary>A shell on this computer in a new tab: the one chosen in settings, starting in the home folder.</summary>
-    void OpenLocalTerminal()
+    /// <summary>
+    /// A shell on this computer in a new tab, starting in the home folder: <paramref name="shellId"/>, or the one
+    /// chosen in settings. Duplicating or restarting the tab opens the same shell again.
+    /// </summary>
+    void OpenLocalTerminal(string? shellId = null)
     {
-        var shell = LocalShells.Find(_settingsStore.Load().LocalShell);
+        var shell = LocalShells.Find(shellId ?? _settingsStore.Load().LocalShell);
         var origin = new SessionOrigin(shell.Name, Protocol.Ssh, null, () =>
         {
-            OpenLocalTerminal();
+            OpenLocalTerminal(shell.Id);
             return Task.CompletedTask;
         })
         {
             Local = true,
+            LocalShell = shell.Id,
         };
         Open(origin, () =>
         {

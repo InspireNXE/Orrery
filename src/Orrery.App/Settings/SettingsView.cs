@@ -97,6 +97,7 @@ sealed class SettingsView : UserControl
                         {
                             StorageSection(),
                             CredentialsSection(),
+                            StartupSection(),
                             RemoteDesktopSection(),
                             LocalTerminalSection(),
                             HostStatusSection(),
@@ -437,6 +438,43 @@ sealed class SettingsView : UserControl
             _ = Dialogs.ShowMessageAsync(Owner, "Couldn't save settings", e.Message);
             return false;
         }
+    }
+
+    // ---- Start-up ----
+
+    Control StartupSection()
+    {
+        var choices = new (string Label, RestoreSessionsMode Mode)[]
+        {
+            ("Ask me", RestoreSessionsMode.Ask),
+            ("Always reopen them", RestoreSessionsMode.Always),
+            ("Never", RestoreSessionsMode.Never),
+        };
+
+        var buttons = choices.Select(choice => new RadioButton
+        {
+            Content = choice.Label,
+            GroupName = "RestoreSessions",
+            Tag = choice.Mode,
+            IsChecked = _settings.RestoreMode == choice.Mode,
+        }).ToList();
+        foreach (var button in buttons)
+        {
+            button.IsCheckedChanged += (_, _) =>
+            {
+                if (button.IsChecked == true && !_loading)
+                {
+                    _settings = _settings with { RestoreSessions = (RestoreSessionsMode)button.Tag! };
+                    TrySaveSettings();
+                }
+            };
+        }
+
+        return Section("Start-up",
+            new TextBlock { Text = "Reopen the sessions that were open when Orrery last closed" },
+            new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1], buttons[2] } },
+            Note("The window's size and position, and which panes are showing, always come back. A host typed into quick connect "
+                + "reopens by its address alone, and asks for the login again."));
     }
 
     // ---- Remote desktops ----

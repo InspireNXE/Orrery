@@ -26,6 +26,9 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
     /// <summary>A shell on this computer rather than a connection; <see cref="Protocol"/> only picks its colours.</summary>
     public bool Local { get; init; }
 
+    /// <summary>A local terminal's shell, by id ("pwsh", "wsl:Ubuntu"), so it can be opened again the same way.</summary>
+    public string? LocalShell { get; init; }
+
     /// <summary>What the tab and toolbar call it: the protocol, SFTP or LOCAL.</summary>
     public string Label => Local ? "LOCAL" : Files ? "SFTP" : ProtocolInfo.Label(Protocol);
 }
