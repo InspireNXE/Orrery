@@ -96,7 +96,7 @@ public partial class MainWindow : Window
     readonly HostStatusController _hostStatus;
     readonly TextBlock _noticeText;
     int _noticeVersion;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
+    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
     readonly NetworkWatch _network = new();
@@ -189,6 +189,7 @@ public partial class MainWindow : Window
         _addGuestMenuItem = this.FindControl<MenuItem>("AddGuestMenuItem")!;
         _moveOutOfHostMenuItem = this.FindControl<MenuItem>("MoveOutOfHostMenuItem")!;
         _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
+        _exportMenuItem = this.FindControl<MenuItem>("ExportMenuItem")!;
         _deleteMenuItem = this.FindControl<MenuItem>("DeleteMenuItem")!;
 
         _certificateValidator = new ServerCertificateValidator(
@@ -451,6 +452,9 @@ public partial class MainWindow : Window
             _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
             _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
             _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
+
+            // Exports what's selected; with nothing selected there's nothing here to export (Settings exports everything).
+            _exportMenuItem.IsEnabled = SingleSelectedNode is not null;
             _deleteMenuItem.IsEnabled = nodes.Count > 0;
             _deleteMenuItem.Header = nodes.Count > 1 ? $"Delete {nodes.Count} items" : "Delete";
         };
@@ -2859,6 +2863,8 @@ public partial class MainWindow : Window
         }
     }
 
+    async void OnImportMenuClick(object? sender, RoutedEventArgs e) => await ChooseImportFileAsync();
+
     async Task ChooseImportFileAsync()
     {
         var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
@@ -2867,7 +2873,7 @@ public partial class MainWindow : Window
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG or Orrery connections") { Patterns = ["*.xml", "*.json"] },
+                new Avalonia.Platform.Storage.FilePickerFileType("Connection files") { Patterns = ["*.xml", "*.json", "*.rdp"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("Remote Desktop file") { Patterns = ["*.rdp"] },
@@ -3007,7 +3013,13 @@ public partial class MainWindow : Window
         }
     }
 
-    async void OnExportMenuClick(object? sender, RoutedEventArgs e) => await ExportAsync(SelectedNode ?? _tree.Root);
+    async void OnExportMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (SingleSelectedNode is { } node)
+        {
+            await ExportAsync(node);
+        }
+    }
 
     /// <summary>Saves <paramref name="node"/> (the root for everything) as an Orrery, mRemoteNG or CSV file, chosen by its type.</summary>
     async Task ExportAsync(ConnectionNode node)
