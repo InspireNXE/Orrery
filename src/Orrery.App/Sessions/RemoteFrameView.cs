@@ -82,6 +82,14 @@ public sealed class RemoteFrameView : Panel
     bool _resizePending;
     bool _renderQueued;
     WriteableBitmap? _bitmap;
+
+    const int BytesPerPixel = 4;
+
+    // The changed part of the frame, copied out of the session before the bitmap is locked (see Flush).
+    byte[]? _scratch;
+
+    /// <summary>True while the bitmap is locked to draw into it; the session is never asked for pixels then.</summary>
+    internal bool DrawingIntoBitmap { get; private set; }
     TopLevel? _topLevel;
 
     // Set when a frame couldn't be drawn and the session was ended for it.
@@ -293,7 +301,61 @@ public sealed class RemoteFrameView : Panel
     /// </summary>
     internal static void Draw(IFrameBufferSession session, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height, FrameRect region)
     {
-        session.CopyRegion(region, pixels, rowBytes);
+        byte[]? scratch = null;
+        var copied = CopyOut(session, region, width, height, ref scratch);
+        Blit(scratch, copied, correction, pixels, rowBytes, width, height);
+    }
+
+    /// <summary>
+    /// Copies <paramref name="region"/>, clipped to the frame, out of the session into <paramref name="scratch"/>
+    /// (grown as needed), its rows packed one after the other. Returns the region copied.
+    /// </summary>
+    static FrameRect CopyOut(IFrameBufferSession session, FrameRect region, int width, int height, ref byte[]? scratch)
+    {
+        int x = Math.Clamp(region.X, 0, width), y = Math.Clamp(region.Y, 0, height);
+        var clipped = new FrameRect(x, y, Math.Clamp(region.Right, x, width) - x, Math.Clamp(region.Bottom, y, height) - y);
+        if (clipped.IsEmpty)
+        {
+            return clipped;
+        }
+
+        int rowBytes = clipped.Width * BytesPerPixel, size = rowBytes * clipped.Height;
+        if (scratch is null || scratch.Length < size)
+        {
+            scratch = new byte[size];
+        }
+
+        var pinned = GCHandle.Alloc(scratch, GCHandleType.Pinned);
+        try
+        {
+            // CopyRegion writes each pixel at its place in a whole frame of the given stride, so the frame's origin
+            // goes where the region's first pixel lands at the start of the buffer.
+            var origin = pinned.AddrOfPinnedObject() - ((nint)y * rowBytes + (nint)x * BytesPerPixel);
+            session.CopyRegion(clipped, origin, rowBytes);
+        }
+        finally
+        {
+            pinned.Free();
+        }
+
+        return clipped;
+    }
+
+    /// <summary>Copies what <see cref="CopyOut"/> took into a bitmap's pixels and corrects just that part.</summary>
+    static void Blit(byte[]? scratch, FrameRect region, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height)
+    {
+        if (region.IsEmpty || scratch is null)
+        {
+            return;
+        }
+
+        int regionRowBytes = region.Width * BytesPerPixel;
+        for (int row = 0; row < region.Height; row++)
+        {
+            Marshal.Copy(scratch, row * regionRowBytes,
+                pixels + (nint)(region.Y + row) * rowBytes + (nint)region.X * BytesPerPixel, regionRowBytes);
+        }
+
         correction?.Apply(pixels, rowBytes, width, height, region);
     }
 
@@ -432,9 +494,21 @@ public sealed class RemoteFrameView : Panel
                 dirty = new FrameRect(0, 0, width, height);
             }
 
+            // The session's lock is taken before the bitmap's, never inside it. Waiting for a lock on this thread lets
+            // Windows deliver a paint, which waits for the render thread, which waits for the bitmap: holding the
+            // bitmap meanwhile froze the window (seen leaving full screen while the session drew).
+            var copied = CopyOut(Session, dirty, width, height, ref _scratch);
             using (var buffer = _bitmap.Lock())
             {
-                Draw(Session, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height, dirty);
+                DrawingIntoBitmap = true;
+                try
+                {
+                    Blit(_scratch, copied, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height);
+                }
+                finally
+                {
+                    DrawingIntoBitmap = false;
+                }
             }
         }
         catch (Exception e) when (e is ArgumentException or OutOfMemoryException or InvalidOperationException)
