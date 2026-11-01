@@ -37,7 +37,25 @@ public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credentia
         var existing = ExistingSourceIds(tree);
         var importTree = new ConnectionTree(Root);
 
-        foreach (var entry in Root.Descendants().OfType<ConnectionEntry>().Where(e => e.ImportSourceId is { } id && existing.Contains(id)).ToList())
+        // A jump host that's dropped as already imported is still what its users go through: point them at the copy in the tree.
+        var already = Root.Descendants().OfType<ConnectionEntry>().Where(e => e.ImportSourceId is { } id && existing.Contains(id)).ToList();
+        var inTree = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var node in tree.Root.Descendants())
+        {
+            inTree.TryAdd(OrreryImporter.SourcePrefix + node.Id, node.Id);
+            if (node.ImportSourceId is { } source)
+            {
+                inTree.TryAdd(source, node.Id);
+            }
+        }
+
+        var moved = already.Where(e => inTree.ContainsKey(e.ImportSourceId!)).ToDictionary(e => e.Id, e => inTree[e.ImportSourceId!]);
+        foreach (var node in Root.Descendants().Where(n => n.Settings.JumpHostId is { } jump && moved.ContainsKey(jump)))
+        {
+            node.Settings.JumpHostId = moved[node.Settings.JumpHostId!.Value];
+        }
+
+        foreach (var entry in already)
         {
             importTree.Remove(entry);
         }
@@ -297,7 +315,7 @@ public static class MRemoteNgImporter
     }
 
     /// <summary>A report list that keeps its first lines and only counts the rest.</summary>
-    sealed class ReportLines
+    internal sealed class ReportLines
     {
         readonly List<string> _lines = [];
         int _more;
