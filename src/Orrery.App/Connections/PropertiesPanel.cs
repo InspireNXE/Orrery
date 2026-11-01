@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
@@ -33,6 +34,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
+    readonly TextBox _keyFile = new() { FontFamily = Dialogs.MonoFont, Watermark = "~/.ssh/id_ed25519" };
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
@@ -46,7 +48,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
     readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
     readonly Control _wakeSection;
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -87,6 +89,15 @@ sealed class PropertiesPanel : UserControl
         _credentialRow = new InheritRow("Saved credential", _credential, () => ShowInherited(r => _ = _credential.RefreshAsync(r.CredentialId.Value)));
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
+        var browseKey = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0 };
+        browseKey.Click += async (_, _) => await BrowseKeyFileAsync();
+        AutomationProperties.SetName(browseKey, "Browse for a key file");
+        AutomationProperties.SetName(_keyFile, "Key file");
+        _keyFileRow = new InheritRow("Key file (SSH)", new DockPanel { Children = { Pane.Docked(browseKey, Dock.Right), _keyFile } },
+            () => ShowInherited(r => _keyFile.Text = r.KeyFile.Value));
+        _keyFileRow.Tip("SSH: a private key file on this computer, tried after a saved key credential and before the SSH agent and the password. "
+            + "Orrery reads it when you connect and never copies it. ~ means your home folder.");
+        AutomationProperties.SetHelpText(_keyFile, "A private key file on this computer, tried after a saved key credential and before the SSH agent and the password. ~ means your home folder.");
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
         _desktopSizeRow.Tip("RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
@@ -168,7 +179,7 @@ sealed class PropertiesPanel : UserControl
             {
                 Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
-                Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
+                Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View),
                 Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
                 _wakeSection,
@@ -182,7 +193,7 @@ sealed class PropertiesPanel : UserControl
             Children = { _error, _connect, Pane.Pair(_save, revert) },
         });
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards, _desktopSize, _mac, _broadcast })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
@@ -203,7 +214,7 @@ sealed class PropertiesPanel : UserControl
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow })
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -270,6 +281,9 @@ sealed class PropertiesPanel : UserControl
 
             _domainRow.Load(own.Domain is null, Describe(inherited.Domain));
             _domain.Text = own.Domain ?? inherited.Domain.Value;
+
+            _keyFileRow.Load(own.KeyFile is null, Describe(inherited.KeyFile));
+            _keyFile.Text = own.KeyFile ?? inherited.KeyFile.Value;
 
             _clipboardRow.Load(own.ShareClipboard is null, Describe(inherited.ShareClipboard));
             _clipboard.IsChecked = own.ShareClipboard ?? inherited.ShareClipboard.Value;
@@ -413,6 +427,17 @@ sealed class PropertiesPanel : UserControl
             desktopSize = size is { } fixedSize ? $"{fixedSize.Width}x{fixedSize.Height}" : string.Empty;
         }
 
+        string? keyFile = null;
+        if (_keyFileRow.Inherit.IsChecked != true)
+        {
+            // Only a path, which can't be checked here: the file may be on another computer's disk, or not there yet.
+            keyFile = _keyFile.Text?.Trim() ?? string.Empty;
+            if (keyFile.Length > MaxKeyFilePathLength || keyFile.Any(char.IsControl))
+            {
+                return Fail("The key file path is too long or has characters a path can't have.");
+            }
+        }
+
         List<PortForward>? forwards = null;
         if (_node is ConnectionEntry)
         {
@@ -454,6 +479,7 @@ sealed class PropertiesPanel : UserControl
             CredentialId = _credentialRow.Inherit.IsChecked == true ? null : _credential.SelectedId ?? InheritableSettings.NoCredential,
             Username = _usernameRow.Inherit.IsChecked == true ? null : _username.Text?.Trim() ?? string.Empty,
             Domain = _domainRow.Inherit.IsChecked == true ? null : _domain.Text?.Trim() ?? string.Empty,
+            KeyFile = keyFile,
             ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
             UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
             AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
@@ -478,6 +504,53 @@ sealed class PropertiesPanel : UserControl
         _title.Text = name;
         _tree.NotifyChanged();
         return true;
+    }
+
+    const int MaxKeyFilePathLength = 1024;
+
+    /// <summary>
+    /// Fills the key file box from the file picker. A file under the home folder is kept as ~/..., which also
+    /// works on another computer after an export and import.
+    /// </summary>
+    async Task BrowseKeyFileAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+        {
+            return;
+        }
+
+        var options = new FilePickerOpenOptions { Title = "Choose a private key file", AllowMultiple = false };
+        var ssh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
+        if (Directory.Exists(ssh))
+        {
+            options.SuggestedStartLocation = await storage.TryGetFolderFromPathAsync(ssh);
+        }
+
+        var files = await storage.OpenFilePickerAsync(options);
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        if (files[0].TryGetLocalPath() is not { } path)
+        {
+            Fail("That file isn't on this computer, so it can't be used as a key file.");
+            return;
+        }
+
+        _keyFile.Text = WithHome(path);
+    }
+
+    /// <summary>The path with the home folder written as ~, when it's under it.</summary>
+    internal static string WithHome(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (home.Length > 0 && path.StartsWith(home.TrimEnd('/', '\\') + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            return "~/" + path[(home.TrimEnd('/', '\\').Length + 1)..].Replace('\\', '/');
+        }
+
+        return path;
     }
 
     public void FocusName()

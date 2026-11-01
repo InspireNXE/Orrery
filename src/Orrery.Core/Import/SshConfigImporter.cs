@@ -13,8 +13,8 @@ namespace Orrery.Core.Import;
 /// <c>Host *</c> block at the end gives defaults. Written from the documented file format.
 /// <para>
 /// The file is untrusted. Nothing in it is run: ProxyCommand, LocalCommand and KnownHostsCommand are reported
-/// and left out, and Match blocks aren't evaluated. IdentityFile is recorded as a path in the notes and the
-/// key file is never opened.
+/// and left out, and Match blocks aren't evaluated. The first IdentityFile becomes the connection's Key file
+/// setting, a path; the key file is never opened by the import.
 /// </para>
 /// <para>
 /// A ProxyJump chain becomes Orrery's jump hosts: each connection names one jump host, which names the one
@@ -26,7 +26,6 @@ public static class SshConfigImporter
 {
     const string SourcePrefix = "sshconfig:";
     const int MaxUserLength = 256;
-    const int MaxKeyFilesNoted = 5;
     const int MaxNamesListed = 5;
 
     static readonly ILogger Logger = Log.For("Storage");
@@ -57,7 +56,7 @@ public static class SshConfigImporter
     }
 
     /// <summary>One machine as the config describes it: where to connect, as whom.</summary>
-    sealed record HostInfo(string Name, string Host, int Port, string? User, IReadOnlyList<string> KeyFiles)
+    sealed record HostInfo(string Name, string Host, int Port, string? User, string? KeyFile, int MoreKeyFiles)
     {
         /// <summary>Two hops with the same key are the same connection.</summary>
         public string Key => $"{Host.ToLowerInvariant()}|{Port}|{User}";
@@ -80,7 +79,7 @@ public static class SshConfigImporter
         readonly Dictionary<string, (SshDirective Directive, List<string> Names)> _commands = new(StringComparer.Ordinal);
         readonly Dictionary<string, ConnectionEntry> _entries = new(StringComparer.Ordinal);
         readonly List<string> _jumpOnly = [];
-        int _withKeys, _withForwards;
+        int _withManyKeys, _withForwards;
 
         public ImportResult Build()
         {
@@ -99,7 +98,7 @@ public static class SshConfigImporter
                 }
 
                 var cfg = config.Resolve(alias);
-                _withKeys += info.KeyFiles.Count > 0 ? 1 : 0;
+                _withManyKeys += info.MoreKeyFiles > 0 ? 1 : 0;
                 _withForwards += cfg.Forwards.Count > 0 ? 1 : 0;
 
                 var chain = Chain(info, [info.Key], out problem);
@@ -169,12 +168,12 @@ public static class SshConfigImporter
                 _warnings.Add($"Added {_jumpOnly.Count} jump host connection{(_jumpOnly.Count == 1 ? "" : "s")} that ProxyJump uses and the config doesn't list as a Host: {List(_jumpOnly)}.");
             }
 
-            var unsupported = new List<string>();
-            if (_withKeys > 0)
+            if (_withManyKeys > 0)
             {
-                unsupported.Add($"Key files (IdentityFile): {_withKeys} connection{(_withKeys == 1 ? "" : "s")}. The path is in each connection's notes; Orrery logs in with a key saved in its vault, or one in your SSH agent");
+                _warnings.Add($"{_withManyKeys} connection{(_withManyKeys == 1 ? " has" : "s have")} more than one IdentityFile. Orrery keeps one key file per connection, the first.");
             }
 
+            var unsupported = new List<string>();
             if (_withForwards > 0)
             {
                 unsupported.Add($"Port forwards (LocalForward, RemoteForward, DynamicForward): {_withForwards} connection{(_withForwards == 1 ? "" : "s")}");
@@ -217,11 +216,19 @@ public static class SshConfigImporter
             Track(cfg.LocalCommand, name);
             Track(cfg.KnownHostsCommand, name);
 
-            var keys = new List<string>();
+            // The first IdentityFile is the key file; Orrery keeps one per connection.
+            string? keyFile = null;
+            int moreKeyFiles = 0;
             foreach (var directive in cfg.IdentityFiles)
             {
                 if (directive.First is not { Length: > 0 } file || file.Equals("none", StringComparison.OrdinalIgnoreCase))
                 {
+                    continue;
+                }
+
+                if (keyFile is not null)
+                {
+                    moreKeyFiles++;
                     continue;
                 }
 
@@ -236,13 +243,10 @@ public static class SshConfigImporter
                     Warn(directive, $"{directive.Where}: IdentityFile uses an environment variable, which Orrery doesn't expand, so it was left as written.");
                 }
 
-                if (!keys.Contains(path))
-                {
-                    keys.Add(path);
-                }
+                keyFile = path;
             }
 
-            return new HostInfo(name, host, resolvedPort, resolvedUser, keys);
+            return new HostInfo(name, host, resolvedPort, resolvedUser, keyFile, moreKeyFiles);
         }
 
         int? PortOf(SshDirective? directive)
@@ -500,26 +504,19 @@ public static class SshConfigImporter
 
         ConnectionEntry NewEntry(string name, HostInfo info, string sourceId, string? note)
         {
-            var notes = new List<string>();
-            if (note is not null)
-            {
-                notes.Add(note);
-            }
-
-            notes.AddRange(info.KeyFiles.Take(MaxKeyFilesNoted).Select(k => "Key file: " + k));
-            if (info.KeyFiles.Count > MaxKeyFilesNoted)
-            {
-                notes.Add($"…and {info.KeyFiles.Count - MaxKeyFilesNoted} more key files.");
-            }
-
             var entry = new ConnectionEntry
             {
                 Name = name,
                 Host = info.Host,
-                Notes = notes.Count == 0 ? null : string.Join("\n", notes),
+                Notes = note,
                 ImportSourceId = sourceId,
             };
             entry.Settings.Protocol = Protocol.Ssh;
+            if (info.KeyFile is not null)
+            {
+                entry.Settings.KeyFile = info.KeyFile;
+            }
+
             if (info.Port != 22)
             {
                 entry.Settings.Port = info.Port;

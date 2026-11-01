@@ -1435,9 +1435,9 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <param name="skipAgent">Ask for a login even if an SSH agent is running: its keys were just refused.</param>
+    /// <param name="skipKeys">Ask for a password even if the connection has a key file or an SSH agent is running: those keys were just refused.</param>
     /// <param name="files">SSH: open a file browser (SFTP) instead of a terminal.</param>
-    async Task ConnectAsync(ConnectionEntry entry, bool skipAgent = false, bool files = false)
+    async Task ConnectAsync(ConnectionEntry entry, bool skipKeys = false, bool files = false)
     {
         if (_properties.Node == entry && !_properties.TrySave())
         {
@@ -1498,13 +1498,28 @@ public partial class MainWindow : Window
                 }
             }
 
-            // SSH with no saved credential: the agent's keys, if it has any, without asking for a password.
-            if (password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipAgent
-                && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
+            // SSH: the connection's key file, with its passphrase asked for now if it has one. Skipped after the
+            // server refused the keys, so the retry goes straight to asking for a password.
+            KeyFileLogin? keyFile = null;
+            if (protocol == Protocol.Ssh && !skipKeys && resolved.KeyFile.Value is { } keyPath)
             {
-                ConnectLog.LogInformation("\"{Name}\": logging in as {User} with the SSH agent's keys", entry.Name, username);
-                StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
-                    whenRefused: () => ConnectAsync(entry, skipAgent: true, files), resolved.AllowLegacySsh.Value, route);
+                if (await PrepareKeyFileAsync(keyPath, entry.Name) is not { } prepared)
+                {
+                    ConnectLog.LogDebug("\"{Name}\": the key file passphrase prompt was cancelled", entry.Name);
+                    return;
+                }
+
+                keyFile = prepared;
+            }
+
+            // SSH with no saved credential: the key file and the agent's keys, if there are any, without asking for a password.
+            bool useAgent = password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipKeys
+                && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync();
+            if (password is null && protocol == Protocol.Ssh && !skipKeys && !string.IsNullOrWhiteSpace(username) && (keyFile is not null || useAgent))
+            {
+                ConnectLog.LogInformation("\"{Name}\": logging in as {User} with {Keys}", entry.Name, username, KeysIn(keyFile, useAgent));
+                StartSshWithKeys(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
+                    whenRefused: () => ConnectAsync(entry, skipKeys: true, files), keyFile, useAgent, resolved.AllowLegacySsh.Value, route);
                 return;
             }
 
@@ -1543,7 +1558,7 @@ public partial class MainWindow : Window
             // Checked when saved; a hand-edited file that doesn't parse just fits the window.
             DesktopResolution.TryParse(resolved.DesktopSize.Value, out var desktopSize, out _);
             await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize,
-                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value);
+                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value, keyFile);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -1563,8 +1578,8 @@ public partial class MainWindow : Window
 
         if (choice.Protocol == Protocol.Ssh && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
         {
-            StartSshWithAgent(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
-                whenRefused: () => ConnectDirectAsync(choice, skipAgent: true));
+            StartSshWithKeys(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
+                whenRefused: () => ConnectDirectAsync(choice, skipAgent: true), keyFile: null, useAgent: true);
             return;
         }
 
@@ -1582,12 +1597,12 @@ public partial class MainWindow : Window
 
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
         bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null, bool? enlarge = null,
-        DisplayQuality quality = DisplayQuality.Balanced)
+        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null)
     {
         switch (origin.Protocol)
         {
             case Protocol.Ssh:
-                return StartSshAsync(origin, target, password, saved, allowLegacySsh, route);
+                return StartSshAsync(origin, target, password, saved, allowLegacySsh, route, keyFile);
             case Protocol.Vnc:
                 StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps, quality);
                 return Task.CompletedTask;
@@ -1689,14 +1704,16 @@ public partial class MainWindow : Window
     });
 
     /// <summary>
-    /// Logs in with the agent's keys alone. If the server refuses them all, the tab closes and
-    /// <paramref name="whenRefused"/> asks for a login the usual way.
+    /// Logs in with the key file, then the agent's keys, and no password. If the server refuses them all, the tab
+    /// closes and <paramref name="whenRefused"/> asks for a login the usual way.
     /// </summary>
-    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, bool allowLegacySsh = false, SshRoute? route = null)
+    void StartSshWithKeys(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, KeyFileLogin? keyFile, bool useAgent,
+        bool allowLegacySsh = false, SshRoute? route = null)
     {
         Open(origin, () =>
         {
-            var (view, session, rejected) = NewSshView(origin, target, new SshLogin(target.Username!, null, UseAgent: true), allowLegacySsh, route);
+            var login = new SshLogin(target.Username!, null, UseAgent: useAgent, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
+            var (view, session, rejected) = NewSshView(origin, target, login, allowLegacySsh, route);
             session.StateChanged += (_, e) =>
             {
                 if (e.State == SessionState.Failed && rejected())
@@ -1713,7 +1730,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
-    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh, SshRoute? route)
+    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh, SshRoute? route,
+        KeyFileLogin? keyFile = null)
     {
         if (string.IsNullOrWhiteSpace(target.Username))
         {
@@ -1721,7 +1739,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var login = SshLoginFor(target.Username, password, saved);
+        var login = SshLoginFor(target.Username, password, saved, keyFile);
         Open(origin, () =>
         {
             var (view, session, _) = NewSshView(origin, target, login, allowLegacySsh, route);
@@ -1746,11 +1764,117 @@ public partial class MainWindow : Window
         return (NewTerminalView(shell), shell, () => shell.AuthenticationRejected);
     }
 
-    /// <summary>A saved SSH-key credential logs in with its key instead of the password.</summary>
-    static SshLogin SshLoginFor(string username, string? password, Credential? saved) =>
+    /// <summary>
+    /// A saved SSH-key credential logs in with its key instead of the password. The connection's key file, if it has
+    /// one, comes after that and before the password.
+    /// </summary>
+    static SshLogin SshLoginFor(string username, string? password, Credential? saved, KeyFileLogin? keyFile = null) =>
         saved?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase
-            ? new SshLogin(username, null, saved.Secret, saved.Passphrase)
-            : new SshLogin(username, password);
+            ? new SshLogin(username, null, saved.Secret, saved.Passphrase, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase)
+            : new SshLogin(username, password, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
+
+    /// <summary>A connection's key file and the passphrase it needs, if any, which is held only for this session.</summary>
+    sealed record KeyFileLogin(string Path, string? Passphrase)
+    {
+        public override string ToString() => "KeyFileLogin";
+    }
+
+    /// <summary>What the log says a login uses: the key file by its name only, and the agent.</summary>
+    static string KeysIn(KeyFileLogin? keyFile, bool useAgent) => (keyFile, useAgent) switch
+    {
+        ({ } file, true) => $"the key file {SshKeyFile.NameOf(file.Path)} and the SSH agent's keys",
+        ({ } file, false) => $"the key file {SshKeyFile.NameOf(file.Path)}",
+        _ => "the SSH agent's keys",
+    };
+
+    /// <summary>
+    /// Gets <paramref name="path"/> ready to log in with. Only an encrypted key needs anything: its passphrase, from
+    /// the credential store if one was saved there (and the store is open), else asked for until it opens the key.
+    /// A key file that is missing or unusable isn't dealt with here; the session says so on the connection-lost
+    /// screen. Null if the passphrase prompt was cancelled.
+    /// </summary>
+    /// <param name="what">Which connection wants it, for the prompt.</param>
+    async Task<KeyFileLogin?> PrepareKeyFileAsync(string path, string what)
+    {
+        string? passphrase = null, toSave = null;
+        bool wrong = false, lookedForSaved = false;
+        while (true)
+        {
+            var problem = await Task.Run(() => SshKeyFile.Check(path, passphrase));
+            if (problem is not { Problem: KeyFileProblem.NeedsPassphrase or KeyFileProblem.WrongPassphrase })
+            {
+                if (toSave is not null && problem is null)
+                {
+                    await SavePassphraseAsync(path, toSave);
+                }
+
+                return new KeyFileLogin(path, passphrase);
+            }
+
+            wrong = problem.Problem == KeyFileProblem.WrongPassphrase;
+            if (!lookedForSaved && !wrong)
+            {
+                lookedForSaved = true;
+                if (await SavedPassphraseAsync(path) is { } saved)
+                {
+                    passphrase = saved;
+                    continue;
+                }
+            }
+
+            var answer = await new KeyPassphraseWindow(what, SshKeyFile.NameOf(path), wrong, offerSave: true).ShowDialog<KeyPassphraseResult?>(this);
+            if (answer is null)
+            {
+                return null;
+            }
+
+            passphrase = answer.Passphrase;
+            toSave = answer.Save && passphrase.Length > 0 ? passphrase : null;
+        }
+    }
+
+    /// <summary>The passphrase saved for this key file, when the credential store is open and has one. Never asks to unlock it.</summary>
+    async Task<string?> SavedPassphraseAsync(string path)
+    {
+        if (_credentials.IsLocked)
+        {
+            return null;
+        }
+
+        try
+        {
+            return (await _credentials.GetAsync(SshKeyFile.PassphraseCredentialId(path)))?.Secret;
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            ConnectLog.LogWarning("Couldn't look for a saved passphrase for {Key}: {Message}", SshKeyFile.NameOf(path), e.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Saves a key file's passphrase as a credential, found again by the file's path (see
+    /// <see cref="SshKeyFile.PassphraseCredentialId"/>), the way a typed password is saved from the login prompt.
+    /// </summary>
+    async Task SavePassphraseAsync(string path, string passphrase)
+    {
+        try
+        {
+            if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+            {
+                return;
+            }
+
+            var name = SshKeyFile.NameOf(path);
+            await _credentials.SaveAsync(new Credential(SshKeyFile.PassphraseCredentialId(path), $"Passphrase for {name}", CredentialKind.Password, null, null, passphrase,
+                Notes: "The passphrase of a key file, saved when connecting. Orrery finds it again by the file's path."));
+            ConnectLog.LogInformation("Saved the passphrase for the key file {Key} as a credential", name);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the passphrase", e.Message);
+        }
+    }
 
     /// <summary>What an SSH session goes through and opens besides its shell.</summary>
     sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards);
@@ -1795,10 +1919,22 @@ public partial class MainWindow : Window
                 }
             }
 
-            SshLogin login;
-            if (saved is null && resolved.UseSshAgent.Value && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
+            KeyFileLogin? keyFile = null;
+            if (resolved.KeyFile.Value is { } keyPath)
             {
-                login = new SshLogin(username, null, UseAgent: true);
+                if (await PrepareKeyFileAsync(keyPath, $"Jump host {jump.Name}") is not { } prepared)
+                {
+                    return null;
+                }
+
+                keyFile = prepared;
+            }
+
+            SshLogin login;
+            bool useAgent = saved is null && resolved.UseSshAgent.Value && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync();
+            if (saved is null && !string.IsNullOrWhiteSpace(username) && (keyFile is not null || useAgent))
+            {
+                login = new SshLogin(username, null, UseAgent: useAgent, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
             }
             else
             {
@@ -1821,7 +1957,7 @@ public partial class MainWindow : Window
                     return null;
                 }
 
-                login = SshLoginFor(username, password, saved);
+                login = SshLoginFor(username, password, saved, keyFile);
             }
 
             hops.Add(new SshHop(new ConnectionTarget(jump.Host, resolved.Port.Value, username, null), login, resolved.AllowLegacySsh.Value));
