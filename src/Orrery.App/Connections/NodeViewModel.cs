@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Avalonia.Media;
 using Orrery.Core.Connections;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
@@ -20,6 +21,8 @@ public sealed class NodeViewModel : INotifyPropertyChanged
     readonly bool _persistExpansion;
     bool _isExpanded;
     SessionState? _status;
+    HostState? _reachability;
+    string? _reachabilityTip;
 
     public NodeViewModel(ConnectionNode node, IEnumerable<NodeViewModel> children, bool forceExpanded, Action? expansionChanged)
     {
@@ -80,6 +83,59 @@ public sealed class NodeViewModel : INotifyPropertyChanged
     };
 
     public IBrush? StatusStroke => StatusFill is null ? OfflineBrush : null;
+
+    /// <summary>
+    /// Whether the host answered the last check: a green dot for up, red for down, a grey ring for unknown.
+    /// Null when checks are off (no dot), or for a folder.
+    /// </summary>
+    public HostState? Reachability
+    {
+        get => _reachability;
+        private set
+        {
+            if (_reachability == value)
+            {
+                return;
+            }
+
+            _reachability = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Reachability)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityShown)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityUp)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityDown)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityUnknown)));
+        }
+    }
+
+    public bool ReachabilityShown => _reachability is not null;
+
+    // Each state has its own shape as well as colour: a filled dot, a cross, a dashed ring.
+    public bool ReachabilityUp => _reachability == HostState.Up;
+    public bool ReachabilityDown => _reachability == HostState.Down;
+    public bool ReachabilityUnknown => _reachability == HostState.Unknown;
+
+    /// <summary>What the dot means, and when it was checked.</summary>
+    public string? ReachabilityTip
+    {
+        get => _reachabilityTip;
+        private set
+        {
+            if (_reachabilityTip == value)
+            {
+                return;
+            }
+
+            _reachabilityTip = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityTip)));
+        }
+    }
+
+    /// <summary>Sets the dot and its tooltip; <paramref name="state"/> null hides the dot.</summary>
+    public void SetReachability(HostState? state, string? tip)
+    {
+        Reachability = state;
+        ReachabilityTip = state is null ? null : tip;
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
