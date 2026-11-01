@@ -132,6 +132,9 @@ sealed class SettingsView : UserControl
     /// <summary>A new terminal colour scheme was chosen, for open terminals to follow.</summary>
     public event EventHandler<TerminalColourScheme>? TerminalColoursChanged;
 
+    /// <summary>The colour vision or the correction strength changed, for open terminals and remote desktops to follow.</summary>
+    public event EventHandler<(ColourVision Vision, int Strength)>? ColourVisionChanged;
+
     /// <summary>Checking whether hosts are up was turned on (true) or off.</summary>
     public event EventHandler<bool>? HostStatusChecksChanged;
 
@@ -561,9 +564,18 @@ sealed class SettingsView : UserControl
 
     // ---- Colours ----
 
+    static readonly (ColourVision Vision, string Label)[] ColourVisionChoices =
+    [
+        (ColourVision.None, "No colour blindness"),
+        (ColourVision.Protanopia, "Protanopia: red-weak"),
+        (ColourVision.Deuteranopia, "Deuteranopia: green-weak"),
+        (ColourVision.Tritanopia, "Tritanopia: blue-yellow"),
+    ];
+
     Control ColoursSection()
     {
         var current = _settings.InterfaceColourScheme;
+        var radios = new Dictionary<InterfaceColourScheme, RadioButton>();
         var choices = new (InterfaceColourScheme Scheme, string Text)[]
         {
             (InterfaceColourScheme.Standard, "Standard"),
@@ -574,6 +586,7 @@ sealed class SettingsView : UserControl
         foreach (var (choice, text) in choices)
         {
             var radio = new RadioButton { Content = text, GroupName = "InterfaceColours", Tag = choice, IsChecked = choice == current };
+            radios[choice] = radio;
             radio.IsCheckedChanged += (_, _) =>
             {
                 if (radio.IsChecked != true)
@@ -607,14 +620,86 @@ sealed class SettingsView : UserControl
             Log.For("Settings").LogInformation("Terminal colours set to {Scheme}", chosen);
         };
 
+        var visionNote = "If you're colour blind, choose which kind. Orrery then switches to its colour-blind interface and terminal colours, "
+            + "with terminal colours tuned to that kind, and corrects remote desktops so colours you'd confuse look different. "
+            + "You can still change the interface and terminal colours below, and turn correction off for a connection in its settings.";
+        var vision = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (choice, label) in ColourVisionChoices)
+        {
+            vision.Items.Add(new ComboBoxItem { Content = label, Tag = choice });
+        }
+
+        vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColourVision)i.Tag! == _settings.Vision);
+        Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
+
+        var strengthNote = "How far remote desktop colours are shifted. Lower it if pictures look too changed; 0% leaves them as they are. "
+            + "The interface and terminals aren't affected.";
+        var strength = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            TickFrequency = 10,
+            IsSnapToTickEnabled = true,
+            SmallChange = 10,
+            LargeChange = 25,
+            Value = _settings.CorrectionStrength,
+            IsEnabled = _settings.Vision != ColourVision.None,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        Avalonia.Automation.AutomationProperties.SetName(strength, "Correction strength");
+        Avalonia.Automation.AutomationProperties.SetHelpText(strength, strengthNote);
+        var strengthText = new TextBlock { Text = $"{_settings.CorrectionStrength}%", Width = 44, VerticalAlignment = VerticalAlignment.Center };
+
+        void VisionChanged() => ColourVisionChanged?.Invoke(this, (_settings.Vision, _settings.CorrectionStrength));
+
+        vision.SelectionChanged += (_, _) =>
+        {
+            if (_loading || vision.SelectedItem is not ComboBoxItem { Tag: ColourVision chosen })
+            {
+                return;
+            }
+
+            _settings = _settings with { ColourVision = chosen == ColourVision.None ? null : chosen };
+            TrySaveSettings();
+            strength.IsEnabled = chosen != ColourVision.None;
+            Log.For("Settings").LogInformation("Colour vision set to {Vision}", chosen);
+
+            // The colour-blind sets suit every kind; the choices below stay the user's to change afterwards.
+            // Going back to none leaves them as they are.
+            if (chosen != ColourVision.None)
+            {
+                radios[InterfaceColourScheme.ColourBlind].IsChecked = true;
+                terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColourScheme)i.Tag! == TerminalColourScheme.ColourBlind);
+            }
+
+            VisionChanged();
+        };
+        strength.ValueChanged += (_, _) =>
+        {
+            int percent = (int)Math.Round(strength.Value);
+            strengthText.Text = $"{percent}%";
+            if (_loading || percent == _settings.CorrectionStrength)
+            {
+                return;
+            }
+
+            _settings = _settings with { ColourCorrectionStrength = percent == AppSettings.DefaultColourCorrectionStrength ? null : percent };
+            TrySaveSettings();
+            VisionChanged();
+        };
+
         return Section("Colours",
+            Row("Colour vision", vision),
+            Note(visionNote),
+            Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
+            Note(strengthNote),
             interfaceColours,
             Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Colour-blind uses blue, yellow and vermilion, "
                 + "which stay apart with red-green or blue-yellow colour blindness. "
                 + "Session states, warnings and errors always have a shape, an icon or a word as well."),
             Row("Terminal colours", terminal),
             Note("Colour-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green stay readable. "
-                + "Applies to open terminals too."));
+                + "With a colour vision chosen above, it's tuned to that kind. Applies to open terminals too."));
     }
 
     // ---- Keyboard ----

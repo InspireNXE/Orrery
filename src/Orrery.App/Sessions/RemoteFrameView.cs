@@ -158,7 +158,47 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Whether there's a picture to save yet.</summary>
     public bool HasFrame => _bitmap is not null;
 
-    /// <summary>Writes the remote screen as it is now, as a PNG.</summary>
+    ColourCorrection? _correction;
+
+    /// <summary>
+    /// The colour correction for the user's colour vision, from Settings; null for none. Changing it redraws the
+    /// whole desktop. It's ignored where <see cref="AllowsColourCorrection"/> is off.
+    /// </summary>
+    internal ColourCorrection? Correction
+    {
+        get => _correction;
+        set
+        {
+            if (value == _correction)
+            {
+                return;
+            }
+
+            _correction = value;
+            if (AllowsColourCorrection && Session.State == SessionState.Connected)
+            {
+                OnFrameUpdated(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Session.Width, Session.Height), resized: false));
+            }
+        }
+    }
+
+    /// <summary>The connection's "Colour correction" choice: off shows the remote colours unchanged whatever Settings says.</summary>
+    public bool AllowsColourCorrection { get; init; } = true;
+
+    /// <summary>The correction frames are drawn with: none where the connection turns it off.</summary>
+    internal ColourCorrection? ActiveCorrection => AllowsColourCorrection ? _correction : null;
+
+    /// <summary>
+    /// Copies <paramref name="region"/> of the remote desktop into a bitmap's pixels and corrects just that part,
+    /// since the rest is corrected already.
+    /// </summary>
+    internal static void Draw(IFrameBufferSession session, ColourCorrection? correction, IntPtr pixels, int rowBytes, int width, int height, FrameRect region)
+    {
+        session.CopyRegion(region, pixels, rowBytes);
+        correction?.Apply(pixels, rowBytes, width, height, region);
+    }
+
+    /// <summary>Writes the remote screen as it is now, colour correction included, as a PNG.</summary>
     public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream);
 
     /// <summary>Presses the keys in order on the remote computer, then lets them go in reverse.</summary>
@@ -279,7 +319,7 @@ public sealed class RemoteFrameView : Panel
 
             using (var buffer = _bitmap.Lock())
             {
-                Session.CopyRegion(dirty, buffer.Address, buffer.RowBytes);
+                Draw(Session, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height, dirty);
             }
         }
         catch (Exception e) when (e is ArgumentException or OutOfMemoryException or InvalidOperationException)

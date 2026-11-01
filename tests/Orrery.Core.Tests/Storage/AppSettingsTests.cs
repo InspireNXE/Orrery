@@ -101,6 +101,51 @@ public class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Colour_vision_and_correction_strength_round_trip()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.Equal(ColourVision.None, store.Load().Vision);
+        Assert.Equal(AppSettings.DefaultColourCorrectionStrength, store.Load().CorrectionStrength);
+
+        store.Save(new AppSettings { ColourVision = ColourVision.Deuteranopia, ColourCorrectionStrength = 60, InterfaceColours = InterfaceColourScheme.Clearer });
+
+        var loaded = store.Load();
+        Assert.Equal(ColourVision.Deuteranopia, loaded.Vision);
+        Assert.Equal(60, loaded.CorrectionStrength);
+        Assert.Equal(InterfaceColourScheme.Clearer, loaded.InterfaceColourScheme); // The palette choice stays the user's.
+        var json = File.ReadAllText(SettingsPath);
+        Assert.Contains("\"colourVision\": \"deuteranopia\"", json);
+        Assert.Contains("\"colourCorrectionStrength\": 60", json);
+    }
+
+    [Theory]
+    [InlineData("{ \"colourCorrectionStrength\": 250 }", 100)]
+    [InlineData("{ \"colourCorrectionStrength\": -5 }", 0)]
+    [InlineData("{ }", 100)]
+    public void A_correction_strength_out_of_range_is_brought_into_it(string json, int expected)
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, json);
+
+        Assert.Equal(expected, new AppSettingsStore(SettingsPath).Load().CorrectionStrength);
+    }
+
+    [Fact]
+    public void Settings_from_before_colour_vision_still_load()
+    {
+        // As the previous version wrote them, with the older on/off key too.
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, "{ \"schemaVersion\": 1, \"colourBlindColours\": true, \"terminalColours\": \"colourBlind\" }");
+
+        var loaded = new AppSettingsStore(SettingsPath).Load();
+
+        Assert.Equal(ColourVision.None, loaded.Vision);
+        Assert.Null(loaded.ColourVision);
+        Assert.Equal(InterfaceColourScheme.ColourBlind, loaded.InterfaceColourScheme);
+        Assert.Equal(TerminalColourScheme.ColourBlind, loaded.TerminalColours);
+    }
+
+    [Fact]
     public void Zero_minutes_means_never_lock()
     {
         Assert.Null(new AppSettings { AutoLockMinutes = 0 }.AutoLockAfter);
