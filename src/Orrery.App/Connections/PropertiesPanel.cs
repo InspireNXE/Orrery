@@ -9,6 +9,7 @@ using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
@@ -42,6 +43,9 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
+    readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
+    readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
+    readonly Control _wakeSection;
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
@@ -126,6 +130,18 @@ sealed class PropertiesPanel : UserControl
         AutomationProperties.SetName(_forwards, "Port forwards");
         AutomationProperties.SetHelpText(_forwards, "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy.");
         AutomationProperties.SetName(_notes, "Notes");
+        _wakeSection = Pane.Section("Wake on LAN",
+            Dialogs.Field("MAC address", _mac),
+            Dialogs.Field("Broadcast address (optional)", _broadcast),
+            new TextBlock
+            {
+                Text = "Wake in the connection's right-click menu sends a wake-up packet to this address on UDP port 9. "
+                    + "Leave the broadcast address empty to use 255.255.255.255; if the machine doesn't wake, try your network's, such as 192.168.1.255.",
+                FontSize = 11,
+                Foreground = Dialogs.MutedBrush,
+                TextWrapping = TextWrapping.Wrap,
+            });
+
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
         _notesField = Pane.Section("Notes", _notes);
@@ -155,6 +171,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
                 Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
+                _wakeSection,
                 _notesField,
             },
         };
@@ -165,7 +182,7 @@ sealed class PropertiesPanel : UserControl
             Children = { _error, _connect, Pane.Pair(_save, revert) },
         });
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards, _desktopSize })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards, _desktopSize, _mac, _broadcast })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
@@ -287,6 +304,10 @@ sealed class PropertiesPanel : UserControl
             _forwardsField.IsVisible = node is ConnectionEntry;
             _forwards.Text = PortForward.FormatAll((node as ConnectionEntry)?.PortForwards);
 
+            _wakeSection.IsVisible = node is ConnectionEntry;
+            _mac.Text = (node as ConnectionEntry)?.MacAddress;
+            _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
+
             Content = _editorView;
         }
         finally
@@ -403,6 +424,28 @@ sealed class PropertiesPanel : UserControl
             forwards = parsed.Count > 0 ? parsed : null;
         }
 
+        string? mac = null, broadcast = null;
+        if (_node is ConnectionEntry)
+        {
+            if (!string.IsNullOrWhiteSpace(_mac.Text))
+            {
+                if (!MacAddress.TryNormalise(_mac.Text, out mac))
+                {
+                    return Fail("The MAC address needs six pairs of hex digits, such as 00:1A:2B:3C:4D:5E or 00-1A-2B-3C-4D-5E.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_broadcast.Text))
+            {
+                if (!WakeOnLan.TryParseBroadcast(_broadcast.Text, out var address))
+                {
+                    return Fail("The broadcast address must be an IPv4 address such as 192.168.1.255.");
+                }
+
+                broadcast = address.Equals(System.Net.IPAddress.Broadcast) ? null : address.ToString();
+            }
+        }
+
         // Empty text with Inherit unticked means "none", overriding the parent.
         _node.Settings = new InheritableSettings
         {
@@ -426,6 +469,8 @@ sealed class PropertiesPanel : UserControl
         {
             entry.Host = host;
             entry.PortForwards = forwards;
+            entry.MacAddress = mac;
+            entry.WakeBroadcast = broadcast;
         }
 
         _dirty = false;

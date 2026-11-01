@@ -20,6 +20,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Reconnects by itself after a drop or a network error, waiting a little longer each time (up to a minute), and
   straight away when the network comes back. It never retries a refused login or an untrusted host key or
   certificate, since those need you. On by default; can be turned off per connection or folder
+- Wake-on-LAN: give a connection a MAC address, then choose Wake in its right-click menu
 
 ### Display
 
@@ -34,6 +35,11 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Connection tree with folders, drag and drop, multi-select and a filter
 - Settings inherited from folders
 - Host groups: a host with its guest machines below it
+- Each connection's row has two marks. The one before the name is its session: a filled dot when connected, a broken
+  ring while connecting, a cross when it failed, an empty ring when none is open. The one beside the protocol is its
+  host: a filled dot when it answered, a cross when it didn't, a dashed ring when it can't be checked. Hover either
+  for it in words. The host check is a plain TCP connect to the host and port about once a minute, only for
+  connections you can see and never through a jump host; it can be turned off in Settings
 - The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
   hover), and when the last attempt failed if that came after. A folder shows the latest of its connections.
 
@@ -41,7 +47,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
-- Import mRemoteNG `confCons.xml` and Orrery `.json`
+- Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
 

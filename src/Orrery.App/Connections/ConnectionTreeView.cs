@@ -85,7 +85,7 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
 
     void OnRowChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(NodeViewModel.Status))
+        if (e.PropertyName == nameof(NodeViewModel.SpokenStatus))
         {
             RaisePropertyChangedEvent(AutomationElementIdentifiers.ItemStatusProperty, null, GetItemStatus());
         }

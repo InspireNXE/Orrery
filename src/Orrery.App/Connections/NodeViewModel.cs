@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using Avalonia.Media;
 using Orrery.Core.Connections;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
@@ -16,6 +17,8 @@ public sealed class NodeViewModel : INotifyPropertyChanged
     readonly bool _persistExpansion;
     bool _isExpanded;
     SessionState? _status;
+    HostState? _reachability;
+    string? _reachabilityTip;
 
     public NodeViewModel(ConnectionNode node, IEnumerable<NodeViewModel> children, bool forceExpanded, Action? expansionChanged)
     {
@@ -64,14 +67,43 @@ public sealed class NodeViewModel : INotifyPropertyChanged
             _status = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SessionTip)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpokenStatus)));
         }
     }
 
     /// <summary>The status in words, beside the mark that shows it.</summary>
     public string StatusText => Controls.StateGlyph.Describe(_status);
 
-    /// <summary>The open session's state in words, for a screen reader; empty when none is open.</summary>
-    public string SpokenStatus => _status is null ? string.Empty : StatusText;
+    /// <summary>
+    /// The session mark's tooltip. It says "session" because the row can carry a second mark, for whether the host
+    /// is up, which uses some of the same shapes.
+    /// </summary>
+    public string SessionTip => _status is null ? "No session open" : $"Session: {StatusText}";
+
+    /// <summary>
+    /// The row's state in words for a screen reader, session first, then the host: "Connected, host up", "Host down".
+    /// Empty when no session is open and host checks are off.
+    /// </summary>
+    public string SpokenStatus
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_status is not null)
+            {
+                parts.Add(StatusText);
+            }
+
+            if (_reachability is not null)
+            {
+                var host = Controls.HostGlyph.Describe(_reachability);
+                parts.Add(parts.Count == 0 ? host : char.ToLowerInvariant(host[0]) + host[1..]);
+            }
+
+            return string.Join(", ", parts);
+        }
+    }
 
     /// <summary>What a screen reader says after the name: "SSH, web01.example, 2 guests" or "Folder, 3 connections".</summary>
     public string Description => Node switch
@@ -86,6 +118,61 @@ public sealed class NodeViewModel : INotifyPropertyChanged
     static string Where(ConnectionEntry entry) => string.IsNullOrEmpty(entry.Host) ? "no host" : entry.Host;
 
     static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
+    /// <summary>
+    /// Whether the host answered the last check, shown by a <see cref="Controls.HostGlyph"/> beside the protocol
+    /// badge: a filled dot for up, a cross for down, a dashed ring for not checked. Null when checks are off (no
+    /// mark), or for a folder.
+    /// </summary>
+    public HostState? Reachability
+    {
+        get => _reachability;
+        private set
+        {
+            if (_reachability == value)
+            {
+                return;
+            }
+
+            _reachability = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Reachability)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityShown)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityUp)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityDown)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityUnknown)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SpokenStatus)));
+        }
+    }
+
+    public bool ReachabilityShown => _reachability is not null;
+
+    // Each state has its own shape as well as colour: a filled dot, a cross, a dashed ring.
+    public bool ReachabilityUp => _reachability == HostState.Up;
+    public bool ReachabilityDown => _reachability == HostState.Down;
+    public bool ReachabilityUnknown => _reachability == HostState.Unknown;
+
+    /// <summary>What the dot means, and when it was checked.</summary>
+    public string? ReachabilityTip
+    {
+        get => _reachabilityTip;
+        private set
+        {
+            if (_reachabilityTip == value)
+            {
+                return;
+            }
+
+            _reachabilityTip = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ReachabilityTip)));
+        }
+    }
+
+    /// <summary>Sets the dot and its tooltip; <paramref name="state"/> null hides the dot.</summary>
+    public void SetReachability(HostState? state, string? tip)
+    {
+        Reachability = state;
+        ReachabilityTip = state is null ? null : tip;
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

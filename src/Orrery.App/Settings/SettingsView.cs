@@ -97,6 +97,7 @@ sealed class SettingsView : UserControl
                             StorageSection(),
                             CredentialsSection(),
                             RemoteDesktopSection(),
+                            HostStatusSection(),
                             ColoursSection(),
                             KeyboardSection(),
                             AccessibilitySection(),
@@ -123,6 +124,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>A new terminal colour scheme was chosen, for open terminals to follow.</summary>
     public event EventHandler<TerminalColourScheme>? TerminalColoursChanged;
+
+    /// <summary>Checking whether hosts are up was turned on (true) or off.</summary>
+    public event EventHandler<bool>? HostStatusChecksChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -449,6 +453,31 @@ sealed class SettingsView : UserControl
             Note("Remote desktops aren't told this display's scaling, so without this their text looks as small as it would at 100%. "
                 + "Enlarged text is sharp at 200% and slightly soft at 125% or 150%. Applies to new connections. "
                 + "A connection or folder can set its own choice in its properties."));
+    }
+
+    // ---- Host status ----
+
+    Control HostStatusSection()
+    {
+        var check = new CheckBox { Content = "Show whether hosts are up", IsChecked = _settings.ChecksHostStatus };
+        check.IsCheckedChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            _settings = _settings with { HostStatusChecks = check.IsChecked == true };
+            TrySaveSettings();
+            HostStatusChecksChanged?.Invoke(this, check.IsChecked == true);
+        };
+
+        return Section("Host status",
+            check,
+            Note("About once a minute, Orrery opens a TCP connection to the host and port of each connection you can see in the list, "
+                + "and shows a mark beside its protocol: a filled dot if it answered, a cross if it didn't, a dashed ring if it can't be checked. "
+                + "The mark before the name is the session's state, not the host's. It sends nothing else, and skips connections that go through a jump host. "
+                + "Some networks treat this as a port scan, so turn it off there. Off, nothing is sent and no marks show."));
     }
 
     // ---- Colours ----
