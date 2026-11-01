@@ -80,7 +80,13 @@ public sealed class RemoteFrameView : Panel
         _windowsKey = OnWindowsKey;
         if (session is IClipboardSession clipboardSession)
         {
-            clipboardSession.ClipboardRefused += (_, reason) => Dispatcher.UIThread.Post(() => Notice?.Invoke(this, reason));
+            clipboardSession.ClipboardRefused += (_, reason) => Dispatcher.UIThread.Post(() =>
+            {
+                // Forgotten, so the next time the session gets the keyboard it's tried, and refused out loud, again:
+                // the first refusal can come as the session opens, before anyone is looking.
+                _lastClipboard = null;
+                Notice?.Invoke(this, reason);
+            });
             clipboardSession.RemoteClipboardChanged += (_, text) => Dispatcher.UIThread.Post(async () =>
             {
                 _lastClipboard = text;
