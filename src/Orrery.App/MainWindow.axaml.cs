@@ -27,6 +27,7 @@ using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
 using Orrery.Protocols.Ssh.Agent;
@@ -135,6 +136,8 @@ public partial class MainWindow : Window
         if (OperatingSystem.IsMacOS())
         {
             this.FindControl<TextBlock>("QuickConnectShortcut")!.Text = "⌘K";
+            this.FindControl<TextBlock>("EmptyStateLocal")!.Text = "Cmd+Shift+T opens a terminal on this computer.";
+            ToolTip.SetTip(this.FindControl<Button>("LocalTerminalButton")!, "Local terminal (Cmd+Shift+T)");
         }
 
         _treeView = this.FindControl<TreeView>("Tree")!;
@@ -756,6 +759,18 @@ public partial class MainWindow : Window
             }
         }, RoutingStrategies.Tunnel);
 
+        // A local terminal, caught on the way down too so a focused terminal doesn't take it as Ctrl+T.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (!e.Handled && !_dimmer.IsVisible
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true }
+                && Input.TabShortcuts.OpensLocalTerminal(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
+            {
+                e.Handled = true;
+                OpenLocalTerminal();
+            }
+        }, RoutingStrategies.Tunnel);
+
         // Drag a tab sideways to move it; it lands where it's let go. The tab's own click still selects it.
         _tabStrip.AddHandler(PointerPressedEvent, (_, e) =>
         {
@@ -1364,7 +1379,7 @@ public partial class MainWindow : Window
         _dimmer.IsVisible = true;
         try
         {
-            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol)).ToList();
+            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol, t.Origin.Label)).ToList();
             choice = await new QuickConnectWindow(_tree, open).ShowOver(this);
         }
         finally
@@ -1606,6 +1621,27 @@ public partial class MainWindow : Window
         UpdateVaultButton();
     }
 
+    void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
+
+    /// <summary>A shell on this computer in a new tab: the one chosen in settings, starting in the home folder.</summary>
+    void OpenLocalTerminal()
+    {
+        var shell = LocalShells.Find(_settingsStore.Load().LocalShell);
+        var origin = new SessionOrigin(shell.Name, Protocol.Ssh, null, () =>
+        {
+            OpenLocalTerminal();
+            return Task.CompletedTask;
+        })
+        {
+            Local = true,
+        };
+        Open(origin, () =>
+        {
+            var session = LocalTerminalSession.Start(shell, 80, 24);
+            return (NewTerminalView(session), session);
+        });
+    }
+
     void StartTelnet(SessionOrigin origin, ConnectionTarget target, IReadOnlyList<SshHop>? jumps = null) => Open(origin, () =>
     {
         var session = TelnetSession.Start(target, 80, 24, Tunnel(jumps));
@@ -1824,8 +1860,12 @@ public partial class MainWindow : Window
     void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
         var tab = NewTab(view, session, origin);
-        _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
-            session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
+        if (!origin.Local)
+        {
+            _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
+                session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
+        }
+
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
         _sessionHost.Children.Add(tab.Host);
@@ -2005,12 +2045,17 @@ public partial class MainWindow : Window
         var state = session.State;
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
-        _sessionDetail.Text = $"{(tab.Origin.Files ? "SFTP" : ProtocolInfo.Label(tab.Origin.Protocol))} · " + state switch
+        _sessionDetail.Text = $"{tab.Origin.Label} · " + (session, state) switch
         {
-            SessionState.Connecting => "Connecting…",
-            SessionState.Disconnected => "Disconnected",
-            SessionState.Failed => tab.HasConnected ? "Connection lost" : "Couldn't connect",
-            _ when session is IFrameBufferSession frame && frame.Width > 0 => $"{frame.Width}×{frame.Height}",
+            (ILocalSession, SessionState.Connecting) => "Starting…",
+            (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
+            (ILocalSession, SessionState.Disconnected) => "Ended",
+            (ILocalSession, SessionState.Failed) => "Couldn't start",
+            (ILocalSession, _) => "Running",
+            (_, SessionState.Connecting) => "Connecting…",
+            (_, SessionState.Disconnected) => "Disconnected",
+            (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
+            (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
             _ => "Connected",
         } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
 
@@ -2047,7 +2092,7 @@ public partial class MainWindow : Window
 
         if (state is SessionState.Connecting or SessionState.Connected)
         {
-            var disconnect = new Button { Content = "Disconnect" };
+            var disconnect = new Button { Content = tab.Origin.Local ? "End" : "Disconnect" };
             disconnect.Classes.Add("danger");
             disconnect.Click += async (_, _) =>
             {
@@ -2058,7 +2103,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            var reconnect = new Button { Content = "Reconnect" };
+            var reconnect = new Button { Content = tab.Origin.Local ? "Restart" : "Reconnect" };
             reconnect.Classes.Add("accent");
             reconnect.Click += async (_, _) => await ReconnectAsync(tab);
             _sessionActions.Children.Add(reconnect);
@@ -2176,7 +2221,7 @@ public partial class MainWindow : Window
         }
 
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
-        yield return MenuItemFor("Reconnect", async () =>
+        yield return MenuItemFor(tab.Origin.Local ? "Restart" : "Reconnect", async () =>
         {
             await CloseTabAsync(tab.Session);
             await tab.Origin.Reconnect();

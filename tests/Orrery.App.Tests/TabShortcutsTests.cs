@@ -32,6 +32,17 @@ public class TabShortcutsTests
     }
 
     [Fact]
+    public void Ctrl_shift_t_opens_a_local_terminal_except_from_a_remote_desktop()
+    {
+        Assert.True(TabShortcuts.OpensLocalTerminal(Key.T, Ctrl | KeyModifiers.Shift, FocusPlace.App, mac: false));
+        Assert.True(TabShortcuts.OpensLocalTerminal(Key.T, Ctrl | KeyModifiers.Shift, FocusPlace.Terminal, mac: false));
+        Assert.False(TabShortcuts.OpensLocalTerminal(Key.T, Ctrl | KeyModifiers.Shift, FocusPlace.Desktop, mac: false));
+        Assert.False(TabShortcuts.OpensLocalTerminal(Key.T, Ctrl, FocusPlace.App, mac: false)); // Shells use Ctrl+T.
+        Assert.True(TabShortcuts.OpensLocalTerminal(Key.T, KeyModifiers.Meta | KeyModifiers.Shift, FocusPlace.Terminal, mac: true));
+        Assert.False(TabShortcuts.OpensLocalTerminal(Key.T, Ctrl | KeyModifiers.Shift, FocusPlace.App, mac: true));
+    }
+
+    [Fact]
     public void A_terminal_gives_up_ctrl_tab_but_keeps_ctrl_w_for_the_shell()
     {
         Assert.Equal(new TabCommand(TabCommandKind.Next), Match(Key.Tab, Ctrl, FocusPlace.Terminal));
