@@ -41,6 +41,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Installed, or portable with its data wherever you choose
 - Windows, Linux and macOS
 - Dark-first interface
+- Works with screen readers on Windows, terminals included (see [Accessibility](#accessibility))
 
 HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet because IronRDP's .NET binding doesn't
 pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.
@@ -56,12 +57,39 @@ On macOS, Cmd replaces Ctrl.
 | Ctrl+B | Show or hide the side panel |
 | Ctrl+Alt+B | Show or hide the properties pane |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (can be changed in settings) |
+| Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back in |
 | Enter | Connect the selected connections |
 | F2 | Rename |
 | Ctrl+D | Duplicate |
 | Delete | Delete the selected rows |
 
-While a remote session has focus it gets keys first, so these shortcuts go to the remote machine.
+While a remote session has focus it gets keys first, so these shortcuts go to the remote machine. Full screen and
+Ctrl+Alt+Home always reach Orrery.
+
+## Accessibility
+
+Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
+
+- Every button, field and list says what it is. Rows in the connection tree give their name, what they are
+  (protocol and host, or how many connections a folder holds), whether they're open and whether they're connected.
+- Session tabs say which connection they are, its state and which tab is current.
+- Password fields give screen readers a dot per character, never the password.
+- A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
+  on while a screen reader is running. Turn it on or off in Settings, under Accessibility.
+- A screen reader can also read the whole terminal screen and the cursor's line and column.
+- Terminals and remote desktops keep every key, Tab included. Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the
+  session for its tab, and leaves full screen first. Enter on the tab goes back in.
+
+What doesn't work yet:
+
+- A remote desktop is a picture, so a screen reader can only tell you its name, "Remote desktop:" and the connection.
+- Avalonia, the toolkit Orrery is built with, doesn't let screen readers move through the terminal by line or word.
+  They get the screen as one block of text.
+- Tree rows don't report their level or "2 of 5", and password fields aren't marked as passwords, so a screen reader
+  that reads out typed characters will read out a password as you type it. Turn off typed character echo while you
+  type one.
+- VoiceOver on macOS hasn't been tested. On Linux, Avalonia has no screen reader support yet, so Orca can't read
+  Orrery.
 
 ## Where data lives
 
