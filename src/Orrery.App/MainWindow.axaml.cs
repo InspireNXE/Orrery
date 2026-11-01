@@ -252,7 +252,10 @@ public partial class MainWindow : Window
 
         _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
             () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
-        _hostStatus.Enabled = _settingsStore.Load().ChecksHostStatus;
+        var startSettings = _settingsStore.Load();
+        _hostStatus.Method = startSettings.HostCheckMethod;
+        _hostStatus.Enabled = startSettings.ChecksHostStatus;
+        RememberRecentConnections(startSettings.RemembersRecentConnections);
 
         WireTree();
         WireTitleBar();
@@ -2843,6 +2846,16 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Turns the Recent list and the last connected and failed times on or off. Off deletes what they hold (at
+    /// start-up too, in case a file was left behind), and the Recent panel and properties pane say nothing is kept.
+    /// </summary>
+    void RememberRecentConnections(bool on)
+    {
+        _recent.Enabled = on;
+        _history.Enabled = on;
+    }
+
     // ---- Settings ----
 
     void OnSettingsClick(object? sender, RoutedEventArgs e)
@@ -2883,6 +2896,15 @@ public partial class MainWindow : Window
                 }
             };
             view.HostStatusChecksChanged += (_, on) => _hostStatus.Enabled = on;
+            view.HostStatusMethodChanged += (_, method) => _hostStatus.Method = method;
+            view.RestoreSessionsChanged += (_, mode) =>
+            {
+                if (mode == RestoreSessionsMode.Never)
+                {
+                    ForgetOpenTabs();
+                }
+            };
+            view.RememberRecentConnectionsChanged += (_, on) => RememberRecentConnections(on);
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             view.TerminalColorsChanged += (_, scheme) =>
             {

@@ -14,6 +14,7 @@ using Orrery.App.Input;
 using Orrery.App.Logging;
 using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
+using Orrery.Core.Network;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Local;
@@ -211,6 +212,15 @@ sealed class SettingsView : UserControl
 
     /// <summary>Checking whether hosts are up was turned on (true) or off.</summary>
     public event EventHandler<bool>? HostStatusChecksChanged;
+
+    /// <summary>A different way of checking hosts was chosen.</summary>
+    public event EventHandler<HostCheckMethod>? HostStatusMethodChanged;
+
+    /// <summary>A start-up choice was made; Never means the saved open tabs are to be deleted now.</summary>
+    public event EventHandler<RestoreSessionsMode>? RestoreSessionsChanged;
+
+    /// <summary>Remembering recent connections was turned on or off; off means clearing what's kept.</summary>
+    public event EventHandler<bool>? RememberRecentConnectionsChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -713,17 +723,43 @@ sealed class SettingsView : UserControl
             {
                 if (button.IsChecked == true && !_loading)
                 {
-                    _settings = _settings with { RestoreSessions = (RestoreSessionsMode)button.Tag! };
+                    var mode = (RestoreSessionsMode)button.Tag!;
+                    _settings = _settings with { RestoreSessions = mode };
                     TrySaveSettings();
+                    RestoreSessionsChanged?.Invoke(this, mode);
                 }
             };
         }
 
+        var choiceList = new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1], buttons[2] } };
+        AutomationProperties.SetName(choiceList, "Reopen the sessions that were open when Orrery last closed");
+
+        var recent = new CheckBox { Content = "Remember recent connections", IsChecked = _settings.RemembersRecentConnections };
+        recent.IsCheckedChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            bool on = recent.IsChecked == true;
+            _settings = _settings with { RememberRecentConnections = on };
+            TrySaveSettings();
+            RememberRecentConnectionsChanged?.Invoke(this, on);
+        };
+        const string recentNote = "Keeps the Recent list, and the last connected and last failed times shown in a connection's properties. "
+            + "Turning this off clears the list and those times, and nothing is recorded until you turn it back on, which starts afresh. "
+            + "The log still notes what connected where.";
+        AutomationProperties.SetHelpText(recent, recentNote);
+
         return Section("Start-up",
             new TextBlock { Text = "Reopen the sessions that were open when Orrery last closed" },
-            new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1], buttons[2] } },
-            Note("The window's size and position, and which panes are showing, always come back. A host typed into quick connect "
-                + "reopens by its address alone, and asks for the login again."));
+            choiceList,
+            Note("Never also stops Orrery writing down which sessions are open, and deletes the list it kept. The window's size and position, "
+                + "and which panes are showing, are still remembered. A host typed into quick connect reopens by its address alone, "
+                + "and asks for the login again."),
+            recent,
+            Note(recentNote));
     }
 
     // ---- Remote desktops ----
@@ -796,12 +832,42 @@ sealed class SettingsView : UserControl
             HostStatusChecksChanged?.Invoke(this, check.IsChecked == true);
         };
 
+        var methods = new (HostCheckMethod Method, string Label)[]
+        {
+            (HostCheckMethod.Tcp, "Connection port (TCP)"),
+            (HostCheckMethod.Ping, "Ping (ICMP echo)"),
+        };
+        var method = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = _settings.ChecksHostStatus };
+        foreach (var (value, label) in methods)
+        {
+            method.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+        }
+
+        method.SelectedItem = method.Items.OfType<ComboBoxItem>().First(i => (HostCheckMethod)i.Tag! == _settings.HostCheckMethod);
+        method.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && method.SelectedItem is ComboBoxItem { Tag: HostCheckMethod chosen })
+            {
+                _settings = _settings with { HostStatusMethod = chosen };
+                TrySaveSettings();
+                HostStatusMethodChanged?.Invoke(this, chosen);
+            }
+        };
+        check.IsCheckedChanged += (_, _) => method.IsEnabled = check.IsChecked == true;
+        const string methodNote = "Connection port opens a TCP connection to each connection's host and port and closes it, sending nothing. "
+            + "Some networks treat that as a port scan. Ping sends one ICMP echo to each host, once for a host several connections share. "
+            + "Firewalls often block ping, so a host you can connect to may show as down, and where this computer doesn't allow ping "
+            + "every host shows the dashed ring. A change applies from the next check.";
+        AutomationProperties.SetHelpText(method, methodNote);
+
         return Section("Host status",
             check,
-            Note("About once a minute, Orrery opens a TCP connection to the host and port of each connection you can see in the list, "
-                + "and shows a mark beside its protocol: a filled dot if it answered, a cross if it didn't, a dashed ring if it can't be checked. "
-                + "The mark before the name is the session's state, not the host's. It sends nothing else, and skips connections that go through a jump host. "
-                + "Some networks treat this as a port scan, so turn it off there. Off, nothing is sent and no marks show."));
+            Note("About once a minute, Orrery checks the host of each connection you can see in the list, and shows a mark beside its protocol: "
+                + "a filled dot if it answered, a cross if it didn't, a dashed ring if it can't be checked. "
+                + "The mark before the name is the session's state, not the host's. Connections that go through a jump host are skipped. "
+                + "Off, nothing is sent and no marks show."),
+            Row("Check hosts by", method),
+            Note(methodNote));
     }
 
     // ---- Colors ----

@@ -190,6 +190,31 @@ public class LastConnectedTests : IDisposable
         Assert.Equal("Last connected 1 hour ago", Line(window, "Last connected").Text);
     }
 
+    [AvaloniaFact]
+    public async Task With_history_turned_off_the_pane_says_nothing_about_connecting_and_back_on_it_starts_afresh()
+    {
+        var (tree, history) = Setup();
+        var entry = Add(tree, "box");
+        history.RecordConnected(entry.Id, Now.AddHours(-2));
+        history.RecordFailed(entry.Id, Now.AddHours(-1));
+        var (panel, window) = Show(tree, history);
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(Lines(window, "Last attempt failed"));
+
+        history.Enabled = false;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(Lines(window, "Last connected"));
+        Assert.Empty(Lines(window, "Never connected"));
+        Assert.Empty(Lines(window, "Last attempt failed"));
+
+        history.Enabled = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(Lines(window, "Never connected"));
+        Assert.Empty(Lines(window, "Last attempt failed"));
+    }
+
     (ConnectionTree, ConnectionHistory) Setup() =>
         (ConnectionTree.Empty(), new ConnectionHistory(Path.Combine(_dir, ConnectionHistory.FileName)));
 

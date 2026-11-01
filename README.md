@@ -48,8 +48,12 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Each connection's row has two marks. The one before the name is its session: a filled dot when connected, a broken
   ring while connecting, a cross when it failed, an empty ring when none is open. The one beside the protocol is its
   host: a filled dot when it answered, a cross when it didn't, a dashed ring when it can't be checked. Hover either
-  for it in words. The host check is a plain TCP connect to the host and port about once a minute, only for
-  connections you can see and never through a jump host; it can be turned off in Settings
+  for it in words. The host is checked about once a minute, only for connections you can see and never through a
+  jump host. By default the check is a plain TCP connect to the host and port, which some networks treat as a port
+  scan; Settings can switch it to a ping (one ICMP echo per host, shared by connections to the same host), which
+  firewalls often block, so a reachable host can show as down. Where this computer isn't allowed to ping (on Linux
+  .NET needs raw sockets or a working `ping` program), hosts show the dashed ring. Settings can also turn the check
+  off
 - The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
   hover), and when the last attempt failed if that came after. A folder shows the latest of its connections.
 
@@ -75,7 +79,12 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Dark-first interface
 - Remembers the window and the tabs you had open, and reopens them at the next start if you want (ask, always or
   never, in Settings). A host typed into quick connect comes back by address only and asks for its login again; a
-  local terminal comes back with the same shell
+  local terminal comes back with the same shell. Never also stops the open tabs being written down at all and
+  deletes the list already kept in `workspace.json`; the window's size and position and the panes are still
+  remembered
+- *Remember recent connections* (on by default) keeps the Recent list (`recent.json`) and the last connected and
+  failed times (`history.json`). Turning it off deletes both files and records nothing more; the Recent panel then
+  says it's off, and the properties pane leaves the times out. Turning it back on starts with an empty list
 - Works with screen readers on Windows, terminals included (see [Accessibility](#accessibility))
 
 HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet because IronRDP's .NET binding doesn't
@@ -149,7 +158,7 @@ data.
 
 The times a connection last connected or failed are kept in `history.json` in the data folder, by connection, so they
 survive renames and moves. They stay on this computer: exports and `connections.json` don't carry them, and deleting
-a connection deletes its entry.
+a connection deletes its entry. Turning off *Remember recent connections* deletes the file.
 
 Orrery keeps a log of what connected where and what went wrong: one file a day, kept for two weeks, in
 `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or `~/.local/state/orrery/logs` (a portable copy keeps it in its

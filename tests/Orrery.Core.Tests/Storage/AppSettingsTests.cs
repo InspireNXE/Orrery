@@ -1,4 +1,5 @@
 using Orrery.Core.Credentials;
+using Orrery.Core.Network;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Xunit;
@@ -50,6 +51,35 @@ public class AppSettingsTests : IDisposable
 
         store.Save(new AppSettings { RemoteDesktopZoom = false });
         Assert.False(store.Load().ZoomRemoteDesktops);
+    }
+
+    [Fact]
+    public void Hosts_are_checked_by_their_port_unless_ping_is_chosen()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.Equal(HostCheckMethod.Tcp, store.Load().HostCheckMethod);
+
+        store.Save(new AppSettings { HostStatusMethod = HostCheckMethod.Ping });
+        Assert.Equal(HostCheckMethod.Ping, store.Load().HostCheckMethod);
+        Assert.Contains("\"hostStatusMethod\": \"ping\"", File.ReadAllText(SettingsPath));
+
+        store.Save(store.Load() with { HostStatusMethod = HostCheckMethod.Tcp });
+        Assert.Equal(HostCheckMethod.Tcp, store.Load().HostCheckMethod);
+        Assert.Contains("\"tcp\"", File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
+    public void Recent_connections_are_remembered_unless_turned_off()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.True(store.Load().RemembersRecentConnections);
+
+        store.Save(new AppSettings { RememberRecentConnections = false });
+        Assert.False(store.Load().RemembersRecentConnections);
+        Assert.Contains("\"rememberRecentConnections\": false", File.ReadAllText(SettingsPath));
+
+        store.Save(new AppSettings { RememberRecentConnections = true });
+        Assert.True(store.Load().RemembersRecentConnections);
     }
 
     [Fact]
