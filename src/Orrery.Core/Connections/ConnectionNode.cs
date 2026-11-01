@@ -70,6 +70,12 @@ public sealed class InheritableSettings
     /// <summary>RDP, VNC: how the remote desktop trades looks for speed. Null inherits; balanced by default.</summary>
     public DisplayQuality? DisplayQuality { get; set; }
 
+    /// <summary>
+    /// RDP, VNC: correct the remote desktop's colours for the colour vision chosen in Settings (true), or show them
+    /// unchanged (false), for design or photo work. Null inherits; with nothing set, the app setting applies.
+    /// </summary>
+    public bool? ColourCorrection { get; set; }
+
     /// <summary>Try again by itself when an open session drops (not when it's logged off or closed). Null inherits; on by default.</summary>
     public bool? AutoReconnect { get; set; }
 
@@ -97,7 +103,7 @@ public sealed class InheritableSettings
     public static readonly IReadOnlySet<string> KeptByGuests = new HashSet<string>
     {
         nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
-        nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality),
+        nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColourCorrection),
     };
 
     /// <summary>

@@ -1,3 +1,4 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -8,6 +9,7 @@ using Orrery.App.Settings;
 using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Vision = Orrery.Core.Settings.ColourVision;
 using Xunit;
 
 namespace Orrery.App.Tests;
@@ -145,13 +147,23 @@ public class SettingsViewTests : IDisposable
 
         try
         {
-            var colourBlind = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => Equals(c.Content, "Colour-blind friendly colours"));
-            Assert.False(colourBlind.IsChecked);
-            colourBlind.IsChecked = true;
+            RadioButton Choice(InterfaceColourScheme scheme) =>
+                Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), r => Equals(r.Tag, scheme));
+            Assert.Equal(3, window.GetVisualDescendants().OfType<RadioButton>().Count(r => r.Tag is InterfaceColourScheme));
+            Assert.True(Choice(InterfaceColourScheme.Standard).IsChecked);
+
+            Choice(InterfaceColourScheme.Clearer).IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
+            Assert.Equal(InterfaceColourScheme.Clearer, Palette.Scheme);
+            Assert.Equal(Palette.Clearer.StateUp, Palette.StateUp.Color);
+
+            Choice(InterfaceColourScheme.ColourBlind).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
 
-            Assert.True(settings.Load().ColourBlindColours);
-            Assert.True(Palette.IsColourBlind);
+            Assert.Equal(InterfaceColourScheme.ColourBlind, settings.Load().InterfaceColours);
+            Assert.Null(settings.Load().ColourBlindColours);
+            Assert.Equal(InterfaceColourScheme.ColourBlind, Palette.Scheme);
             Assert.Equal(Palette.ColourBlind.Danger, Palette.Danger.Color);
             Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
 
@@ -162,14 +174,78 @@ public class SettingsViewTests : IDisposable
             Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
             Assert.Equal(TerminalColourScheme.ColourBlind, terminalScheme);
 
-            colourBlind.IsChecked = false;
+            Choice(InterfaceColourScheme.Standard).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
-            Assert.Null(settings.Load().ColourBlindColours);
+            Assert.Null(settings.Load().InterfaceColours);
             Assert.Equal(Palette.Standard.Danger, Palette.Danger.Color);
         }
         finally
         {
-            Palette.Use(false);
+            Palette.Use(InterfaceColourScheme.Standard);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_colour_vision_picks_the_colour_blind_sets_and_leaves_them_to_the_user()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var changes = new List<(Vision, int)>();
+        view.ColourVisionChanged += (_, change) => changes.Add(change);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        try
+        {
+            var vision = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is Vision));
+            var strength = Assert.Single(window.GetVisualDescendants().OfType<Slider>());
+            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColourScheme));
+            RadioButton Choice(InterfaceColourScheme scheme) =>
+                Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), r => Equals(r.Tag, scheme));
+
+            // Named for a screen reader, with the explanation as help text.
+            Assert.Equal("Colour vision", AutomationProperties.GetName(vision));
+            Assert.Equal("Correction strength", AutomationProperties.GetName(strength));
+            Assert.False(string.IsNullOrEmpty(AutomationProperties.GetHelpText(strength)));
+            Assert.False(strength.IsEnabled);
+
+            vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, Vision.Deuteranopia));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(Vision.Deuteranopia, settings.Load().ColourVision);
+            Assert.Equal(InterfaceColourScheme.ColourBlind, settings.Load().InterfaceColours);
+            Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
+            Assert.Equal(InterfaceColourScheme.ColourBlind, Palette.Scheme);
+            Assert.True(Choice(InterfaceColourScheme.ColourBlind).IsChecked);
+            Assert.Equal(TerminalColourScheme.ColourBlind, (terminal.SelectedItem as ComboBoxItem)?.Tag);
+            Assert.True(strength.IsEnabled);
+
+            strength.Value = 60;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(60, settings.Load().ColourCorrectionStrength);
+
+            // The palette can still be changed by hand, and the colour vision stays.
+            Choice(InterfaceColourScheme.Clearer).IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
+            Assert.Equal(Vision.Deuteranopia, settings.Load().ColourVision);
+
+            // Back to none: the palettes stay as they are, and the strength can't be changed.
+            vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, Vision.None));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Null(settings.Load().ColourVision);
+            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
+            Assert.False(strength.IsEnabled);
+
+            Assert.Equal([(Vision.Deuteranopia, 100), (Vision.Deuteranopia, 60), (Vision.None, 60)], changes);
+        }
+        finally
+        {
+            Palette.Use(InterfaceColourScheme.Standard);
             window.Close();
         }
     }

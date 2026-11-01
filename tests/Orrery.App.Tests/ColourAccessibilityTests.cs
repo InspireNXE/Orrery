@@ -1,8 +1,10 @@
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using Orrery.App.Sessions;
+using Orrery.Core.Settings;
 using Xunit;
 using Xunit.Abstractions;
+using Vision = Orrery.Core.Settings.ColourVision;
 
 namespace Orrery.App.Tests;
 
@@ -166,11 +168,79 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
     }
 
     [AvaloniaFact]
+    public void Clearer_ui_colours_stay_apart_and_readable()
+    {
+        var problems = Problems(Palette.Clearer);
+        Report("Clearer UI palette", Pairs(Palette.Clearer), problems);
+        Assert.Empty(problems);
+    }
+
+    [AvaloniaFact]
     public void Colour_blind_terminal_colours_stay_apart_and_readable()
     {
         var problems = Problems(TerminalPalette.ColourBlind);
         Report("Colour-blind terminal palette", Pairs(TerminalPalette.ColourBlind), problems);
         Assert.Empty(problems);
+    }
+
+    /// <summary>
+    /// The terminal palettes tuned for one kind of colour blindness must also keep every pair of the six colours apart,
+    /// normal and bright, for that kind and for normal vision. Less than <see cref="MinimumDifference"/>: six colours
+    /// all bright enough to read can't all be that far apart for one kind.
+    /// </summary>
+    const double TunedPairDifference = 15;
+
+    static List<string> EveryPairProblems(TerminalPalette p, Deficiency deficiency)
+    {
+        var problems = new List<string>();
+        foreach (int offset in new[] { 0, 8 })
+        {
+            for (int i = 1; i < 7; i++)
+            {
+                for (int j = i + 1; j < 7; j++)
+                {
+                    foreach (var d in new[] { Deficiency.None, deficiency })
+                    {
+                        double difference = ColourVision.Difference(p.Ansi[i + offset], p.Ansi[j + offset], d);
+                        if (difference < TunedPairDifference)
+                        {
+                            problems.Add($"{AnsiNames[i + offset]}/{AnsiNames[j + offset]} {d} ΔE {difference:0.0}");
+                        }
+                    }
+                }
+            }
+        }
+
+        return problems;
+    }
+
+    [AvaloniaTheory]
+    [InlineData(Vision.Protanopia, Deficiency.Protanopia)]
+    [InlineData(Vision.Deuteranopia, Deficiency.Deuteranopia)]
+    [InlineData(Vision.Tritanopia, Deficiency.Tritanopia)]
+    public void Terminal_colours_tuned_for_a_colour_vision_stay_apart_for_it(Vision vision, Deficiency deficiency)
+    {
+        var palette = TerminalPalette.For(TerminalColourScheme.ColourBlind, vision);
+        Assert.NotSame(TerminalPalette.ColourBlind, palette);
+        var problems = Problems(palette).Concat(EveryPairProblems(palette, deficiency)).ToList();
+        Report($"{vision} terminal palette", Pairs(palette), problems);
+        Assert.Empty(problems);
+
+        // Why it's there: the general colour-blind palette lets some pairs run together for this kind.
+        var general = EveryPairProblems(TerminalPalette.ColourBlind, deficiency);
+        output.WriteLine("  The colour-blind palette instead: " + string.Join(", ", general));
+        Assert.NotEmpty(general);
+    }
+
+    [AvaloniaFact]
+    public void The_interface_colours_a_colour_vision_picks_suit_every_kind()
+    {
+        // Settings switches to the colour-blind set for any kind, so that set has to pass for all three. It does (as
+        // does Clearer), so there are no interface sets per kind; the terminal ones are tuned instead.
+        Assert.Empty(Problems(Palette.ColourBlind));
+
+        Assert.Same(TerminalPalette.Standard, TerminalPalette.For(TerminalColourScheme.Standard, Vision.Deuteranopia));
+        Assert.Same(TerminalPalette.ColourBlind, TerminalPalette.For(TerminalColourScheme.ColourBlind, Vision.None));
     }
 
     [AvaloniaFact]
