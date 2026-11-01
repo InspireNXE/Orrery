@@ -21,8 +21,9 @@ using Orrery.Protocols.Local;
 namespace Orrery.App.Settings;
 
 /// <summary>
-/// The settings page, shown in the main window over the sessions: storage (where the data folder is,
-/// Move data…), credentials (which store, when the vault locks), import and About. Changes that swap files
+/// The settings page, shown in the main window over the sessions. A list down the side picks one of a few pages
+/// (General, Appearance, Sessions, Data and security, About), each a column of sections; the last one shown is
+/// remembered. Changes that swap files
 /// out from under the running app end in <see cref="RestartRequested"/> rather than a live switch.
 /// </summary>
 sealed class SettingsView : UserControl
@@ -44,6 +45,10 @@ sealed class SettingsView : UserControl
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
+    readonly ListBox _pageList = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
+    readonly ScrollViewer _pageScroll = new();
+    readonly Dictionary<string, Control> _pages = [];
+    Action _refreshScreenReaderNote = () => { };
     readonly BiometricUnlock? _biometric;
     readonly CheckBox _biometricSwitch = new();
     readonly TextBlock _biometricNote = Note(string.Empty);
@@ -97,35 +102,96 @@ sealed class SettingsView : UserControl
                         },
                     },
                 }, Dock.Top),
-                new ScrollViewer
+                Pane.Docked(new Border
                 {
-                    Content = new StackPanel
-                    {
-                        Margin = new Thickness(32, 24, 32, 32),
-                        MaxWidth = 600,
-                        HorizontalAlignment = HorizontalAlignment.Left,
-                        Spacing = 28,
-                        Children =
-                        {
-                            StorageSection(),
-                            CredentialsSection(),
-                            StartupSection(),
-                            RemoteDesktopSection(),
-                            LocalTerminalSection(),
-                            HostStatusSection(),
-                            ColoursSection(),
-                            KeyboardSection(),
-                            AccessibilitySection(),
-                            ImportSection(),
-                            LogsSection(),
-                            AboutSection(),
-                        },
-                    },
-                },
+                    Background = Dialogs.PanelBrush,
+                    BorderBrush = Pane.LineBrush,
+                    BorderThickness = new Thickness(0, 0, 1, 0),
+                    Width = 200,
+                    Padding = new Thickness(0, 16, 0, 16),
+                    Child = _pageList,
+                }, Dock.Left),
+                _pageScroll,
             },
         };
 
+        var pages = new (string Name, Control[] Sections)[]
+        {
+            ("General", [StartupSection(), KeyboardSection(), HostStatusSection()]),
+            ("Appearance", [.. ColourSections(), AccessibilitySection()]),
+            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
+            ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
+            ("About", [LogsSection(), AboutSection()]),
+        };
+        var host = new Panel();
+        foreach (var (name, sections) in pages)
+        {
+            var page = new StackPanel
+            {
+                Margin = new Thickness(32, 24, 32, 32),
+                MaxWidth = 600,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Spacing = 16,
+                IsVisible = false,
+            };
+            page.Children.AddRange(sections.Select(Card));
+            host.Children.Add(page);
+            _pages[name] = page;
+            // Text lines up with the title above: the list's 12, the accent's 2 and 18 make the header's 32.
+            _pageList.Items.Add(new ListBoxItem
+            {
+                Content = name,
+                Tag = name,
+                MinHeight = 34,
+                Padding = new Thickness(18, 0, 8, 0),
+                Margin = new Thickness(0, 0, 0, 2),
+                VerticalContentAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        _pageScroll.Content = host;
+        Avalonia.Automation.AutomationProperties.SetName(_pageList, "Settings pages");
+        _pageList.SelectionChanged += (_, _) =>
+        {
+            if (_pageList.SelectedItem is ListBoxItem { Tag: string name })
+            {
+                ShowPage(name);
+            }
+        };
+        _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().FirstOrDefault(i => Equals(i.Tag, _settings.SettingsPage))
+            ?? _pageList.Items.OfType<ListBoxItem>().First();
+
         _loading = false;
+    }
+
+    /// <summary>The page showing, by its name in the list.</summary>
+    public string CurrentPage => _pages.First(p => p.Value.IsVisible).Key;
+
+    /// <summary>Shows the page called <paramref name="name"/> and remembers it for next time.</summary>
+    public void ShowPage(string name)
+    {
+        if (!_pages.ContainsKey(name))
+        {
+            return;
+        }
+
+        foreach (var (key, page) in _pages)
+        {
+            page.IsVisible = key == name;
+        }
+
+        _pageScroll.Offset = default;
+        _refreshScreenReaderNote();
+        if (_pageList.SelectedItem is not ListBoxItem { Tag: string selected } || selected != name)
+        {
+            _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().First(i => Equals(i.Tag, name));
+        }
+
+        if (!_loading && _settings.SettingsPage != name)
+        {
+            _settings = _settings with { SettingsPage = name };
+            TrySaveSettings();
+        }
     }
 
     /// <summary>The close button or Esc.</summary>
@@ -748,17 +814,19 @@ sealed class SettingsView : UserControl
         (ColourVision.Tritanopia, "Tritanopia: blue-yellow"),
     ];
 
-    Control ColoursSection()
+    /// <summary>Color vision, interface colors and terminal colors: three cards, since choosing a color vision sets the other two.</summary>
+    Control[] ColourSections()
     {
         var current = _settings.InterfaceColourScheme;
         var radios = new Dictionary<InterfaceColourScheme, RadioButton>();
         var choices = new (InterfaceColourScheme Scheme, string Text)[]
         {
             (InterfaceColourScheme.Standard, "Standard"),
-            (InterfaceColourScheme.Clearer, "Clearer: easier to tell apart for most colour blindness"),
-            (InterfaceColourScheme.ColourBlind, "Colour-blind (Okabe-Ito)"),
+            (InterfaceColourScheme.Clearer, "Clearer"),
+            (InterfaceColourScheme.ColourBlind, "Color-blind (Okabe-Ito)"),
         };
         var interfaceColours = new StackPanel { Spacing = 4 };
+        Avalonia.Automation.AutomationProperties.SetName(interfaceColours, "Interface colors");
         foreach (var (choice, text) in choices)
         {
             var radio = new RadioButton { Content = text, GroupName = "InterfaceColours", Tag = choice, IsChecked = choice == current };
@@ -808,8 +876,8 @@ sealed class SettingsView : UserControl
         vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColourVision)i.Tag! == _settings.Vision);
         Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
 
-        var strengthNote = "How far remote desktop colours are shifted. Lower it if pictures look too changed; 0% leaves them as they are. "
-            + "The interface and terminals aren't affected.";
+        var strengthNote = "Only for remote desktops: how far their colors are shifted. Lower it if pictures look too changed; "
+            + "0% leaves them as they are.";
         var strength = new Slider
         {
             Minimum = 0,
@@ -864,18 +932,26 @@ sealed class SettingsView : UserControl
             VisionChanged();
         };
 
-        return Section("Colours",
-            Row("Colour vision", vision),
-            Note(visionNote),
-            Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
-            Note(strengthNote),
-            Row("Interface colours", interfaceColours),
-            Note("Colours for session states in tabs and the tree, warnings and errors. Clearer uses teal, yellow and red, brighter and further apart than Standard. Colour-blind uses blue, yellow and vermilion, "
-                + "which stay apart with red-green or blue-yellow colour blindness. "
-                + "Session states, warnings and errors always have a shape, an icon or a word as well."),
-            Row("Terminal colours", terminal),
-            Note("Colour-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green stay readable. "
-                + "With a colour vision chosen above, it's tuned to that kind. Applies to open terminals too."));
+        return
+        [
+            Section("Color vision",
+                Note("If you're color blind, choose which kind. Orrery then switches the interface and terminal colors below to ones "
+                    + "made for it, and shifts remote desktop colors so ones you'd confuse look different."),
+                Row("Color vision", vision),
+                Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
+                Note(strengthNote)),
+            Section("Interface colors",
+                Note("The colors of session states in tabs and the connection list, and of warnings and errors. "
+                    + "Each also has a shape, an icon or a word, so color is never the only sign."),
+                interfaceColours,
+                Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Color-blind uses blue, yellow and "
+                    + "vermilion, which stay apart with any kind of color blindness.")),
+            Section("Terminal colors",
+                Note("The colors programs use in SSH, Telnet and local terminals."),
+                Row("Terminal colors", terminal),
+                Note("Color-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green "
+                    + "stay readable. With a color vision chosen above, it's tuned to that kind. Open terminals change at once.")),
+        ];
     }
 
     // ---- Keyboard ----
@@ -920,17 +996,27 @@ sealed class SettingsView : UserControl
             problem,
             Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
                 + "and can't be a key the system, Orrery or typing in a session already uses. "
-                + "You can always leave full screen from the bar at the top edge of the screen."));
+                + "You can always leave full screen from the bar at the top edge of the screen."),
+            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
+                + "for its tab, and Enter goes back in."));
     }
 
     // ---- Accessibility ----
 
     Control AccessibilitySection()
     {
-        var announce = new CheckBox { Content = "Read new terminal output aloud", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+        var announce = new CheckBox { Content = "Send new terminal output to your screen reader", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+
+        // Orrery has no voice of its own: with no screen reader running, the setting does nothing anyone can hear.
+        var noReader = new Notice(NoticeKind.Warning,
+            "No screen reader is running, so nothing will be read out. Start Narrator (Windows logo key + Ctrl + Enter), NVDA or JAWS.");
+        noReader.Message.FontSize = 12;
+        _refreshScreenReaderNote = () => noReader.IsVisible = OperatingSystem.IsWindows() && announce.IsChecked == true && !ScreenReader.IsRunning;
+        _refreshScreenReaderNote();
         announce.IsCheckedChanged += (_, _) =>
         {
             bool on = announce.IsChecked == true;
+            _refreshScreenReaderNote();
             _settings = _settings with { TerminalAnnouncements = on };
             if (TrySaveSettings())
             {
@@ -940,10 +1026,9 @@ sealed class SettingsView : UserControl
 
         return Section("Accessibility",
             announce,
+            noReader,
             Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
-                + "It's on by default while a screen reader is running."),
-            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
-                + "for its tab, and Enter goes back in."));
+                + "It's on by default while a screen reader is running."));
     }
 
     // ---- Import and export ----
@@ -1014,6 +1099,17 @@ sealed class SettingsView : UserControl
         panel.Children.AddRange(children);
         return panel;
     }
+
+    /// <summary>A section on its page: a panel with a hairline border, so where one ends and the next begins is plain.</summary>
+    static Border Card(Control section) => new()
+    {
+        Background = Dialogs.PanelBrush,
+        BorderBrush = Pane.LineBrush,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(20, 16, 20, 20),
+        Child = section,
+    };
 
     static Control Row(string label, Control value) => Dialogs.Field(label, value);
 

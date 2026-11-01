@@ -187,12 +187,12 @@ public partial class MainWindow : Window
         _certificateValidator = new ServerCertificateValidator(
             new JsonCertificateTrustStore(location.FileIn("trusted-certificates.json")),
             prompt => Dispatcher.UIThread.InvokeAsync(
-                () => new CertificatePromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
+                () => AskAndRefocusAsync(new CertificatePromptWindow(prompt))));
 
         _hostKeyValidator = new HostKeyValidator(
             new JsonCertificateTrustStore(location.FileIn("known-hosts.json")),
             prompt => Dispatcher.UIThread.InvokeAsync(
-                () => new HostKeyPromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
+                () => AskAndRefocusAsync(new HostKeyPromptWindow(prompt))));
 
         _credentials = CredentialStores.For(location, _settingsStore.Load());
         StorageLog.LogInformation("Credentials are kept in {Store}", (_credentials as KeychainCredentialStore)?.BackendName ?? "the vault file");
@@ -358,6 +358,14 @@ public partial class MainWindow : Window
         }
     }
 
+
+    /// <summary>Shows a trust prompt over the window, then gives the session the focus it held back while the prompt was up.</summary>
+    async Task<CertificateTrustDecision> AskAndRefocusAsync(Window prompt)
+    {
+        var decision = await prompt.ShowDialog<CertificateTrustDecision>(this);
+        Dispatcher.UIThread.Post(() => _currentTab?.FocusContent(), DispatcherPriority.Background);
+        return decision;
+    }
     // ---- Tree ----
 
     void WireTree()

@@ -132,6 +132,7 @@ public class BiometricUnlockUiTests : IDisposable
         var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
+        view.ShowPage("Data and security");
 
         var remove = Buttons(window).Single(b => b.Content as string == "Remove old Test Hello setup");
         Assert.True(remove.IsEffectivelyVisible);
