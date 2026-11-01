@@ -27,7 +27,7 @@ concurrency:
 env:
   # The IronRDP commit Devolutions.IronRdp is built from. Push it to this repository before a run needs it.
   IRONRDP_REPOSITORY: Grinch/IronRDP
-  IRONRDP_SHA: 6f30f9de680cc0cdaaec464b40294bb35e6f1c39
+  IRONRDP_SHA: 75e51a76369c6dbe6ab22584e7c8ce6f0f402470
   # The built package is cached by IronRDP commit and version. Bump this to rebuild it after changing the IronRDP jobs.
   IRONRDP_CACHE_EPOCH: '1'
   # The SDK the lock files were made with.
