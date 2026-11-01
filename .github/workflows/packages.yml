@@ -1,9 +1,7 @@
 # Builds Orrery's packages: the portable zips for Windows, Linux and macOS, the Windows installer, and the Linux .deb,
-# .rpm and AppImage. Orrery uses a Devolutions.IronRdp that isn't on nuget.org, so the first jobs build it from the
-# IronRDP fork (IRONRDP_REPOSITORY at IRONRDP_SHA below), the way IronRDP's own nuget-publish.yml does, trimmed to the
-# platforms Orrery ships. Once that package is published as a release of this repository (the publish-ironrdp input
-# below) and build/ironrdp-package.json names its SHA-256, the Orrery jobs download that one instead. Nothing else is
-# published: the packages end up as this run's artifacts. See docs/packaging.md, "GitHub Actions".
+# .rpm and AppImage. Orrery uses a Devolutions.IronRdp that isn't on nuget.org: the IronRDP fork builds and releases it
+# (its orrery-nuget.yml), and build/ironrdp-package.json names that release and its SHA-256. Nothing is published
+# here: the packages end up as this run's artifacts. See docs/packaging.md, "GitHub Actions".
 #
 # Supply chain: every action is pinned by commit, and every tool downloaded here is pinned by version and checked
 # against a SHA-256 before it runs.
@@ -16,27 +14,16 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
-    inputs:
-      publish-ironrdp:
-        description: Publish the Devolutions.IronRdp package as the release ironrdp-<version> (main only)
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
-# A newer push to the same branch or pull request cancels the older run. Tag builds and runs that publish
-# Devolutions.IronRdp always finish.
+# A newer push to the same branch or pull request cancels the older run. Tag builds always finish.
 concurrency:
-  group: packages-${{ github.ref }}${{ inputs.publish-ironrdp && '-publish-ironrdp' || '' }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.publish-ironrdp }}
+  group: packages-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
-  # The IronRDP commit Devolutions.IronRdp is built from. Push it to this repository before a run needs it.
-  IRONRDP_REPOSITORY: Grinch/IronRDP
-  IRONRDP_SHA: 75e51a76369c6dbe6ab22584e7c8ce6f0f402470
-  # The built package is cached by IronRDP commit and version. Bump this to rebuild it after changing the IronRDP jobs.
-  IRONRDP_CACHE_EPOCH: '1'
   # The SDK the lock files were made with.
   DOTNET_SDK_VERSION: 10.0.403
   DOTNET_NOLOGO: 'true'
@@ -47,12 +34,7 @@ jobs:
     name: Preflight
     runs-on: ubuntu-24.04
     outputs:
-      ironrdp-version: ${{ steps.version.outputs.ironrdp-version }}
-      crate-version: ${{ steps.version.outputs.crate-version }}
-      cache-key: ${{ steps.version.outputs.cache-key }}
-      cached: ${{ steps.lookup.outputs.cache-hit }}
       ironrdp-url: ${{ steps.published.outputs.ironrdp-url }}
-      build-ironrdp: ${{ steps.published.outputs.build-ironrdp }}
 
     steps:
       - name: Check out Orrery
@@ -60,312 +42,23 @@ jobs:
         with:
           persist-credentials: false
 
-      # The package version is Orrery's IronRdpVersion, so the lock files' version matches. The native library's own
-      # version (Cargo.toml, which ends up in the Windows DLL's version resource) takes only its numeric part, as
-      # IronRDP's workflow does.
-      - name: Read the IronRDP version
-        id: version
+      # build/ironrdp-package.json must describe Orrery's IronRdpVersion, with a url and SHA-256, so a version bump
+      # fails here, not halfway through a restore, until the fork has released the package.
+      - name: Find the published IronRDP package
+        id: published
         run: |
           $Version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.IronRdpVersion | Where-Object { $_ } | Select-Object -First 1
-          if ($Version -notmatch '^(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?$') { throw "Unexpected IronRdpVersion '$Version'." }
-          $CrateVersion = $Matches[1]
-          Write-Host "Devolutions.IronRdp $Version from $Env:IRONRDP_REPOSITORY@$Env:IRONRDP_SHA"
-          "ironrdp-version=$Version" >> $Env:GITHUB_OUTPUT
-          "crate-version=$CrateVersion" >> $Env:GITHUB_OUTPUT
-          "cache-key=ironrdp-nupkg-$Env:IRONRDP_CACHE_EPOCH-$Env:IRONRDP_SHA-$Version" >> $Env:GITHUB_OUTPUT
-        shell: pwsh
-
-      # The published package is used once build/ironrdp-package.json has its SHA-256 for this IronRdpVersion. Its url
-      # may be left empty, for the release of this repository. Until then, or while the json still describes an older
-      # version, the Orrery jobs take the package built below. That's built anyway when it's to be published.
-      - name: Look for a published package
-        id: published
-        env:
-          IRONRDP_VERSION: ${{ steps.version.outputs.ironrdp-version }}
-          PUBLISH_IRONRDP: ${{ github.event_name == 'workflow_dispatch' && inputs.publish-ironrdp }}
-        run: |
           $Package = Get-Content -Raw build/ironrdp-package.json | ConvertFrom-Json
-          $Url = ''
-          if ($Package.version -ne $Env:IRONRDP_VERSION) {
-            if ($Package.sha256) { Write-Host "::warning::build/ironrdp-package.json is for $($Package.version), not $Env:IRONRDP_VERSION, so this run builds Devolutions.IronRdp itself." }
-          }
-          elseif ($Package.sha256) {
-            if ($Package.sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "build/ironrdp-package.json's sha256 '$($Package.sha256)' isn't a SHA-256." }
-            $Url = if ($Package.url) { $Package.url } else {
-              "$Env:GITHUB_SERVER_URL/$Env:GITHUB_REPOSITORY/releases/download/ironrdp-$Env:IRONRDP_VERSION/Devolutions.IronRdp.$Env:IRONRDP_VERSION.nupkg" }
-            Write-Host "Using the published Devolutions.IronRdp $Env:IRONRDP_VERSION from $Url"
-          }
-          if ($Env:PUBLISH_IRONRDP -eq 'true' -and $Env:GITHUB_REF -ne 'refs/heads/main') {
-            Write-Host "::warning::Devolutions.IronRdp is only published from main, not $Env:GITHUB_REF."
-          }
-          $Build = (-not $Url) -or $Env:PUBLISH_IRONRDP -eq 'true'
-          "ironrdp-url=$Url" >> $Env:GITHUB_OUTPUT
-          "build-ironrdp=$($Build.ToString().ToLowerInvariant())" >> $Env:GITHUB_OUTPUT
+          if ($Package.version -ne $Version) { throw "build/ironrdp-package.json is for $($Package.version), not IronRdpVersion $Version. Release the package from the fork first (docs/packaging.md)." }
+          if ($Package.sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "build/ironrdp-package.json's sha256 '$($Package.sha256)' isn't a SHA-256." }
+          if ($Package.url -notmatch '^https://') { throw "build/ironrdp-package.json's url '$($Package.url)' isn't an https URL." }
+          Write-Host "Devolutions.IronRdp $Version from $($Package.url) ($($Package.repository)@$($Package.commit))"
+          "ironrdp-url=$($Package.url)" >> $Env:GITHUB_OUTPUT
         shell: pwsh
-
-      - name: Look for a cached build
-        id: lookup
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ironrdp-nuget
-          key: ${{ steps.version.outputs.cache-key }}
-          lookup-only: true
-
-  ironrdp-native:
-    name: IronRDP native (${{ matrix.os }}-${{ matrix.arch }})
-    needs: [preflight]
-    if: ${{ needs.preflight.outputs.build-ironrdp == 'true' && needs.preflight.outputs.cached != 'true' }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [win, osx, linux]
-        arch: [x64, arm64]
-        include:
-          - os: win
-            runner: windows-2022
-          - os: osx
-            runner: macos-14
-          - os: linux
-            runner: ubuntu-22.04
-
-    steps:
-      - name: Check out ${{ env.IRONRDP_REPOSITORY }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.IRONRDP_REPOSITORY }}
-          ref: ${{ env.IRONRDP_SHA }}
-          persist-credentials: false
-
-      - name: Configure macOS deployment target
-        if: ${{ matrix.os == 'osx' }}
-        run: Write-Output "MACOSX_DEPLOYMENT_TARGET=10.10" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-        shell: pwsh
-
-      - name: Update runner
-        if: ${{ matrix.os == 'linux' }}
-        run: sudo apt update
-
-      # IronRDP's workflow also installs the VsDevShell module from the PowerShell Gallery here; its build doesn't use
-      # it, so it's left out.
-      - name: Install dependencies for rustls
-        if: ${{ runner.os == 'Windows' }}
-        run: |
-          # Chocolatey checks each package against the checksum its repository publishes.
-          choco install ninja --version 1.13.2 -y --no-progress
-          if ($LASTEXITCODE -ne 0) { throw 'choco install ninja failed.' }
-          choco install nasm --version 3.2.0 -y --no-progress
-          if ($LASTEXITCODE -ne 0) { throw 'choco install nasm failed.' }
-
-          # We need to add the NASM binary folder to the PATH manually.
-          # We don't need to do that for ninja.
-          Write-Output "PATH=$Env:PATH;$Env:ProgramFiles\NASM" >> $Env:GITHUB_ENV
-
-          # libclang / LLVM is a requirement for AWS LC.
-          # https://aws.github.io/aws-lc-rs/requirements/windows.html#libclang--llvm
-          $VSINSTALLDIR = $(vswhere.exe -latest -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath)
-          Write-Output "LIBCLANG_PATH=$VSINSTALLDIR\VC\Tools\Llvm\x64\bin" >> $Env:GITHUB_ENV
-        shell: pwsh
-
-      # Checks the download against the checksum file in the pinned action.
-      - name: Setup LLVM
-        if: ${{ matrix.os == 'linux' }}
-        uses: Devolutions/actions-public/setup-llvm@683202ddb90523af00d81a98bcc1278e4bd1a951 # v1 (branch head, 2026-10-14)
-        with:
-          version: "18.1.8"
-
-      # Checks the sysroots against the checksum file in the pinned action.
-      - name: Setup CBake
-        if: ${{ matrix.os == 'linux' }}
-        uses: Devolutions/actions-public/setup-cbake@683202ddb90523af00d81a98bcc1278e4bd1a951 # v1 (branch head, 2026-10-14)
-        with:
-          cargo_env_scripts: true
-
-      # Crates and build output. A new IronRDP commit starts from the previous commit's cache.
-      - name: Cache cargo
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-${{ matrix.runner }}-${{ matrix.os }}-${{ matrix.arch }}-${{ env.IRONRDP_SHA }}
-          restore-keys: cargo-${{ matrix.runner }}-${{ matrix.os }}-${{ matrix.arch }}-
-
-      - name: Build native lib (${{matrix.os}}-${{matrix.arch}})
-        env:
-          CRATE_VERSION: ${{ needs.preflight.outputs.crate-version }}
-        run: |
-          $DotNetOs = '${{matrix.os}}'
-          $DotNetArch = '${{matrix.arch}}'
-          $DotNetRid = '${{matrix.os}}-${{matrix.arch}}'
-          $RustArch = @{'x64'='x86_64';'arm64'='aarch64'}[$DotNetArch]
-          $RustPlatform = @{'win'='pc-windows-msvc';'osx'='apple-darwin';'linux'='unknown-linux-gnu'}[$DotNetOs]
-          $LibPrefix = @{'win'='';'osx'='lib';'linux'='lib'}[$DotNetOs]
-          $LibSuffix = @{'win'='.dll';'osx'='.dylib';'linux'='.so'}[$DotNetOs]
-          $RustTarget = "$RustArch-$RustPlatform"
-
-          # The toolchain IronRDP pins in rust-toolchain.toml. rustup checks what it downloads against the release's
-          # published SHA-256 hashes.
-          $Toolchain = (Select-String -Path rust-toolchain.toml -Pattern '^channel\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-          rustup toolchain install $Toolchain --target $RustTarget
-          if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install $Toolchain failed." }
-
-          if ($DotNetOs -eq 'win') {
-            $Env:RUSTFLAGS="-C target-feature=+crt-static"
-          }
-
-          $CargoToml = Get-Content .\ffi\Cargo.toml
-          $CargoToml = $CargoToml | ForEach-Object {
-            if ($_.StartsWith("version =")) { "version = `"$Env:CRATE_VERSION`"" } else { $_ }
-          }
-          Set-Content -Path .\ffi\Cargo.toml -Value $CargoToml
-
-          if ($DotNetOs -eq 'linux') {
-            $LinuxArch = @{'x64'='amd64';'arm64'='arm64'}[$DotNetArch]
-            $Env:SYSROOT_NAME = "ubuntu-20.04-$LinuxArch"
-            . "$HOME/.cargo/cbake/${RustTarget}-enter.ps1"
-            $Env:AWS_LC_SYS_CMAKE_BUILDER="true"
-          }
-
-          $CargoParams = @(
-              "build",
-              "-p", "ffi",
-              "--profile", "production-ffi",
-              "--target", "$RustTarget"
-          )
-
-          & cargo $CargoParams
-          if ($LASTEXITCODE -ne 0) { throw "cargo build failed for $RustTarget." }
-
-          $OutputLibraryName = "${LibPrefix}ironrdp$LibSuffix"
-          $RenamedLibraryName = "${LibPrefix}DevolutionsIronRdp$LibSuffix"
-          $OutputLibrary = Join-Path "target" $RustTarget 'production-ffi' $OutputLibraryName
-          $OutputPath = Join-Path "dependencies" "runtimes" $DotNetRid "native"
-          New-Item -ItemType Directory -Path $OutputPath | Out-Null
-          Copy-Item $OutputLibrary $(Join-Path $OutputPath $RenamedLibraryName)
-        shell: pwsh
-
-      - name: Upload native components
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ironrdp-${{matrix.os}}-${{matrix.arch}}
-          path: dependencies/runtimes/${{matrix.os}}-${{matrix.arch}}
-          if-no-files-found: error
-
-  # Packs the natives into Devolutions.IronRdp, or takes the package from the cache when this IronRDP commit and version
-  # were built before, and hands it to the Orrery jobs (and publish-ironrdp) as the ironrdp-nupkg artifact. Only Linux
-  # runners (this job and preflight) touch that cache, so its entries never depend on the runner's OS. Skipped, with
-  # the native builds, when the Orrery jobs use the published package and none is to be published.
-  ironrdp-package:
-    name: IronRDP package
-    needs: [preflight, ironrdp-native]
-    if: >-
-      ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.build-ironrdp == 'true' &&
-      (needs.ironrdp-native.result == 'success' ||
-      (needs.ironrdp-native.result == 'skipped' && needs.preflight.outputs.cached == 'true')) }}
-    runs-on: ubuntu-24.04
-    env:
-      IRONRDP_VERSION: ${{ needs.preflight.outputs.ironrdp-version }}
-
-    steps:
-      - name: Restore the cached build
-        if: ${{ needs.preflight.outputs.cached == 'true' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ironrdp-nuget
-          key: ${{ needs.preflight.outputs.cache-key }}
-          fail-on-cache-miss: true
-
-      - name: Check out ${{ env.IRONRDP_REPOSITORY }}
-        if: ${{ needs.preflight.outputs.cached != 'true' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.IRONRDP_REPOSITORY }}
-          ref: ${{ env.IRONRDP_SHA }}
-          path: ironrdp
-          persist-credentials: false
-
-      - name: Set up .NET ${{ env.DOTNET_SDK_VERSION }}
-        if: ${{ needs.preflight.outputs.cached != 'true' }}
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
-
-      - name: Download native components
-        if: ${{ needs.preflight.outputs.cached != 'true' }}
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: ironrdp-*
-          path: ironrdp/dependencies/runtimes
-
-      - name: Rename dependencies
-        if: ${{ needs.preflight.outputs.cached != 'true' }}
-        working-directory: ironrdp/dependencies/runtimes
-        run: |
-          $(Get-Item ".\ironrdp-*") | ForEach-Object { Rename-Item $_ $_.Name.Replace("ironrdp-", "") }
-          Get-ChildItem * -Recurse
-        shell: pwsh
-
-      # Only the net8.0 package: Orrery doesn't use the iOS one. Every native library in the project is packed only if
-      # it exists, so leaving out Android, iOS and the macOS universal library (only for Xamarin.Mac) needs nothing
-      # else. The package check below makes sure the six Orrery ships are in.
-      - name: Build Devolutions.IronRdp (managed)
-        if: ${{ needs.preflight.outputs.cached != 'true' }}
-        working-directory: ironrdp
-        run: |
-          [IO.File]::WriteAllText((Join-Path (Get-Location) 'global.json'), '{ "sdk": { "version": "' + $Env:DOTNET_SDK_VERSION + '", "rollForward": "disable" } }')
-          # Built the way IronRDP's workflow builds it: the project packs on build (GeneratePackageOnBuild).
-          $Output = Join-Path (Split-Path (Get-Location) -Parent) 'ironrdp-nuget'
-          dotnet build ./ffi/dotnet/Devolutions.IronRdp/Devolutions.IronRdp.csproj -c Release -p:Version=$Env:IRONRDP_VERSION -p:PackageOutputPath=$Output
-          if ($LASTEXITCODE -ne 0) { throw 'dotnet build failed.' }
-        shell: pwsh
-
-      - name: Check the package
-        run: |
-          $Package = "ironrdp-nuget/Devolutions.IronRdp.$Env:IRONRDP_VERSION.nupkg"
-          if (-not (Test-Path $Package)) { throw "$Package is missing." }
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $Zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $Package))
-          try { $Entries = $Zip.Entries.FullName } finally { $Zip.Dispose() }
-          $Expected = @(
-            'lib/net8.0/Devolutions.IronRdp.dll'
-            'runtimes/win-x64/native/DevolutionsIronRdp.dll'
-            'runtimes/win-arm64/native/DevolutionsIronRdp.dll'
-            'runtimes/linux-x64/native/libDevolutionsIronRdp.so'
-            'runtimes/linux-arm64/native/libDevolutionsIronRdp.so'
-            'runtimes/osx-x64/native/libDevolutionsIronRdp.dylib'
-            'runtimes/osx-arm64/native/libDevolutionsIronRdp.dylib'
-          )
-          $Missing = $Expected | Where-Object { $Entries -notcontains $_ }
-          if ($Missing) { throw "$Package lacks $($Missing -join ', ')." }
-          $Entries | ForEach-Object { Write-Host "   $_" }
-          Write-Host "SHA-256 $((Get-FileHash $Package -Algorithm SHA256).Hash)"
-        shell: pwsh
-
-      - name: Cache the build
-        if: ${{ needs.preflight.outputs.cached != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ironrdp-nuget
-          key: ${{ needs.preflight.outputs.cache-key }}
-
-      - name: Upload the package
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ironrdp-nupkg
-          path: ironrdp-nuget/*.nupkg
-          if-no-files-found: error
 
   windows:
     name: Windows
-    needs: [preflight, ironrdp-package]
-    # Explicit, because the default (success()) skips this job whenever any earlier job was skipped, as the IronRDP
-    # native builds are when the package comes from the cache, and every IronRDP job when the published one is used.
-    if: >-
-      ${{ !cancelled() && needs.preflight.result == 'success' &&
-      (needs.preflight.outputs.ironrdp-url != '' || needs.ironrdp-package.result == 'success') }}
+    needs: [preflight]
     runs-on: windows-2025
 
     steps:
@@ -430,12 +123,7 @@ jobs:
 
   linux:
     name: Linux
-    needs: [preflight, ironrdp-package]
-    # Explicit, because the default (success()) skips this job whenever any earlier job was skipped, as the IronRDP
-    # native builds are when the package comes from the cache, and every IronRDP job when the published one is used.
-    if: >-
-      ${{ !cancelled() && needs.preflight.result == 'success' &&
-      (needs.preflight.outputs.ironrdp-url != '' || needs.ironrdp-package.result == 'success') }}
+    needs: [preflight]
     runs-on: ubuntu-24.04
 
     steps:
@@ -517,12 +205,7 @@ jobs:
 
   macos:
     name: macOS
-    needs: [preflight, ironrdp-package]
-    # Explicit, because the default (success()) skips this job whenever any earlier job was skipped, as the IronRDP
-    # native builds are when the package comes from the cache, and every IronRDP job when the published one is used.
-    if: >-
-      ${{ !cancelled() && needs.preflight.result == 'success' &&
-      (needs.preflight.outputs.ironrdp-url != '' || needs.ironrdp-package.result == 'success') }}
+    needs: [preflight]
     runs-on: macos-15
 
     steps:
@@ -546,77 +229,3 @@ jobs:
           name: orrery-macos-portable
           path: artifacts/*.zip
           if-no-files-found: error
-
-  # Publishes this run's Devolutions.IronRdp as the release ironrdp-<version> of this repository, for
-  # build/Get-IronRdp.ps1 to download. Only when asked for (the publish-ironrdp input) on main, and only after every
-  # package built and the tests passed with it. It never replaces a release: anyone whose ironrdp-package.json names
-  # that one would get a SHA-256 mismatch, so a new package needs a new IronRdpVersion. The release is created with the
-  # runner's gh, and this is the one job that may write to the repository.
-  publish-ironrdp:
-    name: Publish IronRDP package
-    needs: [preflight, ironrdp-package, windows, linux, macos]
-    if: >-
-      ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish-ironrdp &&
-      github.ref == 'refs/heads/main' && needs.ironrdp-package.result == 'success' &&
-      needs.windows.result == 'success' && needs.linux.result == 'success' && needs.macos.result == 'success' }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    env:
-      IRONRDP_VERSION: ${{ needs.preflight.outputs.ironrdp-version }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    steps:
-      - name: Check out Orrery
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Download Devolutions.IronRdp
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ironrdp-nupkg
-          path: ironrdp-nuget
-
-      - name: Create the release
-        run: |
-          $Tag = "ironrdp-$Env:IRONRDP_VERSION"
-          $Name = "Devolutions.IronRdp.$Env:IRONRDP_VERSION.nupkg"
-          $Package = Join-Path 'ironrdp-nuget' $Name
-          if (-not (Test-Path $Package)) { throw "$Package is missing." }
-          $Sha256 = (Get-FileHash $Package -Algorithm SHA256).Hash.ToLowerInvariant()
-
-          $Tags = @(gh api "repos/$Env:GITHUB_REPOSITORY/git/matching-refs/tags/$Tag" --jq '.[].ref')
-          if ($LASTEXITCODE -ne 0) { throw 'Listing the tags failed.' }
-          if ($Tags -contains "refs/tags/$Tag") { throw "The tag $Tag already exists. Bump IronRdpVersion to publish a new package." }
-          $Releases = @(gh api "repos/$Env:GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
-          if ($LASTEXITCODE -ne 0) { throw 'Listing the releases failed.' }
-          if ($Releases -contains $Tag) { throw "The release $Tag already exists. Bump IronRdpVersion to publish a new package." }
-
-          $Notes = "Devolutions.IronRdp $Env:IRONRDP_VERSION for Orrery, built from $Env:IRONRDP_REPOSITORY@$Env:IRONRDP_SHA " +
-            "by $Env:GITHUB_SERVER_URL/$Env:GITHUB_REPOSITORY/actions/runs/$Env:GITHUB_RUN_ID. SHA-256 $Sha256. " +
-            'build/Get-IronRdp.ps1 downloads it.'
-          # --latest=false keeps Orrery's own newest release as the repository's latest.
-          gh release create $Tag $Package --repo $Env:GITHUB_REPOSITORY --target $Env:GITHUB_SHA `
-            --title "Devolutions.IronRdp $Env:IRONRDP_VERSION" --notes $Notes --latest=false
-          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed.' }
-
-          # Check what was uploaded, the way Get-IronRdp.ps1 will.
-          $Check = Join-Path $Env:RUNNER_TEMP 'ironrdp-release'
-          gh release download $Tag --repo $Env:GITHUB_REPOSITORY --pattern $Name --dir $Check
-          if ($LASTEXITCODE -ne 0) { throw 'gh release download failed.' }
-          $Uploaded = (Get-FileHash (Join-Path $Check $Name) -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($Uploaded -ne $Sha256) { throw "The release asset has SHA-256 $Uploaded, not $Sha256." }
-
-          $Json = Get-Content -Raw build/ironrdp-package.json | ConvertFrom-Json
-          $Json.version = $Env:IRONRDP_VERSION
-          $Json.repository = $Env:IRONRDP_REPOSITORY
-          $Json.commit = $Env:IRONRDP_SHA
-          $Json.url = "$Env:GITHUB_SERVER_URL/$Env:GITHUB_REPOSITORY/releases/download/$Tag/$Name"
-          $Json.sha256 = $Sha256
-          $Text = $Json | ConvertTo-Json
-          Write-Host "Published $Name, SHA-256 $Sha256. Commit this as build/ironrdp-package.json, then refresh the lock files (docs/packaging.md):"
-          Write-Host $Text
-          @("Published ``$Name``, SHA-256 ``$Sha256``. Commit this as ``build/ironrdp-package.json``, then refresh the lock files (docs/packaging.md):",
-            '', '```json', $Text, '```') >> $Env:GITHUB_STEP_SUMMARY
-        shell: pwsh

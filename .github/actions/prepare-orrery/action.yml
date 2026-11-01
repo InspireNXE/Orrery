@@ -1,15 +1,12 @@
 name: Prepare Orrery build
 description: >-
-  Sets up the pinned .NET SDK and restores the NuGet cache. Devolutions.IronRdp is the published package when
-  ironrdp-url is given: build/Get-IronRdp.ps1 downloads and checks it, and the lock files must match it as committed.
-  Otherwise it's this run's ironrdp-nupkg artifact, and the lock files' IronRDP content hash is refreshed for it,
-  failing if anything else in them would change.
+  Sets up the pinned .NET SDK, restores the NuGet cache, and fetches the published Devolutions.IronRdp with
+  build/Get-IronRdp.ps1, which checks it against build/ironrdp-package.json. The lock files must match it as committed.
 
 inputs:
   ironrdp-url:
-    description: Where build/Get-IronRdp.ps1 downloads the published Devolutions.IronRdp; empty to use this run's build
-    required: false
-    default: ''
+    description: Where build/Get-IronRdp.ps1 downloads the published Devolutions.IronRdp
+    required: true
 
 runs:
   using: composite
@@ -29,15 +26,8 @@ runs:
         $used = dotnet --version
         if ($used -ne $Env:DOTNET_SDK_VERSION) { throw "dotnet uses SDK $used, not $Env:DOTNET_SDK_VERSION." }
 
-    - name: Download Devolutions.IronRdp
-      if: ${{ inputs.ironrdp-url == '' }}
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-      with:
-        name: ironrdp-nupkg
-        path: ${{ runner.temp }}/ironrdp-nuget
-
-    # Keyed on the committed lock files, before they're refreshed. IronRDP's own folder is left out, and deleted below
-    # too, because NuGet would reuse a cached copy of the same version built from an earlier commit.
+    # Keyed on the committed lock files. IronRDP's own folder is left out, and deleted below too, so NuGet always
+    # takes the package Get-IronRdp.ps1 checked.
     - name: Cache NuGet packages
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -47,24 +37,8 @@ runs:
         key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
         restore-keys: nuget-${{ runner.os }}-
 
-    - name: Use the downloaded Devolutions.IronRdp
-      if: ${{ inputs.ironrdp-url == '' }}
-      shell: pwsh
-      run: |
-        Remove-Item -Recurse -Force (Join-Path $HOME '.nuget/packages/devolutions.ironrdp') -ErrorAction SilentlyContinue
-        $source = Join-Path $Env:RUNNER_TEMP 'ironrdp-nuget'
-        Get-ChildItem $source -Filter '*.nupkg' | ForEach-Object { Write-Host "   $($_.Name)" }
-        dotnet nuget update source ironrdp-local --source $source --configfile (Join-Path $Env:GITHUB_WORKSPACE 'nuget.config')
-        if ($LASTEXITCODE -ne 0) { throw 'dotnet nuget update source failed.' }
-
-    - name: Refresh IronRDP's lock file hash
-      if: ${{ inputs.ironrdp-url == '' }}
-      shell: pwsh
-      run: ./build/Update-IronRdpLockHashes.ps1
-
     # The lock files are used as committed, so this restore fails with NU1403 until they record the published package.
     - name: Use the published Devolutions.IronRdp
-      if: ${{ inputs.ironrdp-url != '' }}
       shell: pwsh
       env:
         IRONRDP_URL: ${{ inputs.ironrdp-url }}
