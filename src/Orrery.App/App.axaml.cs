@@ -154,6 +154,7 @@ public partial class App : Application
         }
 
         AppLog.Start(location);
+        Orrery.Protocols.Rdp.IronRdpLog.StartIfAsked(location.LogDir);
         int moved = Array.IndexOf(_args, MovedFromFlag);
 
         // "Orrery file.rdp", as Windows runs it for a .rdp file opened with Orrery: connected to once the window opens.

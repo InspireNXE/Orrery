@@ -147,6 +147,7 @@
   
               <Grid>
                 <vm:ConnectionTreeView x:Name="Tree" Background="Transparent" DragDrop.AllowDrop="True" Padding="12,0" SelectionMode="Multiple"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                       AutomationProperties.Name="Connections">
                   <TreeView.Styles>
                     <Style Selector="TreeViewItem" x:DataType="vm:NodeViewModel">
