@@ -117,7 +117,7 @@ public partial class MainWindow : Window
         _location = location;
         _movedFrom = movedFrom;
         _settingsStore = AppSettingsStore.In(location);
-        Palette.Use(_settingsStore.Load().UseColourBlindColours);
+        Palette.Use(_settingsStore.Load().InterfaceColourScheme);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";

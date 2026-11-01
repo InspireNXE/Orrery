@@ -23,6 +23,18 @@ public enum TerminalColourScheme
     ColourBlind,
 }
 
+/// <summary>The colours that carry meaning in the interface: states, success, warnings, errors.</summary>
+public enum InterfaceColourScheme
+{
+    Standard,
+
+    /// <summary>Brighter colours that are easier to tell apart for most kinds of colour blindness.</summary>
+    Clearer,
+
+    /// <summary>Okabe and Ito's colour-blind safe colours.</summary>
+    ColourBlind,
+}
+
 /// <summary>
 /// App preferences, kept in <c>settings.json</c> in the data folder. A null value means "use the default",
 /// so defaults can change in later versions without rewriting everyone's file.
@@ -78,13 +90,25 @@ public sealed record AppSettings
     /// <summary>The terminal's colours. Null is <see cref="TerminalColourScheme.Standard"/>.</summary>
     public TerminalColourScheme? TerminalColours { get; init; }
 
+    /// <summary>The interface colours. Null is <see cref="InterfaceColourScheme.Standard"/>, unless <see cref="ColourBlindColours"/> says otherwise.</summary>
+    public InterfaceColourScheme? InterfaceColours { get; init; }
+
     /// <summary>
-    /// Colours for states, warnings and errors that stay apart with colour blindness. Null is off.
+    /// The old on/off setting, read from existing files and never written back: <see cref="AppSettingsStore"/> turns
+    /// true into <see cref="InterfaceColourScheme.ColourBlind"/> when it loads or saves.
     /// </summary>
     public bool? ColourBlindColours { get; init; }
 
+    /// <summary>The interface colours in use, counting the old setting.</summary>
     [JsonIgnore]
-    public bool UseColourBlindColours => ColourBlindColours ?? false;
+    public InterfaceColourScheme InterfaceColourScheme =>
+        InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : InterfaceColourScheme.Standard);
+
+    /// <summary>Moves the old colour-blind setting into <see cref="InterfaceColours"/>.</summary>
+    public AppSettings Migrated() =>
+        ColourBlindColours is null
+            ? this
+            : this with { InterfaceColours = InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : null), ColourBlindColours = null };
 
     /// <summary>
     /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
@@ -130,7 +154,7 @@ public sealed class AppSettingsStore(string path)
     {
         try
         {
-            return File.Exists(path) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new() : new();
+            return File.Exists(path) ? (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new()).Migrated() : new();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -139,5 +163,5 @@ public sealed class AppSettingsStore(string path)
     }
 
     public void Save(AppSettings settings) =>
-        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
+        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
 }

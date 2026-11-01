@@ -145,13 +145,23 @@ public class SettingsViewTests : IDisposable
 
         try
         {
-            var colourBlind = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => Equals(c.Content, "Colour-blind friendly colours"));
-            Assert.False(colourBlind.IsChecked);
-            colourBlind.IsChecked = true;
+            RadioButton Choice(InterfaceColourScheme scheme) =>
+                Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), r => Equals(r.Tag, scheme));
+            Assert.Equal(3, window.GetVisualDescendants().OfType<RadioButton>().Count(r => r.Tag is InterfaceColourScheme));
+            Assert.True(Choice(InterfaceColourScheme.Standard).IsChecked);
+
+            Choice(InterfaceColourScheme.Clearer).IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
+            Assert.Equal(InterfaceColourScheme.Clearer, Palette.Scheme);
+            Assert.Equal(Palette.Clearer.StateUp, Palette.StateUp.Color);
+
+            Choice(InterfaceColourScheme.ColourBlind).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
 
-            Assert.True(settings.Load().ColourBlindColours);
-            Assert.True(Palette.IsColourBlind);
+            Assert.Equal(InterfaceColourScheme.ColourBlind, settings.Load().InterfaceColours);
+            Assert.Null(settings.Load().ColourBlindColours);
+            Assert.Equal(InterfaceColourScheme.ColourBlind, Palette.Scheme);
             Assert.Equal(Palette.ColourBlind.Danger, Palette.Danger.Color);
             Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
 
@@ -162,14 +172,14 @@ public class SettingsViewTests : IDisposable
             Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
             Assert.Equal(TerminalColourScheme.ColourBlind, terminalScheme);
 
-            colourBlind.IsChecked = false;
+            Choice(InterfaceColourScheme.Standard).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
-            Assert.Null(settings.Load().ColourBlindColours);
+            Assert.Null(settings.Load().InterfaceColours);
             Assert.Equal(Palette.Standard.Danger, Palette.Danger.Color);
         }
         finally
         {
-            Palette.Use(false);
+            Palette.Use(InterfaceColourScheme.Standard);
             window.Close();
         }
     }

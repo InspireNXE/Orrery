@@ -563,15 +563,31 @@ sealed class SettingsView : UserControl
 
     Control ColoursSection()
     {
-        var colourBlind = new CheckBox { Content = "Colour-blind friendly colours", IsChecked = _settings.UseColourBlindColours };
-        colourBlind.IsCheckedChanged += (_, _) =>
+        var current = _settings.InterfaceColourScheme;
+        var choices = new (InterfaceColourScheme Scheme, string Text)[]
         {
-            bool on = colourBlind.IsChecked == true;
-            _settings = _settings with { ColourBlindColours = on ? true : null };
-            TrySaveSettings();
-            Palette.Use(on);
-            Log.For("Settings").LogInformation("Colour-blind friendly colours {State}", on ? "on" : "off");
+            (InterfaceColourScheme.Standard, "Standard"),
+            (InterfaceColourScheme.Clearer, "Clearer: easier to tell apart for most colour blindness"),
+            (InterfaceColourScheme.ColourBlind, "Colour-blind (Okabe-Ito)"),
         };
+        var interfaceColours = new StackPanel { Spacing = 4 };
+        foreach (var (choice, text) in choices)
+        {
+            var radio = new RadioButton { Content = text, GroupName = "InterfaceColours", Tag = choice, IsChecked = choice == current };
+            radio.IsCheckedChanged += (_, _) =>
+            {
+                if (radio.IsChecked != true)
+                {
+                    return;
+                }
+
+                _settings = _settings with { InterfaceColours = choice == InterfaceColourScheme.Standard ? null : choice, ColourBlindColours = null };
+                TrySaveSettings();
+                Palette.Use(choice);
+                Log.For("Settings").LogInformation("Interface colours set to {Scheme}", choice);
+            };
+            interfaceColours.Children.Add(radio);
+        }
 
         var terminal = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         terminal.Items.Add(new ComboBoxItem { Content = "Standard", Tag = TerminalColourScheme.Standard });
@@ -592,9 +608,10 @@ sealed class SettingsView : UserControl
         };
 
         return Section("Colours",
-            colourBlind,
-            Note("Session states, warnings and errors use blue, yellow and vermilion, which stay apart with red-green or blue-yellow colour blindness. "
-                + "They always have a shape, an icon or a word as well."),
+            interfaceColours,
+            Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Colour-blind uses blue, yellow and vermilion, "
+                + "which stay apart with red-green or blue-yellow colour blindness. "
+                + "Session states, warnings and errors always have a shape, an icon or a word as well."),
             Row("Terminal colours", terminal),
             Note("Colour-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green stay readable. "
                 + "Applies to open terminals too."));
