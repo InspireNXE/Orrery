@@ -16,7 +16,7 @@ sealed class ChangeMasterPasswordWindow : Window
     readonly TextBox _current = new PasswordBox();
     readonly TextBox _new = new PasswordBox();
     readonly TextBox _confirm = new PasswordBox();
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
 
     public ChangeMasterPasswordWindow(VaultFileStore vault)
@@ -42,12 +42,7 @@ sealed class ChangeMasterPasswordWindow : Window
             Children =
             {
                 new TextBlock { Text = "Change the vault's master password", FontSize = 18, FontWeight = FontWeight.SemiBold },
-                new TextBlock
-                {
-                    Text = "Your saved credentials stay as they are. If you forget the new password, there is no way to recover the vault.",
-                    Foreground = Dialogs.WarningBrush,
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                new Notice(NoticeKind.Warning, "Your saved credentials stay as they are. If you forget the new password, there is no way to recover the vault."),
                 Dialogs.Field("Current master password", _current),
                 Dialogs.Field("New master password", _new),
                 Dialogs.Field("Confirm new master password", _confirm),

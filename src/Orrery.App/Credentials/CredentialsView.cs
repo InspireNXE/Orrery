@@ -38,7 +38,7 @@ sealed class CredentialsView
     readonly TextBox _key = new() { AcceptsReturn = true, Height = 120, FontFamily = Dialogs.MonoFont, FontSize = 11, TextWrapping = TextWrapping.NoWrap };
     readonly TextBox _passphrase = new PasswordBox();
     readonly TextBlock _secretHint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Control _passwordField, _keyFields, _domainField;
     readonly Button _save, _delete;
     Guid? _editing;

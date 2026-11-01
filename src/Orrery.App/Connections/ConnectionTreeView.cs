@@ -85,7 +85,7 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
 
     void OnRowChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(NodeViewModel.StatusFill))
+        if (e.PropertyName == nameof(NodeViewModel.Status))
         {
             RaisePropertyChangedEvent(AutomationElementIdentifiers.ItemStatusProperty, null, GetItemStatus());
         }
@@ -95,7 +95,7 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
 
     protected override string? GetHelpTextCore() => Row?.Description ?? base.GetHelpTextCore();
 
-    protected override string? GetItemStatusCore() => Row?.StatusText ?? base.GetItemStatusCore();
+    protected override string? GetItemStatusCore() => Row?.SpokenStatus ?? base.GetItemStatusCore();
 
     // ---- Expand and collapse ----
 
