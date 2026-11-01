@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Export;
 
 namespace Orrery.App.Connections;
@@ -18,8 +19,8 @@ sealed class ExportSecretsWindow : Window
     internal const int MinimumPasswordLength = 8;
 
     readonly CheckBox _include;
-    readonly TextBox _password = new() { PasswordChar = '•', IsEnabled = false };
-    readonly TextBox _confirm = new() { PasswordChar = '•', IsEnabled = false };
+    readonly TextBox _password = new PasswordBox { IsEnabled = false };
+    readonly TextBox _confirm = new PasswordBox { IsEnabled = false };
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
 
     public ExportSecretsWindow(ExportFormat format)

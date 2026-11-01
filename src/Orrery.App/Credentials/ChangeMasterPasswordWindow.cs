@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Credentials;
 
 namespace Orrery.App.Credentials;
@@ -12,9 +13,9 @@ sealed class ChangeMasterPasswordWindow : Window
     const int MinimumPasswordLength = 8;
 
     readonly VaultFileStore _vault;
-    readonly TextBox _current = new() { PasswordChar = '•' };
-    readonly TextBox _new = new() { PasswordChar = '•' };
-    readonly TextBox _confirm = new() { PasswordChar = '•' };
+    readonly TextBox _current = new PasswordBox();
+    readonly TextBox _new = new PasswordBox();
+    readonly TextBox _confirm = new PasswordBox();
     readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _ok;
 

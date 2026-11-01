@@ -81,6 +81,28 @@ public sealed class NodeViewModel : INotifyPropertyChanged
 
     public IBrush? StatusStroke => StatusFill is null ? OfflineBrush : null;
 
+    /// <summary>What a screen reader says after the name: "SSH, web01.example, 2 guests" or "Folder, 3 connections".</summary>
+    public string Description => Node switch
+    {
+        ConnectionFolder => $"Folder, {Plural(int.Parse(Count), "connection")}",
+        ConnectionEntry { IsHost: true } host => $"{Badge}, {Where(host)}, {Plural(host.Guests.Count, "guest")}",
+        ConnectionEntry { GuestOf: { } owner } guest => $"{Badge}, {Where(guest)}, guest of {owner.Name}",
+        ConnectionEntry entry => $"{Badge}, {Where(entry)}",
+        _ => string.Empty,
+    };
+
+    /// <summary>The open session's state in words, for a screen reader; empty when none is open.</summary>
+    public string StatusText => _status switch
+    {
+        SessionState.Connected => "Connected",
+        SessionState.Connecting => "Connecting",
+        _ => string.Empty,
+    };
+
+    static string Where(ConnectionEntry entry) => string.IsNullOrEmpty(entry.Host) ? "no host" : entry.Host;
+
+    static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public bool IsExpanded
