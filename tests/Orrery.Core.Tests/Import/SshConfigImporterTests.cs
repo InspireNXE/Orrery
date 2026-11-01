@@ -210,7 +210,7 @@ public sealed class SshConfigImporterTests : IDisposable
     }
 
     [Fact]
-    public void IdentityFile_is_kept_as_a_path_in_the_notes_and_never_read()
+    public void The_first_IdentityFile_becomes_the_key_file_setting_and_is_never_read()
     {
         var keyFile = Write("id_test", "-----BEGIN OPENSSH PRIVATE KEY-----\nKEYBODY-9f3a\n-----END OPENSSH PRIVATE KEY-----\n");
         var result = Import($"""
@@ -219,33 +219,64 @@ public sealed class SshConfigImporterTests : IDisposable
                 User deploy
                 IdentityFile ~/id_test
                 IdentityFile {keyFile.Replace('\\', '/')}
-                IdentityFile %d/keys/%r@%h
                 IdentityFile none
             """);
 
         var web = Entry(result, "web");
-        Assert.NotNull(web.Notes);
-        // ~ and %d become the home folder, %r and %h the login and host; "none" is dropped.
-        Assert.Equal(
-            [
-                "Key file: " + Path.Combine(_dir, "id_test"),
-                "Key file: " + keyFile.Replace('\\', '/'),
-                "Key file: " + _dir + "/keys/deploy@web.example.com",
-            ],
-            web.Notes.Split('\n'));
-        Assert.DoesNotContain("KEYBODY", web.Notes);
+        // ~ becomes the home folder; the later IdentityFile lines aren't used.
+        Assert.Equal(Path.Combine(_dir, "id_test"), web.Settings.KeyFile);
+        Assert.Null(web.Notes);
         Assert.Empty(result.Credentials);
-        Assert.Equal(1, result.Report.NotYetSupported.Count(l => l.StartsWith("Key files")));
+        Assert.Contains(result.Report.Warnings, w => w.StartsWith("1 connection has more than one IdentityFile"));
+        Assert.DoesNotContain(result.Report.NotYetSupported, l => l.Contains("Key file"));
         Assert.DoesNotContain("KEYBODY", result.Report.ToMarkdown(DateTimeOffset.Now));
     }
 
     [Fact]
-    public void Unsupported_identity_tokens_and_variables_are_left_as_written_and_noted()
+    public void Tokens_in_the_IdentityFile_are_expanded_as_OpenSSH_would()
     {
-        var result = Import("Host web\n  IdentityFile ~/.ssh/%C\n  IdentityFile ${KEYDIR}/id\n");
+        var result = Import("Host web\n  HostName web.example.com\n  User deploy\n  IdentityFile %d/keys/%r@%h\n");
 
-        Assert.Contains("%C", Entry(result, "web").Notes);
-        Assert.Contains("${KEYDIR}/id", Entry(result, "web").Notes);
+        Assert.Equal(_dir + "/keys/deploy@web.example.com", Entry(result, "web").Settings.KeyFile);
+    }
+
+    [Fact]
+    public void One_IdentityFile_gives_no_warning_and_none_gives_no_key_file()
+    {
+        var result = Import("Host a\n  IdentityFile ~/id_a\nHost b\n  IdentityFile none\nHost c\n");
+
+        Assert.Equal(Path.Combine(_dir, "id_a"), Entry(result, "a").Settings.KeyFile);
+        Assert.Null(Entry(result, "b").Settings.KeyFile);
+        Assert.Null(Entry(result, "c").Settings.KeyFile);
+        Assert.Empty(result.Report.Warnings);
+        Assert.Empty(result.Report.NotYetSupported);
+    }
+
+    [Fact]
+    public void A_Host_star_IdentityFile_is_every_connections_key_file_and_a_hosts_own_wins()
+    {
+        var result = Import("Host a\n  IdentityFile ~/own\nHost b\nHost *\n  IdentityFile ~/shared\n");
+
+        Assert.Equal(Path.Combine(_dir, "own"), Entry(result, "a").Settings.KeyFile);
+        Assert.Equal(Path.Combine(_dir, "shared"), Entry(result, "b").Settings.KeyFile);
+    }
+
+    [Fact]
+    public void A_jump_host_takes_its_own_IdentityFile_and_the_connection_behind_it_doesnt_share_it()
+    {
+        var result = Import("Host db\n  HostName db.internal\n  ProxyJump gate\nHost gate\n  HostName gate.example.com\n  IdentityFile ~/gate_key\n");
+
+        Assert.Equal(Path.Combine(_dir, "gate_key"), Entry(result, "gate").Settings.KeyFile);
+        Assert.Null(Entry(result, "db").Settings.KeyFile);
+    }
+
+    [Fact]
+    public void Unsupported_identity_tokens_and_variables_are_left_as_written_and_warned_about()
+    {
+        var result = Import("Host web\n  IdentityFile ~/.ssh/%C\nHost env\n  IdentityFile ${KEYDIR}/id\n");
+
+        Assert.Contains("%C", Entry(result, "web").Settings.KeyFile);
+        Assert.Equal("${KEYDIR}/id", Entry(result, "env").Settings.KeyFile);
         Assert.Contains(result.Report.Warnings, w => w.Contains("%C"));
         Assert.Contains(result.Report.Warnings, w => w.Contains("environment variable"));
     }
@@ -782,7 +813,10 @@ public sealed class SshConfigImporterTests : IDisposable
         Assert.Contains(result.Report.Skipped, s => s.StartsWith("1 Match block"));
         Assert.Contains(result.Report.Skipped, s => s.StartsWith("ProxyCommand") && s.Contains("oldbox"));
         Assert.Contains(result.Report.Skipped, s => s.Contains("*.example.org"));
-        Assert.Contains(result.Report.NotYetSupported, l => l.StartsWith("Key files"));
+        // bastion's IdentityFile is its key file; the Match block's isn't evaluated.
+        Assert.Equal(Path.Combine(env.Home, ".ssh", "id_ed25519"), Entry(result, "bastion").Settings.KeyFile);
+        Assert.Null(Entry(result, "web1").Settings.KeyFile);
+        Assert.DoesNotContain(result.Report.NotYetSupported, l => l.Contains("Key file"));
         Assert.Empty(result.Credentials);
     }
 }

@@ -217,6 +217,10 @@ public static class ConnectionExporter
 
     static string Describe(ConnectionNode node) => node.Path is { Length: > 0 } path ? $"{path} / {node.Name}" : node.Name;
 
+    /// <summary>The start of a sentence turned into the middle of one, leaving acronyms such as SSH alone.</summary>
+    static string Lowered(string text) =>
+        text.Length > 1 && char.IsUpper(text[0]) && !char.IsUpper(text[1]) ? char.ToLowerInvariant(text[0]) + text[1..] : text;
+
     static string Count(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
 
     // ---- Orrery ----
@@ -343,6 +347,8 @@ public static class ConnectionExporter
             Lost("Port forwards", entry.PortForwards is { Count: > 0 });
             Lost("Wake-on-LAN broadcast addresses", entry.WakeBroadcast is not null);
             Lost("Fixed desktop sizes", resolved.DesktopSize.Value is not null);
+            // The path stays in an Orrery export, but mRemoteNG has no field for a key file to hold it.
+            Lost("SSH key files", resolved.Protocol.Value == Protocol.Ssh && resolved.KeyFile.Value is not null);
             Lost("SSH agent turned off", resolved.Protocol.Value == Protocol.Ssh && !resolved.UseSshAgent.Value);
             Lost("Older SSH algorithms allowed", resolved.Protocol.Value == Protocol.Ssh && resolved.AllowLegacySsh.Value);
             Lost("Reconnect turned off", !resolved.AutoReconnect.Value);
@@ -351,7 +357,7 @@ public static class ConnectionExporter
 
         foreach (var (what, count) in lost.OrderByDescending(l => l.Value))
         {
-            warnings.Add($"mRemoteNG has no equivalent for {what.ToLowerInvariant()}: {Count(count, "connection", "connections")}.");
+            warnings.Add($"mRemoteNG has no equivalent for {Lowered(what)}: {Count(count, "connection", "connections")}.");
         }
 
         var output = new Utf8StringWriter();
