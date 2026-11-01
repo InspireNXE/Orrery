@@ -81,6 +81,8 @@ static class Icons
     public const string Close = "M6 6l12 12 M18 6L6 18";
     public const string Search = "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M20 20l-3.5-3.5";
     public const string Terminal = "M4 17l6-5-6-5 M12 19h8";
+    public const string Globe = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M3.5 9h17 M3.5 15h17 M12 3c-2.5 2.6-3.6 5.6-3.6 9s1.1 6.4 3.6 9 M12 3c2.5 2.6 3.6 5.6 3.6 9s-1.1 6.4-3.6 9";
+    public const string SerialPort = "M3 8h18l-2.5 8h-13z M7.5 11h.01 M10.5 11h.01 M13.5 11h.01 M16.5 11h.01 M9 13.5h.01 M12 13.5h.01 M15 13.5h.01";
     public const string More = "M5 12h.01 M12 12h.01 M19 12h.01";
     public const string FullScreen = "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5";
     public const string File = "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Microsoft's, from nuget.org, at the servicing release of the .NET 10 runtime the app is built with. -->
+    <PackageReference Include="System.IO.Ports" Version="10.0.14" />
+    <ProjectReference Include="..\Orrery.Core\Orrery.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orrery.Protocols.Serial.Tests" />
+  </ItemGroup>
+</Project>

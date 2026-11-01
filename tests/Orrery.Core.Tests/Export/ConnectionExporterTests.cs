@@ -336,4 +336,77 @@ public class ConnectionExporterTests
 
         Assert.All(typeof(InheritableSettings).GetProperties().Where(p => p.CanWrite), p => Assert.NotNull(p.GetValue(child)));
     }
+
+    [Fact]
+    public void Protocol_settings_carry_over_to_mremoteng_and_back()
+    {
+        var tree = ConnectionTree.Empty();
+        var rdp = new ConnectionEntry
+        {
+            Name = "rdp", Host = "rdp.example",
+            Settings = { Protocol = Protocol.Rdp, RemoteAudio = RemoteAudio.DoNotPlay, ShareAllDrives = true, AdminSession = true },
+        };
+        var vnc = new ConnectionEntry { Name = "vnc", Host = "vnc.example", Settings = { Protocol = Protocol.Vnc, ViewOnly = true, Scaling = DesktopScaling.ActualSize } };
+        var web = new ConnectionEntry { Name = "web", Host = "intranet.example", Settings = { Protocol = Protocol.Https } };
+        foreach (var entry in new[] { rdp, vnc, web })
+        {
+            tree.Add(entry, tree.Root);
+        }
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.MRemoteNg, Credentials, Now);
+        var imported = new ConnectionTree(MRemoteNgImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "confCons.xml").Root);
+
+        ResolvedSettings Resolved(string name) => SettingsResolver.Resolve(imported.AllConnections().Single(e => e.Name == name));
+        Assert.Equal(RemoteAudio.DoNotPlay, Resolved("rdp").RemoteAudio.Value);
+        Assert.True(Resolved("rdp").ShareAllDrives.Value);
+        Assert.True(Resolved("rdp").AdminSession.Value);
+        Assert.True(Resolved("vnc").ViewOnly.Value);
+        Assert.Equal(DesktopScaling.ActualSize, Resolved("vnc").Scaling.Value);
+        Assert.Equal(Protocol.Https, Resolved("web").Protocol.Value);
+        Assert.Equal(443, Resolved("web").Port.Value);
+    }
+
+    [Fact]
+    public void Mremoteng_is_told_what_it_cannot_hold()
+    {
+        var tree = ConnectionTree.Empty();
+        var lab = new ConnectionFolder { Name = "Lab", Settings = { SocksProxy = "1080", KeepAliveSeconds = 5 } };
+        tree.Add(lab, tree.Root);
+        tree.Add(new ConnectionEntry { Name = "console", Host = "COM3", Settings = { Protocol = Protocol.Serial } }, lab);
+        tree.Add(new ConnectionEntry { Name = "ssh", Host = "ssh.example", Settings = { Protocol = Protocol.Ssh } }, lab);
+        tree.Add(new ConnectionEntry { Name = "rdp", Host = "rdp.example", Settings = { SharedFolders = ["C:\\Work"], UseAllMonitors = true } }, lab);
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.MRemoteNg, Credentials, Now);
+        Assert.Contains(export.Warnings, w => w.Contains("no serial connections") && w.Contains("1 was"));
+        Assert.Contains(export.Warnings, w => w.Contains("SOCKS proxies"));
+        Assert.Contains(export.Warnings, w => w.Contains("SSH keep-alive intervals"));
+        Assert.Contains(export.Warnings, w => w.Contains("shared folders"));
+        Assert.Contains(export.Warnings, w => w.Contains("full screen over every display"));
+        Assert.DoesNotContain("COM3", export.Content);
+        Assert.Equal(2, export.Connections);
+    }
+
+    [Fact]
+    public void An_orrery_export_keeps_serial_and_web_connections_and_says_schema_3()
+    {
+        var tree = ConnectionTree.Empty();
+        tree.Add(new ConnectionEntry
+        {
+            Name = "console", Host = "/dev/ttyUSB0",
+            Settings = { Protocol = Protocol.Serial, BaudRate = 115200, Parity = SerialParity.Odd, FlowControl = SerialFlowControl.XOnXOff },
+        }, tree.Root);
+        tree.Add(new ConnectionEntry { Name = "web", Host = "router.lan/admin", Settings = { Protocol = Protocol.Http, Port = 8080 } }, tree.Root);
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, Credentials, Now);
+        Assert.Contains("\"schemaVersion\": 3", export.Content);
+        var imported = new ConnectionTree(ImportOrrery(export.Content).Root);
+        var console = SettingsResolver.Resolve(imported.AllConnections().Single(e => e.Name == "console"));
+        Assert.Equal(Protocol.Serial, console.Protocol.Value);
+        Assert.Equal(115200, console.BaudRate.Value);
+        Assert.Equal(SerialParity.Odd, console.Parity.Value);
+        Assert.Equal(SerialFlowControl.XOnXOff, console.FlowControl.Value);
+        var web = imported.AllConnections().Single(e => e.Name == "web");
+        Assert.Equal("router.lan/admin", web.Host);
+        Assert.Equal(8080, SettingsResolver.Resolve(web).Port.Value);
+    }
 }

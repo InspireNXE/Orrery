@@ -98,6 +98,9 @@ sealed class RecentPanel : DockPanel
     {
         var user = string.IsNullOrEmpty(r.Username) ? string.Empty : $"{r.Username}@";
         var port = r.Port == ProtocolInfo.DefaultPort(r.Protocol) ? string.Empty : $":{r.Port}";
+
+        // A web page's host can carry a path, so it's shown as the address the browser opened.
+        var address = ProtocolInfo.IsWeb(r.Protocol) && WebAddress.Url(r.Protocol, r.Host, r.Port) is { } url ? url.AbsoluteUri : $"{user}{r.Host}{port}";
         return new DockPanel
         {
             Margin = new Thickness(0, 4),
@@ -119,7 +122,7 @@ sealed class RecentPanel : DockPanel
                         new TextBlock { Text = r.Title, TextTrimming = TextTrimming.CharacterEllipsis },
                         new TextBlock
                         {
-                            Text = $"{user}{r.Host}{port} · {Ago(r.OpenedAt)}",
+                            Text = $"{address} · {Ago(r.OpenedAt)}",
                             FontSize = 11,
                             Foreground = Dialogs.MutedBrush,
                             TextTrimming = TextTrimming.CharacterEllipsis,

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -12,6 +13,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Controls;
 using Orrery.App.Input;
+using Orrery.Core.Connections;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
 
@@ -26,7 +28,7 @@ public sealed class RemoteFrameView : Panel
     static readonly IBrush SurfaceBrush = new SolidColorBrush(Color.Parse("#0B0D10"));
 
     // A desktop the server won't resize (most VNC servers) shrinks to fit; one that matches the view is
-    // drawn as is.
+    // drawn as is. See Scaling for the other ways.
     readonly Image _image = new()
     {
         Stretch = Stretch.Uniform,
@@ -34,6 +36,20 @@ public sealed class RemoteFrameView : Panel
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,
     };
+
+    // Scrolls only at actual size; otherwise its bars are off, so the image is given the view's size to fit into.
+    readonly ScrollViewer _scroller = new()
+    {
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+    };
+
+    // Fingers on the screen and pens in range that go to the session as themselves (ITouchInput), by pointer.
+    readonly HashSet<int> _touches = [];
+    readonly HashSet<int> _pensInRange = [];
+
+    // The End key of a Ctrl+Alt+End that was sent as Ctrl+Alt+Del, so its release isn't sent too.
+    PhysicalKey? _ctrlAltDelKey;
 
     // VNC takes keysyms; the keysym sent on key down is remembered so the release matches it, even if
     // Shift changed what the key types in between.
@@ -66,6 +82,14 @@ public sealed class RemoteFrameView : Panel
     bool _resizePending;
     bool _renderQueued;
     WriteableBitmap? _bitmap;
+
+    const int BytesPerPixel = 4;
+
+    // The changed part of the frame, copied out of the session before the bitmap is locked (see Flush).
+    byte[]? _scratch;
+
+    /// <summary>True while the bitmap is locked to draw into it; the session is never asked for pixels then.</summary>
+    internal bool DrawingIntoBitmap { get; private set; }
     TopLevel? _topLevel;
 
     // Set when a frame couldn't be drawn and the session was ended for it.
@@ -73,9 +97,10 @@ public sealed class RemoteFrameView : Panel
 
     readonly bool _zoom;
 
-    // Remote pixels per DIP. Unzoomed, the remote desktop is sized in device pixels and drawn at that DPI,
-    // so it stays sharp but its text is as small as at 100%. Zoomed, it is sized in DIPs and enlarged to fit,
-    // because IronRDP's .NET API can't tell the server the display scale. Pointer positions use the same factor.
+    // Remote pixels per DIP. Unzoomed, the remote desktop is sized in device pixels and drawn one to one (SizeImage), so it stays
+    // sharp; an RDP session that tells the server the display's scaling (IDisplayScaleSession) also gets text the
+    // size of local apps' text, and otherwise it's as small as at 100%. Zoomed, it is sized in DIPs and enlarged to
+    // fit, for a session that can't tell the server (VNC). Pointer positions use the same factor.
     double _scale = 1;
     double _wheelX, _wheelY;
 
@@ -120,8 +145,12 @@ public sealed class RemoteFrameView : Panel
         Focusable = true;
         ClipToBounds = true;
         Background = SurfaceBrush;
-        Children.Add(_image);
+        _scroller.Content = _image;
+        Children.Add(_scroller);
         Children.Add(_status);
+
+        // Caught on the way down, so at actual size the wheel scrolls the remote desktop's windows, not the view.
+        AddHandler(PointerWheelChangedEvent, OnWheel, Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         var closeBanner = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
         closeBanner.Classes.Add("icon");
@@ -153,8 +182,14 @@ public sealed class RemoteFrameView : Panel
             // Checked here too: the constructor can start the timer before FollowsViewSize is set.
             if (FollowsViewSize)
             {
-                var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
-                Session.RequestResize(width, height);
+                // Spread over the displays when the server takes a layout; otherwise one desktop the size of the view,
+                // which covers them all, as mstsc /span does.
+                (Session as IDisplayScaleSession)?.SetDisplayScale(_topLevel?.RenderScaling ?? 1);
+                if (_spannedMonitors is not { } monitors || Session is not IMultiMonitorSession spread || !spread.RequestMonitorLayout(monitors))
+                {
+                    var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
+                    Session.RequestResize(width, height);
+                }
             }
         };
 
@@ -170,6 +205,9 @@ public sealed class RemoteFrameView : Panel
 
     /// <summary>What the banner across the top says while it shows, for tests.</summary>
     internal string? BannerText => _banner.IsVisible ? _bannerNotice.Text : null;
+
+    /// <summary>Says <paramref name="text"/> across the top of the desktop for a few seconds, and to the screen reader.</summary>
+    internal void ShowNotice(string text) => ShowBanner(text);
 
     /// <summary>Shows <paramref name="text"/> across the top of the desktop for a few seconds, and has the screen reader read it.</summary>
     async void ShowBanner(string text)
@@ -210,6 +248,50 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Whether there's a picture to save yet.</summary>
     public bool HasFrame => _bitmap is not null;
 
+    DesktopScaling _scaling = DesktopScaling.Fit;
+
+    /// <summary>
+    /// How a desktop that doesn't match the view is fitted into it: shrunk when it's bigger (the default), shrunk or
+    /// enlarged to fill it, or shown at its actual size with scroll bars. Either way it keeps its shape.
+    /// </summary>
+    public DesktopScaling Scaling
+    {
+        get => _scaling;
+        set
+        {
+            _scaling = value;
+            bool actual = value == DesktopScaling.ActualSize;
+            _image.StretchDirection = value == DesktopScaling.Fit ? StretchDirection.Both : StretchDirection.DownOnly;
+            _scroller.HorizontalScrollBarVisibility = _scroller.VerticalScrollBarVisibility = actual ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+            SizeImage();
+        }
+    }
+
+    /// <summary>
+    /// Holds the image to the desktop's size in DIPs, one remote pixel per device pixel when unzoomed: exactly at actual
+    /// size, at most when shrinking to fit, and not at all when fitting the tab. The bitmap itself stays at 96 DPI,
+    /// because Avalonia's Image takes a bitmap's size in DIPs as the pixels to draw, so at 120 DPI it showed only the
+    /// top-left part of the desktop, enlarged, and clicks landed off.
+    /// </summary>
+    void SizeImage()
+    {
+        double width = double.NaN, height = double.NaN, maxWidth = double.PositiveInfinity, maxHeight = double.PositiveInfinity;
+        if (_bitmap is { } bitmap && _scaling != DesktopScaling.Fit)
+        {
+            double desktopWidth = bitmap.PixelSize.Width / _scale, desktopHeight = bitmap.PixelSize.Height / _scale;
+            if (_scaling == DesktopScaling.ActualSize)
+            {
+                (width, height) = (desktopWidth, desktopHeight);
+            }
+            else
+            {
+                (maxWidth, maxHeight) = (desktopWidth, desktopHeight);
+            }
+        }
+
+        (_image.Width, _image.Height, _image.MaxWidth, _image.MaxHeight) = (width, height, maxWidth, maxHeight);
+    }
+
     ColorCorrection? _correction;
 
     /// <summary>
@@ -246,7 +328,61 @@ public sealed class RemoteFrameView : Panel
     /// </summary>
     internal static void Draw(IFrameBufferSession session, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height, FrameRect region)
     {
-        session.CopyRegion(region, pixels, rowBytes);
+        byte[]? scratch = null;
+        var copied = CopyOut(session, region, width, height, ref scratch);
+        Blit(scratch, copied, correction, pixels, rowBytes, width, height);
+    }
+
+    /// <summary>
+    /// Copies <paramref name="region"/>, clipped to the frame, out of the session into <paramref name="scratch"/>
+    /// (grown as needed), its rows packed one after the other. Returns the region copied.
+    /// </summary>
+    static FrameRect CopyOut(IFrameBufferSession session, FrameRect region, int width, int height, ref byte[]? scratch)
+    {
+        int x = Math.Clamp(region.X, 0, width), y = Math.Clamp(region.Y, 0, height);
+        var clipped = new FrameRect(x, y, Math.Clamp(region.Right, x, width) - x, Math.Clamp(region.Bottom, y, height) - y);
+        if (clipped.IsEmpty)
+        {
+            return clipped;
+        }
+
+        int rowBytes = clipped.Width * BytesPerPixel, size = rowBytes * clipped.Height;
+        if (scratch is null || scratch.Length < size)
+        {
+            scratch = new byte[size];
+        }
+
+        var pinned = GCHandle.Alloc(scratch, GCHandleType.Pinned);
+        try
+        {
+            // CopyRegion writes each pixel at its place in a whole frame of the given stride, so the frame's origin
+            // goes where the region's first pixel lands at the start of the buffer.
+            var origin = pinned.AddrOfPinnedObject() - ((nint)y * rowBytes + (nint)x * BytesPerPixel);
+            session.CopyRegion(clipped, origin, rowBytes);
+        }
+        finally
+        {
+            pinned.Free();
+        }
+
+        return clipped;
+    }
+
+    /// <summary>Copies what <see cref="CopyOut"/> took into a bitmap's pixels and corrects just that part.</summary>
+    static void Blit(byte[]? scratch, FrameRect region, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height)
+    {
+        if (region.IsEmpty || scratch is null)
+        {
+            return;
+        }
+
+        int regionRowBytes = region.Width * BytesPerPixel;
+        for (int row = 0; row < region.Height; row++)
+        {
+            Marshal.Copy(scratch, row * regionRowBytes,
+                pixels + (nint)(region.Y + row) * rowBytes + (nint)region.X * BytesPerPixel, regionRowBytes);
+        }
+
         correction?.Apply(pixels, rowBytes, width, height, region);
     }
 
@@ -307,6 +443,22 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Ask the server to match the view's size as it changes. Off for a fixed desktop size, which is scaled to fit instead.</summary>
     public bool FollowsViewSize { get; init; } = true;
 
+    IReadOnlyList<RemoteMonitor>? _spannedMonitors;
+
+    /// <summary>
+    /// While the window covers every display: the remote desktop's monitors, one for each display, asked for instead of
+    /// one desktop the size of the view. Null for one desktop.
+    /// </summary>
+    internal IReadOnlyList<RemoteMonitor>? SpannedMonitors
+    {
+        get => _spannedMonitors;
+        set
+        {
+            _spannedMonitors = value;
+            ScheduleResize();
+        }
+    }
+
     void ScheduleResize()
     {
         if (!FollowsViewSize)
@@ -359,19 +511,31 @@ public sealed class RemoteFrameView : Panel
 
         try
         {
-            var dpi = new Vector(96 * _scale, 96 * _scale);
-            if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height) || _bitmap.Dpi != dpi)
+            if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height))
             {
                 _bitmap?.Dispose();
                 _bitmap = null;
-                _bitmap = new WriteableBitmap(new PixelSize(width, height), dpi, PixelFormat.Rgba8888, AlphaFormat.Opaque);
+                _bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Opaque);
                 _image.Source = _bitmap;
+                SizeImage();
                 dirty = new FrameRect(0, 0, width, height);
             }
 
+            // The session's lock is taken before the bitmap's, never inside it. Waiting for a lock on this thread lets
+            // Windows deliver a paint, which waits for the render thread, which waits for the bitmap: holding the
+            // bitmap meanwhile froze the window (seen leaving full screen while the session drew).
+            var copied = CopyOut(Session, dirty, width, height, ref _scratch);
             using (var buffer = _bitmap.Lock())
             {
-                Draw(Session, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height, dirty);
+                DrawingIntoBitmap = true;
+                try
+                {
+                    Blit(_scratch, copied, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height);
+                }
+                finally
+                {
+                    DrawingIntoBitmap = false;
+                }
             }
         }
         catch (Exception e) when (e is ArgumentException or OutOfMemoryException or InvalidOperationException)
@@ -399,6 +563,20 @@ public sealed class RemoteFrameView : Panel
 
         // Swallow every key so Tab, arrows and shortcuts go to the remote machine, not Avalonia focus.
         e.Handled = true;
+        if (CtrlAltDelShortcut.Matches(e.Key, e.KeyModifiers))
+        {
+            // The keys held for the shortcut are let go first, so the remote side sees exactly Ctrl+Alt+Del. Held down,
+            // it's sent once.
+            if (_ctrlAltDelKey is null)
+            {
+                _ctrlAltDelKey = e.PhysicalKey;
+                ReleaseAllKeys();
+                SendKeys(RemoteKeyCombo.CtrlAltDel);
+            }
+
+            return;
+        }
+
         if (Session is IKeysymInput keysyms)
         {
             // A repeat sends the keysym from the first press.
@@ -428,6 +606,12 @@ public sealed class RemoteFrameView : Panel
         }
 
         e.Handled = true;
+        if (_ctrlAltDelKey == e.PhysicalKey)
+        {
+            _ctrlAltDelKey = null;
+            return;
+        }
+
         if (Session is IKeysymInput keysyms)
         {
             if (_keysymsDown.Remove(e.PhysicalKey, out var keysym))
@@ -441,26 +625,31 @@ public sealed class RemoteFrameView : Panel
         }
     }
 
+    /// <summary>Where the pointer is on the remote desktop, in its pixels; null while nothing is shown.</summary>
+    (int X, int Y)? RemotePoint(PointerEventArgs e)
+    {
+        // Scale by what's on screen, which covers zoom, a desktop fitted to the view, and one at actual size.
+        var p = e.GetPosition(_image);
+        double width = _image.Bounds.Width, height = _image.Bounds.Height;
+        return width > 0 && height > 0 ? ((int)(p.X * Session.Width / width), (int)(p.Y * Session.Height / height)) : null;
+    }
+
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (_viewOnly)
+        if (_viewOnly || SendTouchOrPen(e, PointerStage.Moved))
         {
             return;
         }
 
-        // Scale by what's on screen, which covers both zoom and a shrunk-to-fit desktop.
-        var p = e.GetPosition(_image);
-        double width = _image.Bounds.Width, height = _image.Bounds.Height;
-        if (width > 0 && height > 0)
+        if (RemotePoint(e) is var (x, y))
         {
-            Session.SendPointerMove((int)(p.X * Session.Width / width), (int)(p.Y * Session.Height / height));
+            Session.SendPointerMove(x, y);
         }
     }
 
-    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    void OnWheel(object? sender, PointerWheelEventArgs e)
     {
-        base.OnPointerWheelChanged(e);
         e.Handled = true;
         if (_viewOnly)
         {
@@ -485,7 +674,11 @@ public sealed class RemoteFrameView : Panel
     {
         base.OnPointerPressed(e);
         Focus();
-        if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
+        if (!_viewOnly && SendTouchOrPen(e, PointerStage.Pressed))
+        {
+            e.Handled = true;
+        }
+        else if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
         {
             Session.SendPointerButton(button, pressed: true);
             e.Handled = true;
@@ -495,11 +688,103 @@ public sealed class RemoteFrameView : Panel
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
+        if (!_viewOnly && SendTouchOrPen(e, PointerStage.Released))
+        {
+            e.Handled = true;
+        }
+        else if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
         {
             Session.SendPointerButton(button, pressed: false);
             e.Handled = true;
         }
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        SendTouchOrPen(e, PointerStage.Left);
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        int id = e.Pointer.Id;
+        if (Session is ITouchInput touch)
+        {
+            if (_touches.Remove(id))
+            {
+                touch.SendTouch((ulong)id, TouchContactPhase.Canceled, 0, 0, null);
+            }
+
+            if (_pensInRange.Remove(id))
+            {
+                touch.SendPen((ulong)id, PenContactPhase.Canceled, 0, 0, default);
+            }
+        }
+    }
+
+    enum PointerStage { Pressed, Moved, Released, Left }
+
+    /// <summary>
+    /// Sends a finger or pen as itself when the session takes it (RDP's input channel), so the remote computer gets
+    /// gestures and pen pressure. False when it should go as the mouse instead: the session doesn't take touch or pen
+    /// (VNC, or an RDP server without the channel), or the contact began as the mouse.
+    /// </summary>
+    bool SendTouchOrPen(PointerEventArgs e, PointerStage stage)
+    {
+        if (Session is not ITouchInput touch || e.Pointer.Type is not (PointerType.Touch or PointerType.Pen))
+        {
+            return false;
+        }
+
+        int id = e.Pointer.Id;
+        var (x, y) = RemotePoint(e) ?? (0, 0);
+        if (e.Pointer.Type == PointerType.Touch)
+        {
+            switch (stage)
+            {
+                case PointerStage.Pressed when touch.AcceptsTouch:
+                    _touches.Add(id);
+                    touch.SendTouch((ulong)id, TouchContactPhase.Started, x, y, null);
+                    return true;
+                case PointerStage.Moved when _touches.Contains(id):
+                    touch.SendTouch((ulong)id, TouchContactPhase.Moved, x, y, null);
+                    return true;
+                case PointerStage.Released when _touches.Remove(id):
+                    touch.SendTouch((ulong)id, TouchContactPhase.Ended, x, y, null);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        var properties = e.GetCurrentPoint(this).Properties;
+        bool touching = stage == PointerStage.Pressed || stage == PointerStage.Moved && properties.IsLeftButtonPressed;
+        var state = new PenState(touching ? properties.Pressure : null, properties.IsBarrelButtonPressed, properties.IsEraser, properties.IsInverted,
+            properties.XTilt, properties.YTilt, properties.Twist);
+        if (stage == PointerStage.Left)
+        {
+            if (_pensInRange.Remove(id))
+            {
+                touch.SendPen((ulong)id, PenContactPhase.OutOfRange, x, y, state);
+            }
+
+            return false;
+        }
+
+        if (!_pensInRange.Contains(id))
+        {
+            // A pen that came in while the channel wasn't open stays the mouse until it leaves.
+            if (stage == PointerStage.Released || !touch.AcceptsPen || stage == PointerStage.Moved && touching)
+            {
+                return false;
+            }
+
+            _pensInRange.Add(id);
+        }
+
+        touch.SendPen((ulong)id, touching ? PenContactPhase.Touching : PenContactPhase.Hovering, x, y, state);
+        return true;
     }
 
     static PointerButton? ToButton(PointerUpdateKind kind) => kind switch
@@ -525,7 +810,8 @@ public sealed class RemoteFrameView : Panel
     /// </summary>
     async Task SendLocalClipboardAsync()
     {
-        if (Session is not IClipboardSession { ExchangesClipboard: true } clipboardSession || Session.State != SessionState.Connected
+        // View only sends nothing to the remote computer, the clipboard included.
+        if (_viewOnly || Session is not IClipboardSession { ExchangesClipboard: true } clipboardSession || Session.State != SessionState.Connected
             || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
         {
             return;
@@ -615,6 +901,7 @@ public sealed class RemoteFrameView : Panel
     {
         double displayScale = _topLevel?.RenderScaling ?? 1;
         _scale = _zoom ? 1 : displayScale;
+        SizeImage();
 
         // Whole-number zoom (200%) stays crisp with plain pixel doubling; other factors need smoothing.
         bool wholeZoom = Math.Abs(displayScale - Math.Round(displayScale)) < 0.01;

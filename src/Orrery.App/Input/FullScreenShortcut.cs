@@ -104,6 +104,7 @@ public static class FullScreenShortcut
         const string System = "the system keeps it for itself.";
 
         yield return (SessionEscape.For(on), "Orrery uses it to leave a session for its tab.");
+        yield return (CtrlAltDelShortcut.For(on), "Orrery uses it to send Ctrl+Alt+Del to a remote desktop.");
 
         if (on == ShortcutPlatform.MacOS)
         {
