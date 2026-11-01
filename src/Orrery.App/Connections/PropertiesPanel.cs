@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
@@ -84,26 +85,26 @@ sealed class PropertiesPanel : UserControl
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
-        ToolTip.SetTip(_desktopSizeRow.View, "RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
+        _desktopSizeRow.Tip("RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
-        ToolTip.SetTip(_enlargeRow.View, "RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
+        _enlargeRow.Tip("RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
         foreach (var (quality, label) in QualityLabels)
         {
             _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
         }
 
         _qualityRow = new InheritRow("Display quality", _quality, () => ShowInherited(r => SelectQuality(r.DisplayQuality.Value)));
-        ToolTip.SetTip(_qualityRow.View, "RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
+        _qualityRow.Tip("RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
             + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
-        ToolTip.SetTip(_autoReconnectRow.View, "If an open session is cut off, Orrery tries again up to 5 times. It doesn't after you log off or press Disconnect.");
+        _autoReconnectRow.Tip("If an open session is cut off, Orrery tries again up to 5 times. It doesn't after you log off or press Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
-        ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
+        _sshAgentRow.Tip("SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);
-        ToolTip.SetTip(_sshLegacyRow.View, "SSH: also accept SHA-1, CBC and 3DES algorithms.");
+        _sshLegacyRow.Tip("SSH: also accept SHA-1, CBC and 3DES algorithms.");
         var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
         _jumpHostRow = new InheritRow("Jump host", _jumpHost, () => ShowInherited(r => SelectJumpHost(r.JumpHostId.Value)));
-        ToolTip.SetTip(_jumpHostRow.View, "Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
+        _jumpHostRow.Tip("Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
         _forwardsField = new StackPanel
         {
             Spacing = 4,
@@ -122,6 +123,9 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
+        AutomationProperties.SetName(_forwards, "Port forwards");
+        AutomationProperties.SetHelpText(_forwards, "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy.");
+        AutomationProperties.SetName(_notes, "Notes");
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
         _notesField = Pane.Section("Notes", _notes);
@@ -449,6 +453,9 @@ sealed class PropertiesPanel : UserControl
     {
         _error.Text = message;
         _error.IsVisible = true;
+
+        // Shown under the fields, away from the focus, so it's also read out.
+        ScreenReader.Announce(this, message, "Orrery.Properties", ScreenReader.MostRecent);
         return false;
     }
 
@@ -594,12 +601,18 @@ sealed class PropertiesPanel : UserControl
     /// </summary>
     sealed class InheritRow
     {
+        const string InheritTip = "On: use the value from the folder above. Off: set this one's own.";
+
         readonly TextBlock _hint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush };
         readonly Control _editor;
 
         public InheritRow(string label, Control editor, Action showInherited, bool inline = false)
         {
             _editor = editor;
+
+            // The label is beside the editor only on screen; a screen reader needs it on the editor and the chip.
+            AutomationProperties.SetName(editor, label);
+            AutomationProperties.SetName(Inherit, $"{label}: inherit");
             Inherit.IsCheckedChanged += (_, _) =>
             {
                 bool inheriting = Inherit.IsChecked == true;
@@ -610,7 +623,7 @@ sealed class PropertiesPanel : UserControl
                     showInherited();
                 }
             };
-            ToolTip.SetTip(Inherit, "On: use the value from the folder above. Off: set this one's own.");
+            ToolTip.SetTip(Inherit, InheritTip);
 
             var header = new DockPanel();
             if (inline)
@@ -643,6 +656,14 @@ sealed class PropertiesPanel : UserControl
             Inherit.IsChecked = inheriting;
             _hint.IsVisible = inheriting;
             _editor.IsEnabled = !inheriting;
+            AutomationProperties.SetHelpText(Inherit, $"{hint}. {InheritTip}");
+        }
+
+        /// <summary>Explains the setting: a tooltip over the row, and the editor's description for a screen reader.</summary>
+        public void Tip(string text)
+        {
+            ToolTip.SetTip(View, text);
+            AutomationProperties.SetHelpText(_editor, text);
         }
     }
 }

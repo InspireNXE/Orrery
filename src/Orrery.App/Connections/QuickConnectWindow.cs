@@ -112,6 +112,9 @@ sealed class QuickConnectWindow : Window
     };
     readonly StackPanel _list = new() { Spacing = 2, Margin = new Thickness(8) };
     readonly List<Item> _items = [];
+
+    // The highlighted result moves while the focus stays in the search box, so it's read out from here.
+    readonly LiveText _spoken = new("Orrery.QuickConnect", ScreenReader.MostRecent);
     int _selected = -1;
     bool _closing;
     QuickConnectChoice? _choice;
@@ -137,6 +140,9 @@ sealed class QuickConnectWindow : Window
         _query.Resources["TextControlBackgroundPointerOver"] = Brushes.Transparent;
         _query.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(0);
 
+        Avalonia.Automation.AutomationProperties.SetName(_query, "Quick connect");
+        Avalonia.Automation.AutomationProperties.SetHelpText(_query,
+            "Search saved connections or type a host. Up and down arrows move through the results, Enter opens one, Alt+Enter opens its settings, Esc closes.");
         _query.TextChanged += (_, _) => Refresh();
         _query.KeyDown += OnQueryKeyDown;
 
@@ -178,6 +184,7 @@ sealed class QuickConnectWindow : Window
                 {
                     Docked(new Border { BorderBrush = LineBrush, BorderThickness = new Thickness(0, 0, 0, 1), Child = search }, Dock.Top),
                     Docked(new Border { BorderBrush = LineBrush, BorderThickness = new Thickness(0, 1, 0, 0), Child = footer }, Dock.Bottom),
+                    _spoken,
                     new ScrollViewer { MaxHeight = 440, Content = _list },
                 },
             },
@@ -254,7 +261,8 @@ sealed class QuickConnectWindow : Window
                 AddHeader("Open sessions");
                 foreach (var (session, index) in open)
                 {
-                    AddItem(SessionRow(session, query), new QuickConnectChoice(null, null, 0) { SessionIndex = index }, "Switch to");
+                    AddItem(SessionRow(session, query), new QuickConnectChoice(null, null, 0) { SessionIndex = index }, "Switch to",
+                        $"{session.Title}, open {ProtocolInfo.Label(session.Protocol)} session, {session.Address}");
                 }
             }
         }
@@ -265,7 +273,8 @@ sealed class QuickConnectWindow : Window
             AddHeader(query.Length == 0 ? "Saved connections" : "Matching connections");
             foreach (var entry in saved)
             {
-                AddItem(SavedRow(entry, query), new QuickConnectChoice(entry, null, 0), "Connect");
+                AddItem(SavedRow(entry, query), new QuickConnectChoice(entry, null, 0), "Connect",
+                    $"{entry.Name}, {ProtocolInfo.Label(SettingsResolver.Resolve(entry).Protocol.Value)}, {(entry.Path is { Length: > 0 } path ? path : entry.Host)}");
             }
         }
 
@@ -276,7 +285,7 @@ sealed class QuickConnectWindow : Window
             AddHeader("Connect directly");
             foreach (var choice in direct)
             {
-                AddItem(DirectRow(choice), choice, "Without saving");
+                AddItem(DirectRow(choice), choice, "Without saving", DirectText(choice));
             }
         }
 
@@ -284,7 +293,7 @@ sealed class QuickConnectWindow : Window
         {
             AddHeader("Actions");
             var host = direct.Count > 0 ? direct[0].Host : null;
-            AddItem(ActionRow($"New connection named \"{query}\"…"), new QuickConnectChoice(null, host, 0, NewName: query), "Create");
+            AddItem(ActionRow($"New connection named \"{query}\"…"), new QuickConnectChoice(null, host, 0, NewName: query), "Create", $"New connection named {query}");
         }
 
         if (_items.Count == 0)
@@ -295,9 +304,17 @@ sealed class QuickConnectWindow : Window
                 Foreground = Dialogs.MutedBrush,
                 Margin = new Thickness(10, 8),
             });
+            _spoken.Say("No saved connections yet. Type a host name to connect to it.");
         }
 
         Select(_items.Count > 0 ? 0 : -1);
+    }
+
+    static string DirectText(QuickConnectChoice choice)
+    {
+        var who = choice.Username is null ? string.Empty : $"{choice.Username}@";
+        var port = choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
+        return $"{ProtocolInfo.Label(choice.Protocol)} to {who}{choice.Host}{port}";
     }
 
     /// <summary>Best matches first; see <see cref="ConnectionSearch.Score"/>.</summary>
@@ -331,7 +348,8 @@ sealed class QuickConnectWindow : Window
         Margin = new Thickness(10, _list.Children.Count == 0 ? 6 : 10, 10, 4),
     });
 
-    void AddItem(Control content, QuickConnectChoice choice, string hint)
+    /// <param name="spoken">The row in words, for a screen reader.</param>
+    void AddItem(Control content, QuickConnectChoice choice, string hint, string spoken)
     {
         var hintText = new TextBlock { Text = $"{hint}  ↵", FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
         var row = new Border
@@ -345,9 +363,9 @@ sealed class QuickConnectWindow : Window
             Child = new DockPanel { Children = { Docked(hintText, Dock.Right), content } },
         };
 
-        var item = new Item(row, hintText, choice);
+        var item = new Item(row, hintText, choice, $"{spoken}. {hint}");
         int index = _items.Count;
-        row.PointerEntered += (_, _) => Select(index);
+        row.PointerEntered += (_, _) => Select(index, speak: false);
         row.PointerPressed += (_, e) =>
         {
             e.Handled = true;
@@ -497,7 +515,8 @@ sealed class QuickConnectWindow : Window
 
     // ---- Keyboard ----
 
-    void Select(int index)
+    /// <param name="speak">Read the result out: it was reached by keys or typing, not by the pointer passing over it.</param>
+    void Select(int index, bool speak = true)
     {
         if (_selected >= 0 && _selected < _items.Count)
         {
@@ -509,8 +528,15 @@ sealed class QuickConnectWindow : Window
         {
             _items[index].Show(true);
             _items[index].Row.BringIntoView();
+            if (speak)
+            {
+                _spoken.Say($"{_items[index].Spoken}. {index + 1} of {_items.Count}");
+            }
         }
     }
+
+    /// <summary>What was last read out, for tests.</summary>
+    internal string Spoken => _spoken.Text;
 
     void OnQueryKeyDown(object? sender, KeyEventArgs e)
     {
@@ -548,7 +574,7 @@ sealed class QuickConnectWindow : Window
         }
     }
 
-    sealed record Item(Border Row, TextBlock Hint, QuickConnectChoice Choice)
+    sealed record Item(Border Row, TextBlock Hint, QuickConnectChoice Choice, string Spoken)
     {
         public void Show(bool selected)
         {

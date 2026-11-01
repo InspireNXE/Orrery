@@ -17,7 +17,7 @@ sealed class HostDeleteWindow : Window
 {
     public HostDeleteWindow(ConnectionEntry host, ConnectionTree tree)
     {
-        Title = "Orrery";
+        Title = "Delete host?";
         Width = 460;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
@@ -35,6 +35,7 @@ sealed class HostDeleteWindow : Window
         }
 
         Destination.SelectedIndex = 0;
+        Avalonia.Automation.AutomationProperties.SetName(Destination, "Folder for the guests");
         keepGuests.IsCheckedChanged += (_, _) => Destination.IsEnabled = keepGuests.IsChecked == true;
 
         var cancel = new Button { Content = "Cancel", IsDefault = true, IsCancel = true };
@@ -48,7 +49,7 @@ sealed class HostDeleteWindow : Window
             Spacing = 12,
             Children =
             {
-                new TextBlock { Text = "Delete host?", FontSize = 16, FontWeight = FontWeight.SemiBold },
+                Dialogs.Heading(new TextBlock { Text = "Delete host?", FontSize = 16, FontWeight = FontWeight.SemiBold }),
                 new TextBlock { Text = $"\"{host.Name}\" will be deleted. It has {count} guest{(count == 1 ? "" : "s")}.", TextWrapping = TextWrapping.Wrap },
                 keepGuests,
                 Destination,

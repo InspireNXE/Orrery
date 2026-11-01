@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Credentials;
 
 namespace Orrery.App.Credentials;
@@ -19,8 +20,8 @@ sealed class VaultUnlockWindow : Window
 
     readonly ICredentialStore _store;
     readonly bool _creating;
-    readonly TextBox _password = new() { PasswordChar = '•' };
-    readonly TextBox _confirm = new() { PasswordChar = '•' };
+    readonly TextBox _password = new PasswordBox();
+    readonly TextBox _confirm = new PasswordBox();
     readonly TextBlock _error = new() { Foreground = DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly Button _ok;
 
@@ -86,11 +87,15 @@ sealed class VaultUnlockWindow : Window
         Opened += (_, _) => _password.Focus();
     }
 
-    static Control Field(string label, Control input) => new StackPanel
+    static Control Field(string label, Control input)
     {
-        Spacing = 4,
-        Children = { new TextBlock { Text = label, FontSize = 12, Foreground = MutedBrush }, input },
-    };
+        Avalonia.Automation.AutomationProperties.SetName(input, label);
+        return new StackPanel
+        {
+            Spacing = 4,
+            Children = { new TextBlock { Text = label, FontSize = 12, Foreground = MutedBrush }, input },
+        };
+    }
 
     async Task SubmitAsync()
     {

@@ -38,10 +38,10 @@ public class SettingsViewTests : IDisposable
         Assert.Null(changed);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("Ctrl+Alt+Q can't be used") == true);
 
-        window.KeyPressQwerty(PhysicalKey.Home, RawInputModifiers.Control | RawInputModifiers.Alt);
+        window.KeyPressQwerty(PhysicalKey.End, RawInputModifiers.Control | RawInputModifiers.Alt);
         Assert.False(recorder.IsRecording);
-        Assert.Equal(Key.Home, changed?.Key);
-        Assert.Equal("Ctrl+Alt+Home", settings.Load().FullScreenShortcut);
+        Assert.Equal(Key.End, changed?.Key);
+        Assert.Equal("Ctrl+Alt+End", settings.Load().FullScreenShortcut);
         window.Close();
     }
 
@@ -71,6 +71,31 @@ public class SettingsViewTests : IDisposable
 
         Assert.Equal(0, settings.Load().AutoLockMinutes);
         Assert.Null(vault.AutoLockAfter);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Turning_terminal_announcements_on_or_off_saves_the_choice_and_says_so()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var changes = new List<bool>();
+        view.TerminalAnnouncementsChanged += (_, on) => changes.Add(on);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var announce = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Read new terminal output aloud");
+        Assert.Null(settings.Load().TerminalAnnouncements);
+        bool start = announce.IsChecked == true;
+
+        announce.IsChecked = !start;
+        Assert.Equal(!start, settings.Load().TerminalAnnouncements);
+        announce.IsChecked = start;
+        Assert.Equal(start, settings.Load().TerminalAnnouncements);
+        Assert.Equal([!start, start], changes);
         window.Close();
     }
 
