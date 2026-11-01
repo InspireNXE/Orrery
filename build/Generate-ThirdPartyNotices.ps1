@@ -6,7 +6,8 @@
 .DESCRIPTION
     Reads <PublishDir>/Orrery.deps.json for the packages and .NET runtime pack in the build, then for each one
     copies the licence and notice files the package carries, unchanged. A package that only names its licence
-    (a SPDX expression such as MIT) gets that licence's standard text with the package's copyright line. Texts
+    (a SPDX expression such as MIT) gets that licence's standard text with the package's copyright line; standard
+    texts other than MIT live in build/licenses/standard/<SPDX id>.txt, copied unchanged from the licence's home. Texts
     for packages that carry none, or that bundle something under another licence, live in build/licenses/<id>.txt
     with their source named. Identical texts are printed once, under every package that shares them.
 
@@ -75,8 +76,12 @@ foreach ($library in $deps.libraries.PSObject.Properties) {
         $found = $true
     }
 
+    $standard = Join-Path $extras "standard/$expression.txt"
     if (-not $found -and $expression -eq 'MIT') {
         Add-Text "$($copyright.Trim())`n`n$mit" $label
+        $found = $true
+    } elseif (-not $found -and $expression -and (Test-Path $standard)) {
+        Add-Text "$($copyright.Trim())`n`n$(Get-Content $standard -Raw)" $label
         $found = $true
     }
 
@@ -88,7 +93,7 @@ foreach ($library in $deps.libraries.PSObject.Properties) {
     }
 
     if (-not $found) {
-        throw "$label ships with no licence text and its licence ('$expression') has no standard text here. Add build/licenses/$id.txt."
+        throw "$label ships with no licence text and its licence ('$expression') has no standard text here. Add build/licenses/$id.txt, or build/licenses/standard/$expression.txt for a licence others will share."
     }
 
     $listed.Add("- $label$(if ($expression) { " ($expression)" })")
