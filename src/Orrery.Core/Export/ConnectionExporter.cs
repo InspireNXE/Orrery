@@ -191,7 +191,7 @@ public static class ConnectionExporter
     {
         ConnectionNode copy = node switch
         {
-            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, PortForwards = entry.PortForwards?.ToList() },
+            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Id = folder.Id, Expanded = folder.Expanded },
             _ => throw new NotSupportedException(node.GetType().Name),
         };
@@ -341,6 +341,7 @@ public static class ConnectionExporter
             var resolved = SettingsResolver.Resolve(entry);
             Lost("Jump hosts", resolved.JumpHostId.Value is not null);
             Lost("Port forwards", entry.PortForwards is { Count: > 0 });
+            Lost("Wake-on-LAN broadcast addresses", entry.WakeBroadcast is not null);
             Lost("Fixed desktop sizes", resolved.DesktopSize.Value is not null);
             Lost("SSH agent turned off", resolved.Protocol.Value == Protocol.Ssh && !resolved.UseSshAgent.Value);
             Lost("Older SSH algorithms allowed", resolved.Protocol.Value == Protocol.Ssh && resolved.AllowLegacySsh.Value);
@@ -385,6 +386,7 @@ public static class ConnectionExporter
             ["Domain"] = resolved.Domain.Value ?? string.Empty,
             ["Password"] = asFolder ? string.Empty : passwordFor(node),
             ["Hostname"] = asFolder ? string.Empty : (node as ConnectionEntry)?.Host ?? string.Empty,
+            ["MacAddress"] = asFolder ? string.Empty : (node as ConnectionEntry)?.MacAddress ?? string.Empty,
             ["Protocol"] = resolved.Protocol.Value switch
             {
                 Protocol.Ssh => "SSH2",

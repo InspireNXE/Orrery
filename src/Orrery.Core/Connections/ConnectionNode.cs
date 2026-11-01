@@ -185,6 +185,12 @@ public sealed class ConnectionEntry : ConnectionNode
 {
     public string Host { get; set; } = string.Empty;
 
+    /// <summary>The machine's MAC address as <c>00:1A:2B:3C:4D:5E</c>, for Wake-on-LAN. Null when not set. Written normalised by the properties pane and the importers.</summary>
+    public string? MacAddress { get; set; }
+
+    /// <summary>Where the Wake-on-LAN packet goes, as an IPv4 address such as 192.168.1.255. Null is 255.255.255.255.</summary>
+    public string? WakeBroadcast { get; set; }
+
     /// <summary>SSH: ports to forward while the session is open. Null when there are none.</summary>
     public List<PortForward>? PortForwards { get; set; }
 
