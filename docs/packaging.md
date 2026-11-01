@@ -90,18 +90,25 @@ since that needs Linux.
 
 `.github/workflows/packages.yml` builds every package above on each push (any branch, and `v*` tags), each pull
 request, and by hand (`workflow_dispatch`). A newer push to the same branch or pull request cancels the older run; tag
-builds always finish. It publishes nothing: the packages are the run's artifacts (`orrery-windows-portable`,
-`orrery-windows-installer`, `orrery-linux-portable`, `orrery-linux-packages`, `orrery-macos-portable`).
+builds always finish, and so do runs that publish the IronRDP package. Apart from that package, it publishes nothing:
+the packages are the run's artifacts (`orrery-windows-portable`, `orrery-windows-installer`, `orrery-linux-portable`,
+`orrery-linux-packages`, `orrery-macos-portable`).
 
-- **IronRDP first.** GitHub can't reach the local `ironrdp-local` folder, so the workflow builds `Devolutions.IronRdp`
-  itself, the way IronRDP's own `nuget-publish.yml` does, for the six platforms Orrery ships (the package leaves out
+- **IronRDP first.** Until a `Devolutions.IronRdp` for this `IronRdpVersion` is published (below), the workflow builds
+  it itself, the way IronRDP's own `nuget-publish.yml` does, for the six platforms Orrery ships (the package leaves out
   Android, iOS and the macOS universal library, which Orrery doesn't use). The fork and commit are `IRONRDP_REPOSITORY`
   and `IRONRDP_SHA` in the workflow's `env`, the one place to change them. **That commit must be pushed to the fork
   first**, or the IronRDP jobs fail at checkout. The package version is `IronRdpVersion` from `Directory.Build.props`.
-- **Lock files.** A package built anywhere else has a different content hash from the one in the lock files, so each
-  build job points `ironrdp-local` at the downloaded package and runs `build/Update-IronRdpLockHashes.ps1`. It runs
-  `dotnet restore Orrery.sln --force-evaluate` and fails if any lock file changed beyond `Devolutions.IronRdp`'s
-  content hash, so everything else stays exactly as committed.
+- **The published package.** When `build/ironrdp-package.json` has a `sha256` and its `version` is `IronRdpVersion`,
+  the build jobs download that package with `build/Get-IronRdp.ps1` (from its `url`, or from this repository's release
+  `ironrdp-<version>` when `url` is empty) and skip the IronRDP jobs, unless the run is publishing. A json still
+  describing an older version is ignored with a warning, so the workflow keeps building until the new one is
+  published.
+- **Lock files.** With the published package, the lock files must already record it: each build job runs
+  `dotnet restore Orrery.sln --locked-mode`, which fails with NU1403 if they don't. With the workflow's own build, the
+  content hash differs from the one in the lock files, so each build job points `ironrdp-local` at that package and
+  runs `build/Update-IronRdpLockHashes.ps1`. It runs `dotnet restore Orrery.sln --force-evaluate` and fails if any lock
+  file changed beyond `Devolutions.IronRdp`'s content hash, so everything else stays exactly as committed.
 - **Jobs.** Windows runs the tests, then builds the win-x64 and win-arm64 zips and Orrery Setup (Inno Setup 7.1.1).
   Linux builds the linux-x64 and linux-arm64 zips, .deb, .rpm and both AppImages (nfpm 2.48.0, appimagetool 1.9.1
   and the type2-runtime 20251108 runtimes, passed with `-AppImageRuntimeDir` so appimagetool doesn't download the
@@ -115,6 +122,47 @@ builds always finish. It publishes nothing: the packages are the run's artifacts
   `cargo-<runner>-<os>-<arch>-<IRONRDP_SHA>`, with a new commit starting from the last one's. NuGet packages are cached
   per OS as `nuget-<OS>-<hash of the lock files>`, without `Devolutions.IronRdp`. GitHub only shares caches from the
   default branch with other branches, so a branch's first run builds IronRDP unless `main` already has it cached.
+- **Permissions.** The workflow's token can only read the repository, except in `publish-ironrdp`, the one job that
+  creates a release.
+
+## A new IronRDP package
+
+`Devolutions.IronRdp` comes from a fork of IronRDP and isn't on nuget.org, so Orrery publishes each version it uses
+as a release asset of its own repository: the release `ironrdp-<version>`, holding
+`Devolutions.IronRdp.<version>.nupkg`. `build/ironrdp-package.json` names that version, the fork and commit it was
+built from, the asset's URL and its SHA-256. `build/Get-IronRdp.ps1` downloads it into `.nuget-local` and refuses a
+file whose SHA-256 differs, or a json with no hash. A published package is never replaced: everyone whose json names
+it would get a mismatch. A change to the package always gets a new version.
+
+1. Push the IronRDP commit to the fork. In `.github/workflows/packages.yml`, set `IRONRDP_SHA` to it (and
+   `IRONRDP_REPOSITORY` if the fork changes). In `Directory.Build.props`, bump `IronRdpVersion`, for example from
+   `2026.10.29-orrery.2` to `2026.10.29-orrery.3`.
+2. Build that package locally (or take the workflow's `ironrdp-nupkg` artifact), put it in `.nuget-local` with
+   `./build/Get-IronRdp.ps1 -FromFolder <folder> -Sha256 <its SHA-256>`, run `dotnet restore Orrery.sln --force-evaluate`
+   and commit everything on `main`. Until the new version is published, the workflow builds the package itself and
+   refreshes the lock files' IronRDP hash for its own build. A package built on one machine only has that machine's
+   native library from the fork: the owner's Windows build of `2026.10.29-orrery.2` carries older Linux and macOS
+   libraries without the RDP clipboard. The workflow builds all six, so the published package is always its build.
+3. Run the workflow on `main` by hand (Actions, Packages, Run workflow) with `publish-ironrdp` ticked. Once every
+   package has built and the tests have passed with the package it built, the `publish-ironrdp` job creates the
+   release with the runner's `gh`, downloads the asset again to check its SHA-256, and prints the
+   `build/ironrdp-package.json` to commit (also in the run's summary). It fails if the release or its tag already
+   exists.
+4. Commit that json. Then make the lock files record the published package, so every machine and the workflow share
+   one package and one content hash:
+
+   ```powershell
+   ./build/Get-IronRdp.ps1
+   dotnet restore Orrery.sln --force-evaluate
+   ```
+
+   If `Get-IronRdp.ps1` warns that NuGet's cache holds a different package of the same version, delete the folder it
+   names first, or the restore keeps using the old one. Commit the changed `packages.lock.json` files with the json,
+   or in the next commit. From then on the workflow uses the published package and restores against the lock files
+   as committed.
+
+The first package (`2026.10.29-orrery.2`) was built before any of this existed, so its lock files record the owner's
+local build: after publishing it, step 4 applies to it too.
 
 ## Running on Linux
 
@@ -151,9 +199,8 @@ package has no license text it can find, so a new dependency can't ship unacknow
 Every project keeps a `packages.lock.json` beside its `.csproj`, recording the exact version and content hash of each
 package it restores, transitive ones and the self-contained runtime packs for every platform in
 `<RuntimeIdentifiers>` in `Directory.Build.props` included. `nuget.config` clears the machine's package sources and uses
-nuget.org, with every package mapped to it except `Devolutions.IronRdp`, which comes from a locally built package for
-now (see the README's Building section). Packages built this way need that folder on the building machine, and their
-Linux and macOS IronRDP libraries don't have the RDP clipboard yet.
+nuget.org, with every package mapped to it except `Devolutions.IronRdp`, which comes from `.nuget-local`, filled by
+`build/Get-IronRdp.ps1` (see the README's Building section and "A new IronRDP package" above).
 
 Changing a package (adding, removing or bumping one, including the `AvaloniaVersion`, `IronRdpVersion` and
 `BouncyCastleVersion` properties in `Directory.Build.props`) needs this, with the updated `packages.lock.json` files

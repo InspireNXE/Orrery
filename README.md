@@ -203,9 +203,12 @@ to open the folder, and a detailed logging switch for troubleshooting that turns
 
 ## Building
 
-You need the [.NET 10 SDK](https://dotnet.microsoft.com/download). From the repo root:
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and PowerShell (Windows PowerShell 5.1 is fine, or
+[PowerShell 7](https://github.com/PowerShell/PowerShell) on Linux and macOS). From the repo root, fetch the IronRDP
+package once (see below), then build:
 
 ```powershell
+./build/Get-IronRdp.ps1
 dotnet build Orrery.sln
 dotnet test Orrery.sln
 dotnet run --project src/Orrery.App
@@ -214,9 +217,18 @@ dotnet run --project src/Orrery.App
 ### The IronRDP package
 
 The RDP clipboard on Linux and macOS needs a change to IronRDP's .NET binding that hasn't been released yet. Until it
-is, `nuget.config` takes `Devolutions.IronRdp` from a local folder, `W:\IronRDP\dependencies\nuget`, at the version
-set in `Directory.Build.props` (`IronRdpVersion`). GitHub Actions builds that package itself, for all six platforms,
-from the fork and commit named at the top of `.github/workflows/packages.yml`.
+is, Orrery builds with a `Devolutions.IronRdp` made from a fork of IronRDP, at the version set in
+`Directory.Build.props` (`IronRdpVersion`). It isn't on nuget.org. `nuget.config` looks for it in `.nuget-local`, a
+folder in the repo that git ignores, and `build/Get-IronRdp.ps1` downloads it there from this repo's releases. It
+checks the file against the SHA-256 in `build/ironrdp-package.json` and won't use a file that doesn't match. If a
+restore fails with NU1301 or NU1101 for the `ironrdp-local` source, the script hasn't been run yet.
+
+You only need to run it again when `IronRdpVersion` changes. To use a package you built yourself, pass the folder
+holding it and its SHA-256: `./build/Get-IronRdp.ps1 -FromFolder <folder> -Sha256 <hash>`. Its content hash differs
+from the one in the lock files, so the packaging scripts' locked restores fail with it until
+`./build/Update-IronRdpLockHashes.ps1` updates that hash (it checks that nothing else in the lock files changed).
+GitHub Actions builds the package for all six platforms from the fork and commit named at the top of
+`.github/workflows/packages.yml`, and publishes it when asked to (see [docs/packaging.md](docs/packaging.md)).
 
 To go back to the released package, remove the `ironrdp-local` source and its mapping from `nuget.config`, set
 `IronRdpVersion` back to `2026.10.29`, and run `dotnet restore Orrery.sln --force-evaluate` to update the lock files.
