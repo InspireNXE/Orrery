@@ -25,5 +25,11 @@ public interface IConnectionSession : IAsyncDisposable
     ConnectionTarget Target { get; }
     SessionState State { get; }
     event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+
+    /// <summary>
+    /// The last <see cref="StateChanged"/> raised, so whoever subscribes after the session has started (a tab, made
+    /// once a try is under way) still learns how a fast failure went.
+    /// </summary>
+    SessionStateChangedEventArgs? LastChange => null;
     Task DisconnectAsync();
 }

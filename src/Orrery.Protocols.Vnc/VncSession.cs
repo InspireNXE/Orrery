@@ -74,6 +74,8 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     public int Height => _bufferHeight;
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
     public event EventHandler<string>? RemoteClipboardChanged;
 
@@ -511,7 +513,9 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
 
         State = state;
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
+        var change = new SessionStateChangedEventArgs(state, message, error);
+        LastChange = change;
+        StateChanged?.Invoke(this, change);
     }
 
     ITransport? _transport;

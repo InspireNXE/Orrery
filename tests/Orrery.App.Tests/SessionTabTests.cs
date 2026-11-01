@@ -90,19 +90,22 @@ public class SessionTabTests
         public Task DisconnectAsync() => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
+        public SessionStateChangedEventArgs? LastChange { get; private set; }
+
         public void Become(SessionState state, string? message = null, Exception? error = null)
         {
             State = state;
-            StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
+            LastChange = new SessionStateChangedEventArgs(state, message, error);
+            StateChanged?.Invoke(this, LastChange);
         }
     }
 
-    static SessionTab NewTab(IConnectionSession session, bool canRestart = true, int attempt = 0) =>
+    static SessionTab NewTab(IConnectionSession session, bool canRestart = true, int attempt = 0, bool followsDrop = false) =>
         new(session, new Border(), new SessionOrigin("box", Protocol.Rdp, null, () => Task.CompletedTask, AutoReconnect: canRestart)
         {
             Restart = canRestart ? () => throw new InvalidOperationException("not in this test") : null,
         })
-        { ReconnectAttempt = attempt };
+        { ReconnectAttempt = attempt, FollowsDrop = followsDrop };
 
     [AvaloniaFact]
     public void A_drop_after_connecting_is_retried_but_not_an_unexplained_first_failure()
@@ -392,6 +395,124 @@ public class SessionTabTests
         session.Become(SessionState.Connecting);
         Dispatcher.UIThread.RunJobs();
         Assert.False(tab.IsShowingFailure);
+    }
+
+    [AvaloniaFact]
+    public void A_try_keeps_the_screen_up_while_it_connects_so_it_doesnt_flash()
+    {
+        var (old, oldSession, window) = ShowFailing();
+        oldSession.Become(SessionState.Connected);
+        oldSession.Become(SessionState.Failed, Refused.Message, Refused);
+        Dispatcher.UIThread.RunJobs();
+
+        // Each try is a new tab in the old one's place, connecting.
+        var trying = new ScriptedSession();
+        var tab = NewTab(trying, attempt: 1);
+        window.Content = tab.Host;
+        tab.IsSelected = true;
+        tab.ContinueFrom(old, "Trying again now (try 1 of 5)…");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(tab.IsShowingFailure);
+        var texts = Texts(window).Select(t => t.Text).ToList();
+        Assert.Contains("Connection lost", texts);
+        Assert.Contains("Trying again now (try 1 of 5)…", texts);
+        Assert.Equal(old.IconShown, tab.IconShown);
+
+        // Reconnect would throw this try away for another, so it's off until the try fails.
+        var reconnect = window.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "Reconnect");
+        Assert.False(reconnect.IsEnabled);
+
+        // Failing again shows that failure, ready to count down to the next try.
+        trying.Become(SessionState.Failed, "timed out", new SocketException((int)SocketError.TimedOut));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(reconnect.IsEnabled);
+        Assert.True(tab.IsShowingFailure);
+        Assert.Equal(FailureKind.TimedOut, tab.Failure!.Kind);
+        Assert.DoesNotContain("Trying again now (try 1 of 5)…", Texts(window).Select(t => t.Text));
+        Assert.True(tab.CanRetryByItself);
+
+        // A try that gets through takes the screen away.
+        var next = new ScriptedSession();
+        var nextTab = NewTab(next, attempt: 2);
+        window.Content = nextTab.Host;
+        nextTab.ContinueFrom(tab, "Trying again now (try 2 of 5)…");
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(nextTab.IsShowingFailure);
+        next.Become(SessionState.Connected);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(nextTab.IsShowingFailure);
+    }
+
+    [AvaloniaFact]
+    public void Reconnecting_after_a_drop_by_hand_is_still_about_the_drop()
+    {
+        // The server closes the connection at once, as one rebooting does: a first connection doing that isn't retried...
+        var first = new ScriptedSession();
+        var firstTab = NewTab(first);
+        first.Become(SessionState.Failed, "closed", new SocketException((int)SocketError.ConnectionReset));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(firstTab.CanRetryByItself);
+        Assert.Equal(SessionTab.Look.Other, firstTab.Shown);
+
+        // ...but Reconnect after a drop failing the same way keeps the drop's heading and icon, and goes on trying.
+        var again = new ScriptedSession();
+        var tab = NewTab(again, followsDrop: true);
+        var window = new Window { Content = tab.Host, Width = 900, Height = 700 };
+        window.Show();
+        again.Become(SessionState.Failed, "closed", new SocketException((int)SocketError.ConnectionReset));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(tab.CanRetryByItself);
+        Assert.Equal(SessionTab.Look.Retry, tab.Shown);
+        Assert.Contains("Connection lost", Texts(window).Select(t => t.Text));
+    }
+
+    [AvaloniaFact]
+    public void A_try_that_failed_before_its_tab_was_made_still_shows_the_screen()
+    {
+        var (old, oldSession, window) = ShowFailing();
+        oldSession.Become(SessionState.Connected);
+        oldSession.Become(SessionState.Failed, Refused.Message, Refused);
+        Dispatcher.UIThread.RunJobs();
+
+        // The server turned the try down before its tab existed to hear it.
+        var trying = new ScriptedSession();
+        trying.Become(SessionState.Failed, "closed", new SocketException((int)SocketError.ConnectionReset));
+        var tab = NewTab(trying, followsDrop: true);
+        window.Content = tab.Host;
+        tab.ContinueFrom(old, "Trying again now…");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(tab.IsShowingFailure);
+        Assert.Equal(FailureKind.ServerClosed, tab.Failure!.Kind);
+        Assert.True(tab.CanRetryByItself);
+        Assert.Contains("Connection lost", Texts(window).Select(t => t.Text));
+    }
+
+    [AvaloniaFact]
+    public void The_card_stays_put_when_the_next_failure_says_more()
+    {
+        var (old, oldSession, window) = ShowFailing();
+        oldSession.Become(SessionState.Connected);
+        oldSession.Become(SessionState.Failed, "reset", new SocketException((int)SocketError.ConnectionReset));
+        Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<Expander>().Single().IsExpanded = true;
+        Dispatcher.UIThread.RunJobs();
+        var heading = Texts(window).First(t => t.Text == "Connection lost");
+        var before = heading.TranslatePoint(default, window)!.Value;
+
+        // The next try fails with a much longer message: the card grows downwards, not about its middle.
+        var trying = new ScriptedSession();
+        var tab = NewTab(trying, attempt: 1);
+        window.Content = tab.Host;
+        tab.ContinueFrom(old, "Trying again now (try 1 of 5)…");
+        Dispatcher.UIThread.RunJobs();
+        trying.Become(SessionState.Failed, string.Join(" ", Enumerable.Repeat("The connection to the remote server was closed before a valid SSH identification string was received.", 6)),
+            new SocketException((int)SocketError.ConnectionReset));
+        Dispatcher.UIThread.RunJobs();
+
+        var after = Texts(window).First(t => t.Text == "Connection lost").TranslatePoint(default, window)!.Value;
+        Assert.Equal(before.Y, after.Y);
     }
 
     [AvaloniaFact]

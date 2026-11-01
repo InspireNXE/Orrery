@@ -49,6 +49,8 @@ public sealed class SftpSession : IConnectionSession
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
 
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
+
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
     public static SftpSession Start(ConnectionTarget target, SshLogin login, HostKeyValidator hostKeys, bool allowLegacy = false, IReadOnlyList<SshHop>? jumps = null)
     {
@@ -444,7 +446,9 @@ public sealed class SftpSession : IConnectionSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
+        var change = new SessionStateChangedEventArgs(state, message, error);
+        LastChange = change;
+        StateChanged?.Invoke(this, change);
     }
 }
 
