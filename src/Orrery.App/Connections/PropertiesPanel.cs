@@ -62,7 +62,7 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _useAllMonitors = Switch("UseAllMonitors");
     readonly ToggleSwitch _adminSession = Switch("AdminSession");
     readonly ToggleSwitch _viewOnly = Switch("ViewOnly");
-    readonly ComboBox _scaling = Choices("Scaling", (DesktopScaling.ShrinkToFit, "Shrink to fit"), (DesktopScaling.Fit, "Fit the tab"), (DesktopScaling.ActualSize, "Actual size"));
+    readonly ComboBox _scaling = Choices("Scaling", (DesktopScaling.Fit, "Fit the tab"), (DesktopScaling.ShrinkToFit, "Shrink to fit"), (DesktopScaling.ActualSize, "Actual size"));
     readonly TextBox _keepAlive = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultKeepAliveSeconds.ToString(CultureInfo.InvariantCulture) };
     readonly TextBox _socksProxy = new() { FontFamily = Dialogs.MonoFont, Watermark = "None" };
     readonly TextBox _baudRate = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultBaudRate.ToString(CultureInfo.InvariantCulture) };
@@ -130,7 +130,9 @@ sealed class PropertiesPanel : UserControl
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
         _desktopSizeRow.Tip("RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
-        _enlargeRow.Tip("RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, each of its pixels is one of this display's. Applies to new connections.");
+        _enlargeRow.Tip("RDP: when on, the server is told this display's scaling, so the remote desktop is as sharp as this display and its text the size of "
+            + "local apps' text (a fixed desktop size is enlarged instead). VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. "
+            + "When off, each of its pixels is one of this display's, at 100%. Applies to new connections.");
         foreach (var (quality, label) in QualityLabels)
         {
             _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
@@ -192,7 +194,8 @@ sealed class PropertiesPanel : UserControl
         _viewOnlyRow = new InheritRow("View only", _viewOnly, () => ShowInherited(r => _viewOnly.IsChecked = r.ViewOnly.Value), inline: true);
         _viewOnlyRow.Tip("VNC: watch the remote desktop without sending keys, clicks or the clipboard. The session's More menu turns it off.");
         _scalingRow = new InheritRow("Scaling", _scaling, () => ShowInherited(r => Choose(_scaling, r.Scaling.Value)));
-        _scalingRow.Tip("VNC: Shrink to fit makes a desktop bigger than the tab smaller and leaves a smaller one as it is; Fit the tab also enlarges a smaller one; "
+        _scalingRow.Tip("RDP and VNC, for a desktop that doesn't match the tab (a fixed desktop size, a server that won't resize, or a moment while one "
+            + "resizes): Fit the tab shrinks or enlarges it to fill the tab; Shrink to fit makes a bigger one smaller and leaves a smaller one as it is; "
             + "Actual size shows it pixel for pixel, with scroll bars. Each keeps its shape.");
         _keepAliveRow = new InheritRow("Keep-alive (seconds)", _keepAlive, () => ShowInherited(r => _keepAlive.Text = r.KeepAliveSeconds.Value.ToString(CultureInfo.InvariantCulture)));
         _keepAliveRow.Tip("SSH: how often to send the server a keep-alive message, so an idle session isn't dropped by a firewall or the server. 0 sends none. "
@@ -255,9 +258,9 @@ sealed class PropertiesPanel : UserControl
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 (_credentialsSection = Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
                 (_sessionSection = Pane.Section("Session", _clipboardRow.View, _autoReconnectRow.View)),
-                (_displaySection = Pane.Section("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_displaySection = Pane.Section("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _qualityRow.View, _colorCorrectionRow.View)),
                 (_rdpSection = Pane.Section("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _useAllMonitorsRow.View, _adminSessionRow.View)),
-                (_vncSection = Pane.Section("VNC", _viewOnlyRow.View, _scalingRow.View)),
+                (_vncSection = Pane.Section("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.Section("SSH", _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }, _keepAliveRow.View, _socksProxyRow.View)),
                 (_serialSection = Pane.Section("Serial line", Pane.Pair(_baudRateRow.View, _dataBitsRow.View), Pane.Pair(_parityRow.View, _stopBitsRow.View), _flowControlRow.View)),
                 (_tunnelSection = Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField)),

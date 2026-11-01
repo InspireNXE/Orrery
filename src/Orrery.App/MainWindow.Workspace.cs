@@ -172,6 +172,7 @@ public partial class MainWindow
     /// </summary>
     internal void ForgetOpenTabs()
     {
+        _restoreOfferBeforeFullScreen = false;
         if (_restoreBar is not null)
         {
             _restoreBar.IsVisible = false;
@@ -188,6 +189,7 @@ public partial class MainWindow
             return;
         }
 
+        _restoreOfferBeforeFullScreen = false;
         if (_restoreBar is not null)
         {
             _restoreBar.IsVisible = false;

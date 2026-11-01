@@ -83,6 +83,9 @@ public partial class MainWindow : Window
     (PixelPoint Position, WindowState State)? _positionBeforeFullScreen;
     (bool Side, bool Inspector) _panesBeforeFullScreen;
 
+    // The offer to reopen last time's sessions, set aside while a session is full screen.
+    bool _restoreOfferBeforeFullScreen;
+
     /// <summary>While a remote desktop is spread over every display: its view, and the window as it was before.</summary>
     (RemoteFrameView View, PixelPoint Position, double Width, double Height, SystemDecorations Decorations, bool Topmost)? _spanned;
     readonly Button _settingsRailButton;
@@ -981,6 +984,12 @@ public partial class MainWindow : Window
 
         _fullScreen = true;
         _panesBeforeFullScreen = (_sidePanel.IsVisible, _propertiesHost.IsVisible);
+        _restoreOfferBeforeFullScreen = _restoreBar is { IsVisible: true };
+        if (_restoreBar is not null)
+        {
+            _restoreBar.IsVisible = false;
+        }
+
         _stateBeforeFullScreen = WindowState;
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = false;
         _sidePanel.IsVisible = _propertiesHost.IsVisible = _sessionToolbar.IsVisible = false;
@@ -1076,6 +1085,14 @@ public partial class MainWindow : Window
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
         _sidePanel.IsVisible = _panesBeforeFullScreen.Side;
         _propertiesHost.IsVisible = _panesBeforeFullScreen.Inspector;
+
+        // Still offered unless it was withdrawn meanwhile (ReopenWorkspaceAsync, ForgetOpenTabs).
+        if (_restoreOfferBeforeFullScreen && _restoreBar is not null)
+        {
+            _restoreBar.IsVisible = true;
+        }
+
+        _restoreOfferBeforeFullScreen = false;
         if (_positionBeforeFullScreen is { } before)
         {
             WindowState = WindowState.Normal;
@@ -1751,7 +1768,7 @@ public partial class MainWindow : Window
     /// <param name="scaling">VNC: how the desktop is fitted into the tab.</param>
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
         bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null, bool? enlarge = null,
-        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.ShrinkToFit)
+        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.Fit)
     {
         switch (origin.Protocol)
         {
@@ -1761,7 +1778,7 @@ public partial class MainWindow : Window
                 StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps, quality, viewOnly, scaling);
                 return Task.CompletedTask;
             default:
-                StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge, route?.Jumps, quality);
+                StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge, route?.Jumps, quality, scaling);
                 return Task.CompletedTask;
         }
     }
@@ -1771,7 +1788,7 @@ public partial class MainWindow : Window
     /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
     /// <param name="viewOnly">Open watching only, as the session menu's View only does.</param>
     void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, bool? enlarge = null, IReadOnlyList<SshHop>? jumps = null,
-        DisplayQuality quality = DisplayQuality.Balanced, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.ShrinkToFit)
+        DisplayQuality quality = DisplayQuality.Balanced, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.Fit)
     {
         Open(origin, () =>
         {
@@ -1785,19 +1802,27 @@ public partial class MainWindow : Window
     }
 
     /// <param name="fixedSize">A desktop size to keep; null fits the session area and follows it.</param>
-    /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
+    /// <param name="enlarge">The connection's own choice; null uses the app setting. A desktop that follows the view
+    /// is matched to this display's scaling by telling the server it, as mstsc does, so it stays pixel for pixel; a
+    /// fixed size is enlarged instead.</param>
     /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
+    /// <param name="scaling">How a desktop that doesn't match the tab is fitted into it.</param>
     void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null, bool? enlarge = null,
-        IReadOnlyList<SshHop>? jumps = null, DisplayQuality quality = DisplayQuality.Balanced)
+        IReadOnlyList<SshHop>? jumps = null, DisplayQuality quality = DisplayQuality.Balanced,
+        Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.Fit)
     {
         Open(origin, () =>
         {
-            bool zoom = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
+            bool matchScaling = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
+            bool tellServer = matchScaling && fixedSize is null;
+            bool zoom = matchScaling && !tellServer;
             var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
             var problems = new List<string>();
             var options = RdpOptionsFor(origin, problems);
-            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality, options);
+            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality, options,
+                tellServer ? RenderScaling : null);
             var view = NewRemoteFrameView(origin, session, zoom, followsViewSize: fixedSize is null);
+            view.Scaling = scaling;
             if (problems.Count > 0)
             {
                 // Said once the desktop shows, where it's seen, rather than over the connecting screen.
