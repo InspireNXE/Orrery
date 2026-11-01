@@ -28,7 +28,11 @@ public partial class App : Application
     string[] _args = [];
     bool _errorShown;
 
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+        Palette.AddTo(Resources);
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {

@@ -12,10 +12,6 @@ namespace Orrery.App.Connections;
 /// </summary>
 public sealed class NodeViewModel : INotifyPropertyChanged
 {
-    static readonly IBrush ConnectedBrush = new SolidColorBrush(Color.Parse("#5FD38D")).ToImmutable();
-    static readonly IBrush ConnectingBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
-    static readonly IBrush OfflineBrush = new SolidColorBrush(Color.Parse("#5B6372")).ToImmutable();
-
     readonly Action? _expansionChanged;
     readonly bool _persistExpansion;
     bool _isExpanded;
@@ -66,20 +62,16 @@ public sealed class NodeViewModel : INotifyPropertyChanged
             }
 
             _status = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusFill)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusStroke)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusText)));
         }
     }
 
-    // A filled dot for an open session, a hollow ring otherwise.
-    public IBrush? StatusFill => _status switch
-    {
-        SessionState.Connected => ConnectedBrush,
-        SessionState.Connecting => ConnectingBrush,
-        _ => null,
-    };
+    /// <summary>The status in words, beside the mark that shows it.</summary>
+    public string StatusText => Controls.StateGlyph.Describe(_status);
 
-    public IBrush? StatusStroke => StatusFill is null ? OfflineBrush : null;
+    /// <summary>The open session's state in words, for a screen reader; empty when none is open.</summary>
+    public string SpokenStatus => _status is null ? string.Empty : StatusText;
 
     /// <summary>What a screen reader says after the name: "SSH, web01.example, 2 guests" or "Folder, 3 connections".</summary>
     public string Description => Node switch
@@ -88,14 +80,6 @@ public sealed class NodeViewModel : INotifyPropertyChanged
         ConnectionEntry { IsHost: true } host => $"{Badge}, {Where(host)}, {Plural(host.Guests.Count, "guest")}",
         ConnectionEntry { GuestOf: { } owner } guest => $"{Badge}, {Where(guest)}, guest of {owner.Name}",
         ConnectionEntry entry => $"{Badge}, {Where(entry)}",
-        _ => string.Empty,
-    };
-
-    /// <summary>The open session's state in words, for a screen reader; empty when none is open.</summary>
-    public string StatusText => _status switch
-    {
-        SessionState.Connected => "Connected",
-        SessionState.Connecting => "Connecting",
         _ => string.Empty,
     };
 

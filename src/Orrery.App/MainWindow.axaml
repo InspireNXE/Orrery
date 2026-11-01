@@ -69,7 +69,7 @@
           <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
             <TextBlock x:Name="SessionCountText" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
             <TextBlock x:Name="StorageText" FontSize="11" Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" MaxWidth="700" />
-            <TextBlock x:Name="DataAccessText" FontSize="11" IsVisible="False" />
+            <c:Notice x:Name="DataAccessText" Kind="Warning" IconSize="12" VerticalAlignment="Center" IsVisible="False" />
           </StackPanel>
         </DockPanel>
       </Border>
@@ -157,8 +157,8 @@
                         <c:StrokeIcon DockPanel.Dock="Left" IsVisible="{Binding IsFolder}" Width="15" Height="15" Margin="0,0,8,0"
                                       Foreground="{StaticResource OrreryFolder}"
                                       Data="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-                        <Ellipse DockPanel.Dock="Left" IsVisible="{Binding IsConnection}" Width="7" Height="7" Margin="2,0,9,0"
-                                 Fill="{Binding StatusFill}" Stroke="{Binding StatusStroke}" StrokeThickness="1" VerticalAlignment="Center" />
+                        <c:StateGlyph DockPanel.Dock="Left" IsVisible="{Binding IsConnection}" Width="8" Height="8" Margin="1,0,9,0"
+                                      State="{Binding Status}" ToolTip.Tip="{Binding StatusText}" VerticalAlignment="Center" />
                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                    ToolTip.Tip="{Binding Detail}" />
                       </DockPanel>

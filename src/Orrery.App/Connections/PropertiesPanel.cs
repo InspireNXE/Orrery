@@ -43,7 +43,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
     readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
