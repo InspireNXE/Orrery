@@ -38,6 +38,7 @@ public class FullScreenShortcutTests
     [InlineData(Key.Escape, KeyModifiers.Control | KeyModifiers.Shift)]
     [InlineData(Key.B, KeyModifiers.Control | KeyModifiers.Alt)]   // Orrery's settings pane.
     [InlineData(Key.C, KeyModifiers.Control | KeyModifiers.Shift)] // Terminal copy.
+    [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Shift)] // Orrery's local terminal.
     [InlineData(Key.LeftCtrl, KeyModifiers.Control | KeyModifiers.Alt)]
     public void Refuses_shortcuts_that_would_get_in_the_way_on_windows(Key key, KeyModifiers modifiers)
     {
@@ -46,13 +47,23 @@ public class FullScreenShortcutTests
 
     [Theory]
     [InlineData(Key.Enter, KeyModifiers.Control | KeyModifiers.Alt)]
-    [InlineData(Key.Home, KeyModifiers.Control | KeyModifiers.Alt)]
+    [InlineData(Key.End, KeyModifiers.Control | KeyModifiers.Alt)]
     [InlineData(Key.F11, KeyModifiers.Control | KeyModifiers.Alt)]
     [InlineData(Key.F, KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Shift)] // Shift takes it out of AltGr's way.
     [InlineData(Key.F11, KeyModifiers.Control | KeyModifiers.Shift)]
     public void Accepts_shortcuts_nothing_else_uses_on_windows(Key key, KeyModifiers modifiers)
     {
         Assert.Null(FullScreenShortcut.Problem(new KeyGesture(key, modifiers), ShortcutPlatform.Windows));
+    }
+
+    [Theory]
+    [InlineData(ShortcutPlatform.Windows, KeyModifiers.Control | KeyModifiers.Alt)]
+    [InlineData(ShortcutPlatform.Linux, KeyModifiers.Control | KeyModifiers.Alt)]
+    [InlineData(ShortcutPlatform.MacOS, KeyModifiers.Control | KeyModifiers.Meta)]
+    public void The_key_that_leaves_a_session_is_kept_for_that(ShortcutPlatform platform, KeyModifiers modifiers)
+    {
+        Assert.Equal("Orrery uses it to leave a session for its tab.", FullScreenShortcut.Problem(new KeyGesture(Key.Home, modifiers), platform));
+        Assert.True(FullScreenShortcut.SameAs(SessionEscape.For(platform), new KeyGesture(Key.Home, modifiers)));
     }
 
     [Fact]

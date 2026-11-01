@@ -14,6 +14,42 @@ public enum CredentialStoreKind
     VaultFile,
 }
 
+/// <summary>The 16 colors terminals draw with.</summary>
+public enum TerminalColorScheme
+{
+    Standard,
+
+    /// <summary>Red and green kept apart for color blindness; tuned further for the <see cref="ColorVision"/> chosen.</summary>
+    ColorBlind,
+}
+
+/// <summary>A kind of color blindness the app allows for, in its colors and by correcting remote desktops.</summary>
+public enum ColorVision
+{
+    None,
+
+    /// <summary>Red-weak: reds look dark and close to greens.</summary>
+    Protanopia,
+
+    /// <summary>Green-weak, the most common: reds, greens and yellows run together.</summary>
+    Deuteranopia,
+
+    /// <summary>Blue-yellow: blues look like greens, and yellows like pinks or grays.</summary>
+    Tritanopia,
+}
+
+/// <summary>The colors that carry meaning in the interface: states, success, warnings, errors.</summary>
+public enum InterfaceColorScheme
+{
+    Standard,
+
+    /// <summary>Brighter colors that are easier to tell apart for most kinds of color blindness.</summary>
+    Clearer,
+
+    /// <summary>Okabe and Ito's color-blind safe colors.</summary>
+    ColorBlind,
+}
+
 /// <summary>
 /// App preferences, kept in <c>settings.json</c> in the data folder. A null value means "use the default",
 /// so defaults can change in later versions without rewriting everyone's file.
@@ -46,16 +82,103 @@ public sealed record AppSettings
     /// <summary>The right-hand pane (connection settings, credential editor) is showing. Null is open.</summary>
     public bool? InspectorOpen { get; init; }
 
+    /// <summary>
+    /// Check from time to time whether the connections on screen are up, by opening a TCP connection to each one's
+    /// host and port. Null is on. Off sends nothing and shows no dots.
+    /// </summary>
+    public bool? HostStatusChecks { get; init; }
+
+    [JsonIgnore]
+    public bool ChecksHostStatus => HostStatusChecks ?? true;
+
+    /// <summary>Whether to reopen last time's sessions at start-up. Null is <see cref="RestoreSessionsMode.Ask"/>.</summary>
+    public RestoreSessionsMode? RestoreSessions { get; init; }
+
+    [JsonIgnore]
+    public RestoreSessionsMode RestoreMode => RestoreSessions ?? RestoreSessionsMode.Ask;
+
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }
 
     public const double DefaultTerminalFontSize = 14;
 
+    /// <summary>The terminal's colors. Null is <see cref="TerminalColorScheme.Standard"/>.</summary>
+    public TerminalColorScheme? TerminalColors { get; init; }
+
+    /// <summary>The interface colors. Null is <see cref="InterfaceColorScheme.Standard"/>, unless <see cref="ColorBlindColors"/> says otherwise.</summary>
+    public InterfaceColorScheme? InterfaceColors { get; init; }
+
     /// <summary>
-    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+Home". Null is the default (Ctrl+Alt+Enter,
+    /// The old on/off setting, read from existing files and never written back: <see cref="AppSettingsStore"/> turns
+    /// true into <see cref="InterfaceColorScheme.ColorBlind"/> when it loads or saves. Its key keeps the British
+    /// spelling the builds that wrote it used.
+    /// </summary>
+    [JsonPropertyName("colourBlindColours")]
+    public bool? ColorBlindColors { get; init; }
+
+    /// <summary>The interface colors in use, counting the old setting.</summary>
+    [JsonIgnore]
+    public InterfaceColorScheme InterfaceColorScheme =>
+        InterfaceColors ?? (ColorBlindColors == true ? InterfaceColorScheme.ColorBlind : InterfaceColorScheme.Standard);
+
+    /// <summary>Moves the old color-blind setting into <see cref="InterfaceColors"/>.</summary>
+    public AppSettings Migrated() =>
+        ColorBlindColors is null
+            ? this
+            : this with { InterfaceColors = InterfaceColors ?? (ColorBlindColors == true ? InterfaceColorScheme.ColorBlind : null), ColorBlindColors = null };
+
+    /// <summary>
+    /// The user's color vision. Null is none. Choosing one in Settings also picks the color-blind interface and
+    /// terminal colors, which stay separate settings the user can change back.
+    /// </summary>
+    public ColorVision? ColorVision { get; init; }
+
+    [JsonIgnore]
+    public ColorVision Vision => ColorVision ?? default;
+
+    /// <summary>How strongly remote desktops are corrected for <see cref="ColorVision"/>, 0 to 100 percent. Null is <see cref="DefaultColorCorrectionStrength"/>.</summary>
+    public int? ColorCorrectionStrength { get; init; }
+
+    public const int DefaultColorCorrectionStrength = 100;
+
+    /// <summary>The correction strength in use, 0 to 100; a hand-edited value out of range is brought into it.</summary>
+    [JsonIgnore]
+    public int CorrectionStrength => Math.Clamp(ColorCorrectionStrength ?? DefaultColorCorrectionStrength, 0, 100);
+
+    // Builds before the switch to American spelling wrote these keys. They're read into the settings above, which
+    // win when a file has both, and never written: the getters return null, which isn't written.
+    [JsonInclude, JsonPropertyName("terminalColours")]
+    TerminalColorScheme? BritishTerminalColors { get => null; init => TerminalColors ??= value; }
+
+    [JsonInclude, JsonPropertyName("interfaceColours")]
+    InterfaceColorScheme? BritishInterfaceColors { get => null; init => InterfaceColors ??= value; }
+
+    [JsonInclude, JsonPropertyName("colourVision")]
+    ColorVision? BritishColorVision { get => null; init => ColorVision ??= value; }
+
+    [JsonInclude, JsonPropertyName("colourCorrectionStrength")]
+    int? BritishColorCorrectionStrength { get => null; init => ColorCorrectionStrength ??= value; }
+
+    /// <summary>
+    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
     /// or Ctrl+Cmd+F on macOS). The app checks it before use and falls back to the default.
     /// </summary>
     public string? FullScreenShortcut { get; init; }
+
+    /// <summary>
+    /// Read new terminal output out through the screen reader. Null is automatic: on while a screen reader is
+    /// running when Orrery starts, otherwise off.
+    /// </summary>
+    public bool? TerminalAnnouncements { get; init; }
+
+    /// <summary>
+    /// The shell a local terminal runs, by id ("pwsh", "cmd", "wsl:Ubuntu"). Null, or one no longer installed, is
+    /// PowerShell 7 if there is one, else Windows PowerShell; the login shell on Linux and macOS.
+    /// </summary>
+    public string? LocalShell { get; init; }
+
+    /// <summary>The Settings page last shown, by name. Null, or a name no longer there, is the first page.</summary>
+    public string? SettingsPage { get; init; }
 
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
@@ -71,7 +194,7 @@ public sealed class AppSettingsStore(string path)
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        Converters = { new BritishSpellingEnumConverter() },
     };
 
     public static AppSettingsStore In(DataLocation location) => new(location.FileIn(FileName));
@@ -83,7 +206,7 @@ public sealed class AppSettingsStore(string path)
     {
         try
         {
-            return File.Exists(path) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new() : new();
+            return File.Exists(path) ? (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new()).Migrated() : new();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -92,5 +215,5 @@ public sealed class AppSettingsStore(string path)
     }
 
     public void Save(AppSettings settings) =>
-        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
+        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
 }

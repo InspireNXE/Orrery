@@ -61,7 +61,7 @@ When `dataLocation` is absent, show a dialog before the main window:
 Rules:
 - Before accepting "With the app" or a custom folder, **probe write access** (create and delete a temp file). It fails on read-only media, `Program Files`, and macOS App Translocation (an app run straight from a downloaded, quarantined location). Explain the failure and offer the other options.
 - Write the choice back to the marker file. If the marker itself is not writable, keep the choice in memory for this session and warn that the prompt will reappear.
-- If a data folder already exists at the chosen location, use it and don't re-initialise it.
+- If a data folder already exists at the chosen location, use it and don't re-initialize it.
 - Portable mode always uses the **vault file** for secrets (§3), because the OS keychain does not travel.
 
 The "user profile" option uses a `Portable` subfolder (e.g. `%APPDATA%\Orrery\Portable`) so it never collides with an installed copy on the same machine.
@@ -116,7 +116,7 @@ Resolved once in `Program.Main` and registered as a singleton. No other code com
 ### 2.7 Changing location later
 Settings › Storage shows the current mode and path and offers **Move data…**. It copies the data, verifies it (hashes match), updates the marker file in portable mode, and then offers to delete the old copy. Installed mode has no marker, so it writes `data-location.json` (`{"dataDir": "…"}`) into the default config folder instead; moving back to the default folder removes it. Cache and logs stay in their usual places. Orrery restarts after the move, then offers to delete the old copy. Switching between installed and portable is a different binary, so it means exporting and then importing, not moving.
 
-Move data copies and deletes only Orrery's own files (`DataFolderFiles`): `connections.json` (and any `connections.json.unreadable-*` set aside at startup), `settings.json`, `recent.json`, `history.json`, `vault.frv`, `credentials.json`, `known-hosts.json`, `trusted-certificates.json`, `connections-*.json` directly in `backups/` and `mremoteng-*.md` directly in `import/`. Anything else in the folder (the user's own files, a nested `Portable` folder, `.lock`, `data-location.json`) is neither copied nor deleted, and symlinks and junctions are never followed: a link where one of Orrery's files belongs stops the move, and is left alone when deleting. "Delete old copy" removes `backups/`, `import/` and the old folder itself only if they end up empty, and then says how many files or folders that weren't Orrery's were left in place. The move is refused when either folder is the top of a drive, or one is inside the other, comparing segment by segment after following every link along both paths. The copy records the old folder in `pending-cleanup.json` (`{"oldDataDir": "…"}`) in the new folder; after the restart Orrery offers to delete the old copy only when that record names the same folder as `--moved-from` and the folder doesn't overlap the one in use, and removes the record on that first start whatever happens.
+Move data copies and deletes only Orrery's own files (`DataFolderFiles`): `connections.json` (and any `connections.json.unreadable-*` set aside at startup), `settings.json`, `recent.json`, `history.json`, `workspace.json`, `vault.frv`, `credentials.json`, `known-hosts.json`, `trusted-certificates.json`, `connections-*.json` directly in `backups/` and `mremoteng-*.md` directly in `import/`. Anything else in the folder (the user's own files, a nested `Portable` folder, `.lock`, `data-location.json`) is neither copied nor deleted, and symlinks and junctions are never followed: a link where one of Orrery's files belongs stops the move, and is left alone when deleting. "Delete old copy" removes `backups/`, `import/` and the old folder itself only if they end up empty, and then says how many files or folders that weren't Orrery's were left in place. The move is refused when either folder is the top of a drive, or one is inside the other, comparing segment by segment after following every link along both paths. The copy records the old folder in `pending-cleanup.json` (`{"oldDataDir": "…"}`) in the new folder; after the restart Orrery offers to delete the old copy only when that record names the same folder as `--moved-from` and the folder doesn't overlap the one in use, and removes the record on that first start whatever happens.
 
 ---
 
@@ -184,6 +184,7 @@ vault.frv = JSON header (plaintext) + encrypted payload
 - The vault unlocks on first use: when a connection needs a secret, or when the Credentials section opens. The app starts without asking.
 - **Auto-lock** after an idle period (default 30 min; configurable; "never" allowed). Live sessions keep running when the vault locks.
 - **"Remember on this device"** (installed mode only): store the DEK in the OS keychain so the vault opens without the password on this machine. Offered in portable mode only with a clear warning, because it leaves a key on the host.
+- **Windows Hello or Touch ID** (2026-10-31): a second wrap of the DEK under a key only the platform authenticator releases, kept per user on this computer and never in the data folder. The vault file doesn't change and the master password keeps working. See [design-biometric-unlock.md](design-biometric-unlock.md).
 - Five failed attempts trigger an increasing delay. There is no lockout or wipe.
 - There is **no recovery** if the master password is forgotten. Say so plainly when the vault is created, and offer an encrypted export.
 
@@ -192,8 +193,12 @@ vault.frv = JSON header (plaintext) + encrypted payload
 - Be honest about the limits: IronRDP's and SSH.NET's APIs take `string` passwords, and .NET strings can't be wiped. Keep secret strings short-lived, never log them, and never include them in crash reports (scrub the `Credential` type in logging).
 
 ### 3.6 SSH keys
-- Keys can be **stored in the vault** (best for portable mode) or **referenced by path**. In portable mode, paths are stored relative to the data folder when they point inside it.
-- ssh-agent support (Pageant / OpenSSH agent on Windows, `SSH_AUTH_SOCK` elsewhere) comes later. The credential model already allows a `kind` for it.
+- Keys can be **stored in the vault** (best for portable mode) or **referenced by path**.
+- A path is the connection's **Key file** setting (`InheritableSettings.KeyFile`, inherited like the others; empty means none). It's only a path, so it goes in `connections.json` and in an Orrery `.json` export, and mRemoteNG's export reports it as lost. A leading `~` is the home folder, expanded when connecting; the path is otherwise used as written, and a relative one is refused. The file is read each time a session connects (`SshKeyFile`), never copied into Orrery's data, and neither its contents nor its folder are logged or put in a message. It must be an ordinary file of at most 64 KB. On Linux and macOS a key that group or others can read gets a warning in the terminal and the log, not a refusal.
+- An encrypted key file's passphrase is asked for before the session starts (`KeyPassphraseWindow`) and held in memory for that tab's automatic reconnects. It can be saved as a Password credential named "Passphrase for <file>", with an id made from the file's full path, so the next connect finds it when the store is open (a locked vault isn't unlocked just to look). A key that needs a passphrase the session doesn't have, because the file changed meanwhile, fails on the connection-lost screen and waits for the user.
+- Login order, from `SshSession.AuthenticationMethods`: a saved key credential, then the key file, then the SSH agent's keys (when the connection allows them and there's no saved credential), then the password. These are one public-key method holding the keys in that order, then the password methods. SFTP and jump hosts use the same code.
+- ssh-agent support (Pageant / OpenSSH agent on Windows, `SSH_AUTH_SOCK` elsewhere) is in `Orrery.Protocols.Ssh/Agent`.
+- The credential editor's private key box is masked until Show is pressed and tells UI Automation only "Private key, N lines" (`PrivateKeyBox`), as `PasswordBox` does for passwords.
 
 ---
 
@@ -225,7 +230,7 @@ The mapping stage is pure: file in, model plus warnings out, with no I/O. That k
 
 ### 4.3 File format (to verify against real files)
 
-> Checked against a real ConfVersion 2.6 export (2026-10-29): the root attributes, the 113 per-node attributes and the `Protected` marker all match. An anonymised copy is the test fixture `tests/Orrery.Core.Tests/Import/Fixtures/mremoteng-2.6-no-passwords.xml`.
+> Checked against a real ConfVersion 2.6 export (2026-10-29): the root attributes, the 113 per-node attributes and the `Protected` marker all match. An anonymized copy is the test fixture `tests/Orrery.Core.Tests/Import/Fixtures/mremoteng-2.6-no-passwords.xml`.
 
 Root element:
 
@@ -279,7 +284,7 @@ Root element:
 **Common fields:** `Name`, `Hostname`, `Port`, `Username`, `Domain`, `Password` (→ credential), `Descr`.
 
 **RDP fields (examples; complete the table from fixtures):** `Resolution`, `Colors`, `UseCredSsp`, `RDPAuthenticationLevel`, `RedirectClipboard`, `RedirectDiskDrives`, `RedirectPrinters`, `RedirectSound`, `RedirectKeys`, `DisplayWallpaper`, `DisplayThemes`, `RDGatewayUsageMethod` / `RDGatewayHostname` / gateway credential fields, `LoadBalanceInfo`, `ConnectToConsole`.
-Any RDP setting IronRDP can't honour yet (gateway is the likely one) is **still imported** and flagged "not supported yet", so nothing is lost when support arrives.
+Any RDP setting IronRDP can't honor yet (gateway is the likely one) is **still imported** and flagged "not supported yet", so nothing is lost when support arrives.
 
 **SSH:** `PuttySession` refers to a saved PuTTY session in the Windows registry. v1 records the name and flags it. A later option reads `HKCU\Software\SimonTatham\PuTTY\Sessions\<name>` on Windows to pull in key paths and ports.
 
@@ -310,6 +315,10 @@ The report never contains secrets.
 
 > Encrypted exports (2026-10-31): when what's exported uses saved credentials, the export can include their secrets, protected by a password chosen for that export (at least 8 characters). An Orrery `.json` export is then sealed as a whole (`orrery-connections-encrypted`: Argon2id at the vault's cost, XChaCha20-Poly1305, format and KDF settings bound in as associated data; host names aren't readable either) and carries the saved credentials themselves, which get new ids on import. A `confCons.xml` gets each connection's password in mRemoteNG's own encryption with that password as the master password (the `Protected` marker decrypts to `ThisIsProtected`, `KdfIterations` 10,000), so mRemoteNG asks for it; it has no field for SSH keys, so those are left out. CSV never carries secrets. See `src/Orrery.Core/Export/SealedExport.cs`.
 
+> OpenSSH config import (2026-10-31): `~/.ssh/config`, or a file the user picks, imports through `SshConfigImporter` into a folder named after the file. Each `Host` name without wildcards becomes an SSH connection (`HostName`, `User`, `Port`). Blocks are read in file order and the first value of each keyword wins, so `Host *` blocks give defaults, but a pattern-only `Host` makes no connection. `Include` is followed relative to `~/.ssh` (or, for a file picked from elsewhere, its own folder), with globs, a depth of 16, at most 200 files, and loops cut by file name. `Match` blocks are counted and left out. `ProxyCommand`, `LocalCommand` and `KnownHostsCommand` are never run; they're reported as skipped. `~` and `%d`, `%h`, `%n`, `%p`, `%r`, `%u` and `%%` are expanded where OpenSSH expands them; other tokens and `${VAR}` stay as written and are noted. The first `IdentityFile` of a connection becomes its **Key file** setting (see §3.6) with the tokens expanded as above; later ones aren't used and are counted in a warning, and the import never opens the key file.
+>
+> `ProxyJump` maps onto jump hosts, where each connection names one jump host and that one names the one before it. A hop that is already a connection with the same machine, login and route is reused. Any other hop (a name that isn't a `Host`, or a `Host` reached by a different route, such as `b` in `ProxyJump a,b`) becomes a connection named `<name> (jump host)` in the same folder. The first hop's own `ProxyJump` comes before it. Loops, more than 5 hops and unreadable hops leave the connection without a jump host and say so in the report. Re-importing drops what is already there and points new connections at the existing jump hosts (`ImportResult.WithoutAlreadyIn`). The file is untrusted: 2 MB per file, 8 MB in all, 1,000 host names, 5,000 blocks, 10,000 patterns; binary files are refused; warnings never quote a line.
+
 ### 4.9 Testing
 - **Fixtures:** generate `confCons.xml` files from real mRemoteNG builds (at least the current stable and the current nightly, plus one legacy-format version), each with a known master password and with the default password. Cover every protocol, nested inheritance, full-file encryption, Unicode names and an empty file. **Never commit real user files.**
 - **Golden tests:** fixture in → expected Orrery model (JSON) out, including the warning list.
@@ -317,7 +326,7 @@ The report never contains secrets.
 - **Security:** parse XML with DTD processing prohibited and no XML resolver (blocks XXE and entity-expansion attacks). Cap the file size, and fuzz the parser with malformed input.
 
 ### 4.10 Licensing note
-mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. **Do not copy its code**, including the crypto and serializer classes. Write the importer from the format as observed in fixtures and documented behaviour, so Orrery can stay MIT-licensed.
+mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. **Do not copy its code**, including the crypto and serializer classes. Write the importer from the format as observed in fixtures and documented behavior, so Orrery can stay MIT-licensed.
 
 ---
 
@@ -326,4 +335,4 @@ mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. *
 2. **Vault in installed mode:** OS keychain by default (seamless) or vault file by default (one encrypted file to back up)? This draft proposes the keychain.
 3. **Portable on macOS:** worth supporting beyond "it works"? Gatekeeper and App Translocation make running from removable media awkward.
 4. **Shared data folder:** if someone points two machines at one synced custom folder, the lock file covers simultaneous use but not sync conflicts. Is a warning enough for v1?
-5. **Credential types:** add a "prompt every time" credential (no stored secret) in v1? mRemoteNG users with blank passwords rely on this behaviour.
+5. **Credential types:** add a "prompt every time" credential (no stored secret) in v1? mRemoteNG users with blank passwords rely on this behavior.

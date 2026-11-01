@@ -1,7 +1,7 @@
 namespace Orrery.Core.Sessions;
 
 /// <summary>
-/// A way to reach a remote machine other than dialling it directly, such as an SSH tunnel through jump hosts.
+/// A way to reach a remote machine other than dialing it directly, such as an SSH tunnel through jump hosts.
 /// A session opens it before connecting, dials the address it returns instead of the machine's own, and
 /// disposes it when the session ends. Names (certificates, host keys, Kerberos) still use the machine's own.
 /// </summary>
@@ -15,7 +15,11 @@ public interface ISessionRoute : IDisposable
 }
 
 /// <summary>The route couldn't be opened; the message says which hop and why.</summary>
-public sealed class RouteException(string message, Exception? inner = null) : Exception(message, inner);
+/// <param name="hop">The jump host that failed, when it was one; the inner exception says what went wrong there.</param>
+public sealed class RouteException(string message, Exception? inner = null, ConnectionTarget? hop = null) : Exception(message, inner)
+{
+    public ConnectionTarget? Hop { get; } = hop;
+}
 
 public static class SessionRoute
 {

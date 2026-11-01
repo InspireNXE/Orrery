@@ -28,6 +28,7 @@
     <ProjectReference Include="..\Orrery.Protocols.Ssh\Orrery.Protocols.Ssh.csproj" />
     <ProjectReference Include="..\Orrery.Protocols.Vnc\Orrery.Protocols.Vnc.csproj" />
     <ProjectReference Include="..\Orrery.Protocols.Telnet\Orrery.Protocols.Telnet.csproj" />
+    <ProjectReference Include="..\Orrery.Protocols.Local\Orrery.Protocols.Local.csproj" />
   </ItemGroup>
 
   <!-- Devolutions.IronRdp's build targets add its native library for every Windows (or Linux) runtime as content

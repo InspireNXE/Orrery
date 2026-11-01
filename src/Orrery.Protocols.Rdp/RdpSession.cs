@@ -161,12 +161,40 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         catch (Exception e) when (e is CertificateRejectedException or RouteException)
         {
             Logger.LogWarning("RDP session to {Host} didn't start: {Message}", Target.Host, e.Message);
-            SetState(SessionState.Failed, e.Message);
+            SetState(SessionState.Failed, e.Message, e);
         }
         catch (Exception e)
         {
             Logger.LogError(e, "RDP session to {Host} failed", Target.Host);
-            SetState(SessionState.Failed, e.Message);
+            SetState(SessionState.Failed, e.Message, Recognize(e));
+        }
+    }
+
+    /// <summary>
+    /// IronRDP's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside: its own
+    /// name lookup, the server hanging up, and access denied. Socket errors and timeouts already say what happened.
+    /// </summary>
+    internal static Exception Recognize(Exception e)
+    {
+        var kind = e switch
+        {
+            IronRdpLibException { ErrorType: IronRdpLibExceptionType.CannotResolveDns } => FailureKind.NameNotFound,
+            IronRdpLibException { ErrorType: IronRdpLibExceptionType.EndOfFile } => FailureKind.ServerClosed,
+            IronRdpException rdp when KindOf(rdp) == IronRdpErrorKind.AccessDenied => FailureKind.LoginFailed,
+            _ => (FailureKind?)null,
+        };
+        return kind is { } known ? new SessionFailureException(known, e.Message, e) : e;
+    }
+
+    static IronRdpErrorKind? KindOf(IronRdpException e)
+    {
+        try
+        {
+            return e.Inner.Kind;
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException or NullReferenceException)
+        {
+            return null;
         }
     }
 
@@ -688,10 +716,10 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
         }
     }
 
-    void SetState(SessionState state, string? message = null)
+    void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         State = state;
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
     }
 
     T WithStageLock<T>(Func<T> call)

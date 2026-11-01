@@ -109,7 +109,7 @@ sealed class RdpClipboardBridge
         }
     }
 
-    /// <summary>Handles the channel's events until <paramref name="token"/> is cancelled.</summary>
+    /// <summary>Handles the channel's events until <paramref name="token"/> is canceled.</summary>
     public async Task RunAsync(CancellationToken token)
     {
         while (!token.IsCancellationRequested && _keepRunning())

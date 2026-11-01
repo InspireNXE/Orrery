@@ -63,7 +63,8 @@ connects to, files it imports, other local users and processes, and anyone who g
    report the mouse; paste into a session (bracketed paste); huge or malformed parameters.
    `src/Orrery.Core/Terminal/*`, `src/Orrery.App/Sessions/TerminalView.cs`.
 7. **Imported files.** mRemoteNG `confCons.xml`: XML parsing, its password decryption, the import
-   report written to disk. `src/Orrery.Core/Import/*`, `src/Orrery.App/Import/ImportPreviewWindow.cs`,
+   report written to disk. OpenSSH `~/.ssh/config`: Include following, size caps, ProxyJump into jump hosts,
+   commands never run. `src/Orrery.Core/Import/*`, `src/Orrery.App/Import/ImportPreviewWindow.cs`,
    `MainWindow.axaml.cs` (`ImportAsync`, `WriteImportReport`).
 8. **Secrets at rest and in memory.** Vault file format, key derivation, encryption, auto-lock, master
    password change; OS keychain backends; secrets in logs, exceptions, UI, clipboard and the import

@@ -6,7 +6,7 @@ namespace Orrery.Core.Terminal;
 /// <summary>
 /// An xterm-compatible terminal: feed it the bytes a shell sends and it maintains the screen, the
 /// alternate screen (full-screen programs) and scrollback. Covers what shells, vim, less, top, tmux and
-/// htop use: cursor movement, erasing, insert/delete, scroll regions, SGR colours (16, 256, 24-bit),
+/// htop use: cursor movement, erasing, insert/delete, scroll regions, SGR colors (16, 256, 24-bit),
 /// DEC private modes, line-drawing characters, titles and status reports. No UI dependency.
 /// <para>
 /// Thread safety: <see cref="Feed"/>, <see cref="Resize"/> and all reads must hold <see cref="SyncRoot"/>
@@ -84,6 +84,12 @@ public sealed class TerminalEmulator
 
     /// <summary>Lines that scrolled off the top of the main screen, oldest first.</summary>
     public int ScrollbackCount => _scrollback.Count;
+
+    /// <summary>
+    /// How many times a line has scrolled off the top of the screen, on either screen, scrollback or not. Comparing
+    /// two readings tells how far the lines moved up in between.
+    /// </summary>
+    public long LinesScrolled { get; private set; }
 
     /// <summary>Bytes the terminal must send back to the host (status and device reports).</summary>
     public event Action<string>? Reply;
@@ -828,6 +834,11 @@ public sealed class TerminalEmulator
             var leaving = screen[_top];
             screen.RemoveAt(_top);
             screen.Insert(_bottom, new TerminalLine(Columns, _style.ForErase));
+            if (_top == 0)
+            {
+                LinesScrolled++;
+            }
+
             if (_top == 0 && !_altActive)
             {
                 AddToScrollback(leaving);
@@ -1015,7 +1026,7 @@ public sealed class TerminalEmulator
         _style = new CellStyle(fg, bg, flags);
     }
 
-    /// <summary>38/48;5;n (256 colours) or 38/48;2;r;g;b (24-bit). Colon forms arrive as the same list.</summary>
+    /// <summary>38/48;5;n (256 colors) or 38/48;2;r;g;b (24-bit). Colon forms arrive as the same list.</summary>
     TerminalColor ExtendedColor(ref int i, TerminalColor current)
     {
         int Param(int at) => at < _params.Count ? Math.Max(0, _params[at]) : 0;
@@ -1029,7 +1040,7 @@ public sealed class TerminalEmulator
 
         if (Param(i + 1) == 2)
         {
-            // "38:2::r:g:b" carries an empty colour-space id; skip it when six values follow.
+            // "38:2::r:g:b" carries an empty color-space id; skip it when six values follow.
             int start = i + 5 < _params.Count && _params.Count - i > 5 && _params[i + 2] < 0 ? i + 3 : i + 2;
             if (start + 2 < _params.Count)
             {

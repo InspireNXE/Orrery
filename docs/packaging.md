@@ -8,7 +8,7 @@ step whose tool is missing, with a warning, and prints what was built and what w
 
 ## Orrery Setup (Windows installer)
 
-Built with Inno Setup, the same way as Prober's desktop setup (`installer\Orrery.iss` is modelled on
+Built with Inno Setup, the same way as Prober's desktop setup (`installer\Orrery.iss` is modeled on
 `Prober.Installer\Prober.Desktop.iss`, and `installer\WizardLayout.iss` is copied from Prober so the wizard looks
 the same). You need PowerShell 5.1 or later, the .NET SDK, and Inno Setup 7 installed per user
 (`%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe`) or for all users under either Program Files folder; pass
@@ -44,7 +44,7 @@ bundle is neither compressed nor self-extracting, so nothing is unpacked at laun
 heuristics flagged the compressed, self-extracting build as `Trojan:Script/Wacatac.B!ml` when it was downloaded in
 Edge. Unsigned downloads can still be flagged until the executables are code-signed. The single-file analyzer is
 turned off for that publish, because it would add a package that isn't in the lock files. On macOS the zip holds `Orrery.app` (Info.plist and icon),
-with the marker beside the bundle. The bundle isn't signed or notarised yet, so macOS asks before the first launch.
+with the marker beside the bundle. The bundle isn't signed or notarized yet, so macOS asks before the first launch.
 Zip files carry no Unix permissions from Windows: on Linux and macOS, `chmod +x` the executable after unzipping, or
 build those packages on Linux or macOS.
 
@@ -107,11 +107,11 @@ unused DLL in Windows packages. Builds without a runtime, like `dotnet run`, kee
 ## Third-party notices
 
 `build/Generate-ThirdPartyNotices.ps1 -PublishDir <publish output>` writes `THIRD-PARTY-NOTICES.txt` from the
-publish's `deps.json`, so it lists exactly what that platform ships, including the .NET runtime pack. Licence and
-notice files are copied unchanged from each package; a package that only names its licence (MIT) gets the
+publish's `deps.json`, so it lists exactly what that platform ships, including the .NET runtime pack. License and
+notice files are copied unchanged from each package; a package that only names its license (MIT) gets the
 standard text with its copyright line. `build/licenses/<package id>.txt` adds texts a package lacks or bundles
-separately (IronRDP's MIT licence, the Inter font's OFL), with their source named. The script fails if a shipped
-package has no licence text it can find, so a new dependency can't ship unacknowledged.
+separately (IronRDP's MIT license, the Inter font's OFL), with their source named. The script fails if a shipped
+package has no license text it can find, so a new dependency can't ship unacknowledged.
 
 ## Package versions and lock files
 

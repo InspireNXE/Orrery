@@ -15,13 +15,15 @@ public sealed record ResolvedSettings(
     Resolved<string?> Username,
     Resolved<string?> Domain,
     Resolved<bool> ShareClipboard,
+    Resolved<string?> KeyFile,
     Resolved<bool> UseSshAgent,
     Resolved<bool> AllowLegacySsh,
     Resolved<Guid?> JumpHostId,
     Resolved<bool> AutoReconnect,
     Resolved<string?> DesktopSize,
     Resolved<bool?> EnlargeRemoteDesktop,
-    Resolved<DisplayQuality> DisplayQuality)
+    Resolved<DisplayQuality> DisplayQuality,
+    Resolved<bool> ColorCorrection)
 {
     /// <summary>Whether to enlarge the remote desktop: the tree's value, else <paramref name="appSetting"/>.</summary>
     public bool Enlarge(bool appSetting) => EnlargeRemoteDesktop.Value ?? appSetting;
@@ -62,6 +64,7 @@ public static class SettingsResolver
             FindString(node, includeSelf, nameof(InheritableSettings.Username), s => s.Username),
             FindString(node, includeSelf, nameof(InheritableSettings.Domain), s => s.Domain),
             Flag(nameof(InheritableSettings.ShareClipboard), s => s.ShareClipboard, true),
+            FindString(node, includeSelf, nameof(InheritableSettings.KeyFile), s => s.KeyFile),
             Flag(nameof(InheritableSettings.UseSshAgent), s => s.UseSshAgent, true),
             Flag(nameof(InheritableSettings.AllowLegacySsh), s => s.AllowLegacySsh, false),
             jump,
@@ -73,7 +76,9 @@ public static class SettingsResolver
                 : new Resolved<bool?>(null, null),
             Find(node, includeSelf, nameof(InheritableSettings.DisplayQuality), s => s.DisplayQuality) is { } quality
                 ? new Resolved<DisplayQuality>(quality.Value!.Value, quality.Source)
-                : new Resolved<DisplayQuality>(Sessions.DisplayQuality.Balanced, null));
+                : new Resolved<DisplayQuality>(Sessions.DisplayQuality.Balanced, null),
+            // On means "as Settings says", so with no color vision chosen it changes nothing.
+            Flag(nameof(InheritableSettings.ColorCorrection), s => s.ColorCorrection, true));
     }
 
     /// <summary>

@@ -4,6 +4,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.Core.Import;
@@ -36,7 +37,25 @@ public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credentia
         var existing = ExistingSourceIds(tree);
         var importTree = new ConnectionTree(Root);
 
-        foreach (var entry in Root.Descendants().OfType<ConnectionEntry>().Where(e => e.ImportSourceId is { } id && existing.Contains(id)).ToList())
+        // A jump host that's dropped as already imported is still what its users go through: point them at the copy in the tree.
+        var already = Root.Descendants().OfType<ConnectionEntry>().Where(e => e.ImportSourceId is { } id && existing.Contains(id)).ToList();
+        var inTree = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var node in tree.Root.Descendants())
+        {
+            inTree.TryAdd(OrreryImporter.SourcePrefix + node.Id, node.Id);
+            if (node.ImportSourceId is { } source)
+            {
+                inTree.TryAdd(source, node.Id);
+            }
+        }
+
+        var moved = already.Where(e => inTree.ContainsKey(e.ImportSourceId!)).ToDictionary(e => e.Id, e => inTree[e.ImportSourceId!]);
+        foreach (var node in Root.Descendants().Where(n => n.Settings.JumpHostId is { } jump && moved.ContainsKey(jump)))
+        {
+            node.Settings.JumpHostId = moved[node.Settings.JumpHostId!.Value];
+        }
+
+        foreach (var entry in already)
         {
             importTree.Remove(entry);
         }
@@ -296,7 +315,7 @@ public static class MRemoteNgImporter
     }
 
     /// <summary>A report list that keeps its first lines and only counts the rest.</summary>
-    sealed class ReportLines
+    internal sealed class ReportLines
     {
         readonly List<string> _lines = [];
         int _more;
@@ -460,7 +479,26 @@ public static class MRemoteNgImporter
             SetClipboard(entry, node);
             SetQuality(entry, node, mapped);
             AddCredential(entry, node);
+            SetMacAddress(entry, node);
             NoteUnsupported(node, mapped);
+        }
+
+        void SetMacAddress(ConnectionEntry entry, MNode node)
+        {
+            var text = node.Effective("MacAddress").Trim();
+            if (text.Length == 0)
+            {
+                return;
+            }
+
+            if (MacAddress.TryNormalize(text, out var mac))
+            {
+                entry.MacAddress = mac;
+            }
+            else
+            {
+                _warnings.Add($"{node.Path}: its MAC address isn't valid, so it wasn't imported.");
+            }
         }
 
         void AddCredential(ConnectionEntry entry, MNode node)
@@ -589,7 +627,7 @@ public static class MRemoteNgImporter
             ["DisplayWallpaper", "DisplayThemes", "EnableFontSmoothing", "EnableDesktopComposition", "VNCCompression", "VNCColors"];
 
         /// <summary>
-        /// mRemoteNG's visual-effect switches (RDP) or VNC compression and colours as a display quality: every effect
+        /// mRemoteNG's visual-effect switches (RDP) or VNC compression and colors as a display quality: every effect
         /// on is Best, none is Fastest, a mix is Balanced. Null when there's nothing to go on, or a VNC connection
         /// doesn't ask for speed (VNC's Best and Balanced are the same).
         /// </summary>

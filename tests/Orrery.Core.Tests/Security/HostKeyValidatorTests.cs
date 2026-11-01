@@ -45,6 +45,20 @@ public class HostKeyValidatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Check_says_whether_a_rejected_key_was_a_changed_one()
+    {
+        _answer = CertificateTrustDecision.Reject;
+        Assert.Equal((false, false), await Validator().CheckAsync(Host, 22, "ssh-ed25519", Key));
+
+        _answer = CertificateTrustDecision.TrustAlways;
+        await Validator().ValidateAsync(Host, 22, "ssh-ed25519", Key);
+        Assert.Equal((true, false), await Validator().CheckAsync(Host, 22, "ssh-ed25519", Key));
+
+        _answer = CertificateTrustDecision.Reject;
+        Assert.Equal((false, true), await Validator().CheckAsync(Host, 22, "ssh-ed25519", "SHA256:different"));
+    }
+
+    [Fact]
     public async Task Trust_once_does_not_pin()
     {
         _answer = CertificateTrustDecision.TrustOnce;

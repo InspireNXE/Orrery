@@ -1,0 +1,34 @@
+# A typical ~/.ssh/config, for the SSH config import tests.
+Include conf.d/*.conf
+
+Host bastion
+    HostName bastion.example.com
+    User jump
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+
+Host web1 web2
+    HostName %h.internal.example.com
+    ProxyJump bastion
+
+Host web2
+    User ops
+
+Host db
+    HostName db.internal.example.com
+    ProxyJump bastion,web1
+    LocalForward 5433 localhost:5432
+
+Host oldbox
+    HostName 192.0.2.50
+    ProxyCommand ssh -W %h:%p legacy-gateway
+
+Match host *.example.com user root
+    IdentityFile ~/.ssh/root_key
+
+Host *.example.org
+    User guest
+
+Host *
+    User defaultuser
+    ServerAliveInterval 30

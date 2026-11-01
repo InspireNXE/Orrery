@@ -14,21 +14,44 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - RDP ([IronRDP](https://github.com/Devolutions/IronRDP)), SSH (SSH.NET), VNC (MarcusW.VncClient) and Telnet
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
+- SSH key file: a setting that points at a private key on this computer, with a Browse button, inherited from folders
+  like the other settings. Orrery tries a saved key credential first, then the key file, then your SSH agent's keys,
+  then the password. The file is read each time you connect and never copied. `~` means your home folder. If the key
+  has a passphrase, Orrery asks for it, and can save it as a credential. On Linux and macOS it warns when other users
+  can read the key file, but still uses it. The SFTP browser and jump hosts use it too
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
 - Shared clipboard, which can be turned off per connection or folder: over RDP on Windows it carries text, images
   and files; over RDP on Linux and macOS, and over VNC, it carries text
+- When a connection fails or drops, the tab says in a sentence what happened and what to try, with Reconnect
+  (Enter), the technical details and a button to copy them
+- Reconnects by itself after a drop or a network error, waiting a little longer each time (up to a minute), and
+  straight away when the network comes back. It never retries a refused login or an untrusted host key or
+  certificate, since those need you. On by default; can be turned off per connection or folder
+- Wake-on-LAN: give a connection a MAC address, then choose Wake in its right-click menu
+- Local terminal tabs: PowerShell, cmd or a WSL distribution on Windows (chosen in settings), your login shell on Linux
+  and macOS, starting in your home folder
 
 ### Display
 
 - Display quality per connection or folder: Balanced, Best look or Fastest
 - RDP fits the window and follows it as it resizes, or keeps a fixed size
 - *Enlarge to match display scaling* for high-DPI screens
+- Interface colors in Settings: Standard, Clearer (easier to tell apart for most color blindness) or Color-blind (Okabe-Ito); the terminal has its own color-blind friendly scheme
+- *Color vision* in Settings (protanopia, deuteranopia or tritanopia) switches to the color-blind colors, tunes the
+  terminal's to that kind, and corrects RDP and VNC desktops so colors you'd confuse look different, at a strength
+  you choose. A connection or folder can turn the correction off, for design or photo work
+- Session states, host status, warnings and errors have a shape, an icon or a word as well as a color
 
-### Organising
+### Organizing
 
 - Connection tree with folders, drag and drop, multi-select and a filter
 - Settings inherited from folders
 - Host groups: a host with its guest machines below it
+- Each connection's row has two marks. The one before the name is its session: a filled dot when connected, a broken
+  ring while connecting, a cross when it failed, an empty ring when none is open. The one beside the protocol is its
+  host: a filled dot when it answered, a cross when it didn't, a dashed ring when it can't be checked. Hover either
+  for it in words. The host check is a plain TCP connect to the host and port about once a minute, only for
+  connections you can see and never through a jump host; it can be turned off in Settings
 - The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
   hover), and when the last attempt failed if that came after. A folder shows the latest of its connections.
 
@@ -36,15 +59,26 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
-- Import mRemoteNG `confCons.xml` and Orrery `.json`
+- Unlock the vault with Windows Hello instead of the master password, when Windows shows its key is held in the TPM
+  (not over Remote Desktop). Touch ID on macOS is written but needs a signed build. See
+  [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
+- Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
+- Import your OpenSSH `~/.ssh/config`, with its `Include` files, defaults from `Host *` and `ProxyJump` chains turned
+  into jump hosts. Nothing in the config is run. The first `IdentityFile` of each host becomes its key file; the key
+  itself is never opened by the import
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
-  (never in CSV)
+  (never in CSV). Key file paths go in the Orrery `.json`; mRemoteNG has nowhere to keep them, and the export says so
+- The credential editor's private key box is hidden until you press Show, and can still be pasted into
 
 ### Running it
 
 - Installed, or portable with its data wherever you choose
 - Windows, Linux and macOS
 - Dark-first interface
+- Remembers the window and the tabs you had open, and reopens them at the next start if you want (ask, always or
+  never, in Settings). A host typed into quick connect comes back by address only and asks for its login again; a
+  local terminal comes back with the same shell
+- Works with screen readers on Windows, terminals included (see [Accessibility](#accessibility))
 
 HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet because IronRDP's .NET binding doesn't
 pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.
@@ -56,16 +90,53 @@ On macOS, Cmd replaces Ctrl.
 | Keys | Action |
 | --- | --- |
 | Ctrl+K | Quick connect |
+| Ctrl+Shift+T | Local terminal |
+| Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste. Plain Ctrl+A goes to the session |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel |
 | Ctrl+Alt+B | Show or hide the properties pane |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (can be changed in settings) |
+| Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back in |
 | Enter | Connect the selected connections |
 | F2 | Rename |
 | Ctrl+D | Duplicate |
 | Delete | Delete the selected rows |
 
-While a remote session has focus it gets keys first, so these shortcuts go to the remote machine.
+While a remote session has focus it gets keys first, so these shortcuts go to the remote machine. Full screen and
+Ctrl+Alt+Home always reach Orrery. Ctrl+Shift+T still opens a local terminal from inside a terminal, but not from a
+remote desktop.
+
+## Accessibility
+
+Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
+
+- Every button, field and list says what it is. Rows in the connection tree give their name, what they are
+  (protocol and host, or how many connections a folder holds), the state of their open session, and whether their
+  host is up when host checks are on.
+- Session tabs say which connection they are, its state and which tab is current.
+- When a connection fails or drops, the screen reader hears what happened and the focus moves to Reconnect.
+- Password fields give screen readers a dot per character, never the password. The private key box in the credential
+  editor tells them only "Private key, 3 lines", never the key, whether or not it's showing on screen.
+- A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
+  on while a screen reader is running. Turn it on or off in Settings, under Accessibility.
+- A screen reader can also read the whole terminal screen and the cursor's line and column.
+- Colors that carry meaning are checked by the tests against simulated protanopia, deuteranopia and tritanopia
+  (Machado et al. 2009) for difference (CIEDE2000) and against WCAG contrast.
+- Terminals and remote desktops keep every key, Tab included. Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the
+  session for its tab, and leaves full screen first. Enter on the tab goes back in.
+
+What doesn't work yet:
+
+- A remote desktop is a picture, so a screen reader can only tell you its name, "Remote desktop:" and the connection.
+- Remote desktop color correction is daltonization: it makes confusable colors differ, but can't show you colors
+  you can't see, and changes how pictures look. It's been checked by numbers, not yet by color-blind users.
+- Avalonia, the toolkit Orrery is built with, doesn't let screen readers move through the terminal by line or word.
+  They get the screen as one block of text.
+- Tree rows don't report their level or "2 of 5", and password fields aren't marked as passwords, so a screen reader
+  that reads out typed characters will read out a password as you type it. Turn off typed character echo while you
+  type one.
+- VoiceOver on macOS hasn't been tested. On Linux, Avalonia has no screen reader support yet, so Orca can't read
+  Orrery.
 
 ## Where data lives
 
@@ -125,7 +196,7 @@ lists what was built and what wasn't. On Windows you get everything except the A
 
 Packages are self-contained, so the target machine needs no .NET runtime. Output goes to `artifacts/`. On Windows and
 Linux the portable app is a single executable with its native libraries beside it; on macOS it is an `Orrery.app`
-bundle, not yet signed or notarised. On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine
+bundle, not yet signed or notarized. On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine
 needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as dependencies. There's no Flatpak.
 [docs/packaging.md](docs/packaging.md) has the details, including Linux requirements, third-party notices and lock files.
 
@@ -135,7 +206,7 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 | --- | --- |
 | `src/Orrery.App` | The Avalonia app: windows, connection tree, properties pane, settings |
 | `src/Orrery.Core` | Model, storage, credentials, vault, import and export |
-| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions |
+| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions, and local terminals |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
 | `build/` | Packaging, installer and third-party notice scripts |
 | `installer/` | Inno Setup script for the Windows installer; `installer/linux/` holds the Linux launcher and icons |
@@ -144,17 +215,20 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, VNC authentication, and the RDP
-clipboard on Linux and macOS. That clipboard also needs IronRDP's native library for Linux and macOS built from the
-same IronRDP change as the Windows one (see [Building](#building)); until then it stays off there and RDP works
-without it. The Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools
-can flag the single-file executable as a false positive.
+the Linux and macOS builds (including the .deb, .rpm and AppImage), local terminals on Linux and macOS, the ARM builds,
+VNC authentication, logging in to a real SSH server with a key file (plain and passphrase-protected, directly, in the
+file browser and through a jump host), how each protocol reports real network failures (an RDP server refusing a login,
+especially) on the connection-lost screen, the Windows Hello and Touch ID prompts, and the RDP clipboard on Linux and
+macOS. That clipboard also needs IronRDP's native library for Linux and macOS built from the same IronRDP change as the
+Windows one (see [Building](#building)); until then it stays off there and RDP works without it. The Windows executables
+aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the single-file executable as a
+false positive.
 
-## Licence and credits
+## License and credits
 
 Orrery is MIT-licensed, © 2026 InspireNXE. See [LICENSE](LICENSE).
 
-It's built on open-source work, all under permissive licences (MIT, Apache 2.0, BSD, ISC, OFL):
+It's built on open-source work, all under permissive licenses (MIT, Apache 2.0, BSD, ISC, OFL):
 
 - [Avalonia](https://avaloniaui.net/) (UI), [SkiaSharp](https://github.com/mono/SkiaSharp) and
   [HarfBuzzSharp](https://github.com/mono/SkiaSharp) (drawing and text), and the [Inter](https://rsms.me/inter/) font
@@ -167,6 +241,6 @@ It's built on open-source work, all under permissive licences (MIT, Apache 2.0, 
   (FreeType is built into Skia.)
 
 Every package carries `THIRD-PARTY-NOTICES.txt`, generated from what that build ships, with each component's
-licence and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
+license and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
 the libraries linked into it, including libfuse (LGPL 2.1). mRemoteNG is GPL-licensed. Orrery reads and writes its
 `confCons.xml` files using code written from the file format alone, and contains none of mRemoteNG's code.

@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -34,11 +35,12 @@ sealed class CredentialsView
     readonly TextBlock _subtitle = new() { FontSize = 12, Foreground = Dialogs.MutedBrush };
     readonly ComboBox _kind = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _name = new(), _username = new(), _domain = new(), _notes = new() { AcceptsReturn = true, Height = 72, TextWrapping = TextWrapping.Wrap };
-    readonly TextBox _password = new() { PasswordChar = '•' };
-    readonly TextBox _key = new() { AcceptsReturn = true, Height = 120, FontFamily = Dialogs.MonoFont, FontSize = 11, TextWrapping = TextWrapping.NoWrap };
-    readonly TextBox _passphrase = new() { PasswordChar = '•' };
+    readonly TextBox _password = new PasswordBox();
+    readonly PrivateKeyBox _key = new() { Height = 120 };
+    readonly ToggleButton _showKey = new() { Content = "Show", MinHeight = 0, Padding = new Thickness(8, 2), FontSize = 11, Margin = new Thickness(0, 0, 6, 0) };
+    readonly TextBox _passphrase = new PasswordBox();
     readonly TextBlock _secretHint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Control _passwordField, _keyFields, _domainField;
     readonly Button _save, _delete;
     Guid? _editing;
@@ -125,6 +127,16 @@ sealed class CredentialsView
 
         var loadKey = new Button { Content = "Load from file…", MinHeight = 0, Padding = new Thickness(8, 2), FontSize = 11 };
         loadKey.Click += async (_, _) => await LoadKeyFileAsync();
+
+        // The key is masked until asked for, and a screen reader is only ever told how many lines it has.
+        Avalonia.Automation.AutomationProperties.SetName(_notes, "Notes");
+        Avalonia.Automation.AutomationProperties.SetName(_key, "Private key");
+        Avalonia.Automation.AutomationProperties.SetName(_showKey, "Show the private key on screen");
+        _showKey.IsCheckedChanged += (_, _) =>
+        {
+            _key.Revealed = _showKey.IsChecked == true;
+            _showKey.Content = _key.Revealed ? "Hide" : "Show";
+        };
         _save = new Button { Content = "Save", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
         _save.Classes.Add("accent");
         _save.Click += async (_, _) => await SaveAsync();
@@ -144,7 +156,15 @@ sealed class CredentialsView
                     Spacing = 4,
                     Children =
                     {
-                        new DockPanel { Children = { Pane.Docked(loadKey, Dock.Right), Dialogs.Label("Private key (OpenSSH, PEM or .ppk)") } },
+                        new DockPanel
+                        {
+                            Children =
+                            {
+                                Pane.Docked(loadKey, Dock.Right),
+                                Pane.Docked(_showKey, Dock.Right),
+                                Dialogs.Label("Private key (OpenSSH, PEM or .ppk)"),
+                            },
+                        },
                         _key,
                     },
                 },
@@ -179,7 +199,7 @@ sealed class CredentialsView
     /// <summary>The selected credential's editor, for the right-hand pane.</summary>
     public Control Editor { get; }
 
-    /// <summary>Reloads the list, unlocking the store first if needed. Cancelling leaves the locked notice up.</summary>
+    /// <summary>Reloads the list, unlocking the store first if needed. Canceling leaves the locked notice up.</summary>
     public async Task ShowAsync()
     {
         if (_store.IsLocked && !await _unlock())
@@ -249,6 +269,7 @@ sealed class CredentialsView
         _list.SelectedItem = null;
         _name.Text = _username.Text = _domain.Text = _password.Text = _key.Text = _passphrase.Text = _notes.Text = string.Empty;
         _kind.SelectedIndex = 0;
+        _showKey.IsChecked = false;
         _title.Text = "New credential";
         _secretHint.IsVisible = false;
         ShowDelete(false);
@@ -280,6 +301,7 @@ sealed class CredentialsView
         _domain.Text = credential.Domain;
         _notes.Text = credential.Notes;
         _password.Text = _key.Text = _passphrase.Text = string.Empty;
+        _showKey.IsChecked = false;
         _secretHint.Text = credential.Kind == CredentialKind.Password
             ? "Leave the password blank to keep the saved one."
             : "Leave the key and passphrase blank to keep the saved ones.";

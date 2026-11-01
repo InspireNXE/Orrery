@@ -3,6 +3,7 @@ using System.Text.Json;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Export;
+using Orrery.Core.Network;
 
 namespace Orrery.Core.Import;
 
@@ -15,6 +16,7 @@ public static class OrreryImporter
 {
     internal const string SourcePrefix = "orrery:";
     const long MaxFileBytes = 64L * 1024 * 1024;
+    const int MaxKeyFilePathLength = 1024;
 
     public static ImportResult ImportFile(string path, string? password = null)
     {
@@ -182,12 +184,52 @@ public static class OrreryImporter
         {
             ConnectionEntry entry => new ConnectionEntry { Id = newIds[entry.Id], Host = entry.Host?.Trim() ?? string.Empty, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Id = newIds[folder.Id], Expanded = folder.Expanded },
-            _ => throw new ImportException("This file has an item Orrery doesn't recognise."),
+            _ => throw new ImportException("This file has an item Orrery doesn't recognize."),
         };
         copy.Name = node.Name ?? string.Empty;
         copy.Notes = node.Notes;
+        if (node is ConnectionEntry fromEntry && copy is ConnectionEntry toEntry)
+        {
+            // Both go into a UDP packet's destination and contents, so anything unreadable is left out, not kept as text.
+            if (!string.IsNullOrWhiteSpace(fromEntry.MacAddress))
+            {
+                if (MacAddress.TryNormalize(fromEntry.MacAddress, out var mac))
+                {
+                    toEntry.MacAddress = mac;
+                }
+                else
+                {
+                    warnings.Add($"{copy.Name}: its MAC address isn't valid, so it was left out.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(fromEntry.WakeBroadcast))
+            {
+                if (WakeOnLan.TryParseBroadcast(fromEntry.WakeBroadcast, out var broadcast))
+                {
+                    toEntry.WakeBroadcast = broadcast.ToString();
+                }
+                else
+                {
+                    warnings.Add($"{copy.Name}: its wake-up broadcast address isn't valid, so it was left out.");
+                }
+            }
+        }
+
         copy.ImportSourceId = node.ImportSourceId ?? SourcePrefix + node.Id;
         copy.Settings = node.Settings?.Clone() ?? new InheritableSettings();
+
+        // Only a path, which isn't read until the connection is used; a value that can't be one is left out.
+        if (copy.Settings.KeyFile is { } keyFile)
+        {
+            keyFile = keyFile.Trim();
+            bool usable = keyFile.Length <= MaxKeyFilePathLength && !keyFile.Any(char.IsControl);
+            copy.Settings.KeyFile = usable ? keyFile : null;
+            if (!usable)
+            {
+                warnings.Add($"{copy.Name}: its key file isn't a usable path, so it was left out.");
+            }
+        }
 
         // Only a sealed export carries saved credentials; any other id would point at nothing on this computer.
         if (copy.Settings.CredentialId is { } credentialId && credentialId != InheritableSettings.NoCredential)

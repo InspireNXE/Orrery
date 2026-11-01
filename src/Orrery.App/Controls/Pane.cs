@@ -15,7 +15,9 @@ static class Pane
     public static Control Section(string title, params Control[] children)
     {
         var section = new StackPanel { Spacing = 10 };
-        section.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
+        var heading = new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } };
+        Avalonia.Automation.AutomationProperties.SetHeadingLevel(heading, 2);
+        section.Children.Add(heading);
         section.Children.AddRange(children);
         return section;
     }
@@ -40,7 +42,7 @@ static class Pane
         },
     };
 
-    /// <summary>A coloured square with an icon, beside a title and a subtitle.</summary>
+    /// <summary>A colored square with an icon, beside a title and a subtitle.</summary>
     /// <param name="more">Further lines under the subtitle.</param>
     public static Control Header(Border tile, TextBlock title, TextBlock subtitle, params Control[] more)
     {

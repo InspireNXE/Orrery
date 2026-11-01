@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -15,12 +16,14 @@ using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 
 namespace Orrery.App.Settings;
 
 /// <summary>
-/// The settings page, shown in the main window over the sessions: storage (where the data folder is,
-/// Move data…), credentials (which store, when the vault locks), import and About. Changes that swap files
+/// The settings page, shown in the main window over the sessions. A list down the side picks one of a few pages
+/// (General, Appearance, Sessions, Data and security, About), each a column of sections; the last one shown is
+/// remembered. Changes that swap files
 /// out from under the running app end in <see cref="RestartRequested"/> rather than a live switch.
 /// </summary>
 sealed class SettingsView : UserControl
@@ -38,23 +41,38 @@ sealed class SettingsView : UserControl
     readonly Func<Task> _saveEverything;
     readonly Func<Task> _import;
     readonly Func<Task> _export;
+    readonly Func<Task>? _importSshConfig;
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
+    readonly ListBox _pageList = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
+    readonly ScrollViewer _pageScroll = new();
+    readonly Dictionary<string, Control> _pages = [];
+    Action _refreshScreenReaderNote = () => { };
+    readonly BiometricUnlock? _biometric;
+    readonly CheckBox _biometricSwitch = new();
+    readonly TextBlock _biometricNote = Note(string.Empty);
+    readonly StackPanel _biometricLeftovers = new() { Spacing = 4, IsVisible = false };
 
     AppSettings _settings;
     bool _loading = true;
+    bool _settingBiometricSwitch;
 
     /// <param name="saveEverything">Writes pending edits to disk, so a copy of the data folder is complete.</param>
     /// <param name="import">Asks for an mRemoteNG file and imports it.</param>
-    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import, Func<Task> export)
+    /// <param name="importSshConfig">Imports the user's OpenSSH config; the button shows only when this is given.</param>
+    /// <param name="biometric">Windows Hello or Touch ID, offered for the vault file; null where there's none.</param>
+    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import, Func<Task> export,
+        Func<Task>? importSshConfig = null, BiometricUnlock? biometric = null)
     {
         _location = location;
         _settingsStore = settingsStore;
         _credentials = credentials;
+        _biometric = biometric;
         _saveEverything = saveEverything;
         _import = import;
         _export = export;
+        _importSshConfig = importSshConfig;
         _settings = settingsStore.Load();
 
         var close = new Button { Content = StrokeIcon.Create(Icons.Close, 14), Width = 28, Height = 28 };
@@ -84,30 +102,96 @@ sealed class SettingsView : UserControl
                         },
                     },
                 }, Dock.Top),
-                new ScrollViewer
+                Pane.Docked(new Border
                 {
-                    Content = new StackPanel
-                    {
-                        Margin = new Thickness(32, 24, 32, 32),
-                        MaxWidth = 600,
-                        HorizontalAlignment = HorizontalAlignment.Left,
-                        Spacing = 28,
-                        Children =
-                        {
-                            StorageSection(),
-                            CredentialsSection(),
-                            RemoteDesktopSection(),
-                            KeyboardSection(),
-                            ImportSection(),
-                            LogsSection(),
-                            AboutSection(),
-                        },
-                    },
-                },
+                    Background = Dialogs.PanelBrush,
+                    BorderBrush = Pane.LineBrush,
+                    BorderThickness = new Thickness(0, 0, 1, 0),
+                    Width = 200,
+                    Padding = new Thickness(0, 16, 0, 16),
+                    Child = _pageList,
+                }, Dock.Left),
+                _pageScroll,
             },
         };
 
+        var pages = new (string Name, Control[] Sections)[]
+        {
+            ("General", [StartupSection(), KeyboardSection(), HostStatusSection()]),
+            ("Appearance", [.. ColorSections(), AccessibilitySection()]),
+            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
+            ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
+            ("About", [LogsSection(), AboutSection()]),
+        };
+        var host = new Panel();
+        foreach (var (name, sections) in pages)
+        {
+            var page = new StackPanel
+            {
+                Margin = new Thickness(32, 24, 32, 32),
+                MaxWidth = 600,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Spacing = 16,
+                IsVisible = false,
+            };
+            page.Children.AddRange(sections.Select(Card));
+            host.Children.Add(page);
+            _pages[name] = page;
+            // Text lines up with the title above: the list's 12, the accent's 2 and 18 make the header's 32.
+            _pageList.Items.Add(new ListBoxItem
+            {
+                Content = name,
+                Tag = name,
+                MinHeight = 34,
+                Padding = new Thickness(18, 0, 8, 0),
+                Margin = new Thickness(0, 0, 0, 2),
+                VerticalContentAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        _pageScroll.Content = host;
+        Avalonia.Automation.AutomationProperties.SetName(_pageList, "Settings pages");
+        _pageList.SelectionChanged += (_, _) =>
+        {
+            if (_pageList.SelectedItem is ListBoxItem { Tag: string name })
+            {
+                ShowPage(name);
+            }
+        };
+        _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().FirstOrDefault(i => Equals(i.Tag, _settings.SettingsPage))
+            ?? _pageList.Items.OfType<ListBoxItem>().First();
+
         _loading = false;
+    }
+
+    /// <summary>The page showing, by its name in the list.</summary>
+    public string CurrentPage => _pages.First(p => p.Value.IsVisible).Key;
+
+    /// <summary>Shows the page called <paramref name="name"/> and remembers it for next time.</summary>
+    public void ShowPage(string name)
+    {
+        if (!_pages.ContainsKey(name))
+        {
+            return;
+        }
+
+        foreach (var (key, page) in _pages)
+        {
+            page.IsVisible = key == name;
+        }
+
+        _pageScroll.Offset = default;
+        _refreshScreenReaderNote();
+        if (_pageList.SelectedItem is not ListBoxItem { Tag: string selected } || selected != name)
+        {
+            _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().First(i => Equals(i.Tag, name));
+        }
+
+        if (!_loading && _settings.SettingsPage != name)
+        {
+            _settings = _settings with { SettingsPage = name };
+            TrySaveSettings();
+        }
     }
 
     /// <summary>The close button or Esc.</summary>
@@ -115,6 +199,18 @@ sealed class SettingsView : UserControl
 
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
+
+    /// <summary>Terminal announcements were turned on (true) or off.</summary>
+    public event EventHandler<bool>? TerminalAnnouncementsChanged;
+
+    /// <summary>A new terminal color scheme was chosen, for open terminals to follow.</summary>
+    public event EventHandler<TerminalColorScheme>? TerminalColorsChanged;
+
+    /// <summary>The color vision or the correction strength changed, for open terminals and remote desktops to follow.</summary>
+    public event EventHandler<(ColorVision Vision, int Strength)>? ColorVisionChanged;
+
+    /// <summary>Checking whether hosts are up was turned on (true) or off.</summary>
+    public event EventHandler<bool>? HostStatusChecksChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -176,8 +272,12 @@ sealed class SettingsView : UserControl
             return;
         }
 
+        // Biometric unlock is tied to the vault's key, not its folder, so it keeps working after the move.
+        var biometricNote = _biometric is not null && _credentials is VaultFileStore vault && _biometric.IsOn(vault)
+            ? $"\n\n{_biometric.Name} unlock keeps working with the moved vault. Until you delete the old copy, it opens that one too."
+            : string.Empty;
         if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
-                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it.",
+                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it.{biometricNote}",
                 "Move and restart"))
         {
             return;
@@ -243,12 +343,12 @@ sealed class SettingsView : UserControl
 
         if (CredentialStores.CanUseOsKeychain(_location))
         {
-            _storeChoice.Items.Add(new ComboBoxItem { Content = Capitalised(KeychainName), Tag = CredentialStoreKind.OsKeychain });
+            _storeChoice.Items.Add(new ComboBoxItem { Content = Capitalized(KeychainName), Tag = CredentialStoreKind.OsKeychain });
             _storeChoice.Items.Add(new ComboBoxItem { Content = "Encrypted vault file (master password)", Tag = CredentialStoreKind.VaultFile });
             _storeChoice.SelectedIndex = current == CredentialStoreKind.OsKeychain ? 0 : 1;
             _storeChoice.SelectionChanged += async (_, _) => await SwitchStoreAsync();
             section.Children.Add(Row("Saved credentials are kept in", _storeChoice));
-            section.Children.Add(Note($"{Capitalised(KeychainName)} is protected by your login on this computer. The vault file is one encrypted file you can back up or move, opened with a master password."));
+            section.Children.Add(Note($"{Capitalized(KeychainName)} is protected by your login on this computer. The vault file is one encrypted file you can back up or move, opened with a master password."));
         }
         else
         {
@@ -278,10 +378,17 @@ sealed class SettingsView : UserControl
             {
                 if (await new ChangeMasterPasswordWindow(vault).ShowDialog<bool>(Owner))
                 {
-                    await Dialogs.ShowMessageAsync(Owner, "Master password changed", "Use the new password the next time you unlock the vault.");
+                    var turnedOff = await TurnOffBiometricAfterPasswordChangeAsync(vault);
+                    await Dialogs.ShowMessageAsync(Owner, "Master password changed", "Use the new password the next time you unlock the vault."
+                        + (turnedOff ? $" {_biometric!.Name} unlock was turned off by the change. You can turn it on again here." : string.Empty));
                 }
             };
             section.Children.Add(change);
+
+            if (_biometric is not null)
+            {
+                section.Children.Add(BiometricSwitch(vault, _biometric));
+            }
         }
 
         section.Children.Add(Row("Lock the vault when unused for", _autoLock));
@@ -290,12 +397,167 @@ sealed class SettingsView : UserControl
         return section;
     }
 
+    /// <summary>
+    /// Unlock with Windows Hello or Touch ID. Shown for an existing vault file; disabled, with the reason, where the
+    /// system can't do it. Turning it on asks for the master password; turning it off deletes the saved key.
+    /// </summary>
+    Control BiometricSwitch(VaultFileStore vault, BiometricUnlock biometric)
+    {
+        _biometricSwitch.Content = $"Unlock with {biometric.Name}";
+        _biometricSwitch.IsChecked = biometric.IsOn(vault);
+        _biometricSwitch.IsEnabled = false;
+        _biometricNote.Text = $"Checking for {biometric.Name}…";
+        _biometricSwitch.IsCheckedChanged += async (_, _) => await ToggleBiometricAsync(vault, biometric);
+
+        var remove = new Button { Content = $"Remove old {biometric.Name} setup", Margin = new Thickness(0, 2, 0, 0) };
+        AutomationProperties.SetName(remove, $"Remove old {biometric.Name} setup");
+        AutomationProperties.SetHelpText(remove, LeftoversNote(biometric));
+        remove.Click += async (_, _) => await RemoveBiometricLeftoversAsync(vault, biometric);
+        _biometricLeftovers.Children.Add(Note(LeftoversNote(biometric)));
+        _biometricLeftovers.Children.Add(remove);
+
+        BiometricChecked = ShowBiometricStateAsync(vault, biometric);
+        return new StackPanel { Spacing = 4, Children = { _biometricSwitch, _biometricNote, _biometricLeftovers } };
+    }
+
+    static string LeftoversNote(BiometricUnlock biometric) =>
+        $"A {biometric.Name} setup is still saved for a vault that used to be at this location, or for this vault before another copy of Orrery changed its master password.";
+
+    /// <summary>
+    /// Removes Windows Hello or Touch ID setups saved only for the vault's location (<see cref="BiometricUnlock.HasLeftovers"/>),
+    /// once the user confirms that whatever they opened won't open with it any more.
+    /// </summary>
+    async Task RemoveBiometricLeftoversAsync(VaultFileStore vault, BiometricUnlock biometric)
+    {
+        if (!await Dialogs.ConfirmAsync(Owner, $"Remove the old {biometric.Name} setup?",
+                $"The old vault that used to be here, and any backup of this vault from before its master password was changed, "
+                + $"won't open with {biometric.Name} any more. They still open with their master password. This vault isn't affected.",
+                "Remove"))
+        {
+            BiometricLeftoversRemoved?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        int removed = await biometric.RemoveLeftoversAsync(vault);
+        ShowBiometricLeftovers(vault, biometric);
+        if (removed > 0)
+        {
+            _biometricNote.Foreground = Dialogs.MutedBrush;
+            _biometricNote.Text = $"The old {biometric.Name} setup was removed. {BiometricNote(biometric)}";
+        }
+
+        BiometricLeftoversRemoved?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Raised when removing old Windows Hello or Touch ID setups has finished, or was canceled. For tests.</summary>
+    internal event EventHandler? BiometricLeftoversRemoved;
+
+    void ShowBiometricLeftovers(VaultFileStore vault, BiometricUnlock biometric) => _biometricLeftovers.IsVisible = biometric.HasLeftovers(vault);
+
+    /// <summary>Finishes when the Windows Hello or Touch ID switch shows whether it can be used. For tests.</summary>
+    internal Task BiometricChecked { get; private set; } = Task.CompletedTask;
+
+    async Task ShowBiometricStateAsync(VaultFileStore vault, BiometricUnlock biometric)
+    {
+        var stale = await biometric.TurnOffIfStaleAsync(vault);
+        var unavailable = await RefreshBiometricSwitchAsync(vault, biometric);
+        ShowBiometricLeftovers(vault, biometric);
+        _biometricNote.Text = stale ?? unavailable ?? BiometricNote(biometric);
+        _biometricNote.Foreground = stale is not null ? Dialogs.WarningBrush : Dialogs.MutedBrush;
+    }
+
+    /// <summary>
+    /// Sets the switch to whether it's on, and whether it can be changed: something that's on can always be turned
+    /// off, but turning it on needs the system to allow it now. Returns why it can't be used, or null.
+    /// </summary>
+    async Task<string?> RefreshBiometricSwitchAsync(VaultFileStore vault, BiometricUnlock biometric)
+    {
+        var unavailable = await biometric.CheckAvailableAsync();
+        bool on = biometric.IsOn(vault);
+        SetBiometricSwitch(on);
+        _biometricSwitch.IsEnabled = on || unavailable is null;
+        return unavailable;
+    }
+
+    async Task ToggleBiometricAsync(VaultFileStore vault, BiometricUnlock biometric)
+    {
+        bool wanted = _biometricSwitch.IsChecked == true;
+        if (_settingBiometricSwitch || wanted == biometric.IsOn(vault))
+        {
+            return;
+        }
+
+        _biometricSwitch.IsEnabled = false;
+        _biometricNote.Foreground = Dialogs.MutedBrush;
+        string note;
+        if (wanted)
+        {
+            bool on = await new BiometricSetupWindow(vault, biometric).ShowDialog<bool>(Owner);
+            note = on ? $"{biometric.Name} unlock is on. {BiometricNote(biometric)}" : BiometricNote(biometric);
+        }
+        else
+        {
+            await biometric.TurnOffAsync(vault);
+            note = $"{biometric.Name} unlock is off, and its key was deleted. {BiometricNote(biometric)}";
+        }
+
+        var unavailable = await RefreshBiometricSwitchAsync(vault, biometric);
+        ShowBiometricLeftovers(vault, biometric); // Turning it off removes them too.
+        _biometricNote.Text = biometric.IsOn(vault) || unavailable is null ? note : $"{note} {unavailable}";
+        BiometricToggled?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Raised when a change to the Windows Hello or Touch ID switch has finished. For tests.</summary>
+    internal event EventHandler? BiometricToggled;
+
+    /// <summary>
+    /// After a master password change: a new data key means the saved one can't open the vault any more, so turn it
+    /// off and delete the key, including the record kept for the old password.
+    /// </summary>
+    internal async Task<bool> TurnOffBiometricAfterPasswordChangeAsync(VaultFileStore vault)
+    {
+        if (_biometric is null || !await _biometric.TurnOffAsync(vault))
+        {
+            return false;
+        }
+
+        await RefreshBiometricSwitchAsync(vault, _biometric);
+        ShowBiometricLeftovers(vault, _biometric);
+        _biometricNote.Foreground = Dialogs.WarningBrush;
+        _biometricNote.Text = $"{_biometric.Name} unlock was turned off because the master password changed. {BiometricNote(_biometric)}";
+        return true;
+    }
+
+    /// <summary>
+    /// After switching to the system keychain: the vault file stays behind, and a saved Windows Hello or Touch ID key
+    /// would still open it, so turn it off and delete the key.
+    /// </summary>
+    internal async Task TurnOffBiometricForOldVaultAsync()
+    {
+        if (_credentials is VaultFileStore oldVault && _biometric is not null)
+        {
+            await _biometric.TurnOffAsync(oldVault);
+        }
+    }
+
+    void SetBiometricSwitch(bool on)
+    {
+        _settingBiometricSwitch = true;
+        _biometricSwitch.IsChecked = on;
+        _settingBiometricSwitch = false;
+    }
+
+    static string BiometricNote(BiometricUnlock biometric) =>
+        $"{biometric.Name} opens the vault on this computer only. The master password still works, and changing it turns this off."
+        + (OperatingSystem.IsMacOS() ? string.Empty
+            : $" Your {biometric.Name} PIN, and any face or finger on this Windows account, open it too, so anyone who knows the PIN and can use your account here could open the vault. Changing the PIN doesn't turn this off.");
+
     void UpdateAutoLockNote(CredentialStoreKind kind)
     {
         _autoLock.IsEnabled = kind == CredentialStoreKind.VaultFile;
         _autoLockNote.Text = kind == CredentialStoreKind.VaultFile
             ? "Open sessions keep running when the vault locks."
-            : $"Applies only to the vault file. {Capitalised(KeychainName)} unlocks with your login.";
+            : $"Applies only to the vault file. {Capitalized(KeychainName)} unlocks with your login.";
     }
 
     void SaveAutoLock()
@@ -373,6 +635,8 @@ sealed class SettingsView : UserControl
                 return false;
             }
 
+            await TurnOffBiometricForOldVaultAsync();
+
             if (copied.Count > 0 && await Dialogs.ConfirmAsync(Owner, $"Remove the originals from {fromName}?",
                     $"{copied.Count} credential{(copied.Count == 1 ? " was" : "s were")} copied to {toName} and checked. Keeping the originals leaves a second copy of each password in {fromName}.",
                     "Remove originals"))
@@ -409,7 +673,7 @@ sealed class SettingsView : UserControl
 
     static string KeychainName => CredentialStores.OsKeychain?.Name ?? "the system keychain";
 
-    static string Capitalised(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
+    static string Capitalized(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     bool TrySaveSettings()
     {
@@ -423,6 +687,43 @@ sealed class SettingsView : UserControl
             _ = Dialogs.ShowMessageAsync(Owner, "Couldn't save settings", e.Message);
             return false;
         }
+    }
+
+    // ---- Start-up ----
+
+    Control StartupSection()
+    {
+        var choices = new (string Label, RestoreSessionsMode Mode)[]
+        {
+            ("Ask me", RestoreSessionsMode.Ask),
+            ("Always reopen them", RestoreSessionsMode.Always),
+            ("Never", RestoreSessionsMode.Never),
+        };
+
+        var buttons = choices.Select(choice => new RadioButton
+        {
+            Content = choice.Label,
+            GroupName = "RestoreSessions",
+            Tag = choice.Mode,
+            IsChecked = _settings.RestoreMode == choice.Mode,
+        }).ToList();
+        foreach (var button in buttons)
+        {
+            button.IsCheckedChanged += (_, _) =>
+            {
+                if (button.IsChecked == true && !_loading)
+                {
+                    _settings = _settings with { RestoreSessions = (RestoreSessionsMode)button.Tag! };
+                    TrySaveSettings();
+                }
+            };
+        }
+
+        return Section("Start-up",
+            new TextBlock { Text = "Reopen the sessions that were open when Orrery last closed" },
+            new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1], buttons[2] } },
+            Note("The window's size and position, and which panes are showing, always come back. A host typed into quick connect "
+                + "reopens by its address alone, and asks for the login again."));
     }
 
     // ---- Remote desktops ----
@@ -443,15 +744,224 @@ sealed class SettingsView : UserControl
                 + "A connection or folder can set its own choice in its properties."));
     }
 
+    // ---- Local terminal ----
+
+    Control LocalTerminalSection()
+    {
+        var shells = LocalShells.Available();
+        var note = Note($"New local terminals start in your home folder. {(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Shift+T opens one, "
+            + "as does the terminal button beside the tabs.");
+        if (shells.Count == 1)
+        {
+            // Linux and macOS: the login shell, which is set for the account rather than here.
+            return Section("Local terminal", Row("Shell", new TextBlock { Text = shells[0].Program, FontFamily = Dialogs.MonoFont, FontSize = 12 }), note);
+        }
+
+        var current = LocalShells.Find(_settings.LocalShell);
+        var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var shell in shells)
+        {
+            var item = new ComboBoxItem { Content = shell.Name, Tag = shell.Id };
+            ToolTip.SetTip(item, shell.Program);
+            choice.Items.Add(item);
+        }
+
+        choice.SelectedItem = choice.Items.OfType<ComboBoxItem>().First(i => (string)i.Tag! == current.Id);
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && choice.SelectedItem is ComboBoxItem { Tag: string id })
+            {
+                _settings = _settings with { LocalShell = id };
+                TrySaveSettings();
+            }
+        };
+
+        return Section("Local terminal", Row("Shell", choice), note);
+    }
+
+    // ---- Host status ----
+
+    Control HostStatusSection()
+    {
+        var check = new CheckBox { Content = "Show whether hosts are up", IsChecked = _settings.ChecksHostStatus };
+        check.IsCheckedChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            _settings = _settings with { HostStatusChecks = check.IsChecked == true };
+            TrySaveSettings();
+            HostStatusChecksChanged?.Invoke(this, check.IsChecked == true);
+        };
+
+        return Section("Host status",
+            check,
+            Note("About once a minute, Orrery opens a TCP connection to the host and port of each connection you can see in the list, "
+                + "and shows a mark beside its protocol: a filled dot if it answered, a cross if it didn't, a dashed ring if it can't be checked. "
+                + "The mark before the name is the session's state, not the host's. It sends nothing else, and skips connections that go through a jump host. "
+                + "Some networks treat this as a port scan, so turn it off there. Off, nothing is sent and no marks show."));
+    }
+
+    // ---- Colors ----
+
+    static readonly (ColorVision Vision, string Label)[] ColorVisionChoices =
+    [
+        (ColorVision.None, "No color blindness"),
+        (ColorVision.Protanopia, "Protanopia: red-weak"),
+        (ColorVision.Deuteranopia, "Deuteranopia: green-weak"),
+        (ColorVision.Tritanopia, "Tritanopia: blue-yellow"),
+    ];
+
+    /// <summary>Color vision, interface colors and terminal colors: three cards, since choosing a color vision sets the other two.</summary>
+    Control[] ColorSections()
+    {
+        var current = _settings.InterfaceColorScheme;
+        var radios = new Dictionary<InterfaceColorScheme, RadioButton>();
+        var choices = new (InterfaceColorScheme Scheme, string Text)[]
+        {
+            (InterfaceColorScheme.Standard, "Standard"),
+            (InterfaceColorScheme.Clearer, "Clearer"),
+            (InterfaceColorScheme.ColorBlind, "Color-blind (Okabe-Ito)"),
+        };
+        var interfaceColors = new StackPanel { Spacing = 4 };
+        Avalonia.Automation.AutomationProperties.SetName(interfaceColors, "Interface colors");
+        foreach (var (choice, text) in choices)
+        {
+            var radio = new RadioButton { Content = text, GroupName = "InterfaceColors", Tag = choice, IsChecked = choice == current };
+            radios[choice] = radio;
+            radio.IsCheckedChanged += (_, _) =>
+            {
+                if (radio.IsChecked != true)
+                {
+                    return;
+                }
+
+                _settings = _settings with { InterfaceColors = choice == InterfaceColorScheme.Standard ? null : choice, ColorBlindColors = null };
+                TrySaveSettings();
+                Palette.Use(choice);
+                Log.For("Settings").LogInformation("Interface colors set to {Scheme}", choice);
+            };
+            interfaceColors.Children.Add(radio);
+        }
+
+        var terminal = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        terminal.Items.Add(new ComboBoxItem { Content = "Standard", Tag = TerminalColorScheme.Standard });
+        terminal.Items.Add(new ComboBoxItem { Content = "Color-blind friendly", Tag = TerminalColorScheme.ColorBlind });
+        var scheme = _settings.TerminalColors ?? TerminalColorScheme.Standard;
+        terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColorScheme)i.Tag! == scheme);
+        terminal.SelectionChanged += (_, _) =>
+        {
+            if (_loading || terminal.SelectedItem is not ComboBoxItem { Tag: TerminalColorScheme chosen })
+            {
+                return;
+            }
+
+            _settings = _settings with { TerminalColors = chosen == TerminalColorScheme.Standard ? null : chosen };
+            TrySaveSettings();
+            TerminalColorsChanged?.Invoke(this, chosen);
+            Log.For("Settings").LogInformation("Terminal colors set to {Scheme}", chosen);
+        };
+
+        var visionNote = "If you're color blind, choose which kind. Orrery then switches to its color-blind interface and terminal colors, "
+            + "with terminal colors tuned to that kind, and corrects remote desktops so colors you'd confuse look different. "
+            + "You can still change the interface and terminal colors below, and turn correction off for a connection in its settings.";
+        var vision = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (choice, label) in ColorVisionChoices)
+        {
+            vision.Items.Add(new ComboBoxItem { Content = label, Tag = choice });
+        }
+
+        vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColorVision)i.Tag! == _settings.Vision);
+        Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
+
+        var strengthNote = "Only for remote desktops: how far their colors are shifted. Lower it if pictures look too changed; "
+            + "0% leaves them as they are.";
+        var strength = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            TickFrequency = 10,
+            IsSnapToTickEnabled = true,
+            SmallChange = 10,
+            LargeChange = 25,
+            Value = _settings.CorrectionStrength,
+            IsEnabled = _settings.Vision != ColorVision.None,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        Avalonia.Automation.AutomationProperties.SetName(strength, "Correction strength");
+        Avalonia.Automation.AutomationProperties.SetHelpText(strength, strengthNote);
+        var strengthText = new TextBlock { Text = $"{_settings.CorrectionStrength}%", Width = 44, VerticalAlignment = VerticalAlignment.Center };
+
+        void VisionChanged() => ColorVisionChanged?.Invoke(this, (_settings.Vision, _settings.CorrectionStrength));
+
+        vision.SelectionChanged += (_, _) =>
+        {
+            if (_loading || vision.SelectedItem is not ComboBoxItem { Tag: ColorVision chosen })
+            {
+                return;
+            }
+
+            _settings = _settings with { ColorVision = chosen == ColorVision.None ? null : chosen };
+            TrySaveSettings();
+            strength.IsEnabled = chosen != ColorVision.None;
+            Log.For("Settings").LogInformation("Color vision set to {Vision}", chosen);
+
+            // The color-blind sets suit every kind; the choices below stay the user's to change afterwards.
+            // Going back to none leaves them as they are.
+            if (chosen != ColorVision.None)
+            {
+                radios[InterfaceColorScheme.ColorBlind].IsChecked = true;
+                terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColorScheme)i.Tag! == TerminalColorScheme.ColorBlind);
+            }
+
+            VisionChanged();
+        };
+        strength.ValueChanged += (_, _) =>
+        {
+            int percent = (int)Math.Round(strength.Value);
+            strengthText.Text = $"{percent}%";
+            if (_loading || percent == _settings.CorrectionStrength)
+            {
+                return;
+            }
+
+            _settings = _settings with { ColorCorrectionStrength = percent == AppSettings.DefaultColorCorrectionStrength ? null : percent };
+            TrySaveSettings();
+            VisionChanged();
+        };
+
+        return
+        [
+            Section("Color vision",
+                Note("If you're color blind, choose which kind. Orrery then switches the interface and terminal colors below to ones "
+                    + "made for it, and shifts remote desktop colors so ones you'd confuse look different."),
+                Row("Color vision", vision),
+                Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
+                Note(strengthNote)),
+            Section("Interface colors",
+                Note("The colors of session states in tabs and the connection list, and of warnings and errors. "
+                    + "Each also has a shape, an icon or a word, so color is never the only sign."),
+                interfaceColors,
+                Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Color-blind uses blue, yellow and "
+                    + "vermilion, which stay apart with any kind of color blindness.")),
+            Section("Terminal colors",
+                Note("The colors programs use in SSH, Telnet and local terminals."),
+                Row("Terminal colors", terminal),
+                Note("Color-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green "
+                    + "stay readable. With a color vision chosen above, it's tuned to that kind. Open terminals change at once.")),
+        ];
+    }
+
     // ---- Keyboard ----
 
     Control KeyboardSection()
     {
         var recorder = new ShortcutRecorder(FullScreenShortcut.FromSettings(_settings.FullScreenShortcut));
         var reset = new Button { Content = "Use the default" };
-        var problem = Note(string.Empty);
-        problem.Foreground = Dialogs.DangerBrush;
-        problem.IsVisible = false;
+        var problem = new Notice(NoticeKind.Error) { IsVisible = false };
+        problem.Message.FontSize = 12;
 
         void Save(KeyGesture shortcut)
         {
@@ -486,7 +996,39 @@ sealed class SettingsView : UserControl
             problem,
             Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
                 + "and can't be a key the system, Orrery or typing in a session already uses. "
-                + "You can always leave full screen from the bar at the top edge of the screen."));
+                + "You can always leave full screen from the bar at the top edge of the screen."),
+            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
+                + "for its tab, and Enter goes back in."));
+    }
+
+    // ---- Accessibility ----
+
+    Control AccessibilitySection()
+    {
+        var announce = new CheckBox { Content = "Send new terminal output to your screen reader", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+
+        // Orrery has no voice of its own: with no screen reader running, the setting does nothing anyone can hear.
+        var noReader = new Notice(NoticeKind.Warning,
+            "No screen reader is running, so nothing will be read out. Start Narrator (Windows logo key + Ctrl + Enter), NVDA or JAWS.");
+        noReader.Message.FontSize = 12;
+        _refreshScreenReaderNote = () => noReader.IsVisible = OperatingSystem.IsWindows() && announce.IsChecked == true && !ScreenReader.IsRunning;
+        _refreshScreenReaderNote();
+        announce.IsCheckedChanged += (_, _) =>
+        {
+            bool on = announce.IsChecked == true;
+            _refreshScreenReaderNote();
+            _settings = _settings with { TerminalAnnouncements = on };
+            if (TrySaveSettings())
+            {
+                TerminalAnnouncementsChanged?.Invoke(this, on);
+            }
+        };
+
+        return Section("Accessibility",
+            announce,
+            noReader,
+            Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
+                + "It's on by default while a screen reader is running."));
     }
 
     // ---- Import and export ----
@@ -497,9 +1039,19 @@ sealed class SettingsView : UserControl
         import.Click += async (_, _) => await _import();
         var export = new Button { Content = "Export…" };
         export.Click += async (_, _) => await _export();
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { import } };
+        if (_importSshConfig is { } importSshConfig)
+        {
+            var sshConfig = new Button { Content = "Import SSH config" };
+            sshConfig.Click += async (_, _) => await importSshConfig();
+            buttons.Children.Add(sshConfig);
+        }
+
+        buttons.Children.Add(export);
         return Section("Import and export",
-            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { import, export } },
-            Note("Import adds the connections from an mRemoteNG confCons.xml or an Orrery export. You can also drop the file onto the connections list."),
+            buttons,
+            Note("Import adds the connections from an mRemoteNG confCons.xml, an Orrery export or an OpenSSH config file. You can also drop the file onto the connections list. "
+                + "Import SSH config reads your ~/.ssh/config: each Host name becomes an SSH connection, with its jump hosts. Nothing in the file is run."),
             Note("Export saves every connection as an Orrery file, an mRemoteNG confCons.xml or a CSV. To export one folder, right-click it. "
                 + "Passwords and keys are left out unless you choose to include them, encrypted with a password you set. CSV never includes them."));
     }
@@ -541,10 +1093,23 @@ sealed class SettingsView : UserControl
     static StackPanel Section(string title, params Control[] children)
     {
         var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
+        var heading = new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } };
+        Avalonia.Automation.AutomationProperties.SetHeadingLevel(heading, 2);
+        panel.Children.Add(heading);
         panel.Children.AddRange(children);
         return panel;
     }
+
+    /// <summary>A section on its page: a panel with a hairline border, so where one ends and the next begins is plain.</summary>
+    static Border Card(Control section) => new()
+    {
+        Background = Dialogs.PanelBrush,
+        BorderBrush = Pane.LineBrush,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(20, 16, 20, 20),
+        Child = section,
+    };
 
     static Control Row(string label, Control value) => Dialogs.Field(label, value);
 

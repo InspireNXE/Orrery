@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
+using Orrery.App.Controls;
 using Orrery.App.Input;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
@@ -23,8 +24,6 @@ namespace Orrery.App.Sessions;
 public sealed class RemoteFrameView : Panel
 {
     static readonly IBrush SurfaceBrush = new SolidColorBrush(Color.Parse("#0B0D10"));
-    static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
 
     // A desktop the server won't resize (most VNC servers) shrinks to fit; one that matches the view is
     // drawn as is.
@@ -44,13 +43,11 @@ public sealed class RemoteFrameView : Panel
     // The clipboard text last exchanged with the server (VNC, or RDP off Windows), so a change isn't sent back where it came from.
     string? _lastClipboard;
 
-    readonly TextBlock _status = new()
+    readonly Notice _status = new(NoticeKind.Info)
     {
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,
-        TextWrapping = TextWrapping.Wrap,
         MaxWidth = 480,
-        FontSize = 14,
     };
 
     const int WheelDelta = 120;
@@ -161,7 +158,47 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Whether there's a picture to save yet.</summary>
     public bool HasFrame => _bitmap is not null;
 
-    /// <summary>Writes the remote screen as it is now, as a PNG.</summary>
+    ColorCorrection? _correction;
+
+    /// <summary>
+    /// The color correction for the user's color vision, from Settings; null for none. Changing it redraws the
+    /// whole desktop. It's ignored where <see cref="AllowsColorCorrection"/> is off.
+    /// </summary>
+    internal ColorCorrection? Correction
+    {
+        get => _correction;
+        set
+        {
+            if (value == _correction)
+            {
+                return;
+            }
+
+            _correction = value;
+            if (AllowsColorCorrection && Session.State == SessionState.Connected)
+            {
+                OnFrameUpdated(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Session.Width, Session.Height), resized: false));
+            }
+        }
+    }
+
+    /// <summary>The connection's "Color correction" choice: off shows the remote colors unchanged whatever Settings says.</summary>
+    public bool AllowsColorCorrection { get; init; } = true;
+
+    /// <summary>The correction frames are drawn with: none where the connection turns it off.</summary>
+    internal ColorCorrection? ActiveCorrection => AllowsColorCorrection ? _correction : null;
+
+    /// <summary>
+    /// Copies <paramref name="region"/> of the remote desktop into a bitmap's pixels and corrects just that part,
+    /// since the rest is corrected already.
+    /// </summary>
+    internal static void Draw(IFrameBufferSession session, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height, FrameRect region)
+    {
+        session.CopyRegion(region, pixels, rowBytes);
+        correction?.Apply(pixels, rowBytes, width, height, region);
+    }
+
+    /// <summary>Writes the remote screen as it is now, color correction included, as a PNG.</summary>
     public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream);
 
     /// <summary>Presses the keys in order on the remote computer, then lets them go in reverse.</summary>
@@ -197,7 +234,7 @@ public sealed class RemoteFrameView : Panel
         }
 
         _status.IsVisible = state != SessionState.Connected;
-        _status.Foreground = state == SessionState.Failed ? DangerBrush : MutedBrush;
+        _status.Kind = state == SessionState.Failed ? NoticeKind.Error : NoticeKind.Info;
         _status.Text = state switch
         {
             SessionState.Connecting => $"Connecting to {Session.Target.Host}…",
@@ -282,7 +319,7 @@ public sealed class RemoteFrameView : Panel
 
             using (var buffer = _bitmap.Lock())
             {
-                Session.CopyRegion(dirty, buffer.Address, buffer.RowBytes);
+                Draw(Session, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height, dirty);
             }
         }
         catch (Exception e) when (e is ArgumentException or OutOfMemoryException or InvalidOperationException)

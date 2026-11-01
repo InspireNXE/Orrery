@@ -1,5 +1,6 @@
 using System.Globalization;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
@@ -27,10 +28,10 @@ sealed class FileBrowserView : DockPanel
     readonly SftpSession _session;
     readonly TextBox _path = new() { FontFamily = Dialogs.MonoFont, FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center };
     readonly ListBox _list = new() { SelectionMode = SelectionMode.Multiple, Background = Brushes.Transparent };
-    readonly TextBlock _status = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+    readonly Notice _status = StatusLine();
     readonly ProgressBar _progress = new() { Width = 160, Height = 6, MinHeight = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
     readonly Button _cancel = new() { Content = "Cancel", Padding = new Thickness(10, 2), MinHeight = 0, IsVisible = false };
-    readonly TextBlock _message = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 520, TextAlignment = TextAlignment.Center };
+    readonly Notice _message = new(NoticeKind.Info) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 520 };
     readonly Control _browser;
     readonly Button _download, _rename, _delete;
     string _current = "/";
@@ -100,6 +101,28 @@ sealed class FileBrowserView : DockPanel
             Cell(item.IsDirectory ? string.Empty : FormatSize(item.Size), right: true),
             Cell(item.Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture)),
             Cell(item.Permissions, mono: true)));
+        // A row is a grid of cells, so each one is named in words: "notes.txt, file, 2.0 KB, modified …".
+        _list.ContainerPrepared += (_, e) =>
+        {
+            if (e.Container.DataContext is SftpItem item)
+            {
+                AutomationProperties.SetName(e.Container, Spoken(item));
+            }
+        };
+        AutomationProperties.SetName(_list, "Files");
+        AutomationProperties.SetHelpText(_list, "Enter opens, Backspace goes up a folder, F2 renames, Delete deletes, F5 refreshes.");
+        AutomationProperties.SetName(_path, "Folder path");
+        AutomationProperties.SetHelpText(_path, "Type a folder and press Enter to open it.");
+        AutomationProperties.SetName(_progress, "Transfer progress");
+        AutomationProperties.SetLiveSetting(_status, ScreenReader.LiveRegionSetting);
+        // The status line is a Notice, so its text is in its Message; an error is read with "Error:" before it.
+        _status.Message.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == TextBlock.TextProperty && e.NewValue is string { Length: > 0 } text)
+            {
+                ScreenReader.Announce(this, _status.Prefix is { } prefix ? $"{prefix}: {text}" : text, "Orrery.Files", ScreenReader.MostRecent);
+            }
+        };
         _list.SelectionChanged += (_, _) => UpdateButtons();
         _list.DoubleTapped += (_, e) =>
         {
@@ -142,6 +165,7 @@ sealed class FileBrowserView : DockPanel
                 _list,
             },
         };
+        _message.Message.TextAlignment = TextAlignment.Center;
         Children.Add(new Panel { Children = { _browser, _message } });
 
         session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => ShowState(e.State, e.Message));
@@ -163,7 +187,7 @@ sealed class FileBrowserView : DockPanel
         _browser.IsVisible = connected || (state != SessionState.Connecting && _list.ItemsSource is not null);
         _browser.IsEnabled = connected;
         _message.IsVisible = !connected;
-        _message.Foreground = state == SessionState.Failed ? Dialogs.DangerBrush : Dialogs.MutedBrush;
+        _message.Kind = state == SessionState.Failed ? NoticeKind.Error : NoticeKind.Info;
         _message.Text = state switch
         {
             SessionState.Connecting => $"Connecting to {_session.Target.Host}…",
@@ -423,7 +447,7 @@ sealed class FileBrowserView : DockPanel
         _transfer = cts;
         _progress.IsVisible = _cancel.IsVisible = true;
         _progress.IsIndeterminate = true;
-        _status.Foreground = Dialogs.MutedBrush;
+        _status.Kind = NoticeKind.Info;
         _status.Text = $"{what}…";
         UpdateButtons();
         try
@@ -443,7 +467,7 @@ sealed class FileBrowserView : DockPanel
         }
         catch (OperationCanceledException)
         {
-            _status.Text = $"{what}: cancelled.";
+            _status.Text = $"{what}: canceled.";
         }
         catch (SftpException e)
         {
@@ -468,15 +492,33 @@ sealed class FileBrowserView : DockPanel
     void ShowCount()
     {
         int folders = Items.Count(i => i.IsDirectory), files = Items.Count - folders;
-        _status.Foreground = Dialogs.MutedBrush;
+        _status.Kind = NoticeKind.Info;
         _status.Text = $"{folders} {(folders == 1 ? "folder" : "folders")}, {files} {(files == 1 ? "file" : "files")}";
     }
 
     void ShowError(string text)
     {
-        _status.Foreground = Dialogs.DangerBrush;
+        _status.Kind = NoticeKind.Error;
         _status.Text = text;
         ToolTip.SetTip(_status, text);
+    }
+
+    /// <summary>A row as a screen reader reads it.</summary>
+    internal static string Spoken(SftpItem item)
+    {
+        var kind = item.IsLink ? (item.IsDirectory ? "folder link" : "link") : item.IsDirectory ? "folder" : "file";
+        var size = item.IsDirectory ? string.Empty : $", {FormatSize(item.Size)}";
+        return $"{item.Name}, {kind}{size}, modified {item.Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture)}";
+    }
+
+    /// <summary>The one-line status under the list: counts and progress, or an error with its icon.</summary>
+    static Notice StatusLine()
+    {
+        var line = new Notice(NoticeKind.Info) { VerticalAlignment = VerticalAlignment.Center, IconSize = 13 };
+        line.Message.FontSize = 12;
+        line.Message.TextWrapping = TextWrapping.NoWrap;
+        line.Message.TextTrimming = TextTrimming.CharacterEllipsis;
+        return line;
     }
 
     static string Describe(IReadOnlyList<string> names) => names.Count == 1 ? $"\"{names[0]}\"" : $"{names.Count} items";
@@ -534,7 +576,7 @@ sealed class FileBrowserView : DockPanel
         var button = new Button { Content = StrokeIcon.Create(icon, 16), Width = 30, Height = 30 };
         button.Classes.Add("icon");
         ToolTip.SetTip(button, tip);
-        Avalonia.Automation.AutomationProperties.SetName(button, tip);
+        AutomationProperties.SetName(button, tip);
         if (click is not null)
         {
             button.Click += (_, _) => click();
