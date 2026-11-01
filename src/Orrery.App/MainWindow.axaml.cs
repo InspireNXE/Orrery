@@ -81,6 +81,7 @@ public partial class MainWindow : Window
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
+    readonly ConnectionHistory _history;
     readonly RecentPanel _recentPanel;
     readonly CredentialsView _credentialsView;
     string _side = "connections";
@@ -218,7 +219,9 @@ public partial class MainWindow : Window
         _saveTimer = new DispatcherTimer { Interval = SaveDelay };
         _saveTimer.Tick += (_, _) => SaveNow();
 
-        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops);
+        _history = ConnectionHistory.In(location);
+        _tree.Removed += (_, e) => _history.Forget(e.Ids);
+        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
         _propertiesHost.Child = _properties;
 
@@ -1742,6 +1745,7 @@ public partial class MainWindow : Window
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
         tab.Header.ContextMenu = TabMenu(tab);
+        HistoryRecorder.Attach(tab, _tree, _history);
         tab.StateChanged += (_, _) =>
         {
             UpdateTreeStatus();

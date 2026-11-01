@@ -41,14 +41,13 @@ static class Pane
     };
 
     /// <summary>A coloured square with an icon, beside a title and a subtitle.</summary>
-    public static Control Header(Border tile, TextBlock title, TextBlock subtitle) => new DockPanel
+    /// <param name="more">Further lines under the subtitle.</param>
+    public static Control Header(Border tile, TextBlock title, TextBlock subtitle, params Control[] more)
     {
-        Children =
-        {
-            Docked(tile, Dock.Left),
-            new StackPanel { Spacing = 2, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { title, subtitle } },
-        },
-    };
+        var lines = new StackPanel { Spacing = 2, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { title, subtitle } };
+        lines.Children.AddRange(more);
+        return new DockPanel { Children = { Docked(tile, Dock.Left), lines } };
+    }
 
     /// <summary>A 36 px tile holding an 18 px icon.</summary>
     public static Border Tile(StrokeIcon icon)

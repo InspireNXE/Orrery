@@ -23,6 +23,9 @@ public sealed class ConnectionTree
 
     public event EventHandler? Changed;
 
+    /// <summary>Raised, before <see cref="Changed"/>, with the ids of everything deleted: the node, what's in it and its guests.</summary>
+    public event EventHandler<NodesRemovedEventArgs>? Removed;
+
     /// <summary>How many folders deep <paramref name="folder"/> is: 0 for the root, 1 for a top-level folder.</summary>
     public static int DepthOf(ConnectionFolder folder) => folder.Ancestors().Count();
 
@@ -156,6 +159,7 @@ public sealed class ConnectionTree
             index++;
         }
 
+        Removed?.Invoke(this, new NodesRemovedEventArgs([host.Id]));
         NotifyChanged();
     }
 
@@ -191,7 +195,11 @@ public sealed class ConnectionTree
 
         if (node.Parent is not null)
         {
+            var ids = node is ConnectionFolder folder
+                ? folder.Descendants().Select(n => n.Id).Prepend(node.Id)
+                : (node as ConnectionEntry)?.Guests.Select(g => g.Id).Prepend(node.Id) ?? [node.Id];
             Detach(node);
+            Removed?.Invoke(this, new NodesRemovedEventArgs(ids.ToList()));
         }
 
         NotifyChanged();
@@ -374,4 +382,9 @@ public sealed class ConnectionTree
             }
         }
     }
+}
+
+public sealed class NodesRemovedEventArgs(IReadOnlyList<Guid> ids) : EventArgs
+{
+    public IReadOnlyList<Guid> Ids { get; } = ids;
 }
