@@ -32,6 +32,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
+- Unlock the vault with Windows Hello instead of the master password, on a computer with a TPM. Touch ID on macOS is
+  written but needs a signed build. See [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
 - Import mRemoteNG `confCons.xml` and Orrery `.json`
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
@@ -129,7 +131,8 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, and VNC authentication. The
+the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, VNC authentication, and the
+Windows Hello and Touch ID prompts. The
 Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
 single-file executable as a false positive.
 

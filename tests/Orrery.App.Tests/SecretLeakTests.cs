@@ -41,6 +41,9 @@ public class SecretLeakTests : IDisposable
         var key = new Credential(Guid.NewGuid(), "Deploy key", CredentialKind.SshKeyWithPassphrase, "deploy", null,
             $"-----BEGIN OPENSSH PRIVATE KEY-----\n{KeyBody}\n-----END OPENSSH PRIVATE KEY-----", Passphrase: KeyPassphrase);
 
+        var hello = new TestAuthenticator();
+        var biometric = new BiometricUnlock(hello, new MemorySecrets());
+
         AppLog.Start(location);
         AppLog.Detailed = true;
         try
@@ -54,8 +57,15 @@ public class SecretLeakTests : IDisposable
                 vault.Lock();
                 await Assert.ThrowsAsync<WrongVaultPasswordException>(() => vault.UnlockAsync(WrongPassword));
                 await vault.UnlockAsync(MasterPassword);
+                vault.Lock();
+
+                // Biometric unlock: turned on (after a wrong password), used, then turned off by the password change.
+                await Assert.ThrowsAsync<WrongVaultPasswordException>(() => biometric.TurnOnAsync(vault, WrongPassword));
+                await biometric.TurnOnAsync(vault, MasterPassword);
+                Assert.Equal(BiometricOutcome.Done, (await biometric.UnlockAsync(vault)).Outcome);
                 await vault.ChangePasswordAsync(MasterPassword, NewMasterPassword);
                 vault.Lock();
+                Assert.Equal(BiometricOutcome.TurnedOff, (await biometric.UnlockAsync(vault)).Outcome);
             }
 
             // Connections saved, backed up and loaded.
@@ -93,9 +103,18 @@ public class SecretLeakTests : IDisposable
         Assert.Contains("Vault unlock failed", log);
         Assert.Contains("Backed up connections", log);
         Assert.Contains("127.0.0.1", log);
+        Assert.Contains("Vault unlocked with Test Hello", log);
+        Assert.Contains("Test Hello unlock turned off", log);
         foreach (var secret in Secrets)
         {
             Assert.DoesNotContain(secret, log);
+        }
+
+        Assert.NotEmpty(hello.Secrets);
+        foreach (var secret in hello.Secrets)
+        {
+            Assert.DoesNotContain(Convert.ToBase64String(secret), log);
+            Assert.DoesNotContain(Convert.ToHexString(secret), log, StringComparison.OrdinalIgnoreCase);
         }
     }
 
