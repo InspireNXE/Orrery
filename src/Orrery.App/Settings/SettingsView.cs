@@ -15,6 +15,7 @@ using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 
 namespace Orrery.App.Settings;
 
@@ -103,8 +104,13 @@ sealed class SettingsView : UserControl
                         {
                             StorageSection(),
                             CredentialsSection(),
+                            StartupSection(),
                             RemoteDesktopSection(),
+                            LocalTerminalSection(),
+                            HostStatusSection(),
+                            ColoursSection(),
                             KeyboardSection(),
+                            AccessibilitySection(),
                             ImportSection(),
                             LogsSection(),
                             AboutSection(),
@@ -122,6 +128,15 @@ sealed class SettingsView : UserControl
 
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
+
+    /// <summary>Terminal announcements were turned on (true) or off.</summary>
+    public event EventHandler<bool>? TerminalAnnouncementsChanged;
+
+    /// <summary>A new terminal colour scheme was chosen, for open terminals to follow.</summary>
+    public event EventHandler<TerminalColourScheme>? TerminalColoursChanged;
+
+    /// <summary>Checking whether hosts are up was turned on (true) or off.</summary>
+    public event EventHandler<bool>? HostStatusChecksChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -523,6 +538,43 @@ sealed class SettingsView : UserControl
         }
     }
 
+    // ---- Start-up ----
+
+    Control StartupSection()
+    {
+        var choices = new (string Label, RestoreSessionsMode Mode)[]
+        {
+            ("Ask me", RestoreSessionsMode.Ask),
+            ("Always reopen them", RestoreSessionsMode.Always),
+            ("Never", RestoreSessionsMode.Never),
+        };
+
+        var buttons = choices.Select(choice => new RadioButton
+        {
+            Content = choice.Label,
+            GroupName = "RestoreSessions",
+            Tag = choice.Mode,
+            IsChecked = _settings.RestoreMode == choice.Mode,
+        }).ToList();
+        foreach (var button in buttons)
+        {
+            button.IsCheckedChanged += (_, _) =>
+            {
+                if (button.IsChecked == true && !_loading)
+                {
+                    _settings = _settings with { RestoreSessions = (RestoreSessionsMode)button.Tag! };
+                    TrySaveSettings();
+                }
+            };
+        }
+
+        return Section("Start-up",
+            new TextBlock { Text = "Reopen the sessions that were open when Orrery last closed" },
+            new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1], buttons[2] } },
+            Note("The window's size and position, and which panes are showing, always come back. A host typed into quick connect "
+                + "reopens by its address alone, and asks for the login again."));
+    }
+
     // ---- Remote desktops ----
 
     Control RemoteDesktopSection()
@@ -541,15 +593,115 @@ sealed class SettingsView : UserControl
                 + "A connection or folder can set its own choice in its properties."));
     }
 
+    // ---- Local terminal ----
+
+    Control LocalTerminalSection()
+    {
+        var shells = LocalShells.Available();
+        var note = Note($"New local terminals start in your home folder. {(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Shift+T opens one, "
+            + "as does the terminal button beside the tabs.");
+        if (shells.Count == 1)
+        {
+            // Linux and macOS: the login shell, which is set for the account rather than here.
+            return Section("Local terminal", Row("Shell", new TextBlock { Text = shells[0].Program, FontFamily = Dialogs.MonoFont, FontSize = 12 }), note);
+        }
+
+        var current = LocalShells.Find(_settings.LocalShell);
+        var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var shell in shells)
+        {
+            var item = new ComboBoxItem { Content = shell.Name, Tag = shell.Id };
+            ToolTip.SetTip(item, shell.Program);
+            choice.Items.Add(item);
+        }
+
+        choice.SelectedItem = choice.Items.OfType<ComboBoxItem>().First(i => (string)i.Tag! == current.Id);
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && choice.SelectedItem is ComboBoxItem { Tag: string id })
+            {
+                _settings = _settings with { LocalShell = id };
+                TrySaveSettings();
+            }
+        };
+
+        return Section("Local terminal", Row("Shell", choice), note);
+    }
+
+    // ---- Host status ----
+
+    Control HostStatusSection()
+    {
+        var check = new CheckBox { Content = "Show whether hosts are up", IsChecked = _settings.ChecksHostStatus };
+        check.IsCheckedChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            _settings = _settings with { HostStatusChecks = check.IsChecked == true };
+            TrySaveSettings();
+            HostStatusChecksChanged?.Invoke(this, check.IsChecked == true);
+        };
+
+        return Section("Host status",
+            check,
+            Note("About once a minute, Orrery opens a TCP connection to the host and port of each connection you can see in the list, "
+                + "and shows a mark beside its protocol: a filled dot if it answered, a cross if it didn't, a dashed ring if it can't be checked. "
+                + "The mark before the name is the session's state, not the host's. It sends nothing else, and skips connections that go through a jump host. "
+                + "Some networks treat this as a port scan, so turn it off there. Off, nothing is sent and no marks show."));
+    }
+
+    // ---- Colours ----
+
+    Control ColoursSection()
+    {
+        var colourBlind = new CheckBox { Content = "Colour-blind friendly colours", IsChecked = _settings.UseColourBlindColours };
+        colourBlind.IsCheckedChanged += (_, _) =>
+        {
+            bool on = colourBlind.IsChecked == true;
+            _settings = _settings with { ColourBlindColours = on ? true : null };
+            TrySaveSettings();
+            Palette.Use(on);
+            Log.For("Settings").LogInformation("Colour-blind friendly colours {State}", on ? "on" : "off");
+        };
+
+        var terminal = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        terminal.Items.Add(new ComboBoxItem { Content = "Standard", Tag = TerminalColourScheme.Standard });
+        terminal.Items.Add(new ComboBoxItem { Content = "Colour-blind friendly", Tag = TerminalColourScheme.ColourBlind });
+        var scheme = _settings.TerminalColours ?? TerminalColourScheme.Standard;
+        terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColourScheme)i.Tag! == scheme);
+        terminal.SelectionChanged += (_, _) =>
+        {
+            if (_loading || terminal.SelectedItem is not ComboBoxItem { Tag: TerminalColourScheme chosen })
+            {
+                return;
+            }
+
+            _settings = _settings with { TerminalColours = chosen == TerminalColourScheme.Standard ? null : chosen };
+            TrySaveSettings();
+            TerminalColoursChanged?.Invoke(this, chosen);
+            Log.For("Settings").LogInformation("Terminal colours set to {Scheme}", chosen);
+        };
+
+        return Section("Colours",
+            colourBlind,
+            Note("Session states, warnings and errors use blue, yellow and vermilion, which stay apart with red-green or blue-yellow colour blindness. "
+                + "They always have a shape, an icon or a word as well."),
+            Row("Terminal colours", terminal),
+            Note("Colour-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green stay readable. "
+                + "Applies to open terminals too."));
+    }
+
     // ---- Keyboard ----
 
     Control KeyboardSection()
     {
         var recorder = new ShortcutRecorder(FullScreenShortcut.FromSettings(_settings.FullScreenShortcut));
         var reset = new Button { Content = "Use the default" };
-        var problem = Note(string.Empty);
-        problem.Foreground = Dialogs.DangerBrush;
-        problem.IsVisible = false;
+        var problem = new Notice(NoticeKind.Error) { IsVisible = false };
+        problem.Message.FontSize = 12;
 
         void Save(KeyGesture shortcut)
         {
@@ -585,6 +737,29 @@ sealed class SettingsView : UserControl
             Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
                 + "and can't be a key the system, Orrery or typing in a session already uses. "
                 + "You can always leave full screen from the bar at the top edge of the screen."));
+    }
+
+    // ---- Accessibility ----
+
+    Control AccessibilitySection()
+    {
+        var announce = new CheckBox { Content = "Read new terminal output aloud", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+        announce.IsCheckedChanged += (_, _) =>
+        {
+            bool on = announce.IsChecked == true;
+            _settings = _settings with { TerminalAnnouncements = on };
+            if (TrySaveSettings())
+            {
+                TerminalAnnouncementsChanged?.Invoke(this, on);
+            }
+        };
+
+        return Section("Accessibility",
+            announce,
+            Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
+                + "It's on by default while a screen reader is running."),
+            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
+                + "for its tab, and Enter goes back in."));
     }
 
     // ---- Import and export ----
@@ -639,7 +814,9 @@ sealed class SettingsView : UserControl
     static StackPanel Section(string title, params Control[] children)
     {
         var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } });
+        var heading = new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } };
+        Avalonia.Automation.AutomationProperties.SetHeadingLevel(heading, 2);
+        panel.Children.Add(heading);
         panel.Children.AddRange(children);
         return panel;
     }

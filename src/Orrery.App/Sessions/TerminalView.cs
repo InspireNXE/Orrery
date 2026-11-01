@@ -1,11 +1,13 @@
 using System.Globalization;
 using System.Text;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Orrery.App.Controls;
 using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
 using Orrery.Core.Terminal;
@@ -32,14 +34,8 @@ public sealed class TerminalView : Control
     static readonly Color SelectionColor = Color.Parse("#3A5A8C");
     static readonly Color CursorColor = Color.Parse("#E6E8EC");
 
-    // A dark-friendly take on the 16 ANSI colours: black, red, green, yellow, blue, magenta, cyan, white, then bright.
-    static readonly Color[] Ansi16 =
-    [
-        Color.Parse("#1B1E24"), Color.Parse("#E06C75"), Color.Parse("#98C379"), Color.Parse("#E5C07B"),
-        Color.Parse("#61AFEF"), Color.Parse("#C678DD"), Color.Parse("#56B6C2"), Color.Parse("#C8CCD4"),
-        Color.Parse("#5C6370"), Color.Parse("#FF7A85"), Color.Parse("#B5E890"), Color.Parse("#FFD68A"),
-        Color.Parse("#82C4FF"), Color.Parse("#DE9BF0"), Color.Parse("#7FD8E3"), Color.Parse("#FFFFFF"),
-    ];
+    TerminalColourScheme _colourScheme;
+    TerminalPalette _palette = TerminalPalette.Standard;
 
     readonly TerminalEmulator _terminal;
     readonly DispatcherTimer _resizeTimer;
@@ -81,10 +77,155 @@ public sealed class TerminalView : Control
             Session.Resize(_terminal.Columns, _terminal.Rows);
         };
 
+        _terminal.Updated += QueueAnnounce;
+        _announceTimer = new DispatcherTimer { Interval = AnnounceTick };
+        _announceTimer.Tick += (_, _) => SayDue();
+        VisualChildren.Add(_spoken);
+        LogicalChildren.Add(_spoken);
+
         session.DataReceived += data => _terminal.Feed(data);
         session.StateChanged += (_, e) => ShowState(e.State, e.Message);
         ShowState(session.State, null);
     }
+
+    // ---- Screen reader ----
+
+    static readonly TimeSpan AnnounceTick = TimeSpan.FromMilliseconds(100);
+    readonly TerminalAnnouncer _announcer = new();
+    readonly LiveText _spoken = new("Orrery.Terminal", ScreenReader.CurrentThenMostRecent);
+    readonly DispatcherTimer _announceTimer;
+    volatile bool _announcements;
+    bool _announceQueued;
+
+    /// <summary>Read new output out through the screen reader, leaving out the echo of what's typed.</summary>
+    public bool Announcements
+    {
+        get => _announcements;
+        set
+        {
+            if (value == _announcements)
+            {
+                return;
+            }
+
+            _announcements = value;
+            _announcer.Reset(Snapshot());
+            if (!value)
+            {
+                _announceTimer.Stop();
+            }
+        }
+    }
+
+    /// <summary>What was read out last, for tests.</summary>
+    internal string Spoken => _spoken.Text;
+
+    // Called on the session's thread as output arrives; the comparing is done once per batch, on the UI thread.
+    void QueueAnnounce()
+    {
+        if (!_announcements || _announceQueued)
+        {
+            return;
+        }
+
+        _announceQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _announceQueued = false;
+            if (!_announcements)
+            {
+                return;
+            }
+
+            var screen = Snapshot();
+            if (!IsEffectivelyVisible)
+            {
+                // A tab in the background keeps quiet; it starts from what's on screen when it's shown again.
+                _announcer.Reset(screen);
+                return;
+            }
+
+            _announcer.Update(screen, DateTime.UtcNow);
+            if (_announcer.HasPending)
+            {
+                _announceTimer.Start();
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    void SayDue()
+    {
+        if (_announcer.TakeIfDue(DateTime.UtcNow) is { } text)
+        {
+            _spoken.Say(text);
+        }
+
+        if (!_announcer.HasPending)
+        {
+            _announceTimer.Stop();
+        }
+    }
+
+    void NoteTyped(string text)
+    {
+        if (_announcements)
+        {
+            _announcer.Typed(text, DateTime.UtcNow);
+        }
+    }
+
+    TerminalScreenText Snapshot()
+    {
+        lock (_terminal.SyncRoot)
+        {
+            int count = _terminal.Rows;
+            var rows = new string[count];
+            var wrapped = new bool[count];
+            for (int i = 0; i < count; i++)
+            {
+                var line = _terminal.ScreenLine(i);
+                wrapped[i] = line.Wrapped;
+                rows[i] = line.Wrapped ? line.Text() : line.Text().TrimEnd();
+            }
+
+            return new TerminalScreenText(rows, wrapped, _terminal.LinesScrolled, _terminal.CursorY);
+        }
+    }
+
+    /// <summary>The rows on show (scrolled back or not), trailing blanks and blank rows at the end left off.</summary>
+    internal string ScreenText()
+    {
+        lock (_terminal.SyncRoot)
+        {
+            var text = new StringBuilder();
+            int top = _terminal.ScrollbackCount - _scrollOffset;
+            for (int row = 0; row < _terminal.Rows; row++)
+            {
+                var line = _terminal.LineAt(top + row);
+                text.Append(line.Wrapped ? line.Text() : line.Text().TrimEnd());
+                if (!line.Wrapped)
+                {
+                    text.Append('\n');
+                }
+            }
+
+            return text.ToString().TrimEnd();
+        }
+    }
+
+    /// <summary>Where the cursor is, counting from 1 at the top left.</summary>
+    internal (int Line, int Column) CursorPosition
+    {
+        get
+        {
+            lock (_terminal.SyncRoot)
+            {
+                return (_terminal.CursorY + 1, _terminal.CursorX + 1);
+            }
+        }
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new TerminalAutomationPeer(this);
 
     public ITerminalSession Session { get; }
 
@@ -99,6 +240,26 @@ public sealed class TerminalView : Control
 
     /// <summary>The terminal's size in character cells.</summary>
     public (int Columns, int Rows) GridSize => (_terminal.Columns, _terminal.Rows);
+
+    /// <summary>The 16 colours programs pick from. Changing it repaints what's on screen in the new colours.</summary>
+    public TerminalColourScheme ColourScheme
+    {
+        get => _colourScheme;
+        set
+        {
+            if (value == _colourScheme)
+            {
+                return;
+            }
+
+            _colourScheme = value;
+            _palette = TerminalPalette.For(value);
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>The colour a palette index (0 to 15) draws in, for tests.</summary>
+    internal Color AnsiColour(int index) => _palette.Ansi[index];
 
     /// <summary>Text size in points. Changing it keeps the view's size and re-flows the rows and columns.</summary>
     public double TextSize
@@ -122,11 +283,15 @@ public sealed class TerminalView : Control
     {
         // Each line resets attributes first, so a host's hidden or odd colours can't hide or disguise it.
         var target = $"{Session.Target.Host}:{Session.Target.Port}";
-        var text = state switch
+        var text = (state, Session as ILocalSession) switch
         {
-            SessionState.Connecting => $"\u001b[0m\u001b[90mConnecting to {target}…\u001b[0m\r\n",
-            SessionState.Failed => $"\r\n\u001b[0m\u001b[31mConnection failed: {Printable(message)}\u001b[0m\r\n",
-            SessionState.Disconnected => "\r\n\u001b[0m\u001b[90m[Disconnected]\u001b[0m\r\n",
+            (SessionState.Connecting, { } local) => $"\u001b[0m\u001b[90mStarting {Printable(local.ProgramName)}…\u001b[0m\r\n",
+            (SessionState.Connecting, _) => $"\u001b[0m\u001b[90mConnecting to {target}…\u001b[0m\r\n",
+            (SessionState.Failed, { } local) => $"\r\n\u001b[0m\u001b[31mCouldn't start {Printable(local.ProgramName)}: {Printable(message)}\u001b[0m\r\n",
+            (SessionState.Failed, _) => $"\r\n\u001b[0m\u001b[31mConnection failed: {Printable(message)}\u001b[0m\r\n",
+            (SessionState.Disconnected, { ExitCode: { } code }) => $"\r\n\u001b[0m\u001b[90m[Exited with code {code}]\u001b[0m\r\n",
+            (SessionState.Disconnected, { }) => "\r\n\u001b[0m\u001b[90m[Ended]\u001b[0m\r\n",
+            (SessionState.Disconnected, _) => "\r\n\u001b[0m\u001b[90m[Disconnected]\u001b[0m\r\n",
             _ => null,
         };
 
@@ -213,6 +378,7 @@ public sealed class TerminalView : Control
         _terminal.Resize(columns, rows);
         _resizeTimer.Stop();
         _resizeTimer.Start();
+        _announcer.Reset(Snapshot());
     }
 
     // ---- Drawing ----
@@ -337,13 +503,13 @@ public sealed class TerminalView : Control
         return style.Flags.HasFlag(CellFlags.Inverse) ? (bg, fg) : (fg, bg);
     }
 
-    static Color Resolve(TerminalColor color, Color fallback)
+    Color Resolve(TerminalColor color, Color fallback)
     {
         if (color.IsDefault) return fallback;
         if (color.IsRgb) return Color.FromRgb((byte)(color.Rgb24 >> 16), (byte)(color.Rgb24 >> 8), (byte)color.Rgb24);
 
         int i = color.PaletteIndex;
-        if (i < 16) return Ansi16[i];
+        if (i < 16) return _palette.Ansi[i];
         if (i < 232)
         {
             // 6×6×6 colour cube.
@@ -418,6 +584,15 @@ public sealed class TerminalView : Control
         if (SpecialKey(e.Key) is { } special)
         {
             e.Handled = true;
+            if (special == TerminalKey.Enter)
+            {
+                NoteTyped("\n");
+            }
+            else if (special == TerminalKey.Backspace)
+            {
+                _announcer.Erased();
+            }
+
             Send(TerminalKeys.Encode(special, terminalMods, _terminal.CursorKeysApplication, shellPrompt: !_terminal.AlternateScreen));
             return;
         }
@@ -445,6 +620,7 @@ public sealed class TerminalView : Control
         if (!string.IsNullOrEmpty(e.Text) && !e.Text.Any(char.IsControl))
         {
             e.Handled = true;
+            NoteTyped(e.Text);
             Send(e.Text);
         }
     }
@@ -734,6 +910,7 @@ public sealed class TerminalView : Control
             return;
         }
 
+        NoteTyped(text.ReplaceLineEndings("\n"));
         Send(TerminalKeys.Paste(text, _terminal.BracketedPaste));
     }
 

@@ -299,6 +299,12 @@
           "NSec.Cryptography": "[26.4.0, )"
         }
       },
+      "orrery.protocols.local": {
+        "type": "Project",
+        "dependencies": {
+          "Orrery.Core": "[0.1.0, )"
+        }
+      },
       "orrery.protocols.rdp": {
         "type": "Project",
         "dependencies": {

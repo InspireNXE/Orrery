@@ -1,12 +1,15 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
@@ -40,12 +43,20 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
+    readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
+    readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
+    readonly Control _wakeSection;
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
     readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
     readonly Func<bool> _enlargeByDefault;
+    readonly ConnectionHistory? _history;
+    readonly Func<DateTimeOffset> _now;
+    readonly TextBlock _lastConnected = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
+    readonly TextBlock _lastFailed = new() { FontSize = 12, Foreground = Dialogs.DangerBrush, TextTrimming = TextTrimming.CharacterEllipsis, IsVisible = false };
+    readonly DispatcherTimer _historyTimer = new() { Interval = TimeSpan.FromSeconds(30) };
 
     ConnectionNode? _node;
     bool _loading;
@@ -53,10 +64,16 @@ sealed class PropertiesPanel : UserControl
     int _showVersion;
 
     /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, shown where nothing in the tree sets it.</param>
-    public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null)
+    /// <param name="history">When connections last connected, shown under the name.</param>
+    /// <param name="now">The clock, for wording like "3 days ago".</param>
+    public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null, ConnectionHistory? history = null, Func<DateTimeOffset>? now = null)
     {
         _tree = tree;
         _enlargeByDefault = enlargeByDefault ?? (() => true);
+        _history = history;
+        _now = now ?? (() => DateTimeOffset.Now);
+        _historyTimer.Tick += (_, _) => ShowHistory();
+        _lastConnected.IsVisible = history is not null;
         _credential = new CredentialPicker(credentials);
         _tile = Pane.Tile(_tileIcon);
 
@@ -72,26 +89,26 @@ sealed class PropertiesPanel : UserControl
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
-        ToolTip.SetTip(_desktopSizeRow.View, "RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
+        _desktopSizeRow.Tip("RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
-        ToolTip.SetTip(_enlargeRow.View, "RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
+        _enlargeRow.Tip("RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
         foreach (var (quality, label) in QualityLabels)
         {
             _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
         }
 
         _qualityRow = new InheritRow("Display quality", _quality, () => ShowInherited(r => SelectQuality(r.DisplayQuality.Value)));
-        ToolTip.SetTip(_qualityRow.View, "RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
+        _qualityRow.Tip("RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
             + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
-        ToolTip.SetTip(_autoReconnectRow.View, "If an open session is cut off, Orrery tries again up to 5 times. It doesn't after you log off or press Disconnect.");
+        _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
-        ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
+        _sshAgentRow.Tip("SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);
-        ToolTip.SetTip(_sshLegacyRow.View, "SSH: also accept SHA-1, CBC and 3DES algorithms.");
+        _sshLegacyRow.Tip("SSH: also accept SHA-1, CBC and 3DES algorithms.");
         var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
         _jumpHostRow = new InheritRow("Jump host", _jumpHost, () => ShowInherited(r => SelectJumpHost(r.JumpHostId.Value)));
-        ToolTip.SetTip(_jumpHostRow.View, "Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
+        _jumpHostRow.Tip("Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
         _forwardsField = new StackPanel
         {
             Spacing = 4,
@@ -109,6 +126,21 @@ sealed class PropertiesPanel : UserControl
                 },
             },
         };
+
+        AutomationProperties.SetName(_forwards, "Port forwards");
+        AutomationProperties.SetHelpText(_forwards, "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy.");
+        AutomationProperties.SetName(_notes, "Notes");
+        _wakeSection = Pane.Section("Wake on LAN",
+            Dialogs.Field("MAC address", _mac),
+            Dialogs.Field("Broadcast address (optional)", _broadcast),
+            new TextBlock
+            {
+                Text = "Wake in the connection's right-click menu sends a wake-up packet to this address on UDP port 9. "
+                    + "Leave the broadcast address empty to use 255.255.255.255; if the machine doesn't wake, try your network's, such as 192.168.1.255.",
+                FontSize = 11,
+                Foreground = Dialogs.MutedBrush,
+                TextWrapping = TextWrapping.Wrap,
+            });
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
@@ -134,11 +166,12 @@ sealed class PropertiesPanel : UserControl
             Margin = new Thickness(16),
             Children =
             {
-                Pane.Header(_tile, _title, _path),
+                Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
                 Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
+                _wakeSection,
                 _notesField,
             },
         };
@@ -149,7 +182,7 @@ sealed class PropertiesPanel : UserControl
             Children = { _error, _connect, Pane.Pair(_save, revert) },
         });
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards, _desktopSize })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards, _desktopSize, _mac, _broadcast })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
@@ -214,6 +247,7 @@ sealed class PropertiesPanel : UserControl
             _hostField.IsVisible = _connect.IsVisible = node is ConnectionEntry;
             _save.Classes.Set("accent", node is not ConnectionEntry);
             ShowTile(node, own.Protocol ?? inherited.Protocol.Value);
+            ShowHistory();
             _host.Text = (node as ConnectionEntry)?.Host;
             _notes.Text = node.Notes;
 
@@ -269,6 +303,10 @@ sealed class PropertiesPanel : UserControl
 
             _forwardsField.IsVisible = node is ConnectionEntry;
             _forwards.Text = PortForward.FormatAll((node as ConnectionEntry)?.PortForwards);
+
+            _wakeSection.IsVisible = node is ConnectionEntry;
+            _mac.Text = (node as ConnectionEntry)?.MacAddress;
+            _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
 
             Content = _editorView;
         }
@@ -386,6 +424,28 @@ sealed class PropertiesPanel : UserControl
             forwards = parsed.Count > 0 ? parsed : null;
         }
 
+        string? mac = null, broadcast = null;
+        if (_node is ConnectionEntry)
+        {
+            if (!string.IsNullOrWhiteSpace(_mac.Text))
+            {
+                if (!MacAddress.TryNormalise(_mac.Text, out mac))
+                {
+                    return Fail("The MAC address needs six pairs of hex digits, such as 00:1A:2B:3C:4D:5E or 00-1A-2B-3C-4D-5E.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_broadcast.Text))
+            {
+                if (!WakeOnLan.TryParseBroadcast(_broadcast.Text, out var address))
+                {
+                    return Fail("The broadcast address must be an IPv4 address such as 192.168.1.255.");
+                }
+
+                broadcast = address.Equals(System.Net.IPAddress.Broadcast) ? null : address.ToString();
+            }
+        }
+
         // Empty text with Inherit unticked means "none", overriding the parent.
         _node.Settings = new InheritableSettings
         {
@@ -409,6 +469,8 @@ sealed class PropertiesPanel : UserControl
         {
             entry.Host = host;
             entry.PortForwards = forwards;
+            entry.MacAddress = mac;
+            entry.WakeBroadcast = broadcast;
         }
 
         _dirty = false;
@@ -436,7 +498,58 @@ sealed class PropertiesPanel : UserControl
     {
         _error.Text = message;
         _error.IsVisible = true;
+
+        // Shown under the fields, away from the focus, so it's also read out.
+        ScreenReader.Announce(this, message, "Orrery.Properties", ScreenReader.MostRecent);
         return false;
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        if (_history is not null)
+        {
+            _history.Changed += OnHistoryChanged;
+            _historyTimer.Start();
+            ShowHistory();
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        if (_history is not null)
+        {
+            _history.Changed -= OnHistoryChanged;
+            _historyTimer.Stop();
+        }
+    }
+
+    void OnHistoryChanged(object? sender, EventArgs e) => ShowHistory();
+
+    /// <summary>
+    /// "Last connected 3 days ago" (the exact time in the tooltip) or "Never connected", and under it, only while
+    /// it's more recent than the last success, "Last attempt failed 2 hours ago". A folder shows the latest of
+    /// its connections. Runs again every so often so the wording keeps up.
+    /// </summary>
+    public void ShowHistory()
+    {
+        if (_node is null || _history is null)
+        {
+            return;
+        }
+
+        var use = _history.Summary(_node);
+        var now = _now();
+        _lastConnected.Text = use.Connected is { } connected ? $"Last connected {RelativeTime.Describe(connected, now)}" : "Never connected";
+        ToolTip.SetTip(_lastConnected, use.Connected is { } at ? RelativeTime.Exact(at) : null);
+        if (use.FailedSince is { } failed)
+        {
+            _lastFailed.Text = $"Last attempt failed {RelativeTime.Describe(failed, now)}";
+            ToolTip.SetTip(_lastFailed, RelativeTime.Exact(failed));
+        }
+
+        _lastFailed.IsVisible = use.FailedSince is not null;
     }
 
     /// <summary>The coloured square beside the name: the protocol for a connection, a folder otherwise.</summary>
@@ -533,12 +646,18 @@ sealed class PropertiesPanel : UserControl
     /// </summary>
     sealed class InheritRow
     {
+        const string InheritTip = "On: use the value from the folder above. Off: set this one's own.";
+
         readonly TextBlock _hint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush };
         readonly Control _editor;
 
         public InheritRow(string label, Control editor, Action showInherited, bool inline = false)
         {
             _editor = editor;
+
+            // The label is beside the editor only on screen; a screen reader needs it on the editor and the chip.
+            AutomationProperties.SetName(editor, label);
+            AutomationProperties.SetName(Inherit, $"{label}: inherit");
             Inherit.IsCheckedChanged += (_, _) =>
             {
                 bool inheriting = Inherit.IsChecked == true;
@@ -549,7 +668,7 @@ sealed class PropertiesPanel : UserControl
                     showInherited();
                 }
             };
-            ToolTip.SetTip(Inherit, "On: use the value from the folder above. Off: set this one's own.");
+            ToolTip.SetTip(Inherit, InheritTip);
 
             var header = new DockPanel();
             if (inline)
@@ -582,6 +701,14 @@ sealed class PropertiesPanel : UserControl
             Inherit.IsChecked = inheriting;
             _hint.IsVisible = inheriting;
             _editor.IsEnabled = !inheriting;
+            AutomationProperties.SetHelpText(Inherit, $"{hint}. {InheritTip}");
+        }
+
+        /// <summary>Explains the setting: a tooltip over the row, and the editor's description for a screen reader.</summary>
+        public void Tip(string text)
+        {
+            ToolTip.SetTip(View, text);
+            AutomationProperties.SetHelpText(_editor, text);
         }
     }
 }

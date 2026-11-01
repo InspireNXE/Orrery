@@ -14,6 +14,15 @@ public enum CredentialStoreKind
     VaultFile,
 }
 
+/// <summary>The 16 colours terminals draw with.</summary>
+public enum TerminalColourScheme
+{
+    Standard,
+
+    /// <summary>Red and green kept apart for colour blindness.</summary>
+    ColourBlind,
+}
+
 /// <summary>
 /// App preferences, kept in <c>settings.json</c> in the data folder. A null value means "use the default",
 /// so defaults can change in later versions without rewriting everyone's file.
@@ -46,16 +55,54 @@ public sealed record AppSettings
     /// <summary>The right-hand pane (connection settings, credential editor) is showing. Null is open.</summary>
     public bool? InspectorOpen { get; init; }
 
+    /// <summary>
+    /// Check from time to time whether the connections on screen are up, by opening a TCP connection to each one's
+    /// host and port. Null is on. Off sends nothing and shows no dots.
+    /// </summary>
+    public bool? HostStatusChecks { get; init; }
+
+    [JsonIgnore]
+    public bool ChecksHostStatus => HostStatusChecks ?? true;
+
+    /// <summary>Whether to reopen last time's sessions at start-up. Null is <see cref="RestoreSessionsMode.Ask"/>.</summary>
+    public RestoreSessionsMode? RestoreSessions { get; init; }
+
+    [JsonIgnore]
+    public RestoreSessionsMode RestoreMode => RestoreSessions ?? RestoreSessionsMode.Ask;
+
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }
 
     public const double DefaultTerminalFontSize = 14;
 
+    /// <summary>The terminal's colours. Null is <see cref="TerminalColourScheme.Standard"/>.</summary>
+    public TerminalColourScheme? TerminalColours { get; init; }
+
     /// <summary>
-    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+Home". Null is the default (Ctrl+Alt+Enter,
+    /// Colours for states, warnings and errors that stay apart with colour blindness. Null is off.
+    /// </summary>
+    public bool? ColourBlindColours { get; init; }
+
+    [JsonIgnore]
+    public bool UseColourBlindColours => ColourBlindColours ?? false;
+
+    /// <summary>
+    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
     /// or Ctrl+Cmd+F on macOS). The app checks it before use and falls back to the default.
     /// </summary>
     public string? FullScreenShortcut { get; init; }
+
+    /// <summary>
+    /// Read new terminal output out through the screen reader. Null is automatic: on while a screen reader is
+    /// running when Orrery starts, otherwise off.
+    /// </summary>
+    public bool? TerminalAnnouncements { get; init; }
+
+    /// <summary>
+    /// The shell a local terminal runs, by id ("pwsh", "cmd", "wsl:Ubuntu"). Null, or one no longer installed, is
+    /// PowerShell 7 if there is one, else Windows PowerShell; the login shell on Linux and macOS.
+    /// </summary>
+    public string? LocalShell { get; init; }
 
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]

@@ -9,3 +9,6 @@ artifacts/
 
 # Raw audit tool output lives outside the repo; this guards against copying it in.
 docs/audit/*/tooling/
+
+# Worktrees made for parallel Claude Code sessions
+.claude/worktrees/

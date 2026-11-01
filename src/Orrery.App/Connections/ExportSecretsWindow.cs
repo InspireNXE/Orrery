@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Export;
 
 namespace Orrery.App.Connections;
@@ -18,9 +19,9 @@ sealed class ExportSecretsWindow : Window
     internal const int MinimumPasswordLength = 8;
 
     readonly CheckBox _include;
-    readonly TextBox _password = new() { PasswordChar = '•', IsEnabled = false };
-    readonly TextBox _confirm = new() { PasswordChar = '•', IsEnabled = false };
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly TextBox _password = new PasswordBox { IsEnabled = false };
+    readonly TextBox _confirm = new PasswordBox { IsEnabled = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
 
     public ExportSecretsWindow(ExportFormat format)
     {
@@ -69,12 +70,7 @@ sealed class ExportSecretsWindow : Window
                 _include,
                 Dialogs.Field("Password for this file", _password),
                 Dialogs.Field("Confirm password", _confirm),
-                new TextBlock
-                {
-                    Text = "Anyone with the file and this password can read every password in it, and there's no way to recover them if it's forgotten.",
-                    Foreground = Dialogs.WarningBrush,
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                new Notice(NoticeKind.Warning, "Anyone with the file and this password can read every password in it, and there's no way to recover them if it's forgotten."),
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, ok } },
             },

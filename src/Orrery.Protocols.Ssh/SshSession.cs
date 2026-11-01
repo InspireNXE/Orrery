@@ -106,7 +106,7 @@ public sealed class SshSession : ITerminalSession
                 }
                 catch (RouteException e)
                 {
-                    Fail(e.Message);
+                    Fail(e.Message, e);
                     return;
                 }
                 catch (OperationCanceledException)
@@ -125,12 +125,13 @@ public sealed class SshSession : ITerminalSession
             int columns, rows;
             lock (_lock) (columns, rows) = (_columns, _rows);
             var shell = client.CreateShellStream(TerminalType, (uint)columns, (uint)rows, 0, 0, 64 * 1024);
-            shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message);
+            shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message, Recognise(e.Exception));
 
             // Output is read off the stream, not taken from its DataReceived event: the stream keeps everything
             // until it's read. The reader reports the end once the last output is out, which the stream's
             // Closed event (raised on another thread) can't promise.
-            var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected), Fail);
+            var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
+                (message, error) => Fail(message, error is null ? null : Recognise(error)));
             lock (_lock) (_shell, _pump) = (shell, pump);
             SetState(SessionState.Connected);
             pump.Start();
@@ -138,7 +139,7 @@ public sealed class SshSession : ITerminalSession
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Ssh").LogError(e, "SSH session to {Host} failed", Target.Host);
-            Fail(Describe(e, _allowLegacy));
+            Fail(Describe(e, _allowLegacy), Recognise(e));
         }
     }
 
@@ -155,7 +156,7 @@ public sealed class SshSession : ITerminalSession
         {
             var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = KeepAlive };
             hostKey = HostKeyCheck.Attach(client, _hostKeys, target);
-            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy));
+            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy), Recognise(e.Exception));
 
             lock (_lock)
             {
@@ -171,21 +172,21 @@ public sealed class SshSession : ITerminalSession
             hostKey.Connect(client);
             return client;
         }
-        catch (SshConnectionException) when (hostKey?.Rejected == true)
+        catch (SshConnectionException e) when (hostKey?.Rejected == true)
         {
-            Fail("The server's host key was not trusted.");
+            Fail("The server's host key was not trusted.", hostKey.Failure("The server's host key was not trusted.", e));
         }
         catch (SshAuthenticationException e)
         {
             // The server's own refusal sends the caller back to ask for a login; a jump host's is only reported.
             Log.For("Ssh").LogWarning("{Host}: login as {User} refused: {Reason}", target.Host, login.Username, e.Message);
             AuthenticationRejected = true;
-            Fail(Refusal(e, login));
+            Fail(Refusal(e, login), Recognise(e));
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Ssh").LogError(e, "SSH connection to {Host} failed", target.Host);
-            Fail(Describe(e, allowLegacy));
+            Fail(Describe(e, allowLegacy), Recognise(e));
         }
 
         return null;
@@ -246,6 +247,19 @@ public sealed class SshSession : ITerminalSession
         DataReceived?.Invoke(Encoding.UTF8.GetBytes($"\x1b[{(warning ? "33" : "90")}m» {text}\x1b[0m\r\n"));
     // SSH.NET may report the same failure through ErrorOccurred and by throwing; whichever lands first is shown.
     internal static string Describe(Exception e, bool allowLegacy) => e is SshConnectionException connection ? SshAlgorithms.ExplainFailure(connection, allowLegacy) : e.Message;
+
+    /// <summary>
+    /// SSH.NET's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside: a refused
+    /// login, its own timeout, and the server dropping or ending the connection. Socket errors already say what happened.
+    /// </summary>
+    internal static Exception Recognise(Exception e) => e switch
+    {
+        SshAuthenticationException => new SessionFailureException(FailureKind.LoginFailed, e.Message, e),
+        SshOperationTimeoutException => new TimeoutException(e.Message, e),
+        SshConnectionException { DisconnectReason: Renci.SshNet.Messages.Transport.DisconnectReason.ConnectionLost or Renci.SshNet.Messages.Transport.DisconnectReason.ByApplication }
+            => new SessionFailureException(FailureKind.ServerClosed, e.Message, e),
+        _ => e,
+    };
 
     /// <summary>Checks a private key (OpenSSH, PEM or PuTTY format) and its passphrase. Null when it's usable.</summary>
     public static string? ValidatePrivateKey(string key, string? passphrase)
@@ -403,13 +417,13 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
-    void Fail(string message)
+    void Fail(string message, Exception? error = null)
     {
         if (State is SessionState.Disconnected or SessionState.Failed) return;
-        SetState(SessionState.Failed, message);
+        SetState(SessionState.Failed, message, error);
     }
 
-    void SetState(SessionState state, string? message = null)
+    void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         lock (_lock)
         {
@@ -417,7 +431,7 @@ public sealed class SshSession : ITerminalSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
     }
 }
 

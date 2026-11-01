@@ -38,10 +38,10 @@ public class SettingsViewTests : IDisposable
         Assert.Null(changed);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("Ctrl+Alt+Q can't be used") == true);
 
-        window.KeyPressQwerty(PhysicalKey.Home, RawInputModifiers.Control | RawInputModifiers.Alt);
+        window.KeyPressQwerty(PhysicalKey.End, RawInputModifiers.Control | RawInputModifiers.Alt);
         Assert.False(recorder.IsRecording);
-        Assert.Equal(Key.Home, changed?.Key);
-        Assert.Equal("Ctrl+Alt+Home", settings.Load().FullScreenShortcut);
+        Assert.Equal(Key.End, changed?.Key);
+        Assert.Equal("Ctrl+Alt+End", settings.Load().FullScreenShortcut);
         window.Close();
     }
 
@@ -62,8 +62,8 @@ public class SettingsViewTests : IDisposable
         Assert.Contains("Portable", texts);
         Assert.Contains(texts, t => t?.Contains("InspireNXE") == true);
 
-        // Portable copies have no store choice, so the only combo box is the auto-lock time.
-        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>());
+        // Portable copies have no store choice, so the only combo box of times is the auto-lock one (the shell's has names).
+        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().All(i => i.Tag is int));
         Assert.Equal(30, (int)((ComboBoxItem)autoLock.SelectedItem!).Tag!);
 
         autoLock.SelectedItem = autoLock.Items.OfType<ComboBoxItem>().Single(i => (int)i.Tag! == 0);
@@ -71,6 +71,106 @@ public class SettingsViewTests : IDisposable
 
         Assert.Equal(0, settings.Load().AutoLockMinutes);
         Assert.Null(vault.AutoLockAfter);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Turning_terminal_announcements_on_or_off_saves_the_choice_and_says_so()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var changes = new List<bool>();
+        view.TerminalAnnouncementsChanged += (_, on) => changes.Add(on);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var announce = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Read new terminal output aloud");
+        Assert.Null(settings.Load().TerminalAnnouncements);
+        bool start = announce.IsChecked == true;
+
+        announce.IsChecked = !start;
+        Assert.Equal(!start, settings.Load().TerminalAnnouncements);
+        announce.IsChecked = start;
+        Assert.Equal(start, settings.Load().TerminalAnnouncements);
+        Assert.Equal([!start, start], changes);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Colour_settings_are_saved_and_applied_at_once()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        TerminalColourScheme? terminalScheme = null;
+        view.TerminalColoursChanged += (_, scheme) => terminalScheme = scheme;
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        try
+        {
+            var colourBlind = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => Equals(c.Content, "Colour-blind friendly colours"));
+            Assert.False(colourBlind.IsChecked);
+            colourBlind.IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(settings.Load().ColourBlindColours);
+            Assert.True(Palette.IsColourBlind);
+            Assert.Equal(Palette.ColourBlind.Danger, Palette.Danger.Color);
+            Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
+
+            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColourScheme));
+            terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, TerminalColourScheme.ColourBlind));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
+            Assert.Equal(TerminalColourScheme.ColourBlind, terminalScheme);
+
+            colourBlind.IsChecked = false;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Null(settings.Load().ColourBlindColours);
+            Assert.Equal(Palette.Standard.Danger, Palette.Danger.Color);
+        }
+        finally
+        {
+            Palette.Use(false);
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Saves_the_shell_for_local_terminals()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var shells = Orrery.Protocols.Local.LocalShells.Available();
+        if (shells.Count == 1)
+        {
+            // Linux and macOS: the login shell, shown but not chosen here.
+            Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == shells[0].Program);
+        }
+        else
+        {
+            var choice = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is "cmd"));
+            Assert.Equal(shells[0].Id, ((ComboBoxItem)choice.SelectedItem!).Tag);
+
+            choice.SelectedItem = choice.Items.OfType<ComboBoxItem>().Single(i => i.Tag is "cmd");
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("cmd", settings.Load().LocalShell);
+        }
+
         window.Close();
     }
 

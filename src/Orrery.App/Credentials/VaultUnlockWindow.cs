@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Credentials;
 
 namespace Orrery.App.Credentials;
@@ -14,17 +15,13 @@ sealed class VaultUnlockWindow : Window
 {
     const int MinimumPasswordLength = 8;
 
-    static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    static readonly IBrush WarningBrush = new SolidColorBrush(Color.Parse("#F3B672"));
-    static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
-
     readonly ICredentialStore _store;
     readonly bool _creating;
     readonly BiometricUnlock? _biometric;
-    readonly TextBox _password = new() { PasswordChar = '•' };
-    readonly TextBox _confirm = new() { PasswordChar = '•' };
-    readonly TextBlock _notice = new() { Foreground = WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
-    readonly TextBlock _error = new() { Foreground = DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly TextBox _password = new PasswordBox();
+    readonly TextBox _confirm = new PasswordBox();
+    readonly Notice _notice = new(NoticeKind.Warning) { IsVisible = false };
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
     readonly Button _useBiometric = new() { Padding = new Thickness(16, 6), IsVisible = false };
 
@@ -42,7 +39,7 @@ sealed class VaultUnlockWindow : Window
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.Parse("#14161B"));
+        Background = Dialogs.PanelBrush;
 
         _ok = new Button { Content = _creating ? "Create vault" : "Unlock", IsDefault = true, Padding = new Thickness(16, 6) };
         _ok.Classes.Add("accent");
@@ -75,12 +72,7 @@ sealed class VaultUnlockWindow : Window
 
         if (_creating)
         {
-            body.Children.Add(new TextBlock
-            {
-                Text = "If you forget the master password, there is no way to recover the vault or anything in it.",
-                Foreground = WarningBrush,
-                TextWrapping = TextWrapping.Wrap,
-            });
+            body.Children.Add(new Notice(NoticeKind.Warning, "If you forget the master password, there is no way to recover the vault or anything in it."));
         }
 
         body.Children.Add(Field("Master password", _password));
@@ -115,11 +107,7 @@ sealed class VaultUnlockWindow : Window
         };
     }
 
-    static Control Field(string label, Control input) => new StackPanel
-    {
-        Spacing = 4,
-        Children = { new TextBlock { Text = label, FontSize = 12, Foreground = MutedBrush }, input },
-    };
+    static Control Field(string label, Control input) => Dialogs.Field(label, input);
 
     /// <summary>
     /// Shows the system prompt. Cancelling it leaves the password field; a key that can't work any more is turned off

@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
+using Orrery.App.Controls;
 using Orrery.App.Input;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
@@ -23,8 +24,6 @@ namespace Orrery.App.Sessions;
 public sealed class RemoteFrameView : Panel
 {
     static readonly IBrush SurfaceBrush = new SolidColorBrush(Color.Parse("#0B0D10"));
-    static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
 
     // A desktop the server won't resize (most VNC servers) shrinks to fit; one that matches the view is
     // drawn as is.
@@ -44,13 +43,11 @@ public sealed class RemoteFrameView : Panel
     // The clipboard text last exchanged with a VNC server, so a change isn't sent back where it came from.
     string? _lastClipboard;
 
-    readonly TextBlock _status = new()
+    readonly Notice _status = new(NoticeKind.Info)
     {
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center,
-        TextWrapping = TextWrapping.Wrap,
         MaxWidth = 480,
-        FontSize = 14,
     };
 
     const int WheelDelta = 120;
@@ -197,7 +194,7 @@ public sealed class RemoteFrameView : Panel
         }
 
         _status.IsVisible = state != SessionState.Connected;
-        _status.Foreground = state == SessionState.Failed ? DangerBrush : MutedBrush;
+        _status.Kind = state == SessionState.Failed ? NoticeKind.Error : NoticeKind.Info;
         _status.Text = state switch
         {
             SessionState.Connecting => $"Connecting to {Session.Target.Host}…",

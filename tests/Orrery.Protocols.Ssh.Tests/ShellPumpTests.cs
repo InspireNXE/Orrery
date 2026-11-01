@@ -92,7 +92,7 @@ public class ShellPumpTests
         var stream = new FakeShellStream();
         var received = new MemoryStream();
         int closed = 0;
-        var pump = new ShellPump(stream, data => { lock (received) received.Write(data); }, () => Interlocked.Increment(ref closed), _ => { });
+        var pump = new ShellPump(stream, data => { lock (received) received.Write(data); }, () => Interlocked.Increment(ref closed), (_, _) => { });
         pump.Start();
 
         // 8 MiB, in the 32 KiB packets a busy host sends.
@@ -120,7 +120,7 @@ public class ShellPumpTests
     {
         var stream = new FakeShellStream();
         var failures = new ConcurrentQueue<string>();
-        var pump = new ShellPump(stream, _ => { }, () => { }, failures.Enqueue);
+        var pump = new ShellPump(stream, _ => { }, () => { }, (message, _) => failures.Enqueue(message));
         pump.Start();
 
         stream.BlockWrites();
@@ -146,7 +146,7 @@ public class ShellPumpTests
     {
         var stream = new FakeShellStream();
         var failures = new ConcurrentQueue<string>();
-        var pump = new ShellPump(stream, _ => { }, () => { }, failures.Enqueue);
+        var pump = new ShellPump(stream, _ => { }, () => { }, (message, _) => failures.Enqueue(message));
         pump.Start();
 
         stream.BlockWrites();
@@ -167,7 +167,7 @@ public class ShellPumpTests
     {
         var stream = new FakeShellStream();
         var failures = new ConcurrentQueue<string>();
-        var pump = new ShellPump(stream, _ => { }, () => { }, failures.Enqueue);
+        var pump = new ShellPump(stream, _ => { }, () => { }, (message, _) => failures.Enqueue(message));
         pump.Start();
 
         stream.BlockWrites();
@@ -188,7 +188,7 @@ public class ShellPumpTests
     {
         var stream = new FakeShellStream();
         var failures = new ConcurrentQueue<string>();
-        var pump = new ShellPump(stream, _ => throw new InvalidOperationException("emulator bug"), () => { }, failures.Enqueue);
+        var pump = new ShellPump(stream, _ => throw new InvalidOperationException("emulator bug"), () => { }, (message, _) => failures.Enqueue(message));
         pump.Start();
 
         stream.Push("output"u8.ToArray());
