@@ -13,10 +13,18 @@ namespace Orrery.Protocols.Rdp;
 /// An RDP session backed by IronRDP. Pixels are decoded into IronRDP's image, mirrored into a managed
 /// RGBA buffer on each graphics update, and handed to the UI through <see cref="CopyRegion"/>.
 /// </summary>
-public sealed class RdpSession : IFrameBufferSession
+/// <remarks>
+/// The shared clipboard works two ways. On Windows, IronRDP's own Windows clipboard talks to the local clipboard
+/// directly and also copies images and files. Elsewhere, clipboard text goes through <see cref="IClipboardSession"/>,
+/// so the view exchanges it with the local clipboard as it does for VNC. Setting <c>ORRERY_RDP_TEXT_CLIPBOARD=1</c>
+/// uses the text-only way on Windows too, for testing it.
+/// </remarks>
+public sealed class RdpSession : IFrameBufferSession, IClipboardSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
+    const uint MaxQueuedClipboardEvents = 64;
+    const int MaxRemoteFormats = 256;
     static readonly TimeSpan ClipboardTimeoutsInterval = TimeSpan.FromSeconds(5);
 
     readonly object _stageLock = new();
@@ -32,6 +40,8 @@ public sealed class RdpSession : IFrameBufferSession
     Task? _readLoop;
     Task? _clipboardLoop;
     WinCliprdr? _clipboard;
+    CallbackCliprdr? _textClipboard;
+    RdpClipboardBridge? _bridge;
 
     static readonly ILogger Logger = Orrery.Core.Diagnostics.Log.For("Rdp");
 
@@ -52,6 +62,13 @@ public sealed class RdpSession : IFrameBufferSession
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+    public event EventHandler<string>? RemoteClipboardChanged;
+
+    /// <inheritdoc/>
+    public event EventHandler<string>? ClipboardRefused;
+
+    /// <summary>Whether clipboard text goes through <see cref="SendClipboard"/> and <see cref="RemoteClipboardChanged"/>.</summary>
+    public bool ExchangesClipboard => _textClipboard is not null;
 
     /// <summary>
     /// Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.
@@ -65,11 +82,26 @@ public sealed class RdpSession : IFrameBufferSession
         DisplayQuality quality = DisplayQuality.Balanced)
     {
         var session = new RdpSession(target, certificateValidator, route);
-        if (shareClipboard && OperatingSystem.IsWindows())
+        if (shareClipboard)
         {
             try
             {
-                session._clipboard = WinCliprdr.NewWithFileTransfer(true);
+                if (OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("ORRERY_RDP_TEXT_CLIPBOARD") != "1")
+                {
+                    session._clipboard = WinCliprdr.NewWithFileTransfer(true);
+                }
+                else
+                {
+                    session._textClipboard = CallbackCliprdr.WithLimits(
+                        MaxQueuedClipboardEvents,
+                        (uint)RdpClipboardBridge.MaxDataBytes,
+                        (uint)(RdpClipboardBridge.MaxDataBytes * RdpClipboardBridge.MaxPendingRequests));
+                }
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // A native library built before IronRDP had the callback clipboard.
+                Logger.LogWarning("RDP clipboard is off: this build's IronRDP library has no clipboard for {Os}", RuntimeInformation.OSDescription);
             }
             catch (Exception e)
             {
@@ -89,7 +121,8 @@ public sealed class RdpSession : IFrameBufferSession
         {
             var config = BuildConfig(Target, password, desktopWidth, desktopHeight, quality);
             var dial = await _route.DialAsync(Target, token);
-            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, dial, _certificateValidator, _clipboard?.BackendFactory(), token);
+            var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
+            var (result, framed) = await RdpConnector.ConnectAsync(config, Target, dial, _certificateValidator, clipboardFactory, token);
             _framed = new Framed<Stream>(framed.GetInner().Item1);
 
             lock (_stageLock)
@@ -103,12 +136,26 @@ public sealed class RdpSession : IFrameBufferSession
             }
 
             Logger.LogInformation("Connected to {Host}: desktop {Width}x{Height} (asked for {AskedWidth}x{AskedHeight}), {Quality} quality, clipboard {Clipboard}",
-                Target.Host, Width, Height, desktopWidth, desktopHeight, quality.ToString(), _clipboard is null ? "off" : "on");
+                Target.Host, Width, Height, desktopWidth, desktopHeight, quality.ToString(),
+                _clipboard is not null ? "on" : _textClipboard is not null ? "text" : "off");
+
+            // Before the state changes: the view sends the local clipboard as soon as the session is connected.
+            if (_textClipboard is not null)
+            {
+                _bridge = new RdpClipboardBridge(new CallbackChannel(this, _textClipboard), () => State == SessionState.Connected);
+                _bridge.RemoteTextChanged += (_, text) => RemoteClipboardChanged?.Invoke(this, text);
+                _bridge.TextRefused += (_, reason) => ClipboardRefused?.Invoke(this, reason);
+            }
+
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
             if (_clipboard is not null)
             {
                 _clipboardLoop = Task.Run(() => ClipboardLoopAsync(_clipboard, token));
+            }
+            else if (_bridge is not null)
+            {
+                _clipboardLoop = Task.Run(() => BridgeLoopAsync(_bridge, token));
             }
 
             await ReadLoopAsync(token);
@@ -210,6 +257,116 @@ public sealed class RdpSession : IFrameBufferSession
                 Logger.LogWarning("RDP clipboard loop ended: {Message}", e.Message);
                 return;
             }
+        }
+    }
+
+    /// <summary>Runs the text clipboard. A failed operation is logged and the bridge goes on with the next event.</summary>
+    static async Task BridgeLoopAsync(RdpClipboardBridge bridge, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await bridge.RunAsync(token);
+                return;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (IronRdpException e)
+            {
+                Logger.LogWarning("RDP clipboard operation failed: {Message}", e.Message);
+            }
+            catch (Exception e)
+            {
+                // A write to a dropped connection, say. The read loop reports the disconnect.
+                Logger.LogWarning("RDP clipboard loop ended: {Message}", e.Message);
+                return;
+            }
+        }
+    }
+
+    public void SendClipboard(string text) => _bridge?.SetLocalText(text);
+
+    /// <summary>IronRDP's callback clipboard, answered under the stage lock. Event data is copied out and capped here.</summary>
+    sealed class CallbackChannel(RdpSession session, CallbackCliprdr clipboard) : IRdpClipboardChannel
+    {
+        public RdpClipboardEvent? NextEvent(TimeSpan timeout)
+        {
+            using var next = clipboard.NextEventTimeout((uint)timeout.TotalMilliseconds);
+            return next?.EventType switch
+            {
+                null => null,
+                ClipboardEventType.Ready => new(RdpClipboardEventKind.Ready),
+                ClipboardEventType.FormatListRequested => new(RdpClipboardEventKind.FormatListRequested),
+                ClipboardEventType.RemoteFormatList => new(RdpClipboardEventKind.RemoteFormatList, Formats: ReadFormats(next.RemoteFormats)),
+                ClipboardEventType.FormatDataRequested => new(RdpClipboardEventKind.FormatDataRequested, Format: next.RequestedFormat?.Value ?? 0),
+                ClipboardEventType.FormatDataResponse => new(RdpClipboardEventKind.FormatDataResponse, Format: next.ResponseFormat?.Value ?? 0, Data: ReadData(next.FormatData)),
+                _ => new(RdpClipboardEventKind.Other),
+            };
+        }
+
+        static uint[] ReadFormats(ClipboardFormatIterator? formats)
+        {
+            if (formats is null)
+            {
+                return [];
+            }
+
+            int count = (int)Math.Min(formats.Len(), MaxRemoteFormats);
+            var ids = new uint[count];
+            for (int i = 0; i < count; i++)
+            {
+                ids[i] = formats.Get((nuint)i)?.Id.Value ?? 0;
+            }
+
+            return ids;
+        }
+
+        byte[]? ReadData(FormatDataResponse? response)
+        {
+            if (response is null)
+            {
+                return null;
+            }
+
+            using (response)
+            {
+                if (response.IsError())
+                {
+                    return null;
+                }
+
+                if (response.DataSize() > (nuint)RdpClipboardBridge.MaxDataBytes)
+                {
+                    session._bridge?.RefuseRemote((long)response.DataSize());
+                    return null;
+                }
+
+                using var data = response.Data();
+                return ToBytes(data);
+            }
+        }
+
+        public Task AnnounceFormatsAsync(IReadOnlyList<uint> formats, CancellationToken token)
+        {
+            var list = ClipboardFormatIterator.New();
+            foreach (var format in formats)
+            {
+                list.Push(ClipboardFormat.New(ClipboardFormatId.New(format)));
+            }
+
+            return session.SubmitClipboardAsync(() => session._activeStage!.InitiateClipboardCopy(list), token);
+        }
+
+        public Task RequestDataAsync(uint format, CancellationToken token) =>
+            session.SubmitClipboardAsync(() => session._activeStage!.InitiateClipboardPaste(ClipboardFormatId.New(format)), token);
+
+        public async Task SendDataAsync(byte[]? data, CancellationToken token)
+        {
+            using var response = data is null ? FormatDataResponse.NewError() : FormatDataResponse.NewData(data);
+            await session.SubmitClipboardAsync(() => session._activeStage!.SubmitClipboardFormatData(response), token);
         }
     }
 
@@ -552,6 +709,8 @@ public sealed class RdpSession : IFrameBufferSession
         // The loop has ended, so nothing is waiting on the clipboard any more.
         _clipboard?.Dispose();
         _clipboard = null;
+        _textClipboard?.Dispose();
+        _textClipboard = null;
 
         _cts.Dispose();
         _writeLock.Dispose();
