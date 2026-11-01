@@ -166,6 +166,14 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
     }
 
     [AvaloniaFact]
+    public void Clearer_ui_colours_stay_apart_and_readable()
+    {
+        var problems = Problems(Palette.Clearer);
+        Report("Clearer UI palette", Pairs(Palette.Clearer), problems);
+        Assert.Empty(problems);
+    }
+
+    [AvaloniaFact]
     public void Colour_blind_terminal_colours_stay_apart_and_readable()
     {
         var problems = Problems(TerminalPalette.ColourBlind);
