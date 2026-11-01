@@ -61,6 +61,8 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
     public int Height { get; private set; }
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
     public event EventHandler<string>? RemoteClipboardChanged;
 
@@ -732,7 +734,9 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
     void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         State = state;
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
+        var change = new SessionStateChangedEventArgs(state, message, error);
+        LastChange = change;
+        StateChanged?.Invoke(this, change);
     }
 
     T WithStageLock<T>(Func<T> call)
