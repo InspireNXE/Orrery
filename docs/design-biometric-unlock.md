@@ -141,7 +141,8 @@ folder, and the authenticator secret never exists anywhere on disk.
   Orrery. Those are certainly this vault's, and are removed when stale. A record whose `place` is this vault's path but
   whose fingerprint this run never saw is only probably this vault's: another copy of Orrery may have changed the
   password, or a different vault may have been made where this one was (and this one may come back from a backup). It's
-  left alone, and only means the feature reads as off here (§3.4).
+  left alone, and only means the feature reads as off here (§3.4), until the user removes it (§3.5) or turns the
+  feature off.
 - **Keys waiting to be deleted:** when a stale record is removed without the user (§3.4), its Hello key's name goes in
   `orrery:biometric-retired-keys`, and those keys are deleted the next time the user turns the feature on or off. A
   record found only by its `place` never puts its key there.
@@ -196,14 +197,15 @@ another vault's.
 
 ### 3.4 When it stops working
 
-The Hello key is only ever deleted when the user turns the feature off, or turns it on again (which replaces it).
+The Hello key is only ever deleted when the user turns the feature off, turns it on again (which replaces it), or
+removes an old setup (§3.5).
 Nothing that might be temporary deletes anything.
 
 | Event | When Orrery notices | What happens | What the user sees |
 |---|---|---|---|
 | Master password changed in Orrery | Straight away | Records and keys for the old and new key blocks deleted | The change confirmation says Windows Hello unlock was turned off |
-| Master password changed by another copy of Orrery | Next unlock, or when Settings opens | Nothing deleted: the old record is only found by `place`, which could be another vault's (§2.3). It and its key stay until the user turns the feature off | "The master password was changed, so … was turned off", each time until it's turned on again |
-| A different vault made at the same path | As above | As above: the first vault's record and key are kept, and it opens with them if it's put back | As above |
+| Master password changed by another copy of Orrery | Next unlock, or when Settings opens | Nothing deleted: the old record is only found by `place`, which could be another vault's (§2.3). It and its key stay until the user removes them (§3.5) or turns the feature off | "… unlock was set up for a vault that used to be at this location, or for this vault before another copy of Orrery changed its master password, so it's off for this vault", each time until it's turned on again; Settings offers to remove the old setup |
+| A different vault made at the same path | As above | As above: the first vault's record and key are kept, and it opens with them if it's put back | As above: Orrery can't tell these two apart, so the message names both |
 | The record no longer decrypts | Next unlock | Record deleted; its key waits for the user | "The key saved for … no longer matches …" |
 | Windows Hello can't find the key (Hello reset, PIN removed, or something temporary) | Next unlock | Nothing deleted; not offered again until Orrery restarts | "Windows Hello couldn't find Orrery's key. Use the master password this time. If this keeps happening, turn … off and on again in Settings." |
 | Touch ID fingers added or removed | Next unlock | As above | As above |
@@ -216,13 +218,22 @@ Each message ends with how to turn it on again.
 **What a record left by another copy's password change still does.** It can't open the vault as it is now: the change
 made a new data key, and the record holds the old one. But it still holds the old data key, so a backup or other copy
 of the vault from before the change, with the old key block, still opens with Windows Hello or Touch ID on this
-computer until the user turns the feature off in Settings. Since the switch already shows it as off, that means turning
-it on and then off again; turning it on alone doesn't remove the old record. That's no more than
-the old master password opens, and it still needs a Hello or Touch ID gesture at this computer, but a user who changed
-the password because the old one leaked, and keeps old copies, should turn the feature off here too. When the change is
-made in this copy of Orrery, the old record and key are deleted straight away.
+computer until the user removes it (§3.5) or turns the feature off. Turning it on alone doesn't remove it. That's no more
+than the old master password opens, and it still needs a Hello or Touch ID gesture at this computer, but a user who
+changed the password because the old one leaked, and keeps old copies, should remove it. When the change is made in
+this copy of Orrery, the old record and key are deleted straight away.
 
-### 3.5 Move data and the old copy
+### 3.5 Removing an old setup
+
+When a record found only by the vault's path is saved, Settings › Credentials shows, under the switch, "A Windows Hello
+setup is still saved for a vault that used to be at this location, or for this vault before another copy of Orrery
+changed its master password", and a *Remove old Windows Hello setup* button (*Touch ID* on a Mac), named the same for
+screen readers. It asks first: the old vault that used to be there, and any backup of this vault from before its
+password was changed, won't open with Windows Hello any more (they still open with their master password), and this
+vault isn't affected. Confirmed, it deletes those records and their Hello keys or keychain items straight away, and
+nothing else. It works whether or not the feature is on for this vault.
+
+### 3.6 Move data and the old copy
 
 The record follows the vault's key block, so after Move data Windows Hello unlock carries on with the moved vault,
 and Move data says so. The old copy is the same vault with the same key, so until it's deleted biometric unlock opens it
@@ -307,7 +318,7 @@ No test makes a real Hello key, keychain item or Credential Manager entry.
 - `BiometricUnlockTests`: turning on, unlocking, wrong master password, cancelling (before, during and after the
   prompt answers), one prompt at a time, every case in §3.4, the vault file moving, a different drive root, Move data,
   version 1 records, records from a newer version, records found only by the vault's path (another copy's password
-  change, a different vault made in the same place), remote sessions, keys not shown to be in hardware, short secrets, records edited or moved to
+  change, a different vault made in the same place) and removing them, remote sessions, keys not shown to be in hardware, short secrets, records edited or moved to
   another vault, an old record that decrypts but whose data key no longer opens the vault, and that turning it on
   leaves the data folder untouched.
 - `WindowsHelloTests` (Windows only, no prompt): the WinRT plumbing for real (activation, strings, buffers, wiping a

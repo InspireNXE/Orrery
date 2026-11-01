@@ -400,7 +400,11 @@ public class BiometricUnlockTests : IDisposable
         // It's off, and said so, but the old record is only found by where it was used: it could be another vault's,
         // so it and its key are left until the user turns this off.
         using var reopened = new VaultFileStore(VaultPath, FastKdf);
-        Assert.Contains("master password was changed", await Biometric.TurnOffIfStaleAsync(reopened));
+        var message = await Biometric.TurnOffIfStaleAsync(reopened);
+        Assert.Contains("a vault that used to be at this location", message);
+        Assert.Contains("before another copy of Orrery changed its master password", message);
+        Assert.DoesNotContain("The master password was changed", message);
+        Assert.True(Biometric.HasLeftovers(reopened));
         Assert.False(Biometric.IsOn(reopened));
         Assert.Equal(BiometricOutcome.TurnedOff, (await Biometric.UnlockAsync(reopened)).Outcome);
         Assert.Single(_records.Records);
@@ -413,6 +417,44 @@ public class BiometricUnlockTests : IDisposable
         Assert.True(await Biometric.TurnOffAsync(reopened));
         Assert.Empty(_records.Items);
         Assert.Empty(_hello.KeyNames);
+    }
+
+    [Fact]
+    public async Task Leftovers_found_only_by_path_are_removed_with_their_keys_when_asked()
+    {
+        using (var first = await NewVaultAsync())
+        {
+            await Biometric.TurnOnAsync(first, Password);
+        }
+
+        var firstKey = Assert.Single(_hello.KeyNames);
+        File.Delete(VaultPath);
+        using var second = await NewVaultAsync();
+        await Biometric.TurnOnAsync(second, Password);
+        Assert.True(Biometric.HasLeftovers(second));
+
+        Assert.Equal(1, await Biometric.RemoveLeftoversAsync(second));
+
+        Assert.False(Biometric.HasLeftovers(second));
+        Assert.Contains(firstKey, _hello.Deleted);
+        Assert.DoesNotContain(firstKey, _hello.KeyNames);
+        Assert.Single(_records.Records);
+        Assert.True(Biometric.IsOn(second)); // This vault's own setup is untouched.
+        Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(second)).Outcome);
+        Assert.Equal(0, await Biometric.RemoveLeftoversAsync(second));
+    }
+
+    [Fact]
+    public async Task A_vaults_own_records_are_never_leftovers()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        await vault.ChangePasswordAsync(Password, NewPassword);
+
+        // The old record's key block was retired in this run: it's this vault's, and gets the password-change message.
+        Assert.False(Biometric.HasLeftovers(vault));
+        Assert.Contains("The master password was changed", await Biometric.TurnOffIfStaleAsync(vault));
+        Assert.Equal(0, await Biometric.RemoveLeftoversAsync(vault));
     }
 
     [Fact]
