@@ -27,8 +27,10 @@ public class SecretLeakTests : IDisposable
     const string KeyBody = "leakkeybodyB4n7";
     const string ExportPassword = "leak-export-H8j2";
     const string TypedPassword = "leak-typed-D1s9";
+    const string ProxySecret = "leak-proxy-W3t6";
+    const string ConfigKeyBody = "leakconfigkeyP8c2";
 
-    static readonly string[] Secrets = [MasterPassword, NewMasterPassword, WrongPassword, SavedPassword, KeyPassphrase, KeyBody, ExportPassword, TypedPassword];
+    static readonly string[] Secrets = [MasterPassword, NewMasterPassword, WrongPassword, SavedPassword, KeyPassphrase, KeyBody, ExportPassword, TypedPassword, ProxySecret, ConfigKeyBody];
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -75,6 +77,13 @@ public class SecretLeakTests : IDisposable
             OrreryImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "export.json", ExportPassword);
             Assert.ThrowsAny<Exception>(() => OrreryImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "export.json", WrongPassword));
 
+            // An OpenSSH config with secrets in its commands and in the key file it names, imported.
+            var keyFile = Path.Combine(_root, "id_leak");
+            File.WriteAllText(keyFile, $"-----BEGIN OPENSSH PRIVATE KEY-----\n{ConfigKeyBody}\n-----END OPENSSH PRIVATE KEY-----\n");
+            var sshConfig = Path.Combine(_root, "config");
+            File.WriteAllText(sshConfig, $"Host leaky\n  HostName leaky.example.com\n  IdentityFile {keyFile}\n  ProxyCommand nc -x {ProxySecret} %h %p\n  LocalCommand echo {ProxySecret}\n");
+            Assert.Single(SshConfigImporter.ImportFile(sshConfig).Root.Descendants());
+
             // SSH connections that fail, with a typed password and with a key, directly and through a jump host.
             var hostKeys = new HostKeyValidator(new JsonCertificateTrustStore(location.FileIn("known-hosts.json")),
                 _ => Task.FromResult(CertificateTrustDecision.Reject));
@@ -92,6 +101,7 @@ public class SecretLeakTests : IDisposable
         var log = string.Join("\n", Directory.GetFiles(location.LogDir).Select(File.ReadAllText));
         Assert.Contains("Vault unlock failed", log);
         Assert.Contains("Backed up connections", log);
+        Assert.Contains("Read SSH config", log);
         Assert.Contains("127.0.0.1", log);
         string details;
         lock (FailureDetails) details = string.Join("\n", FailureDetails);
