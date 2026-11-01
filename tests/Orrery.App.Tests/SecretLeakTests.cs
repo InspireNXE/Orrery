@@ -50,6 +50,10 @@ public class SecretLeakTests : IDisposable
         var key = new Credential(Guid.NewGuid(), "Deploy key", CredentialKind.SshKeyWithPassphrase, "deploy", null,
             $"-----BEGIN OPENSSH PRIVATE KEY-----\n{KeyBody}\n-----END OPENSSH PRIVATE KEY-----", Passphrase: KeyPassphrase);
 
+        var hello = new TestAuthenticator();
+        var biometric = new BiometricUnlock(hello, new MemorySecrets());
+        var dataKeys = new List<byte[]>();
+
         AppLog.Start(location);
         AppLog.Detailed = true;
         try
@@ -63,8 +67,17 @@ public class SecretLeakTests : IDisposable
                 vault.Lock();
                 await Assert.ThrowsAsync<WrongVaultPasswordException>(() => vault.UnlockAsync(WrongPassword));
                 await vault.UnlockAsync(MasterPassword);
+                vault.Lock();
+
+                // Biometric unlock: turned on (after a wrong password), used, then turned off by the password change.
+                await Assert.ThrowsAsync<WrongVaultPasswordException>(() => biometric.TurnOnAsync(vault, WrongPassword));
+                await biometric.TurnOnAsync(vault, MasterPassword);
+                Assert.Equal(BiometricOutcome.Done, (await biometric.UnlockAsync(vault)).Outcome);
+                dataKeys.Add((await vault.DataKeyForAsync(MasterPassword)).DataKey);
                 await vault.ChangePasswordAsync(MasterPassword, NewMasterPassword);
                 vault.Lock();
+                Assert.Equal(BiometricOutcome.TurnedOff, (await biometric.UnlockAsync(vault)).Outcome);
+                dataKeys.Add((await vault.DataKeyForAsync(NewMasterPassword)).DataKey);
             }
 
             // Connections saved, backed up and loaded.
@@ -134,12 +147,23 @@ public class SecretLeakTests : IDisposable
         Assert.Contains("Read SSH config", log);
         Assert.Contains("id_odd", log); // The key file by name, which is all the log gets.
         Assert.Contains("127.0.0.1", log);
+        Assert.Contains("Vault unlocked with Test Hello", log);
+        Assert.Contains("Test Hello unlock turned off", log);
         string details;
         lock (FailureDetails) details = string.Join("\n", FailureDetails);
         foreach (var secret in Secrets)
         {
             Assert.DoesNotContain(secret, log);
             Assert.DoesNotContain(secret, details);
+        }
+
+        // The authenticator's secrets, and the vault's data keys before and after the password change.
+        Assert.NotEmpty(hello.Secrets);
+        Assert.Equal(2, dataKeys.Count);
+        foreach (var secret in hello.Secrets.Concat(dataKeys))
+        {
+            Assert.DoesNotContain(Convert.ToBase64String(secret), log);
+            Assert.DoesNotContain(Convert.ToHexString(secret), log, StringComparison.OrdinalIgnoreCase);
         }
     }
 
