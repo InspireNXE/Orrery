@@ -693,8 +693,8 @@ sealed class SettingsView : UserControl
             Note(visionNote),
             Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
             Note(strengthNote),
-            interfaceColours,
-            Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Colour-blind uses blue, yellow and vermilion, "
+            Row("Interface colours", interfaceColours),
+            Note("Colours for session states in tabs and the tree, warnings and errors. Clearer uses teal, yellow and red, brighter and further apart than Standard. Colour-blind uses blue, yellow and vermilion, "
                 + "which stay apart with red-green or blue-yellow colour blindness. "
                 + "Session states, warnings and errors always have a shape, an icon or a word as well."),
             Row("Terminal colours", terminal),
