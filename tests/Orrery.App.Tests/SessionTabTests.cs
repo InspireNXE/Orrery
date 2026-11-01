@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Net.Sockets;
@@ -391,5 +392,48 @@ public class SessionTabTests
         session.Become(SessionState.Connecting);
         Dispatcher.UIThread.RunJobs();
         Assert.False(tab.IsShowingFailure);
+    }
+
+    [AvaloniaFact]
+    public void A_local_shell_tab_says_local_and_names_the_user_and_computer()
+    {
+        var session = new ScriptedSession();
+        var tab = new SessionTab(session, new Border(), new SessionOrigin("PowerShell 7", Protocol.Ssh, null, () => Task.CompletedTask) { Local = true });
+
+        Assert.Equal("LOCAL", tab.Origin.Label);
+        Assert.Equal("user@box", tab.Address);
+        Assert.Contains(tab.Header.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "LOCAL");
+
+        // Nothing to reconnect to: a local shell is never started again by itself. (WasCutOff became
+        // CanRetryByItself with the connection-lost screen.)
+        session.Become(SessionState.Connected);
+        session.Become(SessionState.Failed);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(tab.CanRetryByItself);
+        Assert.Equal("PowerShell 7, local terminal", tab.Header.Label);
+    }
+
+    [AvaloniaFact]
+    public void A_local_shell_that_cannot_start_says_so_and_offers_restart_not_reconnect()
+    {
+        var session = new ScriptedSession();
+        var tab = new SessionTab(session, new Border(), new SessionOrigin("PowerShell 7", Protocol.Ssh, null, () => Task.CompletedTask) { Local = true });
+        var window = new Window { Content = tab.Host, Width = 900, Height = 700 };
+        window.Show();
+        tab.IsSelected = true;
+        Dispatcher.UIThread.RunJobs();
+
+        session.Become(SessionState.Failed, "The system cannot find the file specified.");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(tab.IsShowingFailure);
+        Assert.False(tab.CanRetryByItself);
+        var texts = Texts(window).Select(t => t.Text).ToList();
+        Assert.Contains("Couldn't start the shell", texts);
+        Assert.DoesNotContain("Couldn't connect", texts);
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "Restart"));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "Reconnect"));
+        Assert.StartsWith("Couldn't start the shell: \"PowerShell 7\", local terminal on user@box", tab.DetailsText);
+        window.Close();
     }
 }

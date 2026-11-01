@@ -25,7 +25,7 @@ sealed class SessionLogger
     SessionLogger(SessionTab tab)
     {
         _tab = tab;
-        Id = $"{(tab.Origin.Files ? "sftp" : tab.Origin.Protocol.ToString().ToLowerInvariant())}-{Random.Shared.Next(0x10000):x4}";
+        Id = $"{tab.Origin.Label.ToLowerInvariant()}-{Random.Shared.Next(0x10000):x4}";
     }
 
     public string Id { get; }
@@ -34,8 +34,15 @@ sealed class SessionLogger
     {
         var logger = new SessionLogger(tab);
         var target = tab.Session.Target;
-        Logger.LogInformation("[{Session}] Opening \"{Title}\" on {Host}:{Port}{Attempt}", logger.Id, tab.Origin.Title, target.Host, target.Port,
-            tab.ReconnectAttempt > 0 ? $" (reconnect attempt {tab.ReconnectAttempt})" : string.Empty);
+        if (tab.Origin.Local)
+        {
+            Logger.LogInformation("[{Session}] Opening a local terminal: \"{Title}\"", logger.Id, tab.Origin.Title);
+        }
+        else
+        {
+            Logger.LogInformation("[{Session}] Opening \"{Title}\" on {Host}:{Port}{Attempt}", logger.Id, tab.Origin.Title, target.Host, target.Port,
+                tab.ReconnectAttempt > 0 ? $" (reconnect attempt {tab.ReconnectAttempt})" : string.Empty);
+        }
         tab.StateChanged += (_, _) => logger.OnStateChanged();
         Open.Add(logger);
         return logger;

@@ -15,6 +15,7 @@ using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 
 namespace Orrery.App.Settings;
 
@@ -97,6 +98,7 @@ sealed class SettingsView : UserControl
                             StorageSection(),
                             CredentialsSection(),
                             RemoteDesktopSection(),
+                            LocalTerminalSection(),
                             HostStatusSection(),
                             ColoursSection(),
                             KeyboardSection(),
@@ -453,6 +455,41 @@ sealed class SettingsView : UserControl
             Note("Remote desktops aren't told this display's scaling, so without this their text looks as small as it would at 100%. "
                 + "Enlarged text is sharp at 200% and slightly soft at 125% or 150%. Applies to new connections. "
                 + "A connection or folder can set its own choice in its properties."));
+    }
+
+    // ---- Local terminal ----
+
+    Control LocalTerminalSection()
+    {
+        var shells = LocalShells.Available();
+        var note = Note($"New local terminals start in your home folder. {(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Shift+T opens one, "
+            + "as does the terminal button beside the tabs.");
+        if (shells.Count == 1)
+        {
+            // Linux and macOS: the login shell, which is set for the account rather than here.
+            return Section("Local terminal", Row("Shell", new TextBlock { Text = shells[0].Program, FontFamily = Dialogs.MonoFont, FontSize = 12 }), note);
+        }
+
+        var current = LocalShells.Find(_settings.LocalShell);
+        var choice = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var shell in shells)
+        {
+            var item = new ComboBoxItem { Content = shell.Name, Tag = shell.Id };
+            ToolTip.SetTip(item, shell.Program);
+            choice.Items.Add(item);
+        }
+
+        choice.SelectedItem = choice.Items.OfType<ComboBoxItem>().First(i => (string)i.Tag! == current.Id);
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && choice.SelectedItem is ComboBoxItem { Tag: string id })
+            {
+                _settings = _settings with { LocalShell = id };
+                TrySaveSettings();
+            }
+        };
+
+        return Section("Local terminal", Row("Shell", choice), note);
     }
 
     // ---- Host status ----

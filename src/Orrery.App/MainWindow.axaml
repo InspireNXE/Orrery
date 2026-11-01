@@ -179,6 +179,7 @@
                       <Separator />
                       <MenuItem Header="New connection" Click="OnNewConnectionClick" />
                       <MenuItem Header="New folder" Click="OnNewFolderClick" />
+                      <MenuItem Header="Local terminal" Click="OnLocalTerminalClick" InputGesture="Ctrl+Shift+T" />
                       <MenuItem x:Name="AddGuestMenuItem" Header="Add guest" Click="OnAddGuestMenuClick" />
                       <MenuItem x:Name="MoveOutOfHostMenuItem" Header="Move out of host" Click="OnMoveOutOfHostMenuClick" />
                       <MenuItem x:Name="DuplicateMenuItem" Header="Duplicate" Click="OnDuplicateMenuClick" InputGesture="Ctrl+D" />
@@ -221,6 +222,10 @@
                         Click="OnQuickConnectClick" ToolTip.Tip="New session (Ctrl+K)" AutomationProperties.Name="New session">
                   <c:StrokeIcon Width="14" Height="14" StrokeThickness="2" Data="M12 5v14 M5 12h14" />
                 </Button>
+                <Button x:Name="LocalTerminalButton" Classes="icon" Width="32" Height="32" Margin="0,0,0,1" VerticalAlignment="Bottom" CornerRadius="6"
+                        Click="OnLocalTerminalClick" ToolTip.Tip="Local terminal (Ctrl+Shift+T)" AutomationProperties.Name="Local terminal">
+                  <c:StrokeIcon Width="14" Height="14" StrokeThickness="2" Data="M4 17l6-5-6-5 M12 19h8" />
+                </Button>
               </StackPanel>
             </ScrollViewer>
             </DockPanel>
@@ -247,6 +252,8 @@
               <TextBlock Text="No open sessions" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
               <TextBlock Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"
                          Text="Double-click a connection, or press Ctrl+K to quick connect." />
+              <TextBlock x:Name="EmptyStateLocal" Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"
+                         Text="Ctrl+Shift+T opens a terminal on this computer." />
             </StackPanel>
           </Grid>
         </DockPanel>

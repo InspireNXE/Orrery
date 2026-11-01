@@ -79,7 +79,8 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
 }
 
 /// <summary>A session tab, as quick connect lists it.</summary>
-sealed record OpenSession(string Title, string Address, Protocol Protocol);
+/// <param name="Label">What its badge says when that isn't the protocol's name, such as LOCAL or SFTP.</param>
+sealed record OpenSession(string Title, string Address, Protocol Protocol, string? Label = null);
 
 /// <summary>
 /// The Ctrl+K palette: type to find an open session or a saved connection, enter <c>host[:port]</c> to connect
@@ -413,7 +414,7 @@ sealed class QuickConnectWindow : Window
             Spacing = 10,
             Children =
             {
-                Badge(session.Protocol),
+                Badge(session.Protocol, session.Label),
                 name,
                 new TextBlock { Text = session.Address, FontSize = 12, FontFamily = Dialogs.MonoFont, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 260 },
             },
@@ -471,7 +472,7 @@ sealed class QuickConnectWindow : Window
         ];
     }
 
-    static Control Badge(Protocol protocol) => new Border
+    static Control Badge(Protocol protocol, string? label = null) => new Border
     {
         Background = ProtocolStyle.Background(protocol),
         CornerRadius = new CornerRadius(4),
@@ -479,7 +480,7 @@ sealed class QuickConnectWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
         Child = new TextBlock
         {
-            Text = ProtocolInfo.Label(protocol),
+            Text = label ?? ProtocolInfo.Label(protocol),
             FontSize = 10,
             FontWeight = FontWeight.Medium,
             FontFamily = Dialogs.MonoFont,

@@ -21,6 +21,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
   straight away when the network comes back. It never retries a refused login or an untrusted host key or
   certificate, since those need you. On by default; can be turned off per connection or folder
 - Wake-on-LAN: give a connection a MAC address, then choose Wake in its right-click menu
+- Local terminal tabs: PowerShell, cmd or a WSL distribution on Windows (chosen in settings), your login shell on Linux
+  and macOS, starting in your home folder
 
 ### Display
 
@@ -68,6 +70,7 @@ On macOS, Cmd replaces Ctrl.
 | Keys | Action |
 | --- | --- |
 | Ctrl+K | Quick connect |
+| Ctrl+Shift+T | Local terminal |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel |
 | Ctrl+Alt+B | Show or hide the properties pane |
@@ -79,7 +82,8 @@ On macOS, Cmd replaces Ctrl.
 | Delete | Delete the selected rows |
 
 While a remote session has focus it gets keys first, so these shortcuts go to the remote machine. Full screen and
-Ctrl+Alt+Home always reach Orrery.
+Ctrl+Alt+Home always reach Orrery. Ctrl+Shift+T still opens a local terminal from inside a terminal, but not from a
+remote desktop.
 
 ## Accessibility
 
@@ -167,7 +171,7 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 | --- | --- |
 | `src/Orrery.App` | The Avalonia app: windows, connection tree, properties pane, settings |
 | `src/Orrery.Core` | Model, storage, credentials, vault, import and export |
-| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions |
+| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions, and local terminals |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
 | `build/` | Packaging, installer and third-party notice scripts |
 | `installer/` | Inno Setup script for the Windows installer; `installer/linux/` holds the Linux launcher and icons |
@@ -176,10 +180,10 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, VNC authentication, and how
-each protocol reports real network failures (an RDP server refusing a login, especially) on the connection-lost
-screen. The Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools
-can flag the single-file executable as a false positive.
+the Linux and macOS builds (including the .deb, .rpm and AppImage), local terminals on Linux and macOS, the ARM builds,
+VNC authentication, and how each protocol reports real network failures (an RDP server refusing a login, especially)
+on the connection-lost screen. The Windows executables aren't code-signed, so SmartScreen may warn on first launch,
+and antivirus tools can flag the single-file executable as a false positive.
 
 ## Licence and credits
 
