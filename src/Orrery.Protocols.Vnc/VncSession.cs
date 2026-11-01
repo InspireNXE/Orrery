@@ -128,9 +128,23 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         catch (Exception e)
         {
             Log.For("Vnc").LogError(e, "VNC session to {Host} failed", Target.Host);
-            SetState(SessionState.Failed, Describe(e));
+            SetState(SessionState.Failed, Describe(e), Recognise(e));
         }
     }
+
+    /// <summary>
+    /// The VNC library's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside:
+    /// the server hanging up, and a refused password. Socket errors already say what happened.
+    /// </summary>
+    internal static Exception Recognise(Exception e) => e switch
+    {
+        UnexpectedEndOfStreamException => new SessionFailureException(FailureKind.ServerClosed, e.Message, e),
+        HandshakeFailedException when IsRefusedLogin(e.Message) => new SessionFailureException(FailureKind.LoginFailed, e.Message, e),
+        _ => e,
+    };
+
+    static bool IsRefusedLogin(string message) =>
+        message.Contains("auth", StringComparison.OrdinalIgnoreCase) && message.Contains("fail", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// JPEG quality (percent) and chroma subsampling for <paramref name="quality"/>. Full quality is the library's
@@ -160,7 +174,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
                 SetState(SessionState.Connected);
                 break;
             case ConnectionState.Interrupted or ConnectionState.ReconnectFailed:
-                SetState(SessionState.Failed, e.Exception?.Message ?? e.Reason ?? "The connection was lost.");
+                SetState(SessionState.Failed, e.Exception?.Message ?? e.Reason ?? "The connection was lost.", e.Exception is null ? null : Recognise(e.Exception));
                 break;
             case ConnectionState.Closed:
                 SetState(SessionState.Disconnected);
@@ -488,7 +502,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         _cts.Dispose();
     }
 
-    void SetState(SessionState state, string? message = null)
+    void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         // A refused desktop size stays failed, even if the library goes on to report the connection as up.
         if (State == state || (State is SessionState.Failed or SessionState.Disconnected && (state != SessionState.Connected || _desktopRefused)))
@@ -497,7 +511,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
 
         State = state;
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
     }
 
     ITransport? _transport;

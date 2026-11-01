@@ -104,24 +104,26 @@ public sealed class TelnetSession : ITerminalSession
         {
             SetState(SessionState.Disconnected);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException e)
         {
-            SetState(SessionState.Failed, "The connection timed out.");
+            SetState(SessionState.Failed, "The connection timed out.", new TimeoutException("The connection timed out.", e));
         }
         catch (RouteException e)
         {
-            SetState(SessionState.Failed, e.Message);
+            SetState(SessionState.Failed, e.Message, e);
         }
         catch (Exception e) when (e is SocketException or IOException or ObjectDisposedException)
         {
+            // Once connected, an error ends the session rather than failing it: some servers reset the connection
+            // when you log out, and that mustn't look like a drop to reconnect after.
             Log.For("Telnet").LogWarning("Telnet session to {Host} ended: {Message}", Target.Host, e.Message);
-            SetState(State == SessionState.Connected ? SessionState.Disconnected : SessionState.Failed, e.Message);
+            SetState(State == SessionState.Connected ? SessionState.Disconnected : SessionState.Failed, e.Message, e);
         }
         catch (Exception e)
         {
             // From a DataReceived handler or the parser. Report it here so it doesn't sit unobserved in _run.
             Log.For("Telnet").LogError(e, "Telnet session to {Host} failed", Target.Host);
-            SetState(SessionState.Failed, "The Telnet session stopped because of an internal error.");
+            SetState(SessionState.Failed, "The Telnet session stopped because of an internal error.", e);
         }
     }
 
@@ -246,7 +248,7 @@ public sealed class TelnetSession : ITerminalSession
         _cts.Dispose();
     }
 
-    void SetState(SessionState state, string? message = null)
+    void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         lock (_lock)
         {
@@ -254,7 +256,7 @@ public sealed class TelnetSession : ITerminalSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
     }
 
     /// <summary>
