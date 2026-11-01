@@ -57,6 +57,12 @@ public sealed record AppSettings
     /// </summary>
     public string? FullScreenShortcut { get; init; }
 
+    /// <summary>
+    /// Read new terminal output out through the screen reader. Null is automatic: on while a screen reader is
+    /// running when Orrery starts, otherwise off.
+    /// </summary>
+    public bool? TerminalAnnouncements { get; init; }
+
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;

@@ -1,11 +1,13 @@
 using System.Globalization;
 using System.Text;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Orrery.App.Controls;
 using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
 using Orrery.Core.Terminal;
@@ -81,10 +83,155 @@ public sealed class TerminalView : Control
             Session.Resize(_terminal.Columns, _terminal.Rows);
         };
 
+        _terminal.Updated += QueueAnnounce;
+        _announceTimer = new DispatcherTimer { Interval = AnnounceTick };
+        _announceTimer.Tick += (_, _) => SayDue();
+        VisualChildren.Add(_spoken);
+        LogicalChildren.Add(_spoken);
+
         session.DataReceived += data => _terminal.Feed(data);
         session.StateChanged += (_, e) => ShowState(e.State, e.Message);
         ShowState(session.State, null);
     }
+
+    // ---- Screen reader ----
+
+    static readonly TimeSpan AnnounceTick = TimeSpan.FromMilliseconds(100);
+    readonly TerminalAnnouncer _announcer = new();
+    readonly LiveText _spoken = new("Orrery.Terminal", ScreenReader.CurrentThenMostRecent);
+    readonly DispatcherTimer _announceTimer;
+    volatile bool _announcements;
+    bool _announceQueued;
+
+    /// <summary>Read new output out through the screen reader, leaving out the echo of what's typed.</summary>
+    public bool Announcements
+    {
+        get => _announcements;
+        set
+        {
+            if (value == _announcements)
+            {
+                return;
+            }
+
+            _announcements = value;
+            _announcer.Reset(Snapshot());
+            if (!value)
+            {
+                _announceTimer.Stop();
+            }
+        }
+    }
+
+    /// <summary>What was read out last, for tests.</summary>
+    internal string Spoken => _spoken.Text;
+
+    // Called on the session's thread as output arrives; the comparing is done once per batch, on the UI thread.
+    void QueueAnnounce()
+    {
+        if (!_announcements || _announceQueued)
+        {
+            return;
+        }
+
+        _announceQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _announceQueued = false;
+            if (!_announcements)
+            {
+                return;
+            }
+
+            var screen = Snapshot();
+            if (!IsEffectivelyVisible)
+            {
+                // A tab in the background keeps quiet; it starts from what's on screen when it's shown again.
+                _announcer.Reset(screen);
+                return;
+            }
+
+            _announcer.Update(screen, DateTime.UtcNow);
+            if (_announcer.HasPending)
+            {
+                _announceTimer.Start();
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    void SayDue()
+    {
+        if (_announcer.TakeIfDue(DateTime.UtcNow) is { } text)
+        {
+            _spoken.Say(text);
+        }
+
+        if (!_announcer.HasPending)
+        {
+            _announceTimer.Stop();
+        }
+    }
+
+    void NoteTyped(string text)
+    {
+        if (_announcements)
+        {
+            _announcer.Typed(text, DateTime.UtcNow);
+        }
+    }
+
+    TerminalScreenText Snapshot()
+    {
+        lock (_terminal.SyncRoot)
+        {
+            int count = _terminal.Rows;
+            var rows = new string[count];
+            var wrapped = new bool[count];
+            for (int i = 0; i < count; i++)
+            {
+                var line = _terminal.ScreenLine(i);
+                wrapped[i] = line.Wrapped;
+                rows[i] = line.Wrapped ? line.Text() : line.Text().TrimEnd();
+            }
+
+            return new TerminalScreenText(rows, wrapped, _terminal.LinesScrolled, _terminal.CursorY);
+        }
+    }
+
+    /// <summary>The rows on show (scrolled back or not), trailing blanks and blank rows at the end left off.</summary>
+    internal string ScreenText()
+    {
+        lock (_terminal.SyncRoot)
+        {
+            var text = new StringBuilder();
+            int top = _terminal.ScrollbackCount - _scrollOffset;
+            for (int row = 0; row < _terminal.Rows; row++)
+            {
+                var line = _terminal.LineAt(top + row);
+                text.Append(line.Wrapped ? line.Text() : line.Text().TrimEnd());
+                if (!line.Wrapped)
+                {
+                    text.Append('\n');
+                }
+            }
+
+            return text.ToString().TrimEnd();
+        }
+    }
+
+    /// <summary>Where the cursor is, counting from 1 at the top left.</summary>
+    internal (int Line, int Column) CursorPosition
+    {
+        get
+        {
+            lock (_terminal.SyncRoot)
+            {
+                return (_terminal.CursorY + 1, _terminal.CursorX + 1);
+            }
+        }
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new TerminalAutomationPeer(this);
 
     public ITerminalSession Session { get; }
 
@@ -213,6 +360,7 @@ public sealed class TerminalView : Control
         _terminal.Resize(columns, rows);
         _resizeTimer.Stop();
         _resizeTimer.Start();
+        _announcer.Reset(Snapshot());
     }
 
     // ---- Drawing ----
@@ -418,6 +566,15 @@ public sealed class TerminalView : Control
         if (SpecialKey(e.Key) is { } special)
         {
             e.Handled = true;
+            if (special == TerminalKey.Enter)
+            {
+                NoteTyped("\n");
+            }
+            else if (special == TerminalKey.Backspace)
+            {
+                _announcer.Erased();
+            }
+
             Send(TerminalKeys.Encode(special, terminalMods, _terminal.CursorKeysApplication, shellPrompt: !_terminal.AlternateScreen));
             return;
         }
@@ -445,6 +602,7 @@ public sealed class TerminalView : Control
         if (!string.IsNullOrEmpty(e.Text) && !e.Text.Any(char.IsControl))
         {
             e.Handled = true;
+            NoteTyped(e.Text);
             Send(e.Text);
         }
     }
@@ -734,6 +892,7 @@ public sealed class TerminalView : Control
             return;
         }
 
+        NoteTyped(text.ReplaceLineEndings("\n"));
         Send(TerminalKeys.Paste(text, _terminal.BracketedPaste));
     }
 

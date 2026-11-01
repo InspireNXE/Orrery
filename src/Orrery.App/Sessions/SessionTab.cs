@@ -140,10 +140,24 @@ sealed class SessionTab
             StateChanged?.Invoke(this, EventArgs.Empty);
         });
 
+        // What a screen reader says when the focus lands in the session.
+        if (string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetName(view)))
+        {
+            Avalonia.Automation.AutomationProperties.SetName(view, ViewName(view, origin.Title));
+        }
+
         _countdown.Tick += (_, _) => CountDown();
         Host = new Grid { Children = { view, BuildOverlay() } };
         ShowState();
     }
+
+    internal static string ViewName(Control view, string title) => view switch
+    {
+        TerminalView => $"Terminal: {title}",
+        RemoteFrameView => $"Remote desktop: {title}",
+        FileBrowserView => $"Files: {title}",
+        _ => title,
+    };
 
     public IConnectionSession Session { get; }
     public Control View { get; }

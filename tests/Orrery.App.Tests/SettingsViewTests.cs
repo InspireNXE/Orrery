@@ -74,6 +74,31 @@ public class SettingsViewTests : IDisposable
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void Turning_terminal_announcements_on_or_off_saves_the_choice_and_says_so()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var changes = new List<bool>();
+        view.TerminalAnnouncementsChanged += (_, on) => changes.Add(on);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var announce = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Read new terminal output aloud");
+        Assert.Null(settings.Load().TerminalAnnouncements);
+        bool start = announce.IsChecked == true;
+
+        announce.IsChecked = !start;
+        Assert.Equal(!start, settings.Load().TerminalAnnouncements);
+        announce.IsChecked = start;
+        Assert.Equal(start, settings.Load().TerminalAnnouncements);
+        Assert.Equal([!start, start], changes);
+        window.Close();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

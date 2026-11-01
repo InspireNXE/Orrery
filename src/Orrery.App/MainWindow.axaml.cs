@@ -1691,6 +1691,7 @@ public partial class MainWindow : Window
         {
             Margin = TerminalMargin,
             TextSize = _settingsStore.Load().TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            Announcements = Controls.ScreenReader.TerminalAnnouncements(_settingsStore.Load()),
         };
         view.TextSizeRequested += (_, step) => ChangeTerminalTextSize(step);
         return view;
@@ -2495,6 +2496,13 @@ public partial class MainWindow : Window
             {
                 _fullScreenShortcut = shortcut;
                 UpdateSessionToolbar();
+            };
+            view.TerminalAnnouncementsChanged += (_, on) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.Announcements = on;
+                }
             };
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             _settingsHost.Content = view;

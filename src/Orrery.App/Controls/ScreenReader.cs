@@ -53,6 +53,9 @@ static class ScreenReader
         }
     }
 
+    /// <summary>Whether terminals read out new output: the setting, or while a screen reader is running if it's unset.</summary>
+    public static bool TerminalAnnouncements(Orrery.Core.Settings.AppSettings settings) => settings.TerminalAnnouncements ?? IsRunning;
+
     /// <summary>Raised for every message, for tests.</summary>
     internal static event Action<string>? Announced;
 

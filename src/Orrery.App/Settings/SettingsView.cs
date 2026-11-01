@@ -98,6 +98,7 @@ sealed class SettingsView : UserControl
                             CredentialsSection(),
                             RemoteDesktopSection(),
                             KeyboardSection(),
+                            AccessibilitySection(),
                             ImportSection(),
                             LogsSection(),
                             AboutSection(),
@@ -115,6 +116,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
+
+    /// <summary>Terminal announcements were turned on (true) or off.</summary>
+    public event EventHandler<bool>? TerminalAnnouncementsChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -487,6 +491,27 @@ sealed class SettingsView : UserControl
             Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
                 + "and can't be a key the system, Orrery or typing in a session already uses. "
                 + "You can always leave full screen from the bar at the top edge of the screen."));
+    }
+
+    // ---- Accessibility ----
+
+    Control AccessibilitySection()
+    {
+        var announce = new CheckBox { Content = "Read new terminal output aloud", IsChecked = ScreenReader.TerminalAnnouncements(_settings) };
+        announce.IsCheckedChanged += (_, _) =>
+        {
+            bool on = announce.IsChecked == true;
+            _settings = _settings with { TerminalAnnouncements = on };
+            if (TrySaveSettings())
+            {
+                TerminalAnnouncementsChanged?.Invoke(this, on);
+            }
+        };
+
+        return Section("Accessibility",
+            announce,
+            Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
+                + "It's on by default while a screen reader is running."));
     }
 
     // ---- Import and export ----
