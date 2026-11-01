@@ -110,7 +110,7 @@ sealed class SettingsView : UserControl
         var pages = new (string Name, Control[] Sections)[]
         {
             ("General", [StartupSection(), KeyboardSection(), HostStatusSection()]),
-            ("Appearance", [ColoursSection(), AccessibilitySection()]),
+            ("Appearance", [.. ColourSections(), AccessibilitySection()]),
             ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
             ("About", [LogsSection(), AboutSection()]),
@@ -123,10 +123,10 @@ sealed class SettingsView : UserControl
                 Margin = new Thickness(32, 24, 32, 32),
                 MaxWidth = 600,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Spacing = 28,
+                Spacing = 16,
                 IsVisible = false,
             };
-            page.Children.AddRange(sections);
+            page.Children.AddRange(sections.Select(Card));
             host.Children.Add(page);
             _pages[name] = page;
             // Text lines up with the title above: the list's 12, the accent's 2 and 18 make the header's 32.
@@ -638,17 +638,19 @@ sealed class SettingsView : UserControl
         (ColourVision.Tritanopia, "Tritanopia: blue-yellow"),
     ];
 
-    Control ColoursSection()
+    /// <summary>Color vision, interface colors and terminal colors: three cards, since choosing a color vision sets the other two.</summary>
+    Control[] ColourSections()
     {
         var current = _settings.InterfaceColourScheme;
         var radios = new Dictionary<InterfaceColourScheme, RadioButton>();
         var choices = new (InterfaceColourScheme Scheme, string Text)[]
         {
             (InterfaceColourScheme.Standard, "Standard"),
-            (InterfaceColourScheme.Clearer, "Clearer: easier to tell apart for most colour blindness"),
-            (InterfaceColourScheme.ColourBlind, "Colour-blind (Okabe-Ito)"),
+            (InterfaceColourScheme.Clearer, "Clearer"),
+            (InterfaceColourScheme.ColourBlind, "Color-blind (Okabe-Ito)"),
         };
         var interfaceColours = new StackPanel { Spacing = 4 };
+        Avalonia.Automation.AutomationProperties.SetName(interfaceColours, "Interface colors");
         foreach (var (choice, text) in choices)
         {
             var radio = new RadioButton { Content = text, GroupName = "InterfaceColours", Tag = choice, IsChecked = choice == current };
@@ -698,8 +700,8 @@ sealed class SettingsView : UserControl
         vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColourVision)i.Tag! == _settings.Vision);
         Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
 
-        var strengthNote = "How far remote desktop colours are shifted. Lower it if pictures look too changed; 0% leaves them as they are. "
-            + "The interface and terminals aren't affected.";
+        var strengthNote = "Only for remote desktops: how far their colors are shifted. Lower it if pictures look too changed; "
+            + "0% leaves them as they are.";
         var strength = new Slider
         {
             Minimum = 0,
@@ -754,18 +756,26 @@ sealed class SettingsView : UserControl
             VisionChanged();
         };
 
-        return Section("Colours",
-            Row("Colour vision", vision),
-            Note(visionNote),
-            Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
-            Note(strengthNote),
-            Row("Interface colours", interfaceColours),
-            Note("Colours for session states in tabs and the tree, warnings and errors. Clearer uses teal, yellow and red, brighter and further apart than Standard. Colour-blind uses blue, yellow and vermilion, "
-                + "which stay apart with red-green or blue-yellow colour blindness. "
-                + "Session states, warnings and errors always have a shape, an icon or a word as well."),
-            Row("Terminal colours", terminal),
-            Note("Colour-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green stay readable. "
-                + "With a colour vision chosen above, it's tuned to that kind. Applies to open terminals too."));
+        return
+        [
+            Section("Color vision",
+                Note("If you're color blind, choose which kind. Orrery then switches the interface and terminal colors below to ones "
+                    + "made for it, and shifts remote desktop colors so ones you'd confuse look different."),
+                Row("Color vision", vision),
+                Row("Correction strength", new DockPanel { Children = { Pane.Docked(strengthText, Dock.Right), strength } }),
+                Note(strengthNote)),
+            Section("Interface colors",
+                Note("The colors of session states in tabs and the connection list, and of warnings and errors. "
+                    + "Each also has a shape, an icon or a word, so color is never the only sign."),
+                interfaceColours,
+                Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Color-blind uses blue, yellow and "
+                    + "vermilion, which stay apart with any kind of color blindness.")),
+            Section("Terminal colors",
+                Note("The colors programs use in SSH, Telnet and local terminals."),
+                Row("Terminal colors", terminal),
+                Note("Color-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green "
+                    + "stay readable. With a color vision chosen above, it's tuned to that kind. Open terminals change at once.")),
+        ];
     }
 
     // ---- Keyboard ----
@@ -810,7 +820,9 @@ sealed class SettingsView : UserControl
             problem,
             Note($"Click the shortcut and press the keys you want. It needs two modifier keys{(OperatingSystem.IsMacOS() ? string.Empty : ", one of them Ctrl")}, "
                 + "and can't be a key the system, Orrery or typing in a session already uses. "
-                + "You can always leave full screen from the bar at the top edge of the screen."));
+                + "You can always leave full screen from the bar at the top edge of the screen."),
+            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
+                + "for its tab, and Enter goes back in."));
     }
 
     // ---- Accessibility ----
@@ -840,9 +852,7 @@ sealed class SettingsView : UserControl
             announce,
             noReader,
             Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
-                + "It's on by default while a screen reader is running."),
-            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
-                + "for its tab, and Enter goes back in."));
+                + "It's on by default while a screen reader is running."));
     }
 
     // ---- Import and export ----
@@ -913,6 +923,17 @@ sealed class SettingsView : UserControl
         panel.Children.AddRange(children);
         return panel;
     }
+
+    /// <summary>A section on its page: a panel with a hairline border, so where one ends and the next begins is plain.</summary>
+    static Border Card(Control section) => new()
+    {
+        Background = Dialogs.PanelBrush,
+        BorderBrush = Pane.LineBrush,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(20, 16, 20, 20),
+        Child = section,
+    };
 
     static Control Row(string label, Control value) => Dialogs.Field(label, value);
 

@@ -44,7 +44,7 @@ public class SettingsViewTests : IDisposable
         list.SelectedItem = list.Items.OfType<ListBoxItem>().Single(i => Equals(i.Content, "Appearance"));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Appearance", view.CurrentPage);
-        Assert.Equal(["COLOURS", "ACCESSIBILITY"], Headings(window));
+        Assert.Equal(["COLOR VISION", "INTERFACE COLORS", "TERMINAL COLORS", "ACCESSIBILITY"], Headings(window));
         Assert.Equal("Appearance", settings.Load().SettingsPage);
         window.Close();
 
@@ -62,7 +62,7 @@ public class SettingsViewTests : IDisposable
             shown.AddRange(Headings(allWindow));
         }
 
-        Assert.Equal(12, shown.Count);
+        Assert.Equal(14, shown.Count);
         Assert.Equal(shown.Count, shown.Distinct().Count());
         allWindow.Close();
     }
@@ -275,7 +275,7 @@ public class SettingsViewTests : IDisposable
                 Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), r => Equals(r.Tag, scheme));
 
             // Named for a screen reader, with the explanation as help text.
-            Assert.Equal("Colour vision", AutomationProperties.GetName(vision));
+            Assert.Equal("Color vision", AutomationProperties.GetName(vision));
             Assert.Equal("Correction strength", AutomationProperties.GetName(strength));
             Assert.False(string.IsNullOrEmpty(AutomationProperties.GetHelpText(strength)));
             Assert.False(strength.IsEnabled);
