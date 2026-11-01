@@ -122,7 +122,7 @@ public class BiometricUnlockUiTests : IDisposable
     {
         using var vault = await NewVaultAsync();
         _hello.Unavailable = "Test Hello isn't set up.";
-        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
 
@@ -137,7 +137,7 @@ public class BiometricUnlockUiTests : IDisposable
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
 
@@ -160,7 +160,7 @@ public class BiometricUnlockUiTests : IDisposable
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
         await vault.ChangePasswordAsync(Password, "a brand new password");
-        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
 
@@ -303,7 +303,7 @@ public class BiometricUnlockUiTests : IDisposable
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
         _remote.IsRemote = true;
-        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
 
@@ -326,7 +326,7 @@ public class BiometricUnlockUiTests : IDisposable
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
         Assert.True(Switch(window).IsChecked);
@@ -356,7 +356,7 @@ public class BiometricUnlockUiTests : IDisposable
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
         var window = Show(view);
         await view.BiometricChecked;
 

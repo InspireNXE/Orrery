@@ -30,7 +30,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - RDP fits the window and follows it as it resizes, or keeps a fixed size
 - *Enlarge to match display scaling* for high-DPI screens
 - Colour-blind friendly colours for the interface and, separately, the terminal, in Settings
-- Session states, warnings and errors have a shape, an icon or a word as well as a colour
+- Session states, host status, warnings and errors have a shape, an icon or a word as well as a colour
 
 ### Organising
 
@@ -53,6 +53,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
   (not over Remote Desktop). Touch ID on macOS is written but needs a signed build. See
   [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
 - Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
+- Import your OpenSSH `~/.ssh/config`, with its `Include` files, defaults from `Host *` and `ProxyJump` chains turned
+  into jump hosts. Nothing in the config is run
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
 
@@ -96,8 +98,10 @@ remote desktop.
 Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
 
 - Every button, field and list says what it is. Rows in the connection tree give their name, what they are
-  (protocol and host, or how many connections a folder holds), whether they're open and whether they're connected.
+  (protocol and host, or how many connections a folder holds), the state of their open session, and whether their
+  host is up when host checks are on.
 - Session tabs say which connection they are, its state and which tab is current.
+- When a connection fails or drops, the screen reader hears what happened and the focus moves to Reconnect.
 - Password fields give screen readers a dot per character, never the password.
 - A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
   on while a screen reader is running. Turn it on or off in Settings, under Accessibility.

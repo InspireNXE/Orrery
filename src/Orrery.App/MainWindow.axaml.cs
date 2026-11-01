@@ -2361,11 +2361,19 @@ public partial class MainWindow : Window
 
     // ---- Import and export ----
 
-    /// <summary>An mRemoteNG confCons.xml or an Orrery export.</summary>
+    /// <summary>An mRemoteNG confCons.xml, an Orrery export or an OpenSSH config.</summary>
     static string? DroppedImportFile(DragEventArgs e) =>
         e.DataTransfer.TryGetFile()?.TryGetLocalPath() is { } path && IsImportFile(path) ? path : null;
 
-    static bool IsImportFile(string path) => ConnectionExporter.FormatFor(path) is ExportFormat.MRemoteNg or ExportFormat.Orrery;
+    static bool IsImportFile(string path) => ConnectionExporter.FormatFor(path) switch
+    {
+        ExportFormat.MRemoteNg or ExportFormat.Orrery => true,
+        null => SshConfigImporter.LooksLikeConfig(path),
+        _ => false,
+    };
+
+    /// <summary>An SSH config has no extension of its own, so anything that isn't one of the other formats is read as one.</summary>
+    static bool IsSshConfig(string path) => ConnectionExporter.FormatFor(path) is null;
 
     /// <summary>First launch with an empty list on a machine that has mRemoteNG: offer to bring its connections over.</summary>
     async Task OfferMRemoteNgImportAsync()
@@ -2394,12 +2402,28 @@ public partial class MainWindow : Window
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG or Orrery connections") { Patterns = ["*.xml", "*.json"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
+                new Avalonia.Platform.Storage.FilePickerFileType("OpenSSH config") { Patterns = ["config", "*.conf", "*"] },
             ],
         });
 
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && IsImportFile(path))
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && (IsImportFile(path) || IsSshConfig(path)))
         {
             await ImportAsync(path);
+        }
+    }
+
+    /// <summary>Imports ~/.ssh/config, or says it isn't there.</summary>
+    async Task ImportDefaultSshConfigAsync()
+    {
+        var path = SshConfigImporter.DefaultPath;
+        if (File.Exists(path))
+        {
+            await ImportAsync(path);
+        }
+        else
+        {
+            await Dialogs.ShowMessageAsync(this, "No SSH config found",
+                $"Orrery looked for:\n{path}\n\nIf your config is somewhere else, use Import and choose the file.");
         }
     }
 
@@ -2408,12 +2432,14 @@ public partial class MainWindow : Window
         ImportResult? result = null;
         string? masterPassword = null, passwordError = null;
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
+        bool sshConfig = IsSshConfig(path);
         while (result is null)
         {
             try
             {
                 var password = masterPassword;
-                result = await Task.Run(() => orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
+                result = await Task.Run(() => sshConfig ? SshConfigImporter.ImportFile(path)
+                    : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
             }
             catch (MasterPasswordRequiredException e)
             {
@@ -2439,7 +2465,7 @@ public partial class MainWindow : Window
                 // The importer means to fail only as above; anything else is a bug, not a reason to exit.
                 Log.For("App").LogError(e, "Importing {Path} failed", path);
                 await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
-                    "Orrery couldn't read this file. It may be damaged, or not an mRemoteNG connections file or Orrery export.");
+                    "Orrery couldn't read this file. It may be damaged, or not a file Orrery can import.");
                 return;
             }
         }
@@ -2500,7 +2526,7 @@ public partial class MainWindow : Window
         try
         {
             var now = DateTimeOffset.Now;
-            var path = Path.Combine(_location.DataDir, "import", $"{report.From.ToLowerInvariant()}-{now:yyyyMMdd-HHmmss}.md");
+            var path = Path.Combine(_location.DataDir, "import", $"{report.From.ToLowerInvariant().Replace(' ', '-')}-{now:yyyyMMdd-HHmmss}.md");
             AtomicFile.WriteAllText(path, report.ToMarkdown(now));
             return path;
         }
@@ -2684,7 +2710,7 @@ public partial class MainWindow : Window
                 _properties.TrySave();
                 SaveNow();
                 return Task.CompletedTask;
-            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), VaultUnlockWindow.Biometric);
+            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), ImportDefaultSshConfigAsync, VaultUnlockWindow.Biometric);
             view.CloseRequested += (_, _) => CloseSettings();
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {
