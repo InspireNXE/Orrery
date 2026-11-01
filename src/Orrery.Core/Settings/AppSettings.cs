@@ -161,6 +161,9 @@ public sealed record AppSettings
     /// </summary>
     public string? LocalShell { get; init; }
 
+    /// <summary>The Settings page last shown, by name. Null, or a name no longer there, is the first page.</summary>
+    public string? SettingsPage { get; init; }
+
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;

@@ -20,8 +20,9 @@ using Orrery.Protocols.Local;
 namespace Orrery.App.Settings;
 
 /// <summary>
-/// The settings page, shown in the main window over the sessions: storage (where the data folder is,
-/// Move data…), credentials (which store, when the vault locks), import and About. Changes that swap files
+/// The settings page, shown in the main window over the sessions. A list down the side picks one of a few pages
+/// (General, Appearance, Sessions, Data and security, About), each a column of sections; the last one shown is
+/// remembered. Changes that swap files
 /// out from under the running app end in <see cref="RestartRequested"/> rather than a live switch.
 /// </summary>
 sealed class SettingsView : UserControl
@@ -43,6 +44,9 @@ sealed class SettingsView : UserControl
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
+    readonly ListBox _pageList = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
+    readonly ScrollViewer _pageScroll = new();
+    readonly Dictionary<string, Control> _pages = [];
 
     AppSettings _settings;
     bool _loading = true;
@@ -89,35 +93,86 @@ sealed class SettingsView : UserControl
                         },
                     },
                 }, Dock.Top),
-                new ScrollViewer
+                Pane.Docked(new Border
                 {
-                    Content = new StackPanel
-                    {
-                        Margin = new Thickness(32, 24, 32, 32),
-                        MaxWidth = 600,
-                        HorizontalAlignment = HorizontalAlignment.Left,
-                        Spacing = 28,
-                        Children =
-                        {
-                            StorageSection(),
-                            CredentialsSection(),
-                            StartupSection(),
-                            RemoteDesktopSection(),
-                            LocalTerminalSection(),
-                            HostStatusSection(),
-                            ColoursSection(),
-                            KeyboardSection(),
-                            AccessibilitySection(),
-                            ImportSection(),
-                            LogsSection(),
-                            AboutSection(),
-                        },
-                    },
-                },
+                    Background = Dialogs.PanelBrush,
+                    BorderBrush = Pane.LineBrush,
+                    BorderThickness = new Thickness(0, 0, 1, 0),
+                    Width = 200,
+                    Padding = new Thickness(0, 16, 0, 16),
+                    Child = _pageList,
+                }, Dock.Left),
+                _pageScroll,
             },
         };
 
+        var pages = new (string Name, Control[] Sections)[]
+        {
+            ("General", [StartupSection(), KeyboardSection(), HostStatusSection()]),
+            ("Appearance", [ColoursSection(), AccessibilitySection()]),
+            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
+            ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
+            ("About", [LogsSection(), AboutSection()]),
+        };
+        var host = new Panel();
+        foreach (var (name, sections) in pages)
+        {
+            var page = new StackPanel
+            {
+                Margin = new Thickness(32, 24, 32, 32),
+                MaxWidth = 600,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Spacing = 28,
+                IsVisible = false,
+            };
+            page.Children.AddRange(sections);
+            host.Children.Add(page);
+            _pages[name] = page;
+            _pageList.Items.Add(new ListBoxItem { Content = name, Tag = name });
+        }
+
+        _pageScroll.Content = host;
+        Avalonia.Automation.AutomationProperties.SetName(_pageList, "Settings pages");
+        _pageList.SelectionChanged += (_, _) =>
+        {
+            if (_pageList.SelectedItem is ListBoxItem { Tag: string name })
+            {
+                ShowPage(name);
+            }
+        };
+        _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().FirstOrDefault(i => Equals(i.Tag, _settings.SettingsPage))
+            ?? _pageList.Items.OfType<ListBoxItem>().First();
+
         _loading = false;
+    }
+
+    /// <summary>The page showing, by its name in the list.</summary>
+    public string CurrentPage => _pages.First(p => p.Value.IsVisible).Key;
+
+    /// <summary>Shows the page called <paramref name="name"/> and remembers it for next time.</summary>
+    public void ShowPage(string name)
+    {
+        if (!_pages.ContainsKey(name))
+        {
+            return;
+        }
+
+        foreach (var (key, page) in _pages)
+        {
+            page.IsVisible = key == name;
+        }
+
+        _pageScroll.Offset = default;
+        if (_pageList.SelectedItem is not ListBoxItem { Tag: string selected } || selected != name)
+        {
+            _pageList.SelectedItem = _pageList.Items.OfType<ListBoxItem>().First(i => Equals(i.Tag, name));
+        }
+
+        if (!_loading && _settings.SettingsPage != name)
+        {
+            _settings = _settings with { SettingsPage = name };
+            TrySaveSettings();
+        }
     }
 
     /// <summary>The close button or Esc.</summary>
