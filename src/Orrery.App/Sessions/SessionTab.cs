@@ -386,6 +386,12 @@ sealed class SessionTab
     /// <summary>Focuses what the user is most likely to want: Reconnect when the session has failed, else the session.</summary>
     public void FocusContent()
     {
+        // A prompt over the window (a host key to verify, say) keeps the focus; the session gets it when the prompt closes.
+        if (TopLevel.GetTopLevel(View) is Window { OwnedWindows.Count: > 0 })
+        {
+            return;
+        }
+
         if (_screen.IsVisible)
         {
             _reconnect.Focus();

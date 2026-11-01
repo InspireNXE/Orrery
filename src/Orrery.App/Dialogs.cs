@@ -128,6 +128,19 @@ static class Dialogs
     /// A trust prompt's heading. For a changed host key or certificate it's in the danger colour with the error icon
     /// beside it, so the change is plain without colour.
     /// </summary>
+    /// <summary>
+    /// When <paramref name="window"/> opens, focuses <paramref name="button"/> and has the screen reader read
+    /// <paramref name="spoken"/>, so a prompt that appears over a session is heard before anything else.
+    /// </summary>
+    public static void FocusAndSayOnOpen(Window window, Button button, string spoken)
+    {
+        window.Opened += (_, _) =>
+        {
+            button.Focus();
+            ScreenReader.Announce(button, spoken, "Orrery.Prompt", ScreenReader.CurrentThenMostRecent);
+        };
+    }
+
     public static Control TrustHeading(string text, bool changed)
     {
         if (!changed)
