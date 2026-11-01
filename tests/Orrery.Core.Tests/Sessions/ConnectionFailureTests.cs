@@ -81,6 +81,37 @@ public class ConnectionFailureTests
     }
 
     [Fact]
+    public void A_bad_key_file_says_what_is_wrong_with_it_and_points_at_the_setting()
+    {
+        var error = new SessionFailureException(FailureKind.KeyFile, "Couldn't find the key file id_ed25519.");
+
+        var failure = Classify(error, error.Message);
+
+        Assert.Equal(FailureKind.KeyFile, failure.Kind);
+        Assert.Equal("Couldn't find the key file id_ed25519.", failure.Summary);
+        Assert.Equal("Check the key file in the connection's settings, then reconnect.", failure.Advice);
+        Assert.False(failure.IsNetwork);
+        Assert.True(failure.NeedsUser);
+
+        // Not about the network, so being offline doesn't change it.
+        Assert.Equal(FailureKind.KeyFile, Classify(error, error.Message, networkAvailable: false).Kind);
+    }
+
+    [Fact]
+    public void A_bad_key_file_on_a_jump_host_is_the_causes_kind_and_is_not_retried()
+    {
+        var hop = new ConnectionTarget("bastion", 22, "me", null);
+        var error = new RouteException("Jump host bastion: Couldn't find the key file id_gate.", new SessionFailureException(FailureKind.KeyFile, "Couldn't find the key file id_gate."), hop);
+
+        var failure = Classify(error, error.Message);
+
+        Assert.Equal(FailureKind.JumpHost, failure.Kind);
+        Assert.Equal(FailureKind.KeyFile, failure.Cause);
+        Assert.Contains("Couldn't find the key file id_gate.", failure.Advice);
+        Assert.True(failure.NeedsUser);
+    }
+
+    [Fact]
     public void Without_a_network_a_failed_lookup_is_put_down_to_being_offline()
     {
         var failure = Classify(new SocketException((int)SocketError.HostNotFound), networkAvailable: false);
@@ -115,6 +146,7 @@ public class ConnectionFailureTests
 
     [Theory]
     [InlineData(FailureKind.LoginFailed)]
+    [InlineData(FailureKind.KeyFile)]
     [InlineData(FailureKind.HostKeyChanged)]
     [InlineData(FailureKind.HostKeyNotTrusted)]
     [InlineData(FailureKind.CertificateNotTrusted)]

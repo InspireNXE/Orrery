@@ -51,6 +51,13 @@ public sealed class InheritableSettings
     /// <summary>SSH: log in with the running agent's keys (Pageant, OpenSSH agent) when there's no saved credential. On by default.</summary>
     public bool? UseSshAgent { get; set; }
 
+    /// <summary>
+    /// SSH: the path to a private key file on this computer, tried after a saved key credential and before the agent
+    /// and the password. A leading ~ is the home folder. Only the path is kept; the file is read when connecting and
+    /// never copied. Empty means none, overriding a folder's; null inherits.
+    /// </summary>
+    public string? KeyFile { get; set; }
+
     /// <summary>SSH: also accept SHA-1, CBC and 3DES algorithms, for old devices that offer nothing newer. Off by default.</summary>
     public bool? AllowLegacySsh { get; set; }
 
@@ -90,7 +97,7 @@ public sealed class InheritableSettings
     public static readonly IReadOnlySet<string> KeptByGuests = new HashSet<string>
     {
         nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
-        nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality),
+        nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality),
     };
 
     /// <summary>
