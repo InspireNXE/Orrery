@@ -146,6 +146,11 @@ sealed class SessionTab
             Avalonia.Automation.AutomationProperties.SetName(view, ViewName(view, origin.Title));
         }
 
+        if (view is TerminalView or RemoteFrameView && string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetHelpText(view)))
+        {
+            Avalonia.Automation.AutomationProperties.SetHelpText(view, Input.SessionEscape.Help);
+        }
+
         _countdown.Tick += (_, _) => CountDown();
         Host = new Grid { Children = { view, BuildOverlay() } };
         ShowState();

@@ -511,7 +511,9 @@ sealed class SettingsView : UserControl
         return Section("Accessibility",
             announce,
             Note("Your screen reader reads out what a terminal prints, a few lines at a time, but not the echo of what you type. "
-                + "It's on by default while a screen reader is running."));
+                + "It's on by default while a screen reader is running."),
+            Note($"Terminals and remote desktops keep the keys you press, Tab included. {SessionEscape.Description} leaves the session "
+                + "for its tab, and Enter goes back in."));
     }
 
     // ---- Import and export ----

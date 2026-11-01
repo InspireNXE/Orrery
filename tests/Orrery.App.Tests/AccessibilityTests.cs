@@ -14,6 +14,7 @@ using Orrery.App.Connections;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.App.Import;
+using Orrery.App.Input;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.App.Settings;
@@ -88,6 +89,15 @@ public class AccessibilityTests : IDisposable
             Assert.Contains(order, c => c is SessionTabHeader);
             Assert.Contains(order, c => c is TerminalView);
             Assert.Contains(order, c => c.Name == "SettingsRailButton");
+
+            // The terminal keeps Tab for the shell; the escape key gets out to its tab.
+            var terminal = window.GetVisualDescendants().OfType<TerminalView>().Single();
+            terminal.Focus();
+            window.KeyPress(Key.Tab, RawInputModifiers.None, PhysicalKey.Tab, null);
+            Assert.Same(terminal, window.FocusManager!.GetFocusedElement());
+            var escape = SessionEscape.Gesture;
+            window.KeyPress(escape.Key, (RawInputModifiers)escape.KeyModifiers, PhysicalKey.Home, null);
+            Assert.IsType<SessionTabHeader>(window.FocusManager.GetFocusedElement());
         }
         finally
         {
@@ -318,6 +328,67 @@ public class AccessibilityTests : IDisposable
         AccessibilityAudit.AssertAllNamed(window);
         window.Close();
         owner.Close();
+    }
+
+    sealed class Desktop : IFrameBufferSession
+    {
+        public ConnectionTarget Target { get; } = new("desk.example", 3389, "user", null);
+        public SessionState State => SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated { add { } remove { } }
+        public int Width => 64;
+        public int Height => 48;
+        public List<ushort> Keys { get; } = [];
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
+        public void SendKey(ushort scancode, bool pressed) => Keys.Add(scancode);
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+        public void RequestResize(int width, int height) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [AvaloniaFact]
+    public void Ctrl_alt_home_leaves_a_full_screen_remote_desktop_for_its_tab_and_enter_goes_back_in()
+    {
+        VaultAutoLockTests.AddMainWindowResources();
+        var window = new MainWindow(Location()) { Width = 1400, Height = 900 };
+        try
+        {
+            window.Show();
+            var desktop = new Desktop();
+            var view = new RemoteFrameView(desktop);
+            var addTab = typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            addTab.Invoke(window, [view, desktop, new SessionOrigin("desk", Protocol.Rdp, null, () => Task.CompletedTask)]);
+            Dispatcher.UIThread.RunJobs();
+            var peer = ControlAutomationPeer.CreatePeerForElement(view);
+            Assert.Equal("Remote desktop: desk", peer.GetName());
+            Assert.Equal($"{SessionEscape.Description} moves to the session's tab.", peer.GetHelpText());
+
+            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null]);
+            view.Focus();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Same(view, window.FocusManager!.GetFocusedElement());
+
+            var escape = SessionEscape.Gesture;
+            window.KeyPress(escape.Key, (RawInputModifiers)escape.KeyModifiers, PhysicalKey.Home, null);
+            Dispatcher.UIThread.RunJobs();
+
+            var header = window.GetVisualDescendants().OfType<SessionTabHeader>().Single();
+            Assert.Same(header, window.FocusManager.GetFocusedElement());
+            Assert.False(VaultAutoLockTests.Private<bool>(window, "_fullScreen"));
+            Assert.Empty(desktop.Keys);
+
+            window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Same(view, window.FocusManager.GetFocusedElement());
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     static HostDeleteWindow HostDelete()

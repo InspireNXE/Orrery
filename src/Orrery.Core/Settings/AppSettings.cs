@@ -52,7 +52,7 @@ public sealed record AppSettings
     public const double DefaultTerminalFontSize = 14;
 
     /// <summary>
-    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+Home". Null is the default (Ctrl+Alt+Enter,
+    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
     /// or Ctrl+Cmd+F on macOS). The app checks it before use and falls back to the default.
     /// </summary>
     public string? FullScreenShortcut { get; init; }
