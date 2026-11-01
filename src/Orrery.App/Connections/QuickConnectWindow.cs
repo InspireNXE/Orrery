@@ -22,15 +22,35 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
     public int? SessionIndex { get; init; }
 
     static readonly (string Scheme, Protocol Protocol)[] Schemes =
-        [("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet)];
+    [
+        ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet),
+        ("serial://", Protocol.Serial), ("http://", Protocol.Http), ("https://", Protocol.Https),
+    ];
 
     /// <summary>
-    /// Reads "host", "host:port", "rdp://host", "ssh://host", "vnc://host", "telnet://host", "user@host" and "ssh://user@host:port".
-    /// A username without a scheme means SSH, as on the command line.
+    /// Reads "host", "host:port", "rdp://host", "ssh://host", "vnc://host", "telnet://host", "user@host" and "ssh://user@host:port";
+    /// web addresses ("https://host/path"), opened in the browser; and serial ports ("serial://COM3", or just "COM3" or
+    /// "/dev/ttyUSB0"). A username without a scheme means SSH, as on the command line.
     /// </summary>
     public static QuickConnectChoice? Parse(string text)
     {
         text = text.Trim();
+        if (WebAddress.TryParseUrl(text, out var web, out var webHost, out var webPort))
+        {
+            return new QuickConnectChoice(null, webHost, webPort, web);
+        }
+
+        // A web address that isn't one to open, such as one with a user name in it, isn't read as anything else either.
+        if (text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (SerialPortName(text) is { } serialPort)
+        {
+            return new QuickConnectChoice(null, serialPort, 0, Protocol.Serial);
+        }
+
         var protocol = Protocol.Rdp;
         bool explicitScheme = false;
         foreach (var (scheme, p) in Schemes)
@@ -56,6 +76,23 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
     }
 
     /// <summary>
+    /// A serial port's name: after serial://, or on its own when it looks like one (COM3, /dev/ttyUSB0), since
+    /// neither is a host name. Null otherwise.
+    /// </summary>
+    static string? SerialPortName(string text)
+    {
+        if (text.StartsWith("serial://", StringComparison.OrdinalIgnoreCase))
+        {
+            var name = text["serial://".Length..].Trim();
+            return name.Length > 0 && !name.Any(char.IsWhiteSpace) ? name : null;
+        }
+
+        bool com = text.Length is > 3 and <= 6 && text.StartsWith("COM", StringComparison.OrdinalIgnoreCase) && text[3..].All(char.IsAsciiDigit);
+        bool device = text.StartsWith("/dev/", StringComparison.Ordinal) && text.Length > 5 && !text.Any(char.IsWhiteSpace);
+        return com ? text.ToUpperInvariant() : device ? text : null;
+    }
+
+    /// <summary>
     /// The ways to connect to what was typed: the protocol a scheme names, or without one, the likely
     /// protocol first and the other of RDP and SSH second.
     /// </summary>
@@ -66,7 +103,8 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
             return [];
         }
 
-        if (Schemes.Any(s => text.TrimStart().StartsWith(s.Scheme, StringComparison.OrdinalIgnoreCase)))
+        if (first.Protocol is Protocol.Serial or Protocol.Http or Protocol.Https
+            || Schemes.Any(s => text.TrimStart().StartsWith(s.Scheme, StringComparison.OrdinalIgnoreCase)))
         {
             return [first];
         }
@@ -103,7 +141,7 @@ sealed class QuickConnectWindow : Window
     readonly IReadOnlyList<OpenSession> _sessions;
     readonly TextBox _query = new()
     {
-        Watermark = "Search connections, or type host, user@host, ssh://host:port",
+        Watermark = "Search connections, or type host, user@host, ssh://host:port, https://site",
         FontSize = 15,
         BorderThickness = new Thickness(0),
         Background = Brushes.Transparent,
@@ -293,8 +331,9 @@ sealed class QuickConnectWindow : Window
         if (query.Length > 0)
         {
             AddHeader("Actions");
-            var host = direct.Count > 0 ? direct[0].Host : null;
-            AddItem(ActionRow($"New connection named \"{query}\"…"), new QuickConnectChoice(null, host, 0, NewName: query), "Create", $"New connection named {query}");
+            var typed = direct.Count > 0 ? direct[0] : null;
+            AddItem(ActionRow($"New connection named \"{query}\"…"), new QuickConnectChoice(null, typed?.Host, typed?.Port ?? 0, typed?.Protocol ?? Protocol.Rdp, NewName: query),
+                "Create", $"New connection named {query}");
         }
 
         if (_items.Count == 0)
@@ -311,11 +350,22 @@ sealed class QuickConnectWindow : Window
         Select(_items.Count > 0 ? 0 : -1);
     }
 
-    static string DirectText(QuickConnectChoice choice)
+    static string DirectText(QuickConnectChoice choice) => $"{DirectVerb(choice)}{DirectAddress(choice)}";
+
+    /// <summary>"SSH to ", or for a web page "Open " (in the browser).</summary>
+    static string DirectVerb(QuickConnectChoice choice) => ProtocolInfo.IsWeb(choice.Protocol) ? "Open " : $"{ProtocolInfo.Label(choice.Protocol)} to ";
+
+    /// <summary>user@host:port; a web page's whole address; a serial port's name.</summary>
+    static string DirectAddress(QuickConnectChoice choice)
     {
+        if (ProtocolInfo.IsWeb(choice.Protocol))
+        {
+            return WebAddress.Url(choice.Protocol, choice.Host, choice.Port)?.AbsoluteUri ?? choice.Host ?? string.Empty;
+        }
+
         var who = choice.Username is null ? string.Empty : $"{choice.Username}@";
-        var port = choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
-        return $"{ProtocolInfo.Label(choice.Protocol)} to {who}{choice.Host}{port}";
+        var port = choice.Protocol != Protocol.Serial && choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
+        return $"{who}{choice.Host}{port}";
     }
 
     /// <summary>Best matches first; see <see cref="ConnectionSearch.Score"/>.</summary>
@@ -423,13 +473,11 @@ sealed class QuickConnectWindow : Window
 
     static Control DirectRow(QuickConnectChoice choice)
     {
-        var who = choice.Username is null ? string.Empty : $"{choice.Username}@";
-        var port = choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
         var text = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         text.Inlines =
         [
-            new Run($"{ProtocolInfo.Label(choice.Protocol)} to "),
-            new Run($"{who}{choice.Host}{port}") { FontFamily = Dialogs.MonoFont },
+            new Run(DirectVerb(choice)),
+            new Run(DirectAddress(choice)) { FontFamily = Dialogs.MonoFont },
         ];
 
         return new StackPanel

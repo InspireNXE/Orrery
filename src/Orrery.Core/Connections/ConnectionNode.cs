@@ -9,20 +9,95 @@ public enum Protocol
     Ssh,
     Vnc,
     Telnet,
+
+    /// <summary>A serial port on this computer, such as COM3 or /dev/ttyUSB0, shown in a terminal. The connection's host is the port's name.</summary>
+    Serial,
+
+    /// <summary>A web page, opened in the default browser rather than a tab.</summary>
+    Http,
+
+    /// <summary>A web page over TLS, opened in the default browser rather than a tab.</summary>
+    Https,
 }
 
 public static class ProtocolInfo
 {
+    /// <summary>The port a protocol uses unless one is set. A serial port has none: it's 0 and never shown.</summary>
     public static int DefaultPort(Protocol protocol) => protocol switch
     {
         Protocol.Rdp => 3389,
         Protocol.Ssh => 22,
         Protocol.Vnc => 5900,
         Protocol.Telnet => 23,
+        Protocol.Serial => 0,
+        Protocol.Http => 80,
+        Protocol.Https => 443,
         _ => throw new ArgumentOutOfRangeException(nameof(protocol)),
     };
 
     public static string Label(Protocol protocol) => protocol.ToString().ToUpperInvariant();
+
+    /// <summary>Opens in the default browser: no tab, no session, nothing to reconnect.</summary>
+    public static bool IsWeb(Protocol protocol) => protocol is Protocol.Http or Protocol.Https;
+
+    /// <summary>Reached over the network at a host and port, so it can have a jump host and a host check. Not a serial port.</summary>
+    public static bool UsesNetwork(Protocol protocol) => protocol != Protocol.Serial;
+
+    /// <summary>A remote desktop drawn in a tab (RDP, VNC).</summary>
+    public static bool IsDesktop(Protocol protocol) => protocol is Protocol.Rdp or Protocol.Vnc;
+
+    /// <summary>The protocols Orrery 0.1 can't read, so a file using them is written with a newer schema.</summary>
+    internal static bool AddedInSchema3(Protocol protocol) => protocol is Protocol.Serial or Protocol.Http or Protocol.Https;
+}
+
+/// <summary>RDP: where the remote computer's sound goes.</summary>
+public enum RemoteAudio
+{
+    /// <summary>Played on this computer.</summary>
+    PlayHere,
+
+    /// <summary>Not played anywhere; the server doesn't send it.</summary>
+    DoNotPlay,
+}
+
+/// <summary>How a remote desktop that doesn't follow the window's size is fitted into it (VNC).</summary>
+public enum DesktopScaling
+{
+    /// <summary>Shrunk to fit when it's bigger than the tab, shown as is when it's smaller.</summary>
+    ShrinkToFit,
+
+    /// <summary>Shrunk or enlarged to fill the tab, keeping its shape.</summary>
+    Fit,
+
+    /// <summary>Pixel for pixel, with scroll bars when it's bigger than the tab.</summary>
+    ActualSize,
+}
+
+public enum SerialParity
+{
+    None,
+    Odd,
+    Even,
+    Mark,
+    Space,
+}
+
+public enum SerialStopBits
+{
+    One,
+    OnePointFive,
+    Two,
+}
+
+public enum SerialFlowControl
+{
+    None,
+
+    /// <summary>Software flow control, with XON and XOFF characters.</summary>
+    XOnXOff,
+
+    /// <summary>Hardware flow control, with the RTS and CTS lines.</summary>
+    RtsCts,
 }
 
 /// <summary>
@@ -93,7 +168,60 @@ public sealed class InheritableSettings
     /// <summary>Marks "connect directly", overriding a jump host set on a parent folder.</summary>
     public static readonly Guid NoJumpHost = Guid.Empty;
 
-    public InheritableSettings Clone() => (InheritableSettings)MemberwiseClone();
+    /// <summary>RDP: where the remote computer's sound goes. Null inherits; played here by default.</summary>
+    public RemoteAudio? RemoteAudio { get; set; }
+
+    /// <summary>RDP: share every drive on this computer with the remote one. Null inherits; off by default.</summary>
+    public bool? ShareAllDrives { get; set; }
+
+    /// <summary>
+    /// RDP: folders on this computer to share with the remote one, each shown there as a drive. A leading ~ is the home
+    /// folder. Empty means none, overriding a folder's; null inherits. Replaced whole when edited, never changed in place.
+    /// </summary>
+    public List<string>? SharedFolders { get; set; }
+
+    /// <summary>RDP: in full screen, spread the remote desktop over every display of this computer. Null inherits; off by default.</summary>
+    public bool? UseAllMonitors { get; set; }
+
+    /// <summary>RDP: connect to the server's console (administrative) session, as mstsc /admin does. Null inherits; off by default.</summary>
+    public bool? AdminSession { get; set; }
+
+    /// <summary>VNC: watch without sending keys, clicks or the clipboard. Null inherits; off by default.</summary>
+    public bool? ViewOnly { get; set; }
+
+    /// <summary>VNC: how the remote desktop is fitted into the tab. Null inherits; shrunk to fit by default.</summary>
+    public DesktopScaling? Scaling { get; set; }
+
+    /// <summary>SSH: seconds between keep-alive messages, which stop idle sessions being dropped; 0 sends none. Null inherits; 30 by default.</summary>
+    public int? KeepAliveSeconds { get; set; }
+
+    /// <summary>
+    /// SSH: a SOCKS proxy every SSH connection under this opens, like its own <c>D</c> port forward: a port, or an
+    /// address and a port ("1080", "127.0.0.1:1080"). Empty means none, overriding a folder's; null inherits.
+    /// </summary>
+    public string? SocksProxy { get; set; }
+
+    /// <summary>Serial: bits per second. Null inherits; 9600 by default.</summary>
+    public int? BaudRate { get; set; }
+
+    /// <summary>Serial: bits in each character, 5 to 8. Null inherits; 8 by default.</summary>
+    public int? DataBits { get; set; }
+
+    /// <summary>Serial: null inherits; none by default.</summary>
+    public SerialParity? Parity { get; set; }
+
+    /// <summary>Serial: null inherits; one by default.</summary>
+    public SerialStopBits? StopBits { get; set; }
+
+    /// <summary>Serial: null inherits; none by default.</summary>
+    public SerialFlowControl? FlowControl { get; set; }
+
+    public InheritableSettings Clone()
+    {
+        var copy = (InheritableSettings)MemberwiseClone();
+        copy.SharedFolders = SharedFolders?.ToList();
+        return copy;
+    }
 
     /// <summary>
     /// Settings a guest takes from its host before its folders: the route and the session policy for the
@@ -109,7 +237,26 @@ public sealed class InheritableSettings
     {
         nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
         nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColorCorrection),
+        nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(AdminSession),
+        nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
+        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl),
     };
+
+    /// <summary>
+    /// Settings Orrery 0.1 doesn't know. It would load a file that has them and drop them on its next save, so a file
+    /// using any of them is written with schema 3, which it refuses instead.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> AddedInSchema3 = new HashSet<string>
+    {
+        nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(AdminSession),
+        nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
+        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl),
+    };
+
+    /// <summary>Whether this sets anything Orrery 0.1 can't keep: a setting added since, or a protocol added since.</summary>
+    internal bool NeedsSchema3() =>
+        (Protocol is { } protocol && ProtocolInfo.AddedInSchema3(protocol))
+        || SettingProperties.Any(p => AddedInSchema3.Contains(p.Name) && p.GetValue(this) is not null);
 
     /// <summary>
     /// Takes every value this one inherits (null) from <paramref name="parent"/>, so a node lifted out of its
@@ -122,7 +269,8 @@ public sealed class InheritableSettings
         {
             if (only?.Contains(property.Name) != false && property.GetValue(this) is null)
             {
-                property.SetValue(this, property.GetValue(parent));
+                // A list is copied, so the two never share one.
+                property.SetValue(this, property.GetValue(parent) is List<string> list ? list.ToList() : property.GetValue(parent));
             }
         }
     }

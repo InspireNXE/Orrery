@@ -47,7 +47,7 @@ public class FullScreenShortcutTests
 
     [Theory]
     [InlineData(Key.Enter, KeyModifiers.Control | KeyModifiers.Alt)]
-    [InlineData(Key.End, KeyModifiers.Control | KeyModifiers.Alt)]
+    [InlineData(Key.F12, KeyModifiers.Control | KeyModifiers.Alt)]
     [InlineData(Key.F11, KeyModifiers.Control | KeyModifiers.Alt)]
     [InlineData(Key.F, KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Shift)] // Shift takes it out of AltGr's way.
     [InlineData(Key.F11, KeyModifiers.Control | KeyModifiers.Shift)]
@@ -64,6 +64,24 @@ public class FullScreenShortcutTests
     {
         Assert.Equal("Orrery uses it to leave a session for its tab.", FullScreenShortcut.Problem(new KeyGesture(Key.Home, modifiers), platform));
         Assert.True(FullScreenShortcut.SameAs(SessionEscape.For(platform), new KeyGesture(Key.Home, modifiers)));
+    }
+
+    [Theory]
+    [InlineData(ShortcutPlatform.Windows, KeyModifiers.Control | KeyModifiers.Alt)]
+    [InlineData(ShortcutPlatform.Linux, KeyModifiers.Control | KeyModifiers.Alt)]
+    [InlineData(ShortcutPlatform.MacOS, KeyModifiers.Control | KeyModifiers.Meta)]
+    public void The_key_that_sends_ctrl_alt_del_is_kept_for_that(ShortcutPlatform platform, KeyModifiers modifiers)
+    {
+        var end = new KeyGesture(Key.End, modifiers);
+        Assert.Equal("Orrery uses it to send Ctrl+Alt+Del to a remote desktop.", FullScreenShortcut.Problem(end, platform));
+        Assert.True(FullScreenShortcut.SameAs(CtrlAltDelShortcut.For(platform), end));
+    }
+
+    [Fact]
+    public void A_saved_shortcut_that_now_sends_ctrl_alt_del_goes_back_to_the_default()
+    {
+        Assert.True(FullScreenShortcut.SameAs(FullScreenShortcut.DefaultFor(ShortcutPlatform.Windows),
+            FullScreenShortcut.FromSettings("Ctrl+Alt+End", ShortcutPlatform.Windows)));
     }
 
     [Fact]

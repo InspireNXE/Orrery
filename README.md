@@ -6,7 +6,7 @@
 
 <p align="center">
   A remote connection manager for Windows, Linux and macOS.<br>
-  RDP, SSH, VNC and Telnet in one tree, opened in tabs, with passwords kept in your system's own secret store.
+  RDP, SSH, VNC, Telnet and serial consoles in one tree, opened in tabs, with passwords kept in your system's own secret store.
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 | Runs on | Passwords | Accessibility | Imports |
 | --- | --- | --- | --- |
-| Windows, Linux and macOS, installed or portable | In Credential Manager, the macOS Keychain or the Secret Service, or an encrypted vault file | Works with Narrator, NVDA and JAWS, and adjusts its colors for color blindness | mRemoteNG `confCons.xml` and OpenSSH `~/.ssh/config` |
+| Windows, Linux and macOS, installed or portable | In Credential Manager, the macOS Keychain or the Secret Service, or an encrypted vault file | Works with Narrator, NVDA and JAWS, and adjusts its colors for color blindness | mRemoteNG `confCons.xml`, Remote Desktop `.rdp` files and OpenSSH `~/.ssh/config` |
 
 Orrery is built on Avalonia and .NET 10. It takes its cue from [mRemoteNG](https://mremoteng.org/) and can import
 mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
@@ -41,10 +41,12 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 
 | Protocol | Library | Notes |
 | --- | --- | --- |
-| RDP | [IronRDP](https://github.com/Devolutions/IronRDP) | Fits the window and follows it as you resize, or keeps a fixed size |
-| SSH | [SSH.NET](https://github.com/sshnet/SSH.NET) | Port forwards (`L`, `R`, `D`), key files, agent keys, and an SFTP browser |
-| VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard |
+| RDP | [IronRDP](https://github.com/Devolutions/IronRDP) | Fits the window and follows it as you resize, or keeps a fixed size; sound; shared drives and folders; full screen over every display (Windows); the console session; touch and pen; follows RD Connection Broker redirections; opens `.rdp` files |
+| SSH | [SSH.NET](https://github.com/sshnet/SSH.NET) | Port forwards (`L`, `R`, `D`), a SOCKS proxy for a whole folder, key files, agent keys, a keep-alive interval, and an SFTP browser |
+| VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard, view only, shrink to fit, fill the tab or actual size |
 | Telnet | Built in | |
+| Serial | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports) | A terminal on a COM port or `/dev/tty*` device, with its speed, data bits, parity, stop bits and flow control |
+| Web (HTTP, HTTPS) | Your browser | Opens in your default browser rather than a tab, so a router's or a server's admin page sits in the tree with the rest |
 | Local terminal | Built in | PowerShell, cmd or a WSL distribution on Windows; your login shell on Linux and macOS |
 
 ### Connecting
@@ -57,7 +59,29 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 Quick connect (Ctrl+K) searches your saved connections and open sessions as you type, and can connect straight to a
 host you type in.
 
-- Jump hosts work for every protocol, like `ssh -J`. RDP, VNC and Telnet go through an SSH tunnel.
+- Jump hosts work for every protocol, like `ssh -J`. RDP, VNC and Telnet go through an SSH tunnel. A web page can't,
+  since your browser wouldn't go through it; give the jump host a SOCKS proxy and point the browser at that instead.
+- A folder can give every SSH connection under it a SOCKS proxy, as if each had its own `D 1080` forward, and set how
+  often SSH sends keep-alives (every 30 seconds unless you change it; 0 sends none).
+- Quick connect takes `https://router.lan/admin` and `http://` addresses, which open in your browser, and serial
+  ports: `COM3`, `/dev/ttyUSB0` or `serial://` followed by the port's name.
+- Open a Remote Desktop (`.rdp`) file from the tree's right-click menu, or start Orrery with one
+  (`Orrery path/to/server.rdp`), to connect without saving it. Import adds it to the tree. A password saved in the
+  file isn't imported, because Windows encrypts it for one user on one computer; Orrery asks for it instead. If
+  Orrery is already running, a second start says so and the file isn't opened; use Open in the running window.
+- Ctrl+Alt+End sends Ctrl+Alt+Del to a remote desktop (Ctrl+Cmd+End on macOS), since Windows keeps the real one for
+  itself. The session's Send keys menu has it and the other keys a remote desktop may need, and View only stops
+  sending your keys and clicks.
+- RDP passes on touch and pen input, with pressure, tilt and the eraser, when the server takes it.
+- A remote desktop's sound plays here unless you turn it off, and then the server isn't asked to send any.
+- RDP can share every drive of this computer, or folders you choose, as drives on the remote computer, which can read
+  and change their files. Linux and macOS can share only one folder: your home folder when sharing every drive, else
+  the first folder you chose. Orrery says so when a folder isn't shared.
+- On Windows, full screen can spread a remote desktop over every display, one remote monitor for each, when the
+  displays sit against each other. Otherwise full screen stays on one display and says why.
+- RDP can join the server's console session, as `mstsc /admin` does.
+- When an RD Connection Broker sends a connection on to another session host, Orrery follows it, up to five times,
+  and sends back the broker's routing token so it reaches the right session.
 - A connection, or a whole folder, can point at an SSH key file on your computer. Orrery tries a saved key first,
   then the key file, then your SSH agent, then the password. It reads the file each time you connect and never copies
   it. If the key has a passphrase, Orrery asks for it and can save it. On Linux and macOS it warns you when other
@@ -90,7 +114,7 @@ host you type in.
 - Hosts are checked about once a minute, only for connections you can see and never through a jump host. The check
   is a plain TCP connect by default, which some networks treat as a port scan. Settings can switch it to ping or turn
   it off. Firewalls often block ping, so a host that's up can show as down, and where this computer isn't allowed to
-  ping, hosts show the dashed ring.
+  ping, hosts show the dashed ring. A serial port isn't checked, and a web page is checked at its host and port.
 - The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
   hover), and when the last attempt failed, if that was more recent.
 
@@ -100,11 +124,12 @@ host you type in.
 - With no system store, or if you'd rather, they go in an encrypted vault file (Argon2id, XChaCha20-Poly1305).
 - Windows Hello can unlock the vault when Windows reports that its key is held in the TPM (not over Remote Desktop).
   Touch ID on macOS is written but needs a signed build. See [the design notes](docs/design-biometric-unlock.md).
-- Orrery imports mRemoteNG `confCons.xml`, Orrery `.json`, and your OpenSSH `~/.ssh/config`, including `Include`
+- Orrery imports mRemoteNG `confCons.xml`, Orrery `.json`, Remote Desktop `.rdp` files, and your OpenSSH `~/.ssh/config`, including `Include`
   files, `Host *` defaults, and `ProxyJump` chains, which become jump hosts. Nothing in an SSH config is run, and the
   import never opens key files.
 - It exports Orrery `.json`, mRemoteNG `confCons.xml` or CSV. Passwords are encrypted under a password you choose,
-  and CSV never gets them.
+  and CSV never gets them. mRemoteNG has no serial connections, so those are left out of a `confCons.xml`, and the
+  export says so.
 - The credential editor hides a private key until you press Show, and you can still paste into the box.
 
 ### Display and color
@@ -205,13 +230,14 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+Alt+B | Show or hide the properties pane |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (you can change this in Settings) |
 | Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back in |
+| Ctrl+Alt+End (Ctrl+Cmd+End on macOS) | In a remote desktop: send Ctrl+Alt+Del |
 | Enter | Connect the selected connections |
 | F2 | Rename |
 | Ctrl+D | Duplicate |
 | Delete | Delete the selected rows |
 
-While a remote session has focus, it gets keys first, so these go to the remote machine. Full screen and
-Ctrl+Alt+Home always reach Orrery. Ctrl+Shift+T still opens a local terminal from inside a terminal, but not from a
+While a remote session has focus, it gets keys first, so these go to the remote machine. Full screen,
+Ctrl+Alt+Home and Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T still opens a local terminal from inside a terminal, but not from a
 remote desktop.
 
 ## Where your data lives
@@ -258,8 +284,8 @@ dotnet run --project src/Orrery.App
 
 ### The IronRDP package
 
-The RDP clipboard on Linux and macOS needs a change to IronRDP's .NET binding that hasn't been released yet. Until it
-is, Orrery builds with a `Devolutions.IronRdp` made from a fork of IronRDP, at the version set in
+The RDP clipboard on Linux and macOS, sound, shared drives, the console session, spreading over displays and a
+broker's routing token need changes to IronRDP's .NET binding that haven't been released yet. Until they are, Orrery builds with a `Devolutions.IronRdp` made from a fork of IronRDP, at the version set in
 `Directory.Build.props` (`IronRdpVersion`). It isn't on nuget.org. `nuget.config` looks for it in `.nuget-local`, a
 folder in the repo that git ignores, and `build/Get-IronRdp.ps1` downloads it there from this repo's releases. It
 checks the file against the SHA-256 in `build/ironrdp-package.json` and won't use a file that doesn't match. If a
@@ -330,7 +356,7 @@ how.
 | --- | --- |
 | `src/Orrery.App` | The Avalonia app: windows, connection tree, properties pane, settings |
 | `src/Orrery.Core` | Model, storage, credentials, vault, import and export |
-| `src/Orrery.Protocols.*` | RDP, SSH, VNC and Telnet sessions, and local terminals |
+| `src/Orrery.Protocols.*` | RDP, SSH, VNC, Telnet and serial sessions, and local terminals |
 | `tests/` | xUnit tests, including headless Avalonia UI tests |
 | `tools/Orrery.Screenshots` | Draws the README's screenshots from made-up data |
 | `build/` | Packaging, installer and third-party notice scripts |
@@ -356,6 +382,19 @@ Not yet checked on real machines:
 - How each protocol reports real network failures on the connection-lost screen (an RDP server refusing a login,
   especially)
 - The Windows Hello and Touch ID prompts
+- RDP touch and pen input
+- Following an RD Connection Broker's redirection and sending its routing token back (tested against made-up
+  redirections, not a real farm)
+- RDP sound, shared drives and folders, and the console session
+- Full screen over several displays, especially displays with different scaling
+- A serial console on real hardware (tested against a stand-in port)
+- The SSH keep-alive interval and a folder's SOCKS proxy against a real server
+- Remote Desktop files saved by Remote Desktop Connection itself (tested against files written to match its format)
+
+RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
+`2026.10.29-orrery.3` or later, with a native library built from the same commit. Where the package's library for a
+platform is older, as a package built on one machine has for the others, Orrery connects without them and logs which
+it left out.
 
 The Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
 single-file executable as a false positive.

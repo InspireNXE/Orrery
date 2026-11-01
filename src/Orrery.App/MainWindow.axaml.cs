@@ -29,6 +29,7 @@ using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Local;
 using Orrery.Protocols.Rdp;
+using Orrery.Protocols.Serial;
 using Orrery.Protocols.Ssh;
 using Orrery.Protocols.Ssh.Agent;
 using Orrery.Protocols.Telnet;
@@ -48,6 +49,7 @@ public partial class MainWindow : Window
     readonly DataLocation _location;
     readonly AppSettingsStore _settingsStore;
     readonly string? _movedFrom;
+    readonly string? _openOnStart;
     readonly ConnectionStore _connectionStore;
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
@@ -80,6 +82,9 @@ public partial class MainWindow : Window
     WindowState _stateBeforeFullScreen;
     (PixelPoint Position, WindowState State)? _positionBeforeFullScreen;
     (bool Side, bool Inspector) _panesBeforeFullScreen;
+
+    /// <summary>While a remote desktop is spread over every display: its view, and the window as it was before.</summary>
+    (RemoteFrameView View, PixelPoint Position, double Width, double Height, SystemDecorations Decorations, bool Topmost)? _spanned;
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
@@ -111,11 +116,13 @@ public partial class MainWindow : Window
     }
 
     /// <param name="movedFrom">The previous data folder, when Orrery restarted after Move data.</param>
-    public MainWindow(DataLocation location, string? movedFrom = null)
+    /// <param name="openOnStart">A Remote Desktop (.rdp) file given on the command line, connected to once the window opens.</param>
+    public MainWindow(DataLocation location, string? movedFrom = null, string? openOnStart = null)
     {
         AvaloniaXamlLoader.Load(this);
         _location = location;
         _movedFrom = movedFrom;
+        _openOnStart = openOnStart;
         _settingsStore = AppSettingsStore.In(location);
         Palette.Use(_settingsStore.Load().InterfaceColorScheme);
 
@@ -288,12 +295,16 @@ public partial class MainWindow : Window
             {
                 await OfferToDeleteOldCopyAsync(_movedFrom, pendingCleanup);
             }
-            else
+            else if (_openOnStart is null)
             {
                 await OfferMRemoteNgImportAsync();
             }
 
             await OfferWorkspaceAsync();
+            if (_openOnStart is not null)
+            {
+                await OpenRdpFileAsync(_openOnStart);
+            }
         };
 
         _network.Back += (_, _) => NetworkBack();
@@ -974,8 +985,56 @@ public partial class MainWindow : Window
         // Avalonia keeps a title bar strip at the top of a full-screen window that draws into its client
         // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
         ExtendClientAreaToDecorationsHint = false;
-        WindowState = WindowState.FullScreen;
+        if (!TrySpanDisplays(tab))
+        {
+            WindowState = WindowState.FullScreen;
+        }
+
         Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// For a remote desktop set to use every display: the window covers all of them and the server is asked for a
+    /// monitor for each. Windows only (see <see cref="SpanningWindow"/>); elsewhere, with one display, or with displays
+    /// that can't make one desktop, full screen is the one display, and false is returned.
+    /// </summary>
+    bool TrySpanDisplays(SessionTab tab)
+    {
+        if (!OperatingSystem.IsWindows() || tab.View is not RemoteFrameView { Session: IMultiMonitorSession, FollowsViewSize: true } desktop
+            || tab.Origin.EntryId is not { } id || _tree.Find(id) is not { } node || !SettingsResolver.Resolve(node).UseAllMonitors.Value)
+        {
+            return false;
+        }
+
+        var screens = Screens.All.Select(s => new ScreenArea(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height, s.IsPrimary)).ToList();
+        if (MonitorLayout.Arrange(screens, out var covered, out var whyNot) is not { } monitors)
+        {
+            if (screens.Count > 1)
+            {
+                ConnectLog.LogInformation("Full screen for {Title} is on one display: {Reason}", tab.Origin.Title, whyNot);
+                desktop.ShowNotice($"Full screen is on this display only. {whyNot}");
+            }
+
+            return false;
+        }
+
+        WindowState = WindowState.Normal;
+        _spanned = (desktop, Position, Width, Height, SystemDecorations, Topmost);
+        SystemDecorations = SystemDecorations.None;
+
+        // Windows hides the taskbar for a window that fills one display, not for one across several, so this stays on top.
+        Topmost = true;
+        SpanningWindow.Cover(this, covered);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_spanned is not null && OperatingSystem.IsWindows())
+            {
+                SpanningWindow.Cover(this, covered);
+            }
+        }, DispatcherPriority.Background);
+        desktop.SpannedMonitors = monitors;
+        ConnectLog.LogInformation("Spreading {Title} over {Count} displays, {Width}x{Height} in all", tab.Origin.Title, monitors.Count, covered.Width, covered.Height);
+        return true;
     }
 
     void ExitFullScreen()
@@ -986,6 +1045,17 @@ public partial class MainWindow : Window
         }
 
         _fullScreen = false;
+        if (_spanned is { } spanned)
+        {
+            _spanned = null;
+            spanned.View.SpannedMonitors = null;
+            Topmost = spanned.Topmost;
+            SystemDecorations = spanned.Decorations;
+            Position = spanned.Position;
+            Width = spanned.Width;
+            Height = spanned.Height;
+        }
+
         _fullScreenHotZone.IsVisible = _fullScreenBar.IsVisible = false;
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
         _sidePanel.IsVisible = _panesBeforeFullScreen.Side;
@@ -1446,7 +1516,19 @@ public partial class MainWindow : Window
         }
         else if (choice?.NewName is { } name)
         {
-            AddAndEdit(new ConnectionEntry { Name = name, Host = choice.Host ?? string.Empty });
+            var created = new ConnectionEntry { Name = name, Host = choice.Host ?? string.Empty };
+
+            // A serial port or web page typed in makes that kind of connection; anything else takes its folder's protocol.
+            if (choice.Protocol is Protocol.Serial || ProtocolInfo.IsWeb(choice.Protocol))
+            {
+                created.Settings.Protocol = choice.Protocol;
+                if (ProtocolInfo.IsWeb(choice.Protocol) && choice.Port != ProtocolInfo.DefaultPort(choice.Protocol))
+                {
+                    created.Settings.Port = choice.Port;
+                }
+            }
+
+            AddAndEdit(created);
         }
         else if (choice?.Entry is { } entry)
         {
@@ -1468,19 +1550,35 @@ public partial class MainWindow : Window
             return;
         }
 
+        var resolved = SettingsResolver.Resolve(entry);
+        var protocol = resolved.Protocol.Value;
         if (string.IsNullOrWhiteSpace(entry.Host))
         {
-            await Dialogs.ShowMessageAsync(this, $"\"{entry.Name}\" has no host", "Enter a host name or IP address in its settings first.");
+            await Dialogs.ShowMessageAsync(this, $"\"{entry.Name}\" has no host", protocol == Protocol.Serial
+                ? "Enter the serial port's name, such as COM3 or /dev/ttyUSB0, in its settings first."
+                : "Enter a host name or IP address in its settings first.");
             return;
         }
 
-        var resolved = SettingsResolver.Resolve(entry);
-        var protocol = resolved.Protocol.Value;
+        if (ProtocolInfo.IsWeb(protocol))
+        {
+            await OpenWebPageAsync(entry.Name, entry.Id, protocol, entry.Host, resolved.Port.Value, resolved.JumpHostId.Value is not null);
+            return;
+        }
+
         files &= protocol == Protocol.Ssh;
         var origin = new SessionOrigin(files ? $"{entry.Name} · files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
         {
             Files = files,
         };
+        if (protocol == Protocol.Serial)
+        {
+            var line = SerialLine.From(resolved);
+            ConnectLog.LogInformation("Opening \"{Name}\": serial port {Port} at {Line}", entry.Name, entry.Host, line);
+            StartSerial(origin, entry.Host, line);
+            return;
+        }
+
         try
         {
             // SSH goes through its jump hosts itself; RDP, VNC and Telnet through a tunnel the jump hosts make.
@@ -1491,7 +1589,9 @@ public partial class MainWindow : Window
 
             ConnectLog.LogInformation("Connecting \"{Name}\": {Protocol}{Files} to {Host}:{Port}{Via}", entry.Name, protocol, files ? " files" : string.Empty,
                 entry.Host, resolved.Port.Value, jumps.Count == 0 ? string.Empty : " through " + string.Join(", ", jumps.Select(j => $"{j.Target.Host}:{j.Target.Port}")));
-            var route = new SshRoute(jumps, protocol == Protocol.Ssh ? entry.PortForwards ?? [] : []);
+            // An SSH session opens its own forwards and the SOCKS proxy its folder asks for.
+            var route = new SshRoute(jumps, protocol == Protocol.Ssh ? PortForward.WithSocks(entry.PortForwards, resolved.SocksProxy.Value) : [],
+                SshSession.KeepAliveFor(resolved.KeepAliveSeconds.Value));
 
             // Telnet has no login of its own: the server asks in the terminal.
             if (protocol == Protocol.Telnet)
@@ -1582,7 +1682,7 @@ public partial class MainWindow : Window
             // Checked when saved; a hand-edited file that doesn't parse just fits the window.
             DesktopResolution.TryParse(resolved.DesktopSize.Value, out var desktopSize, out _);
             await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize,
-                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value, keyFile);
+                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value, keyFile, resolved.ViewOnly.Value, resolved.Scaling.Value);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -1593,7 +1693,19 @@ public partial class MainWindow : Window
     async Task ConnectDirectAsync(QuickConnectChoice choice, bool skipAgent = false)
     {
         var host = choice.Host!;
+        if (ProtocolInfo.IsWeb(choice.Protocol))
+        {
+            await OpenWebPageAsync(host, null, choice.Protocol, host, choice.Port);
+            return;
+        }
+
         var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice), AutoReconnect: true);
+        if (choice.Protocol == Protocol.Serial)
+        {
+            StartSerial(origin, host, SerialLine.Default);
+            return;
+        }
+
         if (choice.Protocol == Protocol.Telnet)
         {
             StartTelnet(origin, new ConnectionTarget(host, choice.Port, choice.Username, null));
@@ -1619,16 +1731,18 @@ public partial class MainWindow : Window
         await StartSessionAsync(origin, target, prompt.Password, saved);
     }
 
+    /// <param name="viewOnly">VNC: open watching only.</param>
+    /// <param name="scaling">VNC: how the desktop is fitted into the tab.</param>
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
         bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null, bool? enlarge = null,
-        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null)
+        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.ShrinkToFit)
     {
         switch (origin.Protocol)
         {
             case Protocol.Ssh:
                 return StartSshAsync(origin, target, password, saved, allowLegacySsh, route, keyFile);
             case Protocol.Vnc:
-                StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps, quality);
+                StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps, quality, viewOnly, scaling);
                 return Task.CompletedTask;
             default:
                 StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge, route?.Jumps, quality);
@@ -1639,13 +1753,17 @@ public partial class MainWindow : Window
     /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
     /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
     /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
+    /// <param name="viewOnly">Open watching only, as the session menu's View only does.</param>
     void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, bool? enlarge = null, IReadOnlyList<SshHop>? jumps = null,
-        DisplayQuality quality = DisplayQuality.Balanced)
+        DisplayQuality quality = DisplayQuality.Balanced, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.ShrinkToFit)
     {
         Open(origin, () =>
         {
             var session = VncSession.Start(target, password, shareClipboard, route: Tunnel(jumps), quality: quality);
-            return (NewRemoteFrameView(origin, session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops, followsViewSize: true), session);
+            var view = NewRemoteFrameView(origin, session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops, followsViewSize: true);
+            view.ViewOnly = viewOnly;
+            view.Scaling = scaling;
+            return (view, session);
         });
         UpdateVaultButton();
     }
@@ -1660,10 +1778,54 @@ public partial class MainWindow : Window
         {
             bool zoom = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
             var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
-            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality);
-            return (NewRemoteFrameView(origin, session, zoom, followsViewSize: fixedSize is null), session);
+            var problems = new List<string>();
+            var options = RdpOptionsFor(origin, problems);
+            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality, options);
+            var view = NewRemoteFrameView(origin, session, zoom, followsViewSize: fixedSize is null);
+            if (problems.Count > 0)
+            {
+                // Said once the desktop shows, where it's seen, rather than over the connecting screen.
+                void OnConnected(object? sender, SessionStateChangedEventArgs e)
+                {
+                    if (e.State == SessionState.Connected)
+                    {
+                        session.StateChanged -= OnConnected;
+                        Dispatcher.UIThread.Post(() => view.ShowNotice(string.Join(" ", problems)));
+                    }
+                }
+
+                session.StateChanged += OnConnected;
+            }
+
+            return (view, session);
         });
         UpdateVaultButton();
+    }
+
+    /// <summary>
+    /// A saved connection's sound, shared folders and console session, with what can't be shared added to
+    /// <paramref name="problems"/>; Orrery's defaults for a host typed into quick connect.
+    /// </summary>
+    RdpOptions RdpOptionsFor(SessionOrigin origin, List<string> problems)
+    {
+        if (origin.EntryId is not { } id || _tree.Find(id) is not { } node)
+        {
+            return new RdpOptions();
+        }
+
+        var resolved = SettingsResolver.Resolve(node);
+        var drives = RdpDrives.ForThisComputer(resolved.ShareAllDrives.Value, resolved.SharedFolders.Value, problems);
+        foreach (var problem in problems)
+        {
+            ConnectLog.LogWarning("{Name}: {Problem}", origin.Title, problem);
+        }
+
+        return new RdpOptions
+        {
+            PlayAudio = resolved.RemoteAudio.Value == Orrery.Core.Connections.RemoteAudio.PlayHere,
+            Drives = drives,
+            AdminSession = resolved.AdminSession.Value,
+        };
     }
 
     /// <summary>A remote desktop view with the color correction from Settings, unless its connection turns that off.</summary>
@@ -1709,6 +1871,62 @@ public partial class MainWindow : Window
         var session = TelnetSession.Start(target, 80, 24, Tunnel(jumps));
         return (NewTerminalView(session), session);
     });
+
+    /// <summary>A terminal on a serial port of this computer, such as a switch's console cable.</summary>
+    void StartSerial(SessionOrigin origin, string portName, SerialLine line) => Open(origin, () =>
+    {
+        var session = SerialSession.Start(new ConnectionTarget(portName, 0, null, null), line);
+        return (NewTerminalView(session), session);
+    });
+
+    /// <summary>
+    /// Opens a web connection in the default browser: no tab, no session, nothing to reconnect. Opening it counts as
+    /// connecting in the history and the Recent list. A jump host can't be used, since the browser wouldn't go
+    /// through it, so one set for it stops the page opening rather than going around it.
+    /// </summary>
+    /// <param name="entryId">The saved connection, or null for one typed into quick connect.</param>
+    async Task OpenWebPageAsync(string title, Guid? entryId, Protocol protocol, string host, int port, bool behindJumpHost = false)
+    {
+        if (behindJumpHost)
+        {
+            await Dialogs.ShowMessageAsync(this, $"Can't open \"{title}\" through a jump host",
+                "Web pages open in your browser, which can't go through Orrery's jump hosts. Set this connection to connect directly, "
+                + "or give the jump host a SOCKS proxy (D 1080) and set your browser to use it.");
+            return;
+        }
+
+        if (WebAddress.Url(protocol, host, port) is not { } url)
+        {
+            await Dialogs.ShowMessageAsync(this, $"Can't open \"{title}\"",
+                "Its host isn't a web address Orrery can open: a name or IP address, with a path after it if you like, such as router.lan/admin.");
+            return;
+        }
+
+        // Only the scheme, host and port: a page's path or query can carry tokens.
+        ConnectLog.LogInformation("Opening \"{Name}\" in the browser: {Site}", title, url.GetLeftPart(UriPartial.Authority));
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
+        {
+            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\": {Message}", title, e.Message);
+            if (entryId is { } failed && _tree.Find(failed) is ConnectionEntry)
+            {
+                _history.RecordFailed(failed, DateTimeOffset.Now);
+            }
+
+            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", e.Message);
+            return;
+        }
+
+        if (entryId is { } id && _tree.Find(id) is ConnectionEntry)
+        {
+            _history.RecordConnected(id, DateTimeOffset.Now);
+        }
+
+        _recent.Add(new RecentConnection(entryId, title, protocol, host, port, null, DateTimeOffset.Now));
+    }
 
     /// <summary>
     /// A new tunnel through <paramref name="jumps"/>, or none to connect directly. Made inside each session's
@@ -1793,11 +2011,11 @@ public partial class MainWindow : Window
     {
         if (origin.Files)
         {
-            var files = SftpSession.Start(target, login, _hostKeyValidator, allowLegacySsh, route?.Jumps);
+            var files = SftpSession.Start(target, login, _hostKeyValidator, allowLegacySsh, route?.Jumps, route?.KeepAlive);
             return (new FileBrowserView(files), files, () => files.AuthenticationRejected);
         }
 
-        var shell = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh, route?.Jumps, route?.Forwards);
+        var shell = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh, route?.Jumps, route?.Forwards, route?.KeepAlive);
         return (NewTerminalView(shell), shell, () => shell.AuthenticationRejected);
     }
 
@@ -1913,8 +2131,8 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>What an SSH session goes through and opens besides its shell.</summary>
-    sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards);
+    /// <summary>What an SSH session goes through and opens besides its shell, and how often it sends keep-alives (null: the default).</summary>
+    sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards, TimeSpan? KeepAlive = null);
 
     static readonly ILogger ConnectLog = Log.For("Connect");
     static readonly ILogger StorageLog = Log.For("Storage");
@@ -1997,7 +2215,8 @@ public partial class MainWindow : Window
                 login = SshLoginFor(username, password, saved, keyFile);
             }
 
-            hops.Add(new SshHop(new ConnectionTarget(jump.Host, resolved.Port.Value, username, null), login, resolved.AllowLegacySsh.Value));
+            hops.Add(new SshHop(new ConnectionTarget(jump.Host, resolved.Port.Value, username, null), login, resolved.AllowLegacySsh.Value,
+                SshSession.KeepAliveFor(resolved.KeepAliveSeconds.Value)));
         }
 
         return hops;
@@ -2253,7 +2472,7 @@ public partial class MainWindow : Window
         if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
         {
             var ctrlAltDel = new Button { Content = "Ctrl+Alt+Del" };
-            ToolTip.SetTip(ctrlAltDel, "Send Ctrl+Alt+Del to the remote computer");
+            ToolTip.SetTip(ctrlAltDel, $"Send Ctrl+Alt+Del to the remote computer ({Input.CtrlAltDelShortcut.Description})");
             ctrlAltDel.Click += (_, _) =>
             {
                 desktop.SendKeys(RemoteKeyCombo.CtrlAltDel);
@@ -2316,7 +2535,7 @@ public partial class MainWindow : Window
                 {
                     desktop.SendKeys(combo);
                     desktop.Focus();
-                }));
+                }, combo == RemoteKeyCombo.CtrlAltDel ? Input.CtrlAltDelShortcut.MenuText : null));
             }
 
             items.Add(keys);
@@ -2550,11 +2769,11 @@ public partial class MainWindow : Window
 
     // ---- Import and export ----
 
-    /// <summary>An mRemoteNG confCons.xml, an Orrery export or an OpenSSH config.</summary>
+    /// <summary>An mRemoteNG confCons.xml, an Orrery export, a Remote Desktop (.rdp) file or an OpenSSH config.</summary>
     static string? DroppedImportFile(DragEventArgs e) =>
         e.DataTransfer.TryGetFile()?.TryGetLocalPath() is { } path && IsImportFile(path) ? path : null;
 
-    static bool IsImportFile(string path) => ConnectionExporter.FormatFor(path) switch
+    static bool IsImportFile(string path) => RdpFileImporter.IsRdpFile(path) || ConnectionExporter.FormatFor(path) switch
     {
         ExportFormat.MRemoteNg or ExportFormat.Orrery => true,
         null => SshConfigImporter.LooksLikeConfig(path),
@@ -2562,7 +2781,55 @@ public partial class MainWindow : Window
     };
 
     /// <summary>An SSH config has no extension of its own, so anything that isn't one of the other formats is read as one.</summary>
-    static bool IsSshConfig(string path) => ConnectionExporter.FormatFor(path) is null;
+    static bool IsSshConfig(string path) => ConnectionExporter.FormatFor(path) is null && !RdpFileImporter.IsRdpFile(path);
+
+    async void OnOpenRdpFileClick(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open a Remote Desktop file",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("Remote Desktop files") { Patterns = ["*.rdp"] }],
+        });
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        {
+            await OpenRdpFileAsync(path);
+        }
+    }
+
+    /// <summary>
+    /// Connects to what a Remote Desktop (.rdp) file describes, without adding it to the tree; Import adds it. A file
+    /// imported before connects as that saved connection, with its saved credential and history.
+    /// </summary>
+    async Task OpenRdpFileAsync(string path)
+    {
+        ConnectionEntry file;
+        try
+        {
+            var result = await Task.Run(() => RdpFileImporter.ImportFile(path));
+            file = result.Root.Children.OfType<ConnectionEntry>().Single();
+            foreach (var warning in result.Report.Warnings.Concat(result.Report.NotYetSupported))
+            {
+                ConnectLog.LogInformation("{File}: {Note}", Path.GetFileName(path), warning);
+            }
+        }
+        catch (Exception e) when (e is ImportException or IOException or UnauthorizedAccessException)
+        {
+            StorageLog.LogWarning("Couldn't open {Path}: {Message}", path, e.Message);
+            await Dialogs.ShowMessageAsync(this, "Couldn't open this file", e.Message);
+            return;
+        }
+
+        if (_tree.AllConnections().FirstOrDefault(c => c.ImportSourceId == file.ImportSourceId) is { } saved)
+        {
+            Select(saved.Id);
+            await ConnectAsync(saved);
+            return;
+        }
+
+        ConnectLog.LogInformation("Opening the Remote Desktop file {File} without saving it", Path.GetFileName(path));
+        await ConnectAsync(file);
+    }
 
     /// <summary>First launch with an empty list on a machine that has mRemoteNG: offer to bring its connections over.</summary>
     async Task OfferMRemoteNgImportAsync()
@@ -2591,6 +2858,7 @@ public partial class MainWindow : Window
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG or Orrery connections") { Patterns = ["*.xml", "*.json"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
+                new Avalonia.Platform.Storage.FilePickerFileType("Remote Desktop file") { Patterns = ["*.rdp"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("OpenSSH config") { Patterns = ["config", "*.conf", "*"] },
             ],
         });
@@ -2621,13 +2889,15 @@ public partial class MainWindow : Window
         ImportResult? result = null;
         string? masterPassword = null, passwordError = null;
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
+        bool rdpFile = RdpFileImporter.IsRdpFile(path);
         bool sshConfig = IsSshConfig(path);
         while (result is null)
         {
             try
             {
                 var password = masterPassword;
-                result = await Task.Run(() => sshConfig ? SshConfigImporter.ImportFile(path)
+                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path)
+                    : sshConfig ? SshConfigImporter.ImportFile(path)
                     : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
             }
             catch (MasterPasswordRequiredException e)

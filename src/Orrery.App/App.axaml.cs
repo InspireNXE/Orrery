@@ -155,7 +155,10 @@ public partial class App : Application
 
         AppLog.Start(location);
         int moved = Array.IndexOf(_args, MovedFromFlag);
-        return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null);
+
+        // "Orrery file.rdp", as Windows runs it for a .rdp file opened with Orrery: connected to once the window opens.
+        var rdpFile = _args.FirstOrDefault(a => Orrery.Core.Import.RdpFileImporter.IsRdpFile(a) && File.Exists(a));
+        return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null, openOnStart: rdpFile);
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
@@ -152,6 +153,102 @@ public class PropertiesPanelTests
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From defaults for all connections");
+    }
+
+    /// <summary>The headings of the sections shown, as written: "RDP", "SSH TUNNELS".</summary>
+    static List<string?> SectionsShown(Window window) => window.GetVisualDescendants().OfType<TextBlock>()
+        .Where(t => t.Classes.Contains("section") && t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+
+    static async Task<(PropertiesPanel Panel, Window Window)> Show(ConnectionTree tree, ConnectionNode node)
+    {
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 900 };
+        window.Show();
+        await panel.ShowAsync(node);
+        Dispatcher.UIThread.RunJobs();
+        return (panel, window);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(Protocol.Rdp, new[] { "DISPLAY (RDP AND VNC)", "RDP" }, new[] { "VNC", "SSH", "SERIAL LINE" })]
+    [InlineData(Protocol.Vnc, new[] { "DISPLAY (RDP AND VNC)", "VNC" }, new[] { "RDP", "SSH", "SERIAL LINE" })]
+    [InlineData(Protocol.Ssh, new[] { "SSH", "SSH TUNNELS", "CREDENTIALS" }, new[] { "RDP", "VNC", "SERIAL LINE", "DISPLAY (RDP AND VNC)" })]
+    [InlineData(Protocol.Serial, new[] { "SERIAL LINE" }, new[] { "RDP", "VNC", "SSH", "CREDENTIALS", "SSH TUNNELS", "WAKE ON LAN" })]
+    [InlineData(Protocol.Https, new[] { "WAKE ON LAN" }, new[] { "RDP", "VNC", "SSH", "SERIAL LINE", "CREDENTIALS", "SESSION", "SSH TUNNELS" })]
+    public async Task A_connection_shows_only_its_own_protocols_sections(Protocol protocol, string[] shown, string[] hidden)
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = { Protocol = protocol } };
+        tree.Add(entry, tree.Root);
+
+        var (_, window) = await Show(tree, entry);
+        var sections = SectionsShown(window);
+        Assert.All(shown, s => Assert.Contains(s, sections));
+        Assert.All(hidden, s => Assert.DoesNotContain(s, sections));
+    }
+
+    [AvaloniaFact]
+    public async Task A_folder_and_the_defaults_show_every_protocols_sections()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Lab" };
+        tree.Add(folder, tree.Root);
+
+        foreach (var node in new ConnectionNode[] { folder, tree.Root })
+        {
+            var (_, window) = await Show(tree, node);
+            var sections = SectionsShown(window);
+            Assert.All(new[] { "CREDENTIALS", "SESSION", "DISPLAY (RDP AND VNC)", "RDP", "VNC", "SSH", "SERIAL LINE", "SSH TUNNELS" },
+                s => Assert.Contains(s, sections));
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Picking_another_protocol_shows_its_sections_before_saving()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = { Protocol = Protocol.Rdp } };
+        tree.Add(entry, tree.Root);
+
+        var (_, window) = await Show(tree, entry);
+        var protocol = window.GetVisualDescendants().OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "Protocol");
+        protocol.SelectedItem = protocol.Items.Single(i => (i as ComboBoxItem)?.Tag is Protocol.Ssh);
+        Dispatcher.UIThread.RunJobs();
+
+        var sections = SectionsShown(window);
+        Assert.Contains("SSH", sections);
+        Assert.DoesNotContain("RDP", sections);
+    }
+
+    [AvaloniaFact]
+    public async Task A_folders_keep_alive_and_socks_proxy_are_saved_and_a_bad_proxy_refused()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Lab" };
+        tree.Add(folder, tree.Root);
+
+        var (panel, window) = await Show(tree, folder);
+        TextBox Box(string name) => window.GetVisualDescendants().OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == name);
+        var keepAlive = Box("Keep-alive (seconds)");
+        var socks = Box("SOCKS proxy");
+        InheritBoxFor(keepAlive).IsChecked = false;
+        InheritBoxFor(socks).IsChecked = false;
+
+        keepAlive.Text = "15";
+        socks.Text = "not a port";
+        Assert.False(panel.TrySave());
+        Assert.Null(folder.Settings.SocksProxy);
+
+        socks.Text = "127.0.0.1:1080";
+        Assert.True(panel.TrySave());
+        Assert.Equal(15, folder.Settings.KeepAliveSeconds);
+        Assert.Equal("127.0.0.1:1080", folder.Settings.SocksProxy);
+
+        keepAlive.Text = "86400";
+        Dispatcher.UIThread.RunJobs(); // The edit marks the pane changed once its text-changed event runs.
+        Assert.False(panel.TrySave());
+        Assert.Equal(15, folder.Settings.KeepAliveSeconds);
     }
 
     /// <summary>The Inherit chip in the same row as <paramref name="editor"/>.</summary>
