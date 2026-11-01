@@ -24,7 +24,7 @@ public enum FailureKind
 }
 
 /// <summary>
-/// A failure a protocol has recognised itself, where .NET's own exceptions wouldn't say what happened: a refused
+/// A failure a protocol has recognized itself, where .NET's own exceptions wouldn't say what happened: a refused
 /// login, a host key or certificate turned down, the server ending the connection. The library's own exception
 /// is kept as the inner one, for the details.
 /// </summary>
@@ -128,7 +128,7 @@ public sealed record ConnectionFailure(FailureKind Kind, string Summary, string?
         string host = target.Host;
         return kind switch
         {
-            FailureKind.NameNotFound => ($"Couldn't find a computer called {host}.", "Check the name is spelt right, or try its IP address."),
+            FailureKind.NameNotFound => ($"Couldn't find a computer called {host}.", "Check the name is spelled right, or try its IP address."),
             FailureKind.Refused => ($"{host} turned down the connection on port {target.Port}.", "Check the port, and that the remote service is running."),
             FailureKind.TimedOut => ($"{host} didn't answer in time.", $"Check it's switched on, and that a firewall isn't blocking port {target.Port}."),
             FailureKind.Unreachable => ($"There's no network route to {host}.", "Check your network connection, or your VPN if it's on a private network."),

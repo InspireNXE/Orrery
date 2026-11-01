@@ -26,7 +26,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
     public async Task<(string Host, int Port)> OpenAsync(string host, int port, CancellationToken token)
     {
         // SSH.NET connects synchronously, and disposing a client doesn't interrupt a handshake already under way,
-        // which then only ends at the connect timeout. So a cancelled open returns at once and leaves that to finish
+        // which then only ends at the connect timeout. So a canceled open returns at once and leaves that to finish
         // in the background: the tunnel is closed by then, so whatever it connects is disposed straight away.
         using var cancel = token.Register(Dispose);
         var open = Task.Run(() => Open(host, port), CancellationToken.None);
@@ -90,12 +90,12 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         catch (SshAuthenticationException e)
         {
             Log.For("JumpHost").LogWarning("Jump host {Host}: login as {User} refused: {Reason}", hop.Target.Host, hop.Login.Username, e.Message);
-            throw new RouteException(where + SshSession.Refusal(e, hop.Login), SshSession.Recognise(e), hop.Target);
+            throw new RouteException(where + SshSession.Refusal(e, hop.Login), SshSession.Recognize(e), hop.Target);
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("JumpHost").LogError(e, "SSH connection to jump host {Host} failed", hop.Target.Host);
-            throw new RouteException(where + SshSession.Describe(e, hop.AllowLegacy), SshSession.Recognise(e), hop.Target);
+            throw new RouteException(where + SshSession.Describe(e, hop.AllowLegacy), SshSession.Recognize(e), hop.Target);
         }
     }
 

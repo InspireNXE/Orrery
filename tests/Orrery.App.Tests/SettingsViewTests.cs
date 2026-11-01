@@ -10,7 +10,7 @@ using Orrery.App.Settings;
 using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
-using Vision = Orrery.Core.Settings.ColourVision;
+using Vision = Orrery.Core.Settings.ColorVision;
 using Xunit;
 
 namespace Orrery.App.Tests;
@@ -200,68 +200,68 @@ public class SettingsViewTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Colour_settings_are_saved_and_applied_at_once()
+    public void Color_settings_are_saved_and_applied_at_once()
     {
         var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
         var settings = AppSettingsStore.In(location);
         using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
         var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
-        TerminalColourScheme? terminalScheme = null;
-        view.TerminalColoursChanged += (_, scheme) => terminalScheme = scheme;
+        TerminalColorScheme? terminalScheme = null;
+        view.TerminalColorsChanged += (_, scheme) => terminalScheme = scheme;
         var window = new Window { Content = view };
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
         try
         {
-            RadioButton Choice(InterfaceColourScheme scheme) =>
+            RadioButton Choice(InterfaceColorScheme scheme) =>
                 Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), r => Equals(r.Tag, scheme));
-            Assert.Equal(3, window.GetVisualDescendants().OfType<RadioButton>().Count(r => r.Tag is InterfaceColourScheme));
-            Assert.True(Choice(InterfaceColourScheme.Standard).IsChecked);
+            Assert.Equal(3, window.GetVisualDescendants().OfType<RadioButton>().Count(r => r.Tag is InterfaceColorScheme));
+            Assert.True(Choice(InterfaceColorScheme.Standard).IsChecked);
 
-            Choice(InterfaceColourScheme.Clearer).IsChecked = true;
+            Choice(InterfaceColorScheme.Clearer).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
-            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
-            Assert.Equal(InterfaceColourScheme.Clearer, Palette.Scheme);
+            Assert.Equal(InterfaceColorScheme.Clearer, settings.Load().InterfaceColors);
+            Assert.Equal(InterfaceColorScheme.Clearer, Palette.Scheme);
             Assert.Equal(Palette.Clearer.StateUp, Palette.StateUp.Color);
 
-            Choice(InterfaceColourScheme.ColourBlind).IsChecked = true;
+            Choice(InterfaceColorScheme.ColorBlind).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(InterfaceColourScheme.ColourBlind, settings.Load().InterfaceColours);
-            Assert.Null(settings.Load().ColourBlindColours);
-            Assert.Equal(InterfaceColourScheme.ColourBlind, Palette.Scheme);
-            Assert.Equal(Palette.ColourBlind.Danger, Palette.Danger.Color);
-            Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
+            Assert.Equal(InterfaceColorScheme.ColorBlind, settings.Load().InterfaceColors);
+            Assert.Null(settings.Load().ColorBlindColors);
+            Assert.Equal(InterfaceColorScheme.ColorBlind, Palette.Scheme);
+            Assert.Equal(Palette.ColorBlind.Danger, Palette.Danger.Color);
+            Assert.Equal(Palette.ColorBlind.StateUp, Palette.StateUp.Color);
 
-            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColourScheme));
-            terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, TerminalColourScheme.ColourBlind));
+            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColorScheme));
+            terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, TerminalColorScheme.ColorBlind));
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
-            Assert.Equal(TerminalColourScheme.ColourBlind, terminalScheme);
+            Assert.Equal(TerminalColorScheme.ColorBlind, settings.Load().TerminalColors);
+            Assert.Equal(TerminalColorScheme.ColorBlind, terminalScheme);
 
-            Choice(InterfaceColourScheme.Standard).IsChecked = true;
+            Choice(InterfaceColorScheme.Standard).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
-            Assert.Null(settings.Load().InterfaceColours);
+            Assert.Null(settings.Load().InterfaceColors);
             Assert.Equal(Palette.Standard.Danger, Palette.Danger.Color);
         }
         finally
         {
-            Palette.Use(InterfaceColourScheme.Standard);
+            Palette.Use(InterfaceColorScheme.Standard);
             window.Close();
         }
     }
 
     [AvaloniaFact]
-    public void A_colour_vision_picks_the_colour_blind_sets_and_leaves_them_to_the_user()
+    public void A_color_vision_picks_the_color_blind_sets_and_leaves_them_to_the_user()
     {
         var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
         var settings = AppSettingsStore.In(location);
         using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
         var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
         var changes = new List<(Vision, int)>();
-        view.ColourVisionChanged += (_, change) => changes.Add(change);
+        view.ColorVisionChanged += (_, change) => changes.Add(change);
         var window = new Window { Content = view };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -270,8 +270,8 @@ public class SettingsViewTests : IDisposable
         {
             var vision = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is Vision));
             var strength = Assert.Single(window.GetVisualDescendants().OfType<Slider>());
-            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColourScheme));
-            RadioButton Choice(InterfaceColourScheme scheme) =>
+            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColorScheme));
+            RadioButton Choice(InterfaceColorScheme scheme) =>
                 Assert.Single(window.GetVisualDescendants().OfType<RadioButton>(), r => Equals(r.Tag, scheme));
 
             // Named for a screen reader, with the explanation as help text.
@@ -283,36 +283,36 @@ public class SettingsViewTests : IDisposable
             vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, Vision.Deuteranopia));
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(Vision.Deuteranopia, settings.Load().ColourVision);
-            Assert.Equal(InterfaceColourScheme.ColourBlind, settings.Load().InterfaceColours);
-            Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
-            Assert.Equal(InterfaceColourScheme.ColourBlind, Palette.Scheme);
-            Assert.True(Choice(InterfaceColourScheme.ColourBlind).IsChecked);
-            Assert.Equal(TerminalColourScheme.ColourBlind, (terminal.SelectedItem as ComboBoxItem)?.Tag);
+            Assert.Equal(Vision.Deuteranopia, settings.Load().ColorVision);
+            Assert.Equal(InterfaceColorScheme.ColorBlind, settings.Load().InterfaceColors);
+            Assert.Equal(TerminalColorScheme.ColorBlind, settings.Load().TerminalColors);
+            Assert.Equal(InterfaceColorScheme.ColorBlind, Palette.Scheme);
+            Assert.True(Choice(InterfaceColorScheme.ColorBlind).IsChecked);
+            Assert.Equal(TerminalColorScheme.ColorBlind, (terminal.SelectedItem as ComboBoxItem)?.Tag);
             Assert.True(strength.IsEnabled);
 
             strength.Value = 60;
             Dispatcher.UIThread.RunJobs();
-            Assert.Equal(60, settings.Load().ColourCorrectionStrength);
+            Assert.Equal(60, settings.Load().ColorCorrectionStrength);
 
-            // The palette can still be changed by hand, and the colour vision stays.
-            Choice(InterfaceColourScheme.Clearer).IsChecked = true;
+            // The palette can still be changed by hand, and the color vision stays.
+            Choice(InterfaceColorScheme.Clearer).IsChecked = true;
             Dispatcher.UIThread.RunJobs();
-            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
-            Assert.Equal(Vision.Deuteranopia, settings.Load().ColourVision);
+            Assert.Equal(InterfaceColorScheme.Clearer, settings.Load().InterfaceColors);
+            Assert.Equal(Vision.Deuteranopia, settings.Load().ColorVision);
 
             // Back to none: the palettes stay as they are, and the strength can't be changed.
             vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, Vision.None));
             Dispatcher.UIThread.RunJobs();
-            Assert.Null(settings.Load().ColourVision);
-            Assert.Equal(InterfaceColourScheme.Clearer, settings.Load().InterfaceColours);
+            Assert.Null(settings.Load().ColorVision);
+            Assert.Equal(InterfaceColorScheme.Clearer, settings.Load().InterfaceColors);
             Assert.False(strength.IsEnabled);
 
             Assert.Equal([(Vision.Deuteranopia, 100), (Vision.Deuteranopia, 60), (Vision.None, 60)], changes);
         }
         finally
         {
-            Palette.Use(InterfaceColourScheme.Standard);
+            Palette.Use(InterfaceColorScheme.Standard);
             window.Close();
         }
     }

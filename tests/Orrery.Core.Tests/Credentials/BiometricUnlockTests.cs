@@ -32,13 +32,13 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
     public int? SecretLength { get; set; }
 
     /// <summary>
-    /// While set, a prompt stays up until this is completed (or, when <see cref="HonoursCancel"/>, cancelled), as a
+    /// While set, a prompt stays up until this is completed (or, when <see cref="HonorsCancel"/>, canceled), as a
     /// person deciding would.
     /// </summary>
     public TaskCompletionSource? Hold { get; set; }
 
-    /// <summary>Whether a held prompt gives up when cancelled. False is an authenticator that answers anyway.</summary>
-    public bool HonoursCancel { get; set; } = true;
+    /// <summary>Whether a held prompt gives up when canceled. False is an authenticator that answers anyway.</summary>
+    public bool HonorsCancel { get; set; } = true;
 
     public int Prompts { get; private set; }
 
@@ -97,7 +97,7 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
         {
             using (cancel.Register(() => SawCancel = true))
             {
-                if (HonoursCancel)
+                if (HonorsCancel)
                 {
                     try
                     {
@@ -106,7 +106,7 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
                     catch (OperationCanceledException)
                     {
                         SawCancel = true;
-                        return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+                        return new AuthenticatorResult(AuthenticatorStatus.Canceled);
                     }
                 }
                 else
@@ -261,13 +261,13 @@ public class BiometricUnlockTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelling_the_prompt_keeps_it_on_and_the_vault_locked()
+    public async Task Canceling_the_prompt_keeps_it_on_and_the_vault_locked()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
 
-        _hello.NextAnswer = AuthenticatorStatus.Cancelled;
-        Assert.Equal(BiometricOutcome.Cancelled, (await Biometric.UnlockAsync(vault)).Outcome);
+        _hello.NextAnswer = AuthenticatorStatus.Canceled;
+        Assert.Equal(BiometricOutcome.Canceled, (await Biometric.UnlockAsync(vault)).Outcome);
         Assert.True(vault.IsLocked);
         Assert.True(Biometric.IsOn(vault));
 
@@ -280,17 +280,17 @@ public class BiometricUnlockTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelling_while_turning_on_saves_nothing()
+    public async Task Canceling_while_turning_on_saves_nothing()
     {
         using var vault = await NewVaultAsync();
-        _hello.NextAnswer = AuthenticatorStatus.Cancelled;
+        _hello.NextAnswer = AuthenticatorStatus.Canceled;
 
-        Assert.Equal(BiometricOutcome.Cancelled, (await Biometric.TurnOnAsync(vault, Password)).Outcome);
+        Assert.Equal(BiometricOutcome.Canceled, (await Biometric.TurnOnAsync(vault, Password)).Outcome);
         Assert.False(Biometric.IsOn(vault));
     }
 
     [Fact]
-    public async Task Cancelling_dismisses_the_prompt_and_leaves_the_vault_locked()
+    public async Task Canceling_dismisses_the_prompt_and_leaves_the_vault_locked()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
@@ -301,31 +301,31 @@ public class BiometricUnlockTests : IDisposable
         Assert.False(unlocking.IsCompleted);
         cancel.Cancel();
 
-        Assert.Equal(BiometricOutcome.Cancelled, (await unlocking.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
+        Assert.Equal(BiometricOutcome.Canceled, (await unlocking.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
         Assert.True(_hello.SawCancel);
         Assert.True(vault.IsLocked);
         Assert.True(Biometric.IsOn(vault));
     }
 
     [Fact]
-    public async Task An_answer_that_comes_after_cancelling_doesnt_unlock_the_vault()
+    public async Task An_answer_that_comes_after_canceling_doesnt_unlock_the_vault()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
         _hello.Hold = new TaskCompletionSource();
-        _hello.HonoursCancel = false; // The user passed the prompt just as the window closed.
+        _hello.HonorsCancel = false; // The user passed the prompt just as the window closed.
         using var cancel = new CancellationTokenSource();
 
         var unlocking = Biometric.UnlockAsync(vault, cancel: cancel.Token);
         cancel.Cancel();
         _hello.Hold.SetResult();
 
-        Assert.Equal(BiometricOutcome.Cancelled, (await unlocking.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
+        Assert.Equal(BiometricOutcome.Canceled, (await unlocking.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
         Assert.True(vault.IsLocked);
     }
 
     [Fact]
-    public async Task Cancelling_while_the_vault_opens_locks_it_again()
+    public async Task Canceling_while_the_vault_opens_locks_it_again()
     {
         using var vault = await NewVaultAsync();
         var (dataKey, fingerprint) = await vault.DataKeyForAsync(Password);

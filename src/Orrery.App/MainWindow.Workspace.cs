@@ -34,7 +34,7 @@ public partial class MainWindow
     {
         ApplySavedPlacement();
 
-        // The window's normal bounds are noted a moment after it settles, so a maximise (which moves and resizes the
+        // The window's normal bounds are noted a moment after it settles, so a maximize (which moves and resizes the
         // window just before the state changes) isn't taken for where the window is.
         _placementTimer = new DispatcherTimer { Interval = PlacementDelay };
         _placementTimer.Tick += (_, _) =>

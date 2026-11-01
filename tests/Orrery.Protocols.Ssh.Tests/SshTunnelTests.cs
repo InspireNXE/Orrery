@@ -27,7 +27,7 @@ public class SshTunnelTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancelling_while_connecting_ends_with_cancellation_not_an_error()
+    public async Task Canceling_while_connecting_ends_with_cancellation_not_an_error()
     {
         // Accepts and then says nothing, so the SSH handshake hangs.
         var silent = new TcpListener(IPAddress.Loopback, 0);

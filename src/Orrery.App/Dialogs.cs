@@ -45,7 +45,7 @@ static class Dialogs
         return window.ShowDialog<bool>(owner);
     }
 
-    /// <summary>Asks for a password. Null if cancelled.</summary>
+    /// <summary>Asks for a password. Null if canceled.</summary>
     public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error = null)
     {
         var box = new PasswordBox();
@@ -73,7 +73,7 @@ static class Dialogs
 
     /// <summary>
     /// Asks for a line of text, such as a new name, starting with <paramref name="initial"/> selected. Null if
-    /// cancelled; OK is disabled while the text is blank.
+    /// canceled; OK is disabled while the text is blank.
     /// </summary>
     public static Task<string?> PromptTextAsync(Window owner, string title, string label, string initial, string confirmLabel)
     {
@@ -125,8 +125,8 @@ static class Dialogs
     }
 
     /// <summary>
-    /// A trust prompt's heading. For a changed host key or certificate it's in the danger colour with the error icon
-    /// beside it, so the change is plain without colour.
+    /// A trust prompt's heading. For a changed host key or certificate it's in the danger color with the error icon
+    /// beside it, so the change is plain without color.
     /// </summary>
     /// <summary>
     /// When <paramref name="window"/> opens, focuses <paramref name="button"/> and has the screen reader read

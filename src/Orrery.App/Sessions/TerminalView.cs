@@ -34,7 +34,7 @@ public sealed class TerminalView : Control
     static readonly Color SelectionColor = Color.Parse("#3A5A8C");
     static readonly Color CursorColor = Color.Parse("#E6E8EC");
 
-    TerminalColourScheme _colourScheme;
+    TerminalColorScheme _colorScheme;
     TerminalPalette _palette = TerminalPalette.Standard;
 
     readonly TerminalEmulator _terminal;
@@ -241,44 +241,44 @@ public sealed class TerminalView : Control
     /// <summary>The terminal's size in character cells.</summary>
     public (int Columns, int Rows) GridSize => (_terminal.Columns, _terminal.Rows);
 
-    /// <summary>The 16 colours programs pick from. Changing it repaints what's on screen in the new colours.</summary>
-    public TerminalColourScheme ColourScheme
+    /// <summary>The 16 colors programs pick from. Changing it repaints what's on screen in the new colors.</summary>
+    public TerminalColorScheme ColorScheme
     {
-        get => _colourScheme;
+        get => _colorScheme;
         set
         {
-            if (value == _colourScheme)
+            if (value == _colorScheme)
             {
                 return;
             }
 
-            _colourScheme = value;
-            _palette = TerminalPalette.For(value, _colourVision);
+            _colorScheme = value;
+            _palette = TerminalPalette.For(value, _colorVision);
             InvalidateVisual();
         }
     }
 
-    ColourVision _colourVision;
+    ColorVision _colorVision;
 
-    /// <summary>The user's colour vision, which tunes the colour-blind scheme. Changing it repaints too.</summary>
-    public ColourVision ColourVision
+    /// <summary>The user's color vision, which tunes the color-blind scheme. Changing it repaints too.</summary>
+    public ColorVision ColorVision
     {
-        get => _colourVision;
+        get => _colorVision;
         set
         {
-            if (value == _colourVision)
+            if (value == _colorVision)
             {
                 return;
             }
 
-            _colourVision = value;
-            _palette = TerminalPalette.For(_colourScheme, value);
+            _colorVision = value;
+            _palette = TerminalPalette.For(_colorScheme, value);
             InvalidateVisual();
         }
     }
 
-    /// <summary>The colour a palette index (0 to 15) draws in, for tests.</summary>
-    internal Color AnsiColour(int index) => _palette.Ansi[index];
+    /// <summary>The color a palette index (0 to 15) draws in, for tests.</summary>
+    internal Color AnsiColor(int index) => _palette.Ansi[index];
 
     /// <summary>Text size in points. Changing it keeps the view's size and re-flows the rows and columns.</summary>
     public double TextSize
@@ -300,7 +300,7 @@ public sealed class TerminalView : Control
 
     void ShowState(SessionState state, string? message)
     {
-        // Each line resets attributes first, so a host's hidden or odd colours can't hide or disguise it.
+        // Each line resets attributes first, so a host's hidden or odd colors can't hide or disguise it.
         var target = $"{Session.Target.Host}:{Session.Target.Port}";
         var text = (state, Session as ILocalSession) switch
         {
@@ -511,7 +511,7 @@ public sealed class TerminalView : Control
     {
         var fgColor = style.Foreground;
 
-        // Bold text in one of the 8 basic colours uses the bright version, as most terminals do.
+        // Bold text in one of the 8 basic colors uses the bright version, as most terminals do.
         if (style.Flags.HasFlag(CellFlags.Bold) && fgColor.IsPalette && fgColor.PaletteIndex < 8)
         {
             fgColor = TerminalColor.Palette(fgColor.PaletteIndex + 8);
@@ -531,7 +531,7 @@ public sealed class TerminalView : Control
         if (i < 16) return _palette.Ansi[i];
         if (i < 232)
         {
-            // 6×6×6 colour cube.
+            // 6×6×6 color cube.
             i -= 16;
             static byte Level(int n) => (byte)(n == 0 ? 0 : 55 + n * 40);
             return Color.FromRgb(Level(i / 36), Level(i / 6 % 6), Level(i % 6));

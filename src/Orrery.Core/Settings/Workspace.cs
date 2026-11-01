@@ -24,8 +24,8 @@ public enum RestoreSessionsMode
 public sealed record WorkspaceTab(Guid? EntryId, string? Host, int Port, Protocol Protocol, bool Files = false, string? LocalShell = null);
 
 /// <summary>
-/// Where the window was: its normal (not maximised) position in screen pixels and size in device-independent
-/// units, and whether it was maximised.
+/// Where the window was: its normal (not maximized) position in screen pixels and size in device-independent
+/// units, and whether it was maximized.
 /// </summary>
 public sealed record WindowPlacement(int X, int Y, double Width, double Height, bool Maximized);
 
@@ -66,7 +66,7 @@ public sealed record Workspace
     }
 
     /// <summary>Drops whatever in a loaded file can't be used, so nothing downstream has to check.</summary>
-    internal Workspace Sanitised()
+    internal Workspace Sanitized()
     {
         var kept = Keep(t => Enum.IsDefined(t.Protocol)
             && (t.LocalShell is { Length: > 0 and <= MaxShellIdLength } || t.EntryId is not null
@@ -125,7 +125,7 @@ public sealed class WorkspaceStore(string path)
     {
         try
         {
-            return File.Exists(path) ? JsonSerializer.Deserialize<Workspace>(File.ReadAllText(path), JsonOptions)?.Sanitised() ?? new() : new();
+            return File.Exists(path) ? JsonSerializer.Deserialize<Workspace>(File.ReadAllText(path), JsonOptions)?.Sanitized() ?? new() : new();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {

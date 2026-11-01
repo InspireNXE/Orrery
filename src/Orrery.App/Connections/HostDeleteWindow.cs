@@ -11,7 +11,7 @@ sealed record HostDeleteChoice(ConnectionFolder? KeepGuestsIn);
 
 /// <summary>
 /// Confirms deleting a host and asks about its guests: delete them too, or keep them as plain connections in
-/// the host's folder (offered first), another folder, or the top level. Null from the dialog means cancelled.
+/// the host's folder (offered first), another folder, or the top level. Null from the dialog means canceled.
 /// </summary>
 sealed class HostDeleteWindow : Window
 {

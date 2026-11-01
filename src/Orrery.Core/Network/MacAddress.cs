@@ -82,10 +82,10 @@ public static class MacAddress
     public static string Format(byte[] bytes) => string.Join(':', bytes.Select(b => b.ToString("X2", CultureInfo.InvariantCulture)));
 
     /// <summary>The address in the form saved with a connection; false when <paramref name="text"/> isn't one.</summary>
-    public static bool TryNormalise(string? text, out string normalised)
+    public static bool TryNormalize(string? text, out string normalized)
     {
         bool ok = TryParse(text, out var bytes);
-        normalised = ok ? Format(bytes) : string.Empty;
+        normalized = ok ? Format(bytes) : string.Empty;
         return ok;
     }
 }

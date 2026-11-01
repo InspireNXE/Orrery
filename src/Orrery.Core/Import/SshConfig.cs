@@ -7,7 +7,7 @@ internal sealed record SshConfigEnvironment(string Home, string LocalUser, strin
 {
     /// <summary>
     /// This user's. OpenSSH reads relative Includes from ~/.ssh; a file picked from somewhere else (a backup, a
-    /// copied-out folder) uses its own folder instead, so its neighbours are found.
+    /// copied-out folder) uses its own folder instead, so its neighbors are found.
     /// </summary>
     public static SshConfigEnvironment For(string configPath)
     {

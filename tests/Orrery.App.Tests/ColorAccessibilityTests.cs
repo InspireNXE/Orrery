@@ -4,18 +4,18 @@ using Orrery.App.Sessions;
 using Orrery.Core.Settings;
 using Xunit;
 using Xunit.Abstractions;
-using Vision = Orrery.Core.Settings.ColourVision;
+using Vision = Orrery.Core.Settings.ColorVision;
 
 namespace Orrery.App.Tests;
 
 /// <summary>
-/// Colours that carry meaning must stay apart with colour blindness, and text must be readable. The colour-blind sets
+/// Colors that carry meaning must stay apart with color blindness, and text must be readable. The color-blind sets
 /// must pass everything; the standard sets' shortfalls are listed so a change to them is a decision, not an accident.
 /// </summary>
-public class ColourAccessibilityTests(ITestOutputHelper output)
+public class ColorAccessibilityTests(ITestOutputHelper output)
 {
     /// <summary>
-    /// CIEDE2000 needed between two meaning-carrying colours under each simulated deficiency. Around 10 is a clear
+    /// CIEDE2000 needed between two meaning-carrying colors under each simulated deficiency. Around 10 is a clear
     /// difference side by side; small marks such as a tab's state dot, seen one at a time, need more.
     /// </summary>
     const double MinimumDifference = 20;
@@ -24,15 +24,15 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
 
     static readonly Deficiency[] Deficiencies = [Deficiency.None, Deficiency.Protanopia, Deficiency.Deuteranopia, Deficiency.Tritanopia];
 
-    // Where these colours are drawn: panels and dialogs, the page and status bar, the session area, buttons,
+    // Where these colors are drawn: panels and dialogs, the page and status bar, the session area, buttons,
     // the danger button, the selected tree row.
-    static readonly (string Name, Color Colour)[] TextBackgrounds =
+    static readonly (string Name, Color Color)[] TextBackgrounds =
     [
         ("panel", Color.Parse("#14161B")), ("page", Color.Parse("#0E1014")), ("session", Color.Parse("#0B0D10")),
         ("button", Color.Parse("#181B21")),
     ];
 
-    static readonly (string Name, Color Colour)[] MarkBackgrounds =
+    static readonly (string Name, Color Color)[] MarkBackgrounds =
     [
         ("panel", Color.Parse("#14161B")), ("page", Color.Parse("#0E1014")), ("selected row", Color.Parse("#232833")),
     ];
@@ -40,7 +40,7 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
     static readonly Color DangerButton = Color.Parse("#2A1A1D");
     static readonly Color TerminalBackground = Color.Parse("#0B0D10");
 
-    static IEnumerable<(string Pair, Color A, Color B)> Pairs(UiColours c) =>
+    static IEnumerable<(string Pair, Color A, Color B)> Pairs(UiColors c) =>
     [
         ("up/down", c.StateUp, c.StateDown),
         ("up/connecting", c.StateUp, c.StateConnecting),
@@ -67,14 +67,14 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
         "bright black", "bright red", "bright green", "bright yellow", "bright blue", "bright magenta", "bright cyan", "bright white",
     ];
 
-    static List<string> Problems(UiColours c)
+    static List<string> Problems(UiColors c)
     {
         var problems = new List<string>();
         foreach (var (pair, a, b) in Pairs(c))
         {
             foreach (var deficiency in Deficiencies)
             {
-                double difference = ColourVision.Difference(a, b, deficiency);
+                double difference = ColorVision.Difference(a, b, deficiency);
                 if (difference < MinimumDifference)
                 {
                     problems.Add($"{pair} {deficiency} ΔE {difference:0.0}");
@@ -82,27 +82,27 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
             }
         }
 
-        foreach (var (name, colour) in new[] { ("danger", c.Danger), ("warning", c.Warning), ("success", c.Success), ("accent", c.Accent) })
+        foreach (var (name, color) in new[] { ("danger", c.Danger), ("warning", c.Warning), ("success", c.Success), ("accent", c.Accent) })
         {
             foreach (var (background, back) in TextBackgrounds)
             {
-                if (ColourVision.Contrast(colour, back) is var ratio && ratio < TextContrast)
+                if (ColorVision.Contrast(color, back) is var ratio && ratio < TextContrast)
                 {
                     problems.Add($"{name} text on {background} {ratio:0.00}:1");
                 }
             }
         }
 
-        if (ColourVision.Contrast(c.Danger, DangerButton) is var onButton && onButton < TextContrast)
+        if (ColorVision.Contrast(c.Danger, DangerButton) is var onButton && onButton < TextContrast)
         {
             problems.Add($"danger text on danger button {onButton:0.00}:1");
         }
 
-        foreach (var (name, colour) in new[] { ("up", c.StateUp), ("connecting", c.StateConnecting), ("down", c.StateDown), ("ended", c.StateEnded) })
+        foreach (var (name, color) in new[] { ("up", c.StateUp), ("connecting", c.StateConnecting), ("down", c.StateDown), ("ended", c.StateEnded) })
         {
             foreach (var (background, back) in MarkBackgrounds)
             {
-                if (ColourVision.Contrast(colour, back) is var ratio && ratio < MarkContrast)
+                if (ColorVision.Contrast(color, back) is var ratio && ratio < MarkContrast)
                 {
                     problems.Add($"{name} mark on {background} {ratio:0.00}:1");
                 }
@@ -119,7 +119,7 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
         {
             foreach (var deficiency in Deficiencies)
             {
-                double difference = ColourVision.Difference(a, b, deficiency);
+                double difference = ColorVision.Difference(a, b, deficiency);
                 if (difference < MinimumDifference)
                 {
                     problems.Add($"{pair} {deficiency} ΔE {difference:0.0}");
@@ -127,19 +127,19 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
             }
         }
 
-        // Black is a background colour; everything else is text on the terminal's background.
+        // Black is a background color; everything else is text on the terminal's background.
         for (int i = 1; i < 16; i++)
         {
-            if (ColourVision.Contrast(p.Ansi[i], TerminalBackground) is var ratio && ratio < TextContrast)
+            if (ColorVision.Contrast(p.Ansi[i], TerminalBackground) is var ratio && ratio < TextContrast)
             {
                 problems.Add($"{AnsiNames[i]} text {ratio:0.00}:1");
             }
         }
 
-        // A bright colour should look brighter than its normal one, or bold text loses its emphasis.
+        // A bright color should look brighter than its normal one, or bold text loses its emphasis.
         for (int i = 1; i < 8; i++)
         {
-            if (ColourVision.Contrast(p.Ansi[i + 8], TerminalBackground) <= ColourVision.Contrast(p.Ansi[i], TerminalBackground))
+            if (ColorVision.Contrast(p.Ansi[i + 8], TerminalBackground) <= ColorVision.Contrast(p.Ansi[i], TerminalBackground))
             {
                 problems.Add($"{AnsiNames[i + 8]} isn't brighter than {AnsiNames[i]}");
             }
@@ -153,22 +153,22 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
         output.WriteLine(title);
         foreach (var (pair, a, b) in pairs)
         {
-            output.WriteLine($"  {pair,-24} " + string.Join("  ", Deficiencies.Select(d => $"{d} {ColourVision.Difference(a, b, d),5:0.0}")));
+            output.WriteLine($"  {pair,-24} " + string.Join("  ", Deficiencies.Select(d => $"{d} {ColorVision.Difference(a, b, d),5:0.0}")));
         }
 
         output.WriteLine(problems.Count == 0 ? "  No problems." : "  Problems:\n    " + string.Join("\n    ", problems));
     }
 
     [AvaloniaFact]
-    public void Colour_blind_ui_colours_stay_apart_and_readable()
+    public void Color_blind_ui_colors_stay_apart_and_readable()
     {
-        var problems = Problems(Palette.ColourBlind);
-        Report("Colour-blind UI palette", Pairs(Palette.ColourBlind), problems);
+        var problems = Problems(Palette.ColorBlind);
+        Report("Color-blind UI palette", Pairs(Palette.ColorBlind), problems);
         Assert.Empty(problems);
     }
 
     [AvaloniaFact]
-    public void Clearer_ui_colours_stay_apart_and_readable()
+    public void Clearer_ui_colors_stay_apart_and_readable()
     {
         var problems = Problems(Palette.Clearer);
         Report("Clearer UI palette", Pairs(Palette.Clearer), problems);
@@ -176,16 +176,16 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
     }
 
     [AvaloniaFact]
-    public void Colour_blind_terminal_colours_stay_apart_and_readable()
+    public void Color_blind_terminal_colors_stay_apart_and_readable()
     {
-        var problems = Problems(TerminalPalette.ColourBlind);
-        Report("Colour-blind terminal palette", Pairs(TerminalPalette.ColourBlind), problems);
+        var problems = Problems(TerminalPalette.ColorBlind);
+        Report("Color-blind terminal palette", Pairs(TerminalPalette.ColorBlind), problems);
         Assert.Empty(problems);
     }
 
     /// <summary>
-    /// The terminal palettes tuned for one kind of colour blindness must also keep every pair of the six colours apart,
-    /// normal and bright, for that kind and for normal vision. Less than <see cref="MinimumDifference"/>: six colours
+    /// The terminal palettes tuned for one kind of color blindness must also keep every pair of the six colors apart,
+    /// normal and bright, for that kind and for normal vision. Less than <see cref="MinimumDifference"/>: six colors
     /// all bright enough to read can't all be that far apart for one kind.
     /// </summary>
     const double TunedPairDifference = 15;
@@ -201,7 +201,7 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
                 {
                     foreach (var d in new[] { Deficiency.None, deficiency })
                     {
-                        double difference = ColourVision.Difference(p.Ansi[i + offset], p.Ansi[j + offset], d);
+                        double difference = ColorVision.Difference(p.Ansi[i + offset], p.Ansi[j + offset], d);
                         if (difference < TunedPairDifference)
                         {
                             problems.Add($"{AnsiNames[i + offset]}/{AnsiNames[j + offset]} {d} ΔE {difference:0.0}");
@@ -218,33 +218,33 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
     [InlineData(Vision.Protanopia, Deficiency.Protanopia)]
     [InlineData(Vision.Deuteranopia, Deficiency.Deuteranopia)]
     [InlineData(Vision.Tritanopia, Deficiency.Tritanopia)]
-    public void Terminal_colours_tuned_for_a_colour_vision_stay_apart_for_it(Vision vision, Deficiency deficiency)
+    public void Terminal_colors_tuned_for_a_color_vision_stay_apart_for_it(Vision vision, Deficiency deficiency)
     {
-        var palette = TerminalPalette.For(TerminalColourScheme.ColourBlind, vision);
-        Assert.NotSame(TerminalPalette.ColourBlind, palette);
+        var palette = TerminalPalette.For(TerminalColorScheme.ColorBlind, vision);
+        Assert.NotSame(TerminalPalette.ColorBlind, palette);
         var problems = Problems(palette).Concat(EveryPairProblems(palette, deficiency)).ToList();
         Report($"{vision} terminal palette", Pairs(palette), problems);
         Assert.Empty(problems);
 
-        // Why it's there: the general colour-blind palette lets some pairs run together for this kind.
-        var general = EveryPairProblems(TerminalPalette.ColourBlind, deficiency);
-        output.WriteLine("  The colour-blind palette instead: " + string.Join(", ", general));
+        // Why it's there: the general color-blind palette lets some pairs run together for this kind.
+        var general = EveryPairProblems(TerminalPalette.ColorBlind, deficiency);
+        output.WriteLine("  The color-blind palette instead: " + string.Join(", ", general));
         Assert.NotEmpty(general);
     }
 
     [AvaloniaFact]
-    public void The_interface_colours_a_colour_vision_picks_suit_every_kind()
+    public void The_interface_colors_a_color_vision_picks_suit_every_kind()
     {
-        // Settings switches to the colour-blind set for any kind, so that set has to pass for all three. It does (as
+        // Settings switches to the color-blind set for any kind, so that set has to pass for all three. It does (as
         // does Clearer), so there are no interface sets per kind; the terminal ones are tuned instead.
-        Assert.Empty(Problems(Palette.ColourBlind));
+        Assert.Empty(Problems(Palette.ColorBlind));
 
-        Assert.Same(TerminalPalette.Standard, TerminalPalette.For(TerminalColourScheme.Standard, Vision.Deuteranopia));
-        Assert.Same(TerminalPalette.ColourBlind, TerminalPalette.For(TerminalColourScheme.ColourBlind, Vision.None));
+        Assert.Same(TerminalPalette.Standard, TerminalPalette.For(TerminalColorScheme.Standard, Vision.Deuteranopia));
+        Assert.Same(TerminalPalette.ColorBlind, TerminalPalette.For(TerminalColorScheme.ColorBlind, Vision.None));
     }
 
     [AvaloniaFact]
-    public void Standard_ui_colours_fall_short_only_where_known()
+    public void Standard_ui_colors_fall_short_only_where_known()
     {
         var problems = Problems(Palette.Standard);
         Report("Standard UI palette", Pairs(Palette.Standard), problems);
@@ -252,14 +252,14 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
     }
 
     [AvaloniaFact]
-    public void Standard_terminal_colours_fall_short_only_where_known()
+    public void Standard_terminal_colors_fall_short_only_where_known()
     {
         var problems = Problems(TerminalPalette.Standard);
         Report("Standard terminal palette", Pairs(TerminalPalette.Standard), problems);
         Assert.Equal(StandardTerminalProblems, problems);
     }
 
-    // Kept as they are for now: the colour-blind settings fix them, and changing the defaults is the owner's call.
+    // Kept as they are for now: the color-blind settings fix them, and changing the defaults is the owner's call.
     static readonly string[] StandardUiProblems =
     [
         "up/down Protanopia ΔE 16.4",
@@ -297,43 +297,43 @@ public class ColourAccessibilityTests(ITestOutputHelper output)
         {
             var fore = ((ISolidColorBrush)Orrery.App.Connections.ProtocolStyle.Foreground(protocol)).Color;
             var back = ((ISolidColorBrush)Orrery.App.Connections.ProtocolStyle.Background(protocol)).Color;
-            double ratio = ColourVision.Contrast(fore, back);
+            double ratio = ColorVision.Contrast(fore, back);
             output.WriteLine($"{protocol} badge {ratio:0.00}:1");
             Assert.True(ratio >= TextContrast, $"{protocol} badge {ratio:0.00}:1");
         }
     }
 
-    // ---- The colour science itself ----
+    // ---- The color science itself ----
 
     [AvaloniaFact]
     public void Ciede2000_matches_published_test_pairs()
     {
         // Sharma, Wu and Dalal (2005), pairs 1, 7 and 17.
-        Assert.Equal(2.0425, ColourVision.DeltaE2000((50, 2.6772, -79.7751), (50, 0, -82.7485)), 4);
-        Assert.Equal(2.3669, ColourVision.DeltaE2000((50, 0, 0), (50, -1, 2)), 4);
-        Assert.Equal(27.1492, ColourVision.DeltaE2000((50, 2.5, 0), (73, 25, -18)), 4);
+        Assert.Equal(2.0425, ColorVision.DeltaE2000((50, 2.6772, -79.7751), (50, 0, -82.7485)), 4);
+        Assert.Equal(2.3669, ColorVision.DeltaE2000((50, 0, 0), (50, -1, 2)), 4);
+        Assert.Equal(27.1492, ColorVision.DeltaE2000((50, 2.5, 0), (73, 25, -18)), 4);
     }
 
     [AvaloniaFact]
-    public void Simulation_keeps_greys_and_merges_red_with_green()
+    public void Simulation_keeps_grays_and_merges_red_with_green()
     {
         foreach (var deficiency in Deficiencies)
         {
-            Assert.True(ColourVision.Difference(Colors.White, Color.Parse("#FEFEFE"), deficiency) < 1);
-            Assert.True(ColourVision.Difference(Color.Parse("#808080"), Color.Parse("#7F7F7F"), deficiency) < 1);
+            Assert.True(ColorVision.Difference(Colors.White, Color.Parse("#FEFEFE"), deficiency) < 1);
+            Assert.True(ColorVision.Difference(Color.Parse("#808080"), Color.Parse("#7F7F7F"), deficiency) < 1);
         }
 
-        // A red and a green of about the same lightness: far apart normally, close for red-green colour blindness.
+        // A red and a green of about the same lightness: far apart normally, close for red-green color blindness.
         Color red = Color.Parse("#C86450"), green = Color.Parse("#7D8C3C");
-        Assert.True(ColourVision.Difference(red, green, Deficiency.None) > 30);
-        Assert.True(ColourVision.Difference(red, green, Deficiency.Deuteranopia) < 10);
-        Assert.True(ColourVision.Difference(red, green, Deficiency.Protanopia) < 15);
+        Assert.True(ColorVision.Difference(red, green, Deficiency.None) > 30);
+        Assert.True(ColorVision.Difference(red, green, Deficiency.Deuteranopia) < 10);
+        Assert.True(ColorVision.Difference(red, green, Deficiency.Protanopia) < 15);
     }
 
     [AvaloniaFact]
     public void Contrast_matches_wcag()
     {
-        Assert.Equal(21, ColourVision.Contrast(Colors.Black, Colors.White), 2);
-        Assert.Equal(4.54, ColourVision.Contrast(Color.Parse("#767676"), Colors.White), 2);
+        Assert.Equal(21, ColorVision.Contrast(Colors.Black, Colors.White), 2);
+        Assert.Equal(4.54, ColorVision.Contrast(Color.Parse("#767676"), Colors.White), 2);
     }
 }

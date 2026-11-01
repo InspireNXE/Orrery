@@ -23,7 +23,7 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
     /// <summary>SSH: a file browser (SFTP) instead of a terminal.</summary>
     public bool Files { get; init; }
 
-    /// <summary>A shell on this computer rather than a connection; <see cref="Protocol"/> only picks its colours.</summary>
+    /// <summary>A shell on this computer rather than a connection; <see cref="Protocol"/> only picks its colors.</summary>
     public bool Local { get; init; }
 
     /// <summary>A local terminal's shell, by id ("pwsh", "wsl:Ubuntu"), so it can be opened again the same way.</summary>
@@ -69,7 +69,7 @@ sealed class SessionTab
             VerticalAlignment = VerticalAlignment.Top,
         };
 
-        // The tag is smaller and in another font, so centring it leaves it off the name's line; sit it on the same baseline.
+        // The tag is smaller and in another font, so centering it leaves it off the name's line; sit it on the same baseline.
         title.Loaded += (_, _) => protocol.Margin = new Thickness(0, Math.Max(0, title.TextLayout.Baseline - protocol.TextLayout.Baseline), 0, 0);
 
         var close = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center };
@@ -231,8 +231,8 @@ sealed class SessionTab
     readonly Panel _screen = new() { IsVisible = false };
     readonly Border _icon = new() { HorizontalAlignment = HorizontalAlignment.Center };
     readonly TextBlock _heading = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
-    readonly TextBlock _summary = Centred(new TextBlock());
-    readonly TextBlock _advice = Themed(Centred(new TextBlock()), TextBlock.ForegroundProperty, "OrreryMuted");
+    readonly TextBlock _summary = Centerd(new TextBlock());
+    readonly TextBlock _advice = Themed(Centerd(new TextBlock()), TextBlock.ForegroundProperty, "OrreryMuted");
     readonly TextBlock _retryText = Themed(new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }, TextBlock.ForegroundProperty, "OrrerySoftText");
     readonly Button _stop = new() { Content = "Stop" };
     readonly StackPanel _retryRow = new() { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, IsVisible = false };
@@ -294,7 +294,7 @@ sealed class SessionTab
         return _screen;
     }
 
-    static TextBlock Centred(TextBlock text)
+    static TextBlock Centerd(TextBlock text)
     {
         text.TextWrapping = TextWrapping.Wrap;
         text.TextAlignment = TextAlignment.Center;
@@ -302,7 +302,7 @@ sealed class SessionTab
         return text;
     }
 
-    /// <summary>Follows a palette brush, so a different palette (colour-blind safe, say) reaches the screen too.</summary>
+    /// <summary>Follows a palette brush, so a different palette (color-blind safe, say) reaches the screen too.</summary>
     static T Themed<T>(T control, AvaloniaProperty property, string key) where T : Control
     {
         control.Bind(property, control.GetResourceObservable(key));
@@ -310,7 +310,7 @@ sealed class SessionTab
     }
 
     /// <summary>
-    /// The three kinds of failure the screen tells apart, each by its icon and its words and never by colour alone:
+    /// The three kinds of failure the screen tells apart, each by its icon and its words and never by color alone:
     /// one Orrery can try again, one that needs the user, and anything else.
     /// </summary>
     internal enum Look
@@ -549,7 +549,7 @@ sealed class SessionTab
     /// <summary>The state in words, as the tooltip and screen readers give it.</summary>
     public string StateText => StateGlyph.Describe(Session.State);
 
-    // The mark's shape and the tooltip say the state too, so it never rests on the colour alone.
+    // The mark's shape and the tooltip say the state too, so it never rests on the color alone.
     void ShowState()
     {
         _state.State = Session.State;

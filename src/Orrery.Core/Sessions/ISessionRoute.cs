@@ -1,7 +1,7 @@
 namespace Orrery.Core.Sessions;
 
 /// <summary>
-/// A way to reach a remote machine other than dialling it directly, such as an SSH tunnel through jump hosts.
+/// A way to reach a remote machine other than dialing it directly, such as an SSH tunnel through jump hosts.
 /// A session opens it before connecting, dials the address it returns instead of the machine's own, and
 /// disposes it when the session ends. Names (certificates, host keys, Kerberos) still use the machine's own.
 /// </summary>

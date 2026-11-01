@@ -14,8 +14,8 @@ public enum AuthenticatorStatus
 {
     Success,
 
-    /// <summary>The user cancelled or chose the password instead. Nothing changes.</summary>
-    Cancelled,
+    /// <summary>The user canceled or chose the password instead. Nothing changes.</summary>
+    Canceled,
 
     /// <summary>
     /// The authenticator says it has no such key. That may be for good (Windows Hello was reset, the enrolled fingers
@@ -73,8 +73,8 @@ public enum BiometricOutcome
     /// <summary>Turned on, or the vault is open.</summary>
     Done,
 
-    /// <summary>The user cancelled the prompt. Nothing changed.</summary>
-    Cancelled,
+    /// <summary>The user canceled the prompt. Nothing changed.</summary>
+    Canceled,
 
     /// <summary>It's been turned off; <see cref="BiometricResult.Message"/> says why.</summary>
     TurnedOff,
@@ -205,11 +205,11 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             var challenge = RandomNumberGenerator.GetBytes(ChallengeSize);
             var created = await Ask(() => authenticator.CreateAsync(name, challenge, window, cancel), cancel);
             secret = created.Secret;
-            if (cancel.IsCancellationRequested || created.Status == AuthenticatorStatus.Cancelled)
+            if (cancel.IsCancellationRequested || created.Status == AuthenticatorStatus.Canceled)
             {
                 if (secret is not null) await DeleteKeyQuietlyAsync(name); // Made just now, and not wanted.
-                Logger.LogInformation("{Authenticator} unlock wasn't turned on: cancelled", Name);
-                return new(BiometricOutcome.Cancelled);
+                Logger.LogInformation("{Authenticator} unlock wasn't turned on: canceled", Name);
+                return new(BiometricOutcome.Canceled);
             }
 
             if (created.Status != AuthenticatorStatus.Success || secret is null)
@@ -378,9 +378,9 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         {
             var released = await Ask(() => authenticator.ReleaseAsync(record.KeyName, Convert.FromBase64String(record.Challenge), window, cancel), cancel);
             secret = released.Secret;
-            if (cancel.IsCancellationRequested || released.Status == AuthenticatorStatus.Cancelled)
+            if (cancel.IsCancellationRequested || released.Status == AuthenticatorStatus.Canceled)
             {
-                return new(BiometricOutcome.Cancelled);
+                return new(BiometricOutcome.Canceled);
             }
 
             if (released.Status == AuthenticatorStatus.KeyGone)
@@ -421,7 +421,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             }
             catch (OperationCanceledException)
             {
-                return new(BiometricOutcome.Cancelled);
+                return new(BiometricOutcome.Canceled);
             }
             finally
             {
@@ -694,7 +694,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
     }
 
-    /// <summary>The version a record of this format claims, read without the rest of it, so a newer layout is still recognised.</summary>
+    /// <summary>The version a record of this format claims, read without the rest of it, so a newer layout is still recognized.</summary>
     static int? VersionOf(byte[] bytes)
     {
         try
@@ -740,7 +740,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)
         {
-            return new(AuthenticatorStatus.Cancelled);
+            return new(AuthenticatorStatus.Canceled);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

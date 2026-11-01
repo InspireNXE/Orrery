@@ -14,7 +14,7 @@ public class RdpFailureTests
 {
     static readonly ConnectionTarget Desktop = new("desk", 3389, "me", null);
 
-    static FailureKind KindOf(Exception e) => ConnectionFailure.Classify(RdpSession.Recognise(e), e.Message, Desktop).Kind;
+    static FailureKind KindOf(Exception e) => ConnectionFailure.Classify(RdpSession.Recognize(e), e.Message, Desktop).Kind;
 
     [Fact]
     public void Its_own_lookup_failing_and_the_server_hanging_up_are_named()
