@@ -40,10 +40,10 @@ Each writes `artifacts/Orrery-<version>-<rid>-portable.zip`, with `macos` in pla
 `Orrery-<version>-macos-arm64-portable.zip`), with the app, `LICENSE`, `THIRD-PARTY-NOTICES.txt` and
 an empty `orrery.portable.json`, so the first launch asks where to keep the data
 ([design doc](design-storage-vault-import.md) §2.2). On Windows and Linux the app is one executable (`Orrery.exe`)
-holding the managed code, with its native libraries (Skia, HarfBuzz, ANGLE, IronRDP, libsodium) beside it. The
-bundle is neither compressed nor self-extracting, so nothing is unpacked at launch: Windows Defender's cloud
-heuristics flagged the compressed, self-extracting build as `Trojan:Script/Wacatac.B!ml` when it was downloaded in
-Edge. Unsigned downloads can still be flagged until the executables are code-signed. The single-file analyzer is
+holding everything. It's compressed, and on first launch it unpacks its native libraries (Skia, HarfBuzz, ANGLE,
+IronRDP, libsodium) to a cache folder, since those can't load from inside it. Windows Defender's cloud heuristics can
+flag an unsigned download as `Trojan:Script/Wacatac.B!ml` in Edge; shipping the native libraries beside the
+executable, uncompressed, made no difference, so only code-signing is likely to stop it. The single-file analyzer is
 turned off for that publish, because it would add a package that isn't in the lock files. On macOS the zip holds `Orrery.app` (Info.plist and icon),
 with the marker beside the bundle. The bundle isn't signed or notarized yet, so macOS asks before the first launch.
 Zip files carry no Unix permissions from Windows: on Linux and macOS, `chmod +x` the executable after unzipping, or
