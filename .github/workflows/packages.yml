@@ -366,7 +366,7 @@ jobs:
     if: >-
       ${{ !cancelled() && needs.preflight.result == 'success' &&
       (needs.preflight.outputs.ironrdp-url != '' || needs.ironrdp-package.result == 'success') }}
-    runs-on: windows-2022
+    runs-on: windows-2025
 
     steps:
       - name: Check out Orrery
