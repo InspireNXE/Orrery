@@ -224,6 +224,11 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
     /// <summary>The value of a framework's exported constant, such as <c>kSecClass</c>.</summary>
     static IntPtr Constant(string framework, string symbol) => Marshal.ReadIntPtr(NativeLibrary.GetExport(NativeLibrary.Load(framework), symbol));
 
+    /// <summary>
+    /// A copy of the bytes in <paramref name="data"/>, which the caller clears. The keychain hands the secret back as an
+    /// immutable CFData; CoreFoundation gives no way to clear one, and writing through its read-only pointer isn't
+    /// allowed (CF may share that storage), so the keychain's own copy is only released, not wiped.
+    /// </summary>
     static byte[] Bytes(IntPtr data)
     {
         var bytes = new byte[(int)CFDataGetLength(data)];
@@ -239,7 +244,7 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
     /// <summary>Builds a CFDictionary of Security.framework keys; owns what it creates and releases it when disposed.</summary>
     sealed class Dictionary : IDisposable
     {
-        readonly List<IntPtr> _keys = [], _values = [], _owned = [];
+        readonly List<IntPtr> _keys = [], _values = [], _owned = [], _wipe = [];
 
         public void Add(string key, IntPtr value)
         {
@@ -254,10 +259,18 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
             Add(key, text);
         }
 
+        /// <summary>Adds bytes (the secret) as a CFMutableData of fixed capacity, so its copy can be cleared before it's released.</summary>
         public void AddData(string key, byte[] value)
         {
-            var data = CFDataCreate(IntPtr.Zero, value, value.Length);
+            var data = CFDataCreateMutable(IntPtr.Zero, value.Length);
+            if (data == IntPtr.Zero)
+            {
+                throw new OutOfMemoryException("CoreFoundation couldn't make a data object.");
+            }
+
+            CFDataAppendBytes(data, value, value.Length);
             _owned.Add(data);
+            _wipe.Add(data);
             Add(key, data);
         }
 
@@ -272,6 +285,13 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
 
         public void Dispose()
         {
+            foreach (var data in _wipe)
+            {
+                int length = (int)CFDataGetLength(data);
+                if (length > 0) Marshal.Copy(new byte[length], 0, CFDataGetMutableBytePtr(data), length);
+            }
+
+            _wipe.Clear();
             foreach (var handle in _owned) Release(handle);
             _owned.Clear();
         }
@@ -296,7 +316,13 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
     static extern IntPtr CFStringCreateWithCString(IntPtr allocator, byte[] text, uint encoding);
 
     [DllImport(CoreFoundation)]
-    static extern IntPtr CFDataCreate(IntPtr allocator, byte[] bytes, nint length);
+    static extern IntPtr CFDataCreateMutable(IntPtr allocator, nint capacity);
+
+    [DllImport(CoreFoundation)]
+    static extern void CFDataAppendBytes(IntPtr data, byte[] bytes, nint length);
+
+    [DllImport(CoreFoundation)]
+    static extern IntPtr CFDataGetMutableBytePtr(IntPtr data);
 
     [DllImport(CoreFoundation)]
     static extern nint CFDataGetLength(IntPtr data);
