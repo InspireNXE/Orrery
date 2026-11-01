@@ -263,6 +263,37 @@ public class BiometricUnlockUiTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task Callers_waiting_on_a_window_cancelled_just_as_the_prompt_opened_the_vault_get_no()
+    {
+        using var vault = await NewVaultAsync();
+        var biometric = Biometric;
+        await biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        _hello.HonoursCancel = false;
+        var owner = new Window();
+        owner.Show();
+
+        var first = VaultUnlockWindow.EnsureUnlockedAsync(vault, owner, biometric);
+        var second = VaultUnlockWindow.EnsureUnlockedAsync(vault, owner, biometric);
+        await Settle(() => _hello.Prompts == 2);
+        var window = owner.OwnedWindows.Single();
+
+        // The prompt's answer has opened the vault, but the window hasn't heard yet when the user clicks Cancel.
+        await vault.UnlockAsync(Password);
+        bool lockedWhenClosed = false;
+        window.Closed += (_, _) => lockedWhenClosed = vault.IsLocked;
+        Buttons(window).Single(b => b.Content as string == "Cancel").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.True(lockedWhenClosed); // Before anyone waiting on the window resumes.
+        _hello.Hold.SetResult();
+        await Settle(() => first.IsCompleted && second.IsCompleted);
+        Assert.False(await first);
+        Assert.False(await second);
+        Assert.True(vault.IsLocked);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
     public async Task In_a_remote_session_the_unlock_window_asks_only_for_the_password_and_says_why()
     {
         using var vault = await NewVaultAsync();
