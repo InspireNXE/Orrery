@@ -175,6 +175,27 @@ public class RdpClipboardBridgeTests
     }
 
     [Fact]
+    public async Task Reads_a_response_in_the_format_IronRDP_says_it_answers()
+    {
+        // Five requests push the first CF_TEXT out of the queue, so the queue alone would read the fourth response
+        // as CF_TEXT. IronRDP names CF_UNICODETEXT for it, and that wins.
+        for (int i = 0; i < 4; i++)
+        {
+            await Handle(RdpClipboardEventKind.RemoteFormatList, [CfText]);
+        }
+
+        await Handle(RdpClipboardEventKind.RemoteFormatList, [CfUnicodeText]);
+        for (int i = 0; i < 3; i++)
+        {
+            await Handle(RdpClipboardEventKind.FormatDataResponse, format: CfText, data: "ab\0"u8.ToArray());
+        }
+
+        await Handle(RdpClipboardEventKind.FormatDataResponse, format: CfUnicodeText, data: Utf16("unicode"));
+
+        Assert.Equal(["ab", "ab", "ab", "unicode"], _remoteText);
+    }
+
+    [Fact]
     public async Task Ignores_a_response_nobody_asked_for_and_a_failed_one()
     {
         await Handle(RdpClipboardEventKind.FormatDataResponse, data: Utf16("unasked"));
