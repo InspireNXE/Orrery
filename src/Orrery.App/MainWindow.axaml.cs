@@ -2062,9 +2062,9 @@ public partial class MainWindow : Window
         UpdateSessionChrome();
     }
 
-    SessionTab NewTab(Control view, IConnectionSession session, SessionOrigin origin, int reconnectAttempt = 0)
+    SessionTab NewTab(Control view, IConnectionSession session, SessionOrigin origin, int reconnectAttempt = 0, bool followsDrop = false)
     {
-        var tab = new SessionTab(session, view, origin) { ReconnectAttempt = reconnectAttempt };
+        var tab = new SessionTab(session, view, origin) { ReconnectAttempt = reconnectAttempt, FollowsDrop = followsDrop };
         SessionLogger.Attach(tab);
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
@@ -2128,7 +2128,8 @@ public partial class MainWindow : Window
     /// </summary>
     async Task ReconnectAsync(SessionTab tab)
     {
-        if (!_tabs.Contains(tab))
+        // A try already connecting behind the connection-lost screen is left to finish.
+        if (!_tabs.Contains(tab) || (tab.IsShowingFailure && tab.Session.State == SessionState.Connecting))
         {
             return;
         }
@@ -2154,7 +2155,13 @@ public partial class MainWindow : Window
         }
 
         var (view, session) = restart();
-        var tab = NewTab(view, session, old.Origin, attempt);
+        // Reconnecting after a drop, by itself or from the button, is still about that drop.
+        var tab = NewTab(view, session, old.Origin, attempt, old.IsShowingFailure && old.Dropped);
+        if (old.IsShowingFailure)
+        {
+            tab.ContinueFrom(old, attempt > 0 ? $"Trying again now (try {attempt} of {ReconnectSchedule.MaxAttempts})…" : "Trying again now…");
+        }
+
         bool current = old == _currentTab;
         _tabs[index] = tab;
         _tabStrip.Children[_tabStrip.Children.IndexOf(old.Header)] = tab.Header;

@@ -70,6 +70,8 @@ public sealed class SshSession : ITerminalSession
     public bool AuthenticationRejected { get; private set; }
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event Action<byte[]>? DataReceived;
 
     /// <summary>
@@ -482,7 +484,9 @@ public sealed class SshSession : ITerminalSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
+        var change = new SessionStateChangedEventArgs(state, message, error);
+        LastChange = change;
+        StateChanged?.Invoke(this, change);
     }
 }
 

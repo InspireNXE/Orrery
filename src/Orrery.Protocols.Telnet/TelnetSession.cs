@@ -47,6 +47,8 @@ public sealed class TelnetSession : ITerminalSession
     public SessionState State { get; private set; } = SessionState.Connecting;
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event Action<byte[]>? DataReceived;
 
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
@@ -256,7 +258,9 @@ public sealed class TelnetSession : ITerminalSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
+        var change = new SessionStateChangedEventArgs(state, message, error);
+        LastChange = change;
+        StateChanged?.Invoke(this, change);
     }
 
     /// <summary>
