@@ -92,7 +92,10 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
                 }
                 else
                 {
-                    session._textClipboard = CallbackCliprdr.WithLimits(MaxQueuedClipboardEvents, (uint)RdpClipboardBridge.MaxDataBytes);
+                    session._textClipboard = CallbackCliprdr.WithLimits(
+                        MaxQueuedClipboardEvents,
+                        (uint)RdpClipboardBridge.MaxDataBytes,
+                        (uint)(RdpClipboardBridge.MaxDataBytes * RdpClipboardBridge.MaxPendingRequests));
                 }
             }
             catch (EntryPointNotFoundException)
@@ -299,7 +302,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession
                 ClipboardEventType.FormatListRequested => new(RdpClipboardEventKind.FormatListRequested),
                 ClipboardEventType.RemoteFormatList => new(RdpClipboardEventKind.RemoteFormatList, Formats: ReadFormats(next.RemoteFormats)),
                 ClipboardEventType.FormatDataRequested => new(RdpClipboardEventKind.FormatDataRequested, Format: next.RequestedFormat?.Value ?? 0),
-                ClipboardEventType.FormatDataResponse => new(RdpClipboardEventKind.FormatDataResponse, Data: ReadData(next.FormatData)),
+                ClipboardEventType.FormatDataResponse => new(RdpClipboardEventKind.FormatDataResponse, Format: next.ResponseFormat?.Value ?? 0, Data: ReadData(next.FormatData)),
                 _ => new(RdpClipboardEventKind.Other),
             };
         }

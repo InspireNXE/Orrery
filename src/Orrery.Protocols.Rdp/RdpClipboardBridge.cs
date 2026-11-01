@@ -25,6 +25,7 @@ enum RdpClipboardEventKind
     Other,
 }
 
+/// <param name="Format">The requested format, or for a response the format IronRDP says it answers (0 when not known).</param>
 /// <param name="Data">The server's data, or null when it sent a failure or more than the bridge accepts.</param>
 sealed record RdpClipboardEvent(RdpClipboardEventKind Kind, IReadOnlyList<uint>? Formats = null, uint Format = 0, byte[]? Data = null);
 
@@ -62,7 +63,7 @@ sealed class RdpClipboardBridge
     public const int MaxDataBytes = (MaxTextLength + 1) * 2;
 
     /// <summary>Paste requests the server hasn't answered yet. More would only be stale.</summary>
-    const int MaxPendingRequests = 4;
+    internal const int MaxPendingRequests = 4;
 
     static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     static readonly ILogger Logger = Orrery.Core.Diagnostics.Log.For("Rdp");
@@ -160,7 +161,7 @@ sealed class RdpClipboardBridge
                 break;
 
             case RdpClipboardEventKind.FormatDataResponse:
-                OnRemoteData(clipboardEvent.Data);
+                OnRemoteData(clipboardEvent.Format, clipboardEvent.Data);
                 break;
         }
     }
@@ -208,12 +209,18 @@ sealed class RdpClipboardBridge
         await _channel.RequestDataAsync(format, token);
     }
 
-    void OnRemoteData(byte[]? data)
+    void OnRemoteData(uint reportedFormat, byte[]? data)
     {
-        // The response doesn't say which format it carries; responses come in the order they were asked for.
+        // Responses come in the order they were asked for. IronRDP also names the format each one answers; when it
+        // does, that wins over this queue, which may have forgotten a request.
         if (!_requested.TryDequeue(out var format) || data is null)
         {
             return;
+        }
+
+        if (reportedFormat != 0)
+        {
+            format = reportedFormat;
         }
 
         if (data.Length > MaxDataBytes)
