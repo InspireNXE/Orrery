@@ -1,5 +1,6 @@
 using System.Globalization;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
@@ -100,6 +101,27 @@ sealed class FileBrowserView : DockPanel
             Cell(item.IsDirectory ? string.Empty : FormatSize(item.Size), right: true),
             Cell(item.Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture)),
             Cell(item.Permissions, mono: true)));
+        // A row is a grid of cells, so each one is named in words: "notes.txt, file, 2.0 KB, modified …".
+        _list.ContainerPrepared += (_, e) =>
+        {
+            if (e.Container.DataContext is SftpItem item)
+            {
+                AutomationProperties.SetName(e.Container, Spoken(item));
+            }
+        };
+        AutomationProperties.SetName(_list, "Files");
+        AutomationProperties.SetHelpText(_list, "Enter opens, Backspace goes up a folder, F2 renames, Delete deletes, F5 refreshes.");
+        AutomationProperties.SetName(_path, "Folder path");
+        AutomationProperties.SetHelpText(_path, "Type a folder and press Enter to open it.");
+        AutomationProperties.SetName(_progress, "Transfer progress");
+        AutomationProperties.SetLiveSetting(_status, ScreenReader.LiveRegionSetting);
+        _status.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == TextBlock.TextProperty && e.NewValue is string { Length: > 0 } text)
+            {
+                ScreenReader.Announce(this, text, "Orrery.Files", ScreenReader.MostRecent);
+            }
+        };
         _list.SelectionChanged += (_, _) => UpdateButtons();
         _list.DoubleTapped += (_, e) =>
         {
@@ -479,6 +501,14 @@ sealed class FileBrowserView : DockPanel
         ToolTip.SetTip(_status, text);
     }
 
+    /// <summary>A row as a screen reader reads it.</summary>
+    internal static string Spoken(SftpItem item)
+    {
+        var kind = item.IsLink ? (item.IsDirectory ? "folder link" : "link") : item.IsDirectory ? "folder" : "file";
+        var size = item.IsDirectory ? string.Empty : $", {FormatSize(item.Size)}";
+        return $"{item.Name}, {kind}{size}, modified {item.Modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture)}";
+    }
+
     static string Describe(IReadOnlyList<string> names) => names.Count == 1 ? $"\"{names[0]}\"" : $"{names.Count} items";
 
     /// <summary>Bytes as B, KB, MB, GB or TB, in powers of 1024.</summary>
@@ -534,7 +564,7 @@ sealed class FileBrowserView : DockPanel
         var button = new Button { Content = StrokeIcon.Create(icon, 16), Width = 30, Height = 30 };
         button.Classes.Add("icon");
         ToolTip.SetTip(button, tip);
-        Avalonia.Automation.AutomationProperties.SetName(button, tip);
+        AutomationProperties.SetName(button, tip);
         if (click is not null)
         {
             button.Click += (_, _) => click();

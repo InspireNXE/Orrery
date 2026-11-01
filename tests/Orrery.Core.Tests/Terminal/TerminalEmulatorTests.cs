@@ -51,6 +51,18 @@ public class TerminalEmulatorTests
     }
 
     [Fact]
+    public void Counts_lines_scrolled_off_the_top_even_once_the_scrollback_is_full_or_on_the_alternate_screen()
+    {
+        var t = new TerminalEmulator(10, 2, maxScrollback: 0);
+        t.Feed("one\r\ntwo\r\nthree");
+        Assert.Equal(1, t.LinesScrolled);
+
+        t.Feed($"{Esc}[?1049h{Esc}[Ha\r\nb\r\nc");
+        Assert.Equal(2, t.LinesScrolled);
+        Assert.Equal(0, t.ScrollbackCount);
+    }
+
+    [Fact]
     public void Cursor_positioning_and_erasing()
     {
         var t = Term();

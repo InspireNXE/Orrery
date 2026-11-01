@@ -43,6 +43,7 @@ sealed class PortableSetupWindow : Window
         _userProfile = new RadioButton { GroupName = "location" };
         _custom = new RadioButton { GroupName = "location" };
         _customPath = new TextBox { Watermark = "Choose a folder", FontFamily = MonoFont, FontSize = 12, IsEnabled = false };
+        Avalonia.Automation.AutomationProperties.SetName(_customPath, "Custom folder");
         _custom.IsCheckedChanged += (_, _) => _customPath.IsEnabled = _custom.IsChecked == true;
 
         var browse = new Button { Content = "Browse…" };
@@ -95,6 +96,10 @@ sealed class PortableSetupWindow : Window
         }
 
         radio.Content = text;
+
+        // The content is a panel, which a screen reader can't read as the button's name.
+        Avalonia.Automation.AutomationProperties.SetName(radio, title);
+        Avalonia.Automation.AutomationProperties.SetHelpText(radio, path is null ? description : $"{description} {path}");
         return radio;
     }
 

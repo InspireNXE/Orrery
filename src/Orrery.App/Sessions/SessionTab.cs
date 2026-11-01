@@ -77,7 +77,7 @@ sealed class SessionTab
             CloseRequested?.Invoke(this, EventArgs.Empty);
         };
 
-        Header = new Button
+        Header = new SessionTabHeader
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
@@ -98,6 +98,8 @@ sealed class SessionTab
             },
         };
         Header.Classes.Add("tab");
+        Header.Label = $"{origin.Title}, {protocol.Text}";
+        Avalonia.Automation.AutomationProperties.SetHelpText(Header, Address);
         ToolTip.SetTip(Header, Address);
         Header.Click += (_, _) => Selected?.Invoke(this, EventArgs.Empty);
 
@@ -138,15 +140,34 @@ sealed class SessionTab
             StateChanged?.Invoke(this, EventArgs.Empty);
         });
 
+        // What a screen reader says when the focus lands in the session.
+        if (string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetName(view)))
+        {
+            Avalonia.Automation.AutomationProperties.SetName(view, ViewName(view, origin.Title));
+        }
+
+        if (view is TerminalView or RemoteFrameView && string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetHelpText(view)))
+        {
+            Avalonia.Automation.AutomationProperties.SetHelpText(view, Input.SessionEscape.Help);
+        }
+
         _countdown.Tick += (_, _) => CountDown();
         Host = new Grid { Children = { view, BuildOverlay() } };
         ShowState();
     }
 
+    internal static string ViewName(Control view, string title) => view switch
+    {
+        TerminalView => $"Terminal: {title}",
+        RemoteFrameView => $"Remote desktop: {title}",
+        FileBrowserView => $"Files: {title}",
+        _ => title,
+    };
+
     public IConnectionSession Session { get; }
     public Control View { get; }
     public SessionOrigin Origin { get; }
-    public Button Header { get; }
+    public SessionTabHeader Header { get; }
 
     /// <summary>The view with the reconnect notice over it; what goes in the session area.</summary>
     public Control Host { get; }
@@ -280,16 +301,29 @@ sealed class SessionTab
         set
         {
             Header.Classes.Set("selected", value);
+            Header.IsCurrent = value;
             _accent.IsVisible = value;
             Host.IsVisible = value;
         }
     }
 
-    void ShowState() => _dot.Fill = Session.State switch
+    void ShowState()
     {
-        SessionState.Connected => ConnectedBrush,
-        SessionState.Connecting => ConnectingBrush,
-        SessionState.Failed => FailedBrush,
-        _ => EndedBrush,
-    };
+        _dot.Fill = Session.State switch
+        {
+            SessionState.Connected => ConnectedBrush,
+            SessionState.Connecting => ConnectingBrush,
+            SessionState.Failed => FailedBrush,
+            _ => EndedBrush,
+        };
+
+        // The dot's colour, in words.
+        Header.Status = Session.State switch
+        {
+            SessionState.Connected => "Connected",
+            SessionState.Connecting => "Connecting",
+            SessionState.Failed => "Failed",
+            _ => "Ended",
+        };
+    }
 }

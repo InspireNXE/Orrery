@@ -52,10 +52,16 @@ public sealed record AppSettings
     public const double DefaultTerminalFontSize = 14;
 
     /// <summary>
-    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+Home". Null is the default (Ctrl+Alt+Enter,
+    /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
     /// or Ctrl+Cmd+F on macOS). The app checks it before use and falls back to the default.
     /// </summary>
     public string? FullScreenShortcut { get; init; }
+
+    /// <summary>
+    /// Read new terminal output out through the screen reader. Null is automatic: on while a screen reader is
+    /// running when Orrery starts, otherwise off.
+    /// </summary>
+    public bool? TerminalAnnouncements { get; init; }
 
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
