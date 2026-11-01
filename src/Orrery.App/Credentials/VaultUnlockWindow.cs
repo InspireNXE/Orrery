@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -24,6 +25,11 @@ sealed class VaultUnlockWindow : Window
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
     readonly Button _useBiometric = new() { Padding = new Thickness(16, 6), IsVisible = false };
+    CancellationTokenSource? _prompt;
+    bool _closed;
+
+    // The unlock window open for each store, so several callers asking at once share one window and one prompt.
+    static readonly Dictionary<ICredentialStore, Task<bool>> OpenWindows = [];
 
     /// <summary>Windows Hello or Touch ID, where this system has one: what <see cref="EnsureUnlockedAsync"/> offers.</summary>
     public static BiometricUnlock? Biometric { get; set; } = BiometricUnlock.ForThisSystem();
@@ -49,6 +55,7 @@ sealed class VaultUnlockWindow : Window
         if (_biometric is not null)
         {
             _useBiometric.Content = $"Use {_biometric.Name}";
+            AutomationProperties.SetName(_useBiometric, $"Use {_biometric.Name}");
             _useBiometric.IsVisible = true;
             _useBiometric.Click += async (_, _) => await UseBiometricAsync();
         }
@@ -111,14 +118,22 @@ sealed class VaultUnlockWindow : Window
 
             await UseBiometricAsync();
         };
+
+        // Closing the window (Cancel, Escape, the close box) dismisses a prompt that's still showing.
+        Closed += (_, _) =>
+        {
+            _closed = true;
+            _prompt?.Cancel();
+        };
     }
 
     static Control Field(string label, Control input) => Dialogs.Field(label, input);
 
     async Task ShowIfTurnedOffAsync(BiometricUnlock biometric, VaultFileStore vault)
     {
-        if (await biometric.TurnOffIfStaleAsync(vault) is { } message)
+        if (await biometric.TurnOffIfStaleAsync(vault) is { } message && !_closed)
         {
+            _notice.Kind = NoticeKind.Warning;
             _notice.Text = message;
             _notice.IsVisible = true;
         }
@@ -126,27 +141,41 @@ sealed class VaultUnlockWindow : Window
 
     /// <summary>
     /// Shows the system prompt. Cancelling it leaves the password field; a key that can't work any more is turned off
-    /// and the reason shown.
+    /// and the reason shown. Cancel stays usable throughout and dismisses the prompt.
     /// </summary>
     async Task UseBiometricAsync()
     {
-        if (_biometric is null || _store is not VaultFileStore vault || !_useBiometric.IsVisible || !_useBiometric.IsEnabled)
+        if (_biometric is null || _store is not VaultFileStore vault || !_useBiometric.IsVisible || !_useBiometric.IsEnabled || _closed)
         {
             return;
         }
 
         _useBiometric.IsEnabled = _ok.IsEnabled = false;
         _error.IsVisible = false;
+        using var prompt = new CancellationTokenSource();
+        _prompt = prompt;
         try
         {
-            var result = await _biometric.UnlockAsync(vault, TryGetPlatformHandle()?.Handle ?? 0);
+            var result = await _biometric.UnlockAsync(vault, TryGetPlatformHandle()?.Handle ?? 0, prompt.Token);
+            if (_closed || prompt.IsCancellationRequested)
+            {
+                // Closed while the prompt was up: whatever it answered, the vault stays as the user left it.
+                if (result.Outcome == BiometricOutcome.Done)
+                {
+                    vault.Lock();
+                }
+
+                return;
+            }
+
             switch (result.Outcome)
             {
                 case BiometricOutcome.Done:
                     Close(true);
                     return;
-                case BiometricOutcome.TurnedOff or BiometricOutcome.NotOn:
+                case BiometricOutcome.TurnedOff or BiometricOutcome.NotOn or BiometricOutcome.Unavailable:
                     _useBiometric.IsVisible = false;
+                    _notice.Kind = result.Outcome == BiometricOutcome.Unavailable ? NoticeKind.Info : NoticeKind.Warning;
                     _notice.Text = result.Message;
                     _notice.IsVisible = result.Message is not null;
                     break;
@@ -157,14 +186,15 @@ sealed class VaultUnlockWindow : Window
         }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
         {
-            ShowError(e.Message);
+            if (!_closed) ShowError(e.Message);
         }
         finally
         {
+            _prompt = null;
             _useBiometric.IsEnabled = _ok.IsEnabled = true;
         }
 
-        _password.Focus();
+        if (!_closed) _password.Focus();
     }
 
     async Task SubmitAsync()
@@ -219,7 +249,34 @@ sealed class VaultUnlockWindow : Window
         _error.IsVisible = true;
     }
 
-    /// <summary>Unlocks the store if needed. False if the user cancelled.</summary>
-    public static async Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner) =>
-        !store.IsLocked || await new VaultUnlockWindow(store, Biometric).ShowDialog<bool>(owner);
+    /// <summary>
+    /// Unlocks the store if needed. False if the user cancelled. While an unlock window is already open for the
+    /// store, waits for that one instead of opening a second (and a second Windows Hello prompt).
+    /// </summary>
+    public static Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner) => EnsureUnlockedAsync(store, owner, Biometric);
+
+    internal static async Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner, BiometricUnlock? biometric)
+    {
+        if (!store.IsLocked)
+        {
+            return true;
+        }
+
+        if (OpenWindows.TryGetValue(store, out var open))
+        {
+            await open;
+            return !store.IsLocked;
+        }
+
+        var shown = new VaultUnlockWindow(store, biometric).ShowDialog<bool>(owner);
+        OpenWindows[store] = shown;
+        try
+        {
+            return await shown && !store.IsLocked;
+        }
+        finally
+        {
+            OpenWindows.Remove(store);
+        }
+    }
 }

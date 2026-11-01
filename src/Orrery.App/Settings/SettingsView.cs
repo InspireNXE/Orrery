@@ -198,8 +198,12 @@ sealed class SettingsView : UserControl
             return;
         }
 
+        // Biometric unlock is tied to the vault's key, not its folder, so it keeps working after the move.
+        var biometricNote = _biometric is not null && _credentials is VaultFileStore vault && _biometric.IsOn(vault)
+            ? $"\n\n{_biometric.Name} unlock keeps working with the moved vault. Until you delete the old copy, it opens that one too."
+            : string.Empty;
         if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
-                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it.",
+                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it.{biometricNote}",
                 "Move and restart"))
         {
             return;
@@ -340,14 +344,22 @@ sealed class SettingsView : UserControl
     async Task ShowBiometricStateAsync(VaultFileStore vault, BiometricUnlock biometric)
     {
         var stale = await biometric.TurnOffIfStaleAsync(vault);
+        var unavailable = await RefreshBiometricSwitchAsync(vault, biometric);
+        _biometricNote.Text = stale ?? unavailable ?? BiometricNote(biometric);
+        _biometricNote.Foreground = stale is not null ? Dialogs.WarningBrush : Dialogs.MutedBrush;
+    }
+
+    /// <summary>
+    /// Sets the switch to whether it's on, and whether it can be changed: something that's on can always be turned
+    /// off, but turning it on needs the system to allow it now. Returns why it can't be used, or null.
+    /// </summary>
+    async Task<string?> RefreshBiometricSwitchAsync(VaultFileStore vault, BiometricUnlock biometric)
+    {
         var unavailable = await biometric.CheckAvailableAsync();
         bool on = biometric.IsOn(vault);
         SetBiometricSwitch(on);
-
-        // Something that's on can always be turned off, even if the system can't use it now.
         _biometricSwitch.IsEnabled = on || unavailable is null;
-        _biometricNote.Text = stale ?? unavailable ?? BiometricNote(biometric);
-        _biometricNote.Foreground = stale is not null ? Dialogs.WarningBrush : Dialogs.MutedBrush;
+        return unavailable;
     }
 
     async Task ToggleBiometricAsync(VaultFileStore vault, BiometricUnlock biometric)
@@ -358,32 +370,55 @@ sealed class SettingsView : UserControl
             return;
         }
 
+        _biometricSwitch.IsEnabled = false;
         _biometricNote.Foreground = Dialogs.MutedBrush;
+        string note;
         if (wanted)
         {
             bool on = await new BiometricSetupWindow(vault, biometric).ShowDialog<bool>(Owner);
-            SetBiometricSwitch(on);
-            _biometricNote.Text = on ? $"{biometric.Name} unlock is on. {BiometricNote(biometric)}" : BiometricNote(biometric);
+            note = on ? $"{biometric.Name} unlock is on. {BiometricNote(biometric)}" : BiometricNote(biometric);
         }
         else
         {
             await biometric.TurnOffAsync(vault);
-            _biometricNote.Text = $"{biometric.Name} unlock is off, and its key was deleted. {BiometricNote(biometric)}";
+            note = $"{biometric.Name} unlock is off, and its key was deleted. {BiometricNote(biometric)}";
         }
+
+        var unavailable = await RefreshBiometricSwitchAsync(vault, biometric);
+        _biometricNote.Text = biometric.IsOn(vault) || unavailable is null ? note : $"{note} {unavailable}";
+        BiometricToggled?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>A changed master password makes a new data key, so the saved one can't open the vault any more.</summary>
-    async Task<bool> TurnOffBiometricAfterPasswordChangeAsync(VaultFileStore vault)
+    /// <summary>Raised when a change to the Windows Hello or Touch ID switch has finished. For tests.</summary>
+    internal event EventHandler? BiometricToggled;
+
+    /// <summary>
+    /// After a master password change: a new data key means the saved one can't open the vault any more, so turn it
+    /// off and delete the key, including the record kept for the old password.
+    /// </summary>
+    internal async Task<bool> TurnOffBiometricAfterPasswordChangeAsync(VaultFileStore vault)
     {
-        if (_biometric is null || !_biometric.IsOn(vault))
+        if (_biometric is null || !await _biometric.TurnOffAsync(vault))
         {
             return false;
         }
 
-        await _biometric.TurnOffAsync(vault);
-        SetBiometricSwitch(false);
+        await RefreshBiometricSwitchAsync(vault, _biometric);
+        _biometricNote.Foreground = Dialogs.WarningBrush;
         _biometricNote.Text = $"{_biometric.Name} unlock was turned off because the master password changed. {BiometricNote(_biometric)}";
         return true;
+    }
+
+    /// <summary>
+    /// After switching to the system keychain: the vault file stays behind, and a saved Windows Hello or Touch ID key
+    /// would still open it, so turn it off and delete the key.
+    /// </summary>
+    internal async Task TurnOffBiometricForOldVaultAsync()
+    {
+        if (_credentials is VaultFileStore oldVault && _biometric is not null)
+        {
+            await _biometric.TurnOffAsync(oldVault);
+        }
     }
 
     void SetBiometricSwitch(bool on)
@@ -395,7 +430,8 @@ sealed class SettingsView : UserControl
 
     static string BiometricNote(BiometricUnlock biometric) =>
         $"{biometric.Name} opens the vault on this computer only. The master password still works, and changing it turns this off."
-        + (OperatingSystem.IsWindows() ? " Your Windows Hello PIN opens it too, so anyone who knows the PIN and can use your account here could open the vault." : string.Empty);
+        + (OperatingSystem.IsMacOS() ? string.Empty
+            : $" Your {biometric.Name} PIN, and any face or finger on this Windows account, open it too, so anyone who knows the PIN and can use your account here could open the vault. Changing the PIN doesn't turn this off.");
 
     void UpdateAutoLockNote(CredentialStoreKind kind)
     {
@@ -480,11 +516,7 @@ sealed class SettingsView : UserControl
                 return false;
             }
 
-            // The vault file stays behind; a saved Windows Hello or Touch ID key would still open it.
-            if (_credentials is VaultFileStore oldVault && _biometric is not null)
-            {
-                await _biometric.TurnOffAsync(oldVault);
-            }
+            await TurnOffBiometricForOldVaultAsync();
 
             if (copied.Count > 0 && await Dialogs.ConfirmAsync(Owner, $"Remove the originals from {fromName}?",
                     $"{copied.Count} credential{(copied.Count == 1 ? " was" : "s were")} copied to {toName} and checked. Keeping the originals leaves a second copy of each password in {fromName}.",

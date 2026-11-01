@@ -21,8 +21,9 @@ public class BiometricUnlockUiTests : IDisposable
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
     readonly TestAuthenticator _hello = new();
     readonly MemorySecrets _records = new();
+    readonly TestRemoteSession _remote = new();
 
-    BiometricUnlock Biometric => new(_hello, _records);
+    BiometricUnlock Biometric => new(_hello, _records, _remote);
 
     DataLocation Location => new(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
 
@@ -191,6 +192,226 @@ public class BiometricUnlockUiTests : IDisposable
         await Settle(() => closed);
         Assert.True(Biometric.IsOn(vault));
         Assert.True(vault.IsLocked);
+    }
+
+    // ---- Cancel, one prompt at a time, remote sessions ----
+
+    [AvaloniaFact]
+    public async Task Cancel_dismisses_the_prompt_and_leaves_the_vault_locked()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        _hello.HonoursCancel = false; // Even if the prompt answers yes just after.
+        var window = new VaultUnlockWindow(vault, Biometric);
+        window.Show();
+        await Settle(() => _hello.Prompts == 2);
+
+        var cancel = Buttons(window).Single(b => b.Content as string == "Cancel");
+        Assert.True(cancel.IsEnabled);
+        cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(window.IsVisible);
+
+        _hello.Hold.SetResult();
+        await Settle(() => _hello.SawCancel);
+        for (int i = 0; i < 20; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Assert.True(vault.IsLocked);
+    }
+
+    [AvaloniaFact]
+    public async Task Closing_the_window_cancels_the_prompt()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        var window = new VaultUnlockWindow(vault, Biometric);
+        window.Show();
+        await Settle(() => _hello.Prompts == 2);
+
+        window.Close();
+
+        await Settle(() => _hello.SawCancel);
+        Assert.True(vault.IsLocked);
+    }
+
+    [AvaloniaFact]
+    public async Task Several_callers_share_one_unlock_window_and_one_prompt()
+    {
+        using var vault = await NewVaultAsync();
+        var biometric = Biometric;
+        await biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        var owner = new Window();
+        owner.Show();
+
+        var first = VaultUnlockWindow.EnsureUnlockedAsync(vault, owner, biometric);
+        var second = VaultUnlockWindow.EnsureUnlockedAsync(vault, owner, biometric);
+        await Settle(() => _hello.Prompts == 2);
+
+        Assert.Single(owner.OwnedWindows);
+        _hello.Hold.SetResult();
+        await Settle(() => first.IsCompleted && second.IsCompleted);
+        Assert.True(await first);
+        Assert.True(await second);
+        Assert.Equal(2, _hello.Prompts);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task In_a_remote_session_the_unlock_window_asks_only_for_the_password_and_says_why()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _remote.IsRemote = true;
+        var window = new VaultUnlockWindow(vault, Biometric);
+
+        window.Show();
+        await Settle(() => Texts(window).Any(t => t.Contains("remote session")));
+
+        Assert.Equal(1, _hello.Prompts); // Only the one that turned it on.
+        Assert.False(Buttons(window).Single(b => b.Content as string == "Use Test Hello").IsVisible);
+        Assert.True(Biometric.IsOn(vault));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_key_windows_cant_find_isnt_deleted_by_the_unlock_window()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.NextAnswer = AuthenticatorStatus.KeyGone;
+        var window = new VaultUnlockWindow(vault, Biometric);
+
+        window.Show();
+        await Settle(() => Texts(window).Any(t => t.Contains("off and on again in Settings")));
+
+        Assert.Equal(0, _hello.Deleted);
+        Assert.True(Biometric.IsOn(vault));
+        window.Close();
+    }
+
+    // ---- Settings ----
+
+    [AvaloniaFact]
+    public async Task The_switch_is_rechecked_after_every_change()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _remote.IsRemote = true;
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var window = Show(view);
+        await view.BiometricChecked;
+
+        // On, so it can be turned off even here; once off, it can't be turned on again from a remote session.
+        var toggle = Switch(window);
+        Assert.True(toggle.IsEnabled);
+        bool toggled = false;
+        view.BiometricToggled += (_, _) => toggled = true;
+        toggle.IsChecked = false;
+        await Settle(() => toggled);
+
+        Assert.False(toggle.IsChecked);
+        Assert.False(toggle.IsEnabled);
+        Assert.Contains(Texts(window), t => t.Contains("remote session"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Changing_the_master_password_in_settings_turns_it_off_and_says_so()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var window = Show(view);
+        await view.BiometricChecked;
+        Assert.True(Switch(window).IsChecked);
+
+        Buttons(window).Single(b => b.Content as string == "Change master password…").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle(() => window.OwnedWindows.Count == 1);
+        var change = window.OwnedWindows.Single();
+        var fields = change.GetVisualDescendants().OfType<Orrery.App.Controls.PasswordBox>().ToList();
+        fields[0].Text = Password;
+        fields[1].Text = fields[2].Text = "a brand new password";
+        Buttons(change).Single(b => b.Content as string == "Change password").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        await Settle(() => window.OwnedWindows.Count == 1 && window.OwnedWindows[0] != change);
+        var message = window.OwnedWindows.Single();
+        Assert.Contains(Texts(message), t => t.Contains("Test Hello unlock was turned off"));
+        message.Close();
+
+        Assert.False(Switch(window).IsChecked);
+        Assert.Contains(Texts(window), t => t.Contains("turned off because the master password changed"));
+        Assert.DoesNotContain(_records.Items.Keys, k => k.StartsWith(BiometricUnlock.RecordPrefix));
+        Assert.Equal(2, _hello.Deleted); // The old key, and the new password's name in case it was there.
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Switching_to_the_system_keychain_turns_it_off_for_the_vault_left_behind()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, Biometric);
+        var window = Show(view);
+        await view.BiometricChecked;
+
+        // The step the store switch takes once the credentials are copied.
+        await view.TurnOffBiometricForOldVaultAsync();
+
+        Assert.False(Biometric.IsOn(vault));
+        Assert.Empty(_records.Items);
+        Assert.Equal(1, _hello.Deleted);
+        window.Close();
+    }
+
+    // ---- The setup window ----
+
+    [AvaloniaFact]
+    public async Task The_setup_window_says_what_opens_the_vault_before_it_asks()
+    {
+        using var vault = await NewVaultAsync();
+        var window = new BiometricSetupWindow(vault, Biometric);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var notice = window.GetVisualDescendants().OfType<Orrery.App.Controls.Notice>().Single(n => n.IsVisible);
+        Assert.Contains("PIN", notice.Text);
+        Assert.Contains("any face or fingerprint", notice.Text);
+        Assert.Contains("doesn't turn this off", notice.Text);
+        Assert.Equal(0, _hello.Prompts);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_setup_window_hides_the_password_from_ui_automation_and_names_everything()
+    {
+        using var vault = await NewVaultAsync();
+        var window = new BiometricSetupWindow(vault, Biometric);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(window.GetVisualDescendants().OfType<Orrery.App.Controls.PasswordBox>());
+        AccessibilityAudit.AssertAllNamed(window);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_unlock_window_with_it_on_names_everything()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.NextAnswer = AuthenticatorStatus.Cancelled;
+        var window = new VaultUnlockWindow(vault, Biometric);
+        window.Show();
+        await Settle(() => _hello.Prompts == 2);
+
+        AccessibilityAudit.AssertAllNamed(window);
+        window.Close();
     }
 
     static Task Nothing() => Task.CompletedTask;
