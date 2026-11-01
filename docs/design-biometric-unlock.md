@@ -15,7 +15,7 @@ Scope: opening `vault.frv` with Windows Hello or Touch ID instead of typing the 
 - Changing the master password turns it off and says so. Moving the data folder doesn't.
 - Say what the trade-off is before the user agrees to it.
 
-What enrolment changes do differs by platform, and the setup window says so:
+What enrollment changes do differs by platform, and the setup window says so:
 - **Windows:** the Hello key belongs to the Windows account, not to particular fingers or faces. Adding a face or
   finger, or changing the Hello PIN, doesn't turn it off; whatever Hello accepts for the account opens the vault.
 - **Mac:** the keychain item is bound to the fingers enrolled when it was made. Adding or removing one makes it
@@ -55,7 +55,7 @@ folder, and the authenticator secret never exists anywhere on disk.
 - **Authenticator secret:** Hello's signature over the challenge. Hello keys are RSA and sign with RSASSA-PKCS1-v1_5
   and SHA-256, which is deterministic, so the same key and challenge always give the same signature. When turning it
   on, Orrery checks that the key is RSA and that the signature verifies against the key's public half, and refuses
-  anything else: a randomised signature would never open the vault again. Secrets shorter than 32 bytes are refused.
+  anything else: a randomized signature would never open the vault again. Secrets shorter than 32 bytes are refused.
   The signature is copied out of Windows' buffer through `IBufferByteAccess` and the buffer wiped before it's released.
 - **The key must be in the TPM.** Windows can keep a Hello key in software, protected only by the PIN, even on a
   computer with a TPM (when the TPM isn't ready, or policy allows software keys). Someone with the disk could guess a
@@ -93,7 +93,7 @@ folder, and the authenticator secret never exists anywhere on disk.
 - **Unreadable item:** Apple's documents say the item becomes inaccessible without naming the status. Reports differ
   between `errSecItemNotFound` and `errSecAuthFailed`, so both are treated as "key not found" (§3.4), which never
   deletes anything by itself.
-- **Cancelling:** the read runs under an `LAContext`; closing the unlock window calls `invalidate` on it.
+- **Canceling:** the read runs under an `LAContext`; closing the unlock window calls `invalidate` on it.
 - **Clearing the secret:** Orrery copies the secret out of the `CFData` the keychain returns and clears its own copy
   when done. That `CFData` is immutable: CoreFoundation has no call to clear one, and writing through its read-only
   pointer isn't allowed, so it's released without being wiped. The copy Orrery hands the keychain when turning it on
@@ -180,13 +180,13 @@ and keys for this vault are deleted. The vault file is unchanged.
 ### 3.2 Unlocking
 When it's on, the unlock window shows the system prompt as it opens and keeps the password field below it. Before
 prompting, Orrery removes stale records for this vault, so a password change is reported without asking for a finger.
-After the prompt: secret → wrapping key → DEK → contents. Cancelling leaves the password field.
+After the prompt: secret → wrapping key → DEK → contents. Canceling leaves the password field.
 
 - **Cancel cancels.** The Cancel button stays usable while the prompt is up. Cancel, Escape or closing the window
   cancels the prompt (`IAsyncInfo.Cancel` on Windows); an answer that arrives anyway is thrown away, and if the vault
   opened in the meantime it's locked again.
 - **One prompt at a time.** Callers that ask for the vault while an unlock window is open wait for that window rather
-  than opening another, and Orrery never runs two prompts at once. They get the window's answer: if it was cancelled
+  than opening another, and Orrery never runs two prompts at once. They get the window's answer: if it was canceled
   just as the prompt opened the vault, the vault is locked again before any of them carries on, and each hears no.
 
 ### 3.3 Turning it off
@@ -210,8 +210,8 @@ Nothing that might be temporary deletes anything.
 | Windows Hello can't find the key (Hello reset, PIN removed, or something temporary) | Next unlock | Nothing deleted; not offered again until Orrery restarts | "Windows Hello couldn't find Orrery's key. Use the master password this time. If this keeps happening, turn … off and on again in Settings." |
 | Touch ID fingers added or removed | Next unlock | As above | As above |
 | A remote session | Every time | Nothing changes | §2.4 |
-| Prompt cancelled, or the sensor fails once | Never | Nothing changes | Type the password |
-| Hello enrolment changes on Windows (new PIN, face or finger) | Never | Nothing changes: it keeps working | Nothing; the setup window said so |
+| Prompt canceled, or the sensor fails once | Never | Nothing changes | Type the password |
+| Hello enrollment changes on Windows (new PIN, face or finger) | Never | Nothing changes: it keeps working | Nothing; the setup window said so |
 
 Each message ends with how to turn it on again.
 
@@ -288,7 +288,7 @@ without a matching gesture there is no signature, and on a Mac no secret.
   and listing records) and `IRemoteSession`. Unit-tested with a fake authenticator, an in-memory record store and a
   fake remote session.
 - `VaultFileStore` gains internal methods: the key-block fingerprint, the fingerprints it had before password changes
-  made through it, the DEK for a checked master password, and unlocking with a DEK (locked again if cancelled).
+  made through it, the DEK for a checked master password, and unlocking with a DEK (locked again if canceled).
   Nothing about the file format changes.
 - `WindowsHelloAuthenticator.cs` and `WinRt.cs`: Windows Hello through `KeyCredentialManager`.
 - `RemoteSession.cs`: the Remote Desktop check.
@@ -315,7 +315,7 @@ unsafe code, as `Orrery.App` and the protocol projects already do.
 
 No test makes a real Hello key, keychain item or Credential Manager entry.
 
-- `BiometricUnlockTests`: turning on, unlocking, wrong master password, cancelling (before, during and after the
+- `BiometricUnlockTests`: turning on, unlocking, wrong master password, canceling (before, during and after the
   prompt answers), one prompt at a time, every case in §3.4, the vault file moving, a different drive root, Move data,
   version 1 records, records from a newer version, records found only by the vault's path (another copy's password
   change, a different vault made in the same place) and removing them, remote sessions, keys not shown to be in hardware, short secrets, records edited or moved to
@@ -326,7 +326,7 @@ No test makes a real Hello key, keychain item or Credential Manager entry.
   from a 24H2 "ForWindow" call mean asking again without the window, and which window is brought forward. `DeterministicSignatureTests`: the RSA check over public-key blobs made in the test.
 - `SecretLeakTests`: master passwords, authenticator secrets and the vault's data keys stay out of the log.
 - Headless UI tests for the unlock window (cancel, closing, one window for several callers and what they hear when it's
-  cancelled just as the vault opened, remote sessions, a key not
+  canceled just as the vault opened, remote sessions, a key not
   found), the setup window (the trade-off, the password box, automation names) and the Settings switch (rechecked
   after each change, the password change, the store switch), with a fake authenticator.
 

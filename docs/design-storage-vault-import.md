@@ -61,7 +61,7 @@ When `dataLocation` is absent, show a dialog before the main window:
 Rules:
 - Before accepting "With the app" or a custom folder, **probe write access** (create and delete a temp file). It fails on read-only media, `Program Files`, and macOS App Translocation (an app run straight from a downloaded, quarantined location). Explain the failure and offer the other options.
 - Write the choice back to the marker file. If the marker itself is not writable, keep the choice in memory for this session and warn that the prompt will reappear.
-- If a data folder already exists at the chosen location, use it and don't re-initialise it.
+- If a data folder already exists at the chosen location, use it and don't re-initialize it.
 - Portable mode always uses the **vault file** for secrets (§3), because the OS keychain does not travel.
 
 The "user profile" option uses a `Portable` subfolder (e.g. `%APPDATA%\Orrery\Portable`) so it never collides with an installed copy on the same machine.
@@ -230,7 +230,7 @@ The mapping stage is pure: file in, model plus warnings out, with no I/O. That k
 
 ### 4.3 File format (to verify against real files)
 
-> Checked against a real ConfVersion 2.6 export (2026-10-29): the root attributes, the 113 per-node attributes and the `Protected` marker all match. An anonymised copy is the test fixture `tests/Orrery.Core.Tests/Import/Fixtures/mremoteng-2.6-no-passwords.xml`.
+> Checked against a real ConfVersion 2.6 export (2026-10-29): the root attributes, the 113 per-node attributes and the `Protected` marker all match. An anonymized copy is the test fixture `tests/Orrery.Core.Tests/Import/Fixtures/mremoteng-2.6-no-passwords.xml`.
 
 Root element:
 
@@ -284,7 +284,7 @@ Root element:
 **Common fields:** `Name`, `Hostname`, `Port`, `Username`, `Domain`, `Password` (→ credential), `Descr`.
 
 **RDP fields (examples; complete the table from fixtures):** `Resolution`, `Colors`, `UseCredSsp`, `RDPAuthenticationLevel`, `RedirectClipboard`, `RedirectDiskDrives`, `RedirectPrinters`, `RedirectSound`, `RedirectKeys`, `DisplayWallpaper`, `DisplayThemes`, `RDGatewayUsageMethod` / `RDGatewayHostname` / gateway credential fields, `LoadBalanceInfo`, `ConnectToConsole`.
-Any RDP setting IronRDP can't honour yet (gateway is the likely one) is **still imported** and flagged "not supported yet", so nothing is lost when support arrives.
+Any RDP setting IronRDP can't honor yet (gateway is the likely one) is **still imported** and flagged "not supported yet", so nothing is lost when support arrives.
 
 **SSH:** `PuttySession` refers to a saved PuTTY session in the Windows registry. v1 records the name and flags it. A later option reads `HKCU\Software\SimonTatham\PuTTY\Sessions\<name>` on Windows to pull in key paths and ports.
 
@@ -326,7 +326,7 @@ The report never contains secrets.
 - **Security:** parse XML with DTD processing prohibited and no XML resolver (blocks XXE and entity-expansion attacks). Cap the file size, and fuzz the parser with malformed input.
 
 ### 4.10 Licensing note
-mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. **Do not copy its code**, including the crypto and serializer classes. Write the importer from the format as observed in fixtures and documented behaviour, so Orrery can stay MIT-licensed.
+mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. **Do not copy its code**, including the crypto and serializer classes. Write the importer from the format as observed in fixtures and documented behavior, so Orrery can stay MIT-licensed.
 
 ---
 
@@ -335,4 +335,4 @@ mRemoteNG is GPL-2.0. Implementing compatibility with its file format is fine. *
 2. **Vault in installed mode:** OS keychain by default (seamless) or vault file by default (one encrypted file to back up)? This draft proposes the keychain.
 3. **Portable on macOS:** worth supporting beyond "it works"? Gatekeeper and App Translocation make running from removable media awkward.
 4. **Shared data folder:** if someone points two machines at one synced custom folder, the lock file covers simultaneous use but not sync conflicts. Is a warning enough for v1?
-5. **Credential types:** add a "prompt every time" credential (no stored secret) in v1? mRemoteNG users with blank passwords rely on this behaviour.
+5. **Credential types:** add a "prompt every time" credential (no stored secret) in v1? mRemoteNG users with blank passwords rely on this behavior.
