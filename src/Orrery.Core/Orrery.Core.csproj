@@ -11,5 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Orrery.Core.Tests" />
+    <!-- SecretLeakTests reads the vault's data key, to check it never reaches the log. -->
+    <InternalsVisibleTo Include="Orrery.App.Tests" />
   </ItemGroup>
 </Project>

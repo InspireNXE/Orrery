@@ -25,6 +25,12 @@ public interface ISecretBackend
 
     /// <summary>Removes the secret; a missing one is fine.</summary>
     void Delete(string key);
+
+    /// <summary>
+    /// The keys that start with <paramref name="prefix"/>, read without touching the secrets. Used by biometric unlock
+    /// to find its own records; a backend that can't list returns none.
+    /// </summary>
+    IReadOnlyList<string> List(string prefix) => [];
 }
 
 /// <summary>

@@ -20,6 +20,12 @@ static unsafe class WinRt
     const int AsyncStatusSlot = 7, AsyncErrorSlot = 8, AsyncCancelSlot = 9, GetResultsSlot = 8;
     const int Started = 0, Canceled = 2, Error = 3;
 
+    // IBuffer: Capacity, Length, put_Length. IBufferByteAccess derives from IUnknown alone, so Buffer is slot 3.
+    static readonly Guid IBufferByteAccess = new("905A0FEF-BC53-11DF-8C49-001E4FC686DA");
+    const int BufferLengthSlot = 7, BufferByteAccessBufferSlot = 3;
+
+    const int EPointer = unchecked((int)0x80004003), ENoInterface = unchecked((int)0x80004002);
+
     /// <summary>
     /// Runs <paramref name="work"/> on a new thread in the multithreaded apartment, where WinRT objects can be used and
     /// waited on without a message loop.
@@ -116,11 +122,19 @@ static unsafe class WinRt
 
     public static void DeleteString(IntPtr hstring) => WindowsDeleteString(hstring);
 
-    /// <summary>Calls a method shaped <c>HRESULT Method(T** value)</c>: a property getter or a call with no arguments.</summary>
+    /// <summary>
+    /// Calls a method shaped <c>HRESULT Method(T** value)</c>: a property getter or a call with no arguments. A null
+    /// result is an error (E_POINTER), so callers never call through a null pointer.
+    /// </summary>
     public static IntPtr GetObject(IntPtr obj, int slot)
     {
-        IntPtr result;
+        IntPtr result = IntPtr.Zero;
         Check(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)Method(obj, slot))(obj, &result));
+        if (result == IntPtr.Zero)
+        {
+            throw new COMException("Windows returned no object.", EPointer);
+        }
+
         return result;
     }
 
@@ -133,12 +147,13 @@ static unsafe class WinRt
     }
 
     /// <summary>
-    /// Waits for an IAsyncOperation or IAsyncAction to finish by polling its status, cancelling it after
-    /// <paramref name="timeout"/>. Calls <paramref name="whileWaiting"/> on each poll.
+    /// Waits for an IAsyncOperation or IAsyncAction to finish by polling its status. Cancels it (which dismisses a
+    /// prompt) when <paramref name="cancel"/> fires or after <paramref name="timeout"/>. Calls
+    /// <paramref name="whileWaiting"/> on each poll.
     /// </summary>
-    /// <exception cref="OperationCanceledException">It was cancelled.</exception>
+    /// <exception cref="OperationCanceledException">It was cancelled, by <paramref name="cancel"/> or by Windows.</exception>
     /// <exception cref="TimeoutException"></exception>
-    public static void Wait(IntPtr operation, TimeSpan timeout, Action? whileWaiting = null)
+    public static void Wait(IntPtr operation, TimeSpan timeout, CancellationToken cancel, Action? whileWaiting = null)
     {
         var info = TryQuery(operation, IAsyncInfo);
         if (info == IntPtr.Zero)
@@ -152,6 +167,12 @@ static unsafe class WinRt
             int status;
             while ((status = GetInt32(info, AsyncStatusSlot)) == Started)
             {
+                if (cancel.IsCancellationRequested)
+                {
+                    ((delegate* unmanaged[Stdcall]<IntPtr, int>)Method(info, AsyncCancelSlot))(info);
+                    throw new OperationCanceledException(cancel);
+                }
+
                 if (Environment.TickCount64 > deadline)
                 {
                     ((delegate* unmanaged[Stdcall]<IntPtr, int>)Method(info, AsyncCancelSlot))(info);
@@ -238,12 +259,47 @@ static unsafe class WinRt
     }
 
     /// <summary>
+    /// A copy of what an IBuffer holds, then wipes the buffer itself, for buffers holding a secret (a signature).
+    /// Reads through IBufferByteAccess, so no other copy is made on the way.
+    /// </summary>
+    public static byte[] ReadAndClearBuffer(IntPtr buffer)
+    {
+        uint length;
+        Check(((delegate* unmanaged[Stdcall]<IntPtr, uint*, int>)Method(buffer, BufferLengthSlot))(buffer, &length));
+        var access = TryQuery(buffer, IBufferByteAccess);
+        if (access == IntPtr.Zero)
+        {
+            throw new COMException("The buffer can't be read in place.", ENoInterface);
+        }
+
+        try
+        {
+            byte* data = null;
+            Check(((delegate* unmanaged[Stdcall]<IntPtr, byte**, int>)Method(access, BufferByteAccessBufferSlot))(access, &data));
+            if (data is null && length > 0)
+            {
+                throw new COMException("Windows returned no buffer.", EPointer);
+            }
+
+            var copy = new byte[length];
+            var bytes = new Span<byte>(data, (int)length);
+            bytes.CopyTo(copy);
+            bytes.Clear();
+            return copy;
+        }
+        finally
+        {
+            Release(access);
+        }
+    }
+
+    /// <summary>
     /// The WinRT WindowId of a top-level window, for the "ForWindow" calls added in Windows 11 24H2; zero when there's
-    /// no window or this Windows doesn't have the conversion.
+    /// no window or this Windows doesn't have the conversion. Windows.UI.dll is only ever loaded from System32.
     /// </summary>
     public static ulong WindowIdFor(nint window)
     {
-        if (window == 0 || !NativeLibrary.TryLoad("Windows.UI.dll", out var library)
+        if (window == 0 || !NativeLibrary.TryLoad("Windows.UI.dll", typeof(WinRt).Assembly, DllImportSearchPath.System32, out var library)
             || !NativeLibrary.TryGetExport(library, "GetWindowIdFromWindow", out var convert))
         {
             return 0;
@@ -254,17 +310,22 @@ static unsafe class WinRt
     }
 
     [DllImport("combase.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     static extern int RoInitialize(int initType);
 
     [DllImport("combase.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     static extern void RoUninitialize();
 
     [DllImport("combase.dll", CharSet = CharSet.Unicode)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     static extern int WindowsCreateString(string sourceString, int length, out IntPtr hstring);
 
     [DllImport("combase.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     static extern int WindowsDeleteString(IntPtr hstring);
 
     [DllImport("combase.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     static extern int RoGetActivationFactory(IntPtr activatableClassId, ref Guid iid, out IntPtr factory);
 }

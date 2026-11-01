@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using NSec.Cryptography;
 using Orrery.Core.Diagnostics;
@@ -15,16 +17,24 @@ public enum AuthenticatorStatus
     /// <summary>The user cancelled or chose the password instead. Nothing changes.</summary>
     Cancelled,
 
-    /// <summary>The key is gone for good: Windows Hello was reset, or the enrolled fingers changed.</summary>
+    /// <summary>
+    /// The authenticator says it has no such key. That may be for good (Windows Hello was reset, the enrolled fingers
+    /// changed) or only for now (a remote session, a profile still loading), so it never deletes anything by itself.
+    /// </summary>
     KeyGone,
 
     /// <summary>It didn't work this time (sensor locked out, an error); trying again later may work.</summary>
     Failed,
 }
 
-public sealed record AuthenticatorResult(AuthenticatorStatus Status, byte[]? Secret = null, string? Message = null)
+/// <param name="HardwareBacked">
+/// From <see cref="IPlatformAuthenticator.CreateAsync"/>: true only when the platform showed that the new key is held
+/// in hardware (a TPM, the Secure Enclave). Biometric unlock refuses a key without it.
+/// </param>
+public sealed record AuthenticatorResult(AuthenticatorStatus Status, byte[]? Secret = null, string? Message = null, bool HardwareBacked = false)
 {
-    public static AuthenticatorResult Released(byte[] secret) => new(AuthenticatorStatus.Success, secret);
+    public static AuthenticatorResult Released(byte[] secret, bool hardwareBacked = false) =>
+        new(AuthenticatorStatus.Success, secret, HardwareBacked: hardwareBacked);
 }
 
 /// <summary>
@@ -42,12 +52,17 @@ public interface IPlatformAuthenticator
     /// <summary>Null when it can be used here; otherwise why not, as a sentence for Settings. Never prompts.</summary>
     Task<string?> CheckAvailableAsync();
 
-    /// <summary>Makes a new key under <paramref name="keyName"/>, replacing any old one, and returns its secret for <paramref name="challenge"/>. Prompts.</summary>
+    /// <summary>
+    /// Makes a new key under <paramref name="keyName"/>, replacing any old one, and returns its secret for
+    /// <paramref name="challenge"/>. Prompts. Sets <see cref="AuthenticatorResult.HardwareBacked"/> only when it can
+    /// show the key is held in hardware, and deletes a key it made but couldn't use.
+    /// </summary>
     /// <param name="window">The window to show the prompt over, or zero.</param>
-    Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window);
+    /// <param name="cancel">Dismisses the prompt.</param>
+    Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel);
 
     /// <summary>The secret <see cref="CreateAsync"/> returned for the same key and challenge. Prompts.</summary>
-    Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window);
+    Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel);
 
     /// <summary>Deletes the key; a missing one is fine.</summary>
     Task DeleteAsync(string keyName);
@@ -61,11 +76,14 @@ public enum BiometricOutcome
     /// <summary>The user cancelled the prompt. Nothing changed.</summary>
     Cancelled,
 
-    /// <summary>It's been turned off and its key deleted; <see cref="BiometricResult.Message"/> says why.</summary>
+    /// <summary>It's been turned off; <see cref="BiometricResult.Message"/> says why.</summary>
     TurnedOff,
 
     /// <summary>It didn't work this time, and is still on (or still off, when turning on).</summary>
     Failed,
+
+    /// <summary>It's on, but can't be used now (a remote session, or the key wasn't found); the message says why.</summary>
+    Unavailable,
 
     /// <summary>It isn't on for this vault.</summary>
     NotOn,
@@ -78,36 +96,70 @@ public sealed record BiometricResult(BiometricOutcome Outcome, string? Message =
 /// data key is wrapped a second time, under a key derived from a secret only the platform authenticator releases, and
 /// that wrap is kept in <paramref name="records"/> on this computer, never in the data folder. The vault file doesn't
 /// change, and the master password keeps working.
+/// <para>
+/// Records and authenticator keys are named after the vault's key block, not its path, so moving the data folder or a
+/// drive letter changing doesn't matter, and a master password change (a new key block) leaves nothing that still
+/// matches. The authenticator's key is only deleted when the user turns this off, or when turning it on replaces it.
+/// </para>
 /// </summary>
-public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecretBackend records)
+public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecretBackend records, IRemoteSession? remoteSession = null)
 {
     static readonly ILogger Logger = Log.For("Vault");
     static readonly AeadAlgorithm Aead = AeadAlgorithm.XChaCha20Poly1305;
-    static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     const string Format = "orrery-biometric";
-    const int Version = 1;
+    const int Version = 2;
+
+    /// <summary>The first test builds named records after the vault's path. They're removed, never used.</summary>
+    const int PathKeyedVersion = 1;
+
     const int ChallengeSize = 32;
     const int KeySize = 32;
+
+    /// <summary>Shortest authenticator secret accepted: anything less is a broken authenticator, not a key.</summary>
+    public const int MinSecretSize = 32;
+
     public const string RecordPrefix = "orrery:biometric:";
+    const string KeyNamePrefix = "Orrery vault ";
+
+    /// <summary>Authenticator keys whose records were found stale, to delete the next time the user turns this on or off.</summary>
+    const string RetiredKeysRecord = "orrery:biometric-retired-keys";
 
     static readonly Lazy<BiometricUnlock?> ThisSystem = new(Create);
+
+    readonly SemaphoreSlim _prompting = new(1, 1);
+
+    // Records whose key the authenticator couldn't find this run: not offered again until Orrery restarts.
+    readonly ConcurrentDictionary<string, string> _offThisSession = new();
 
     /// <summary>Windows Hello on Windows, Touch ID on macOS; null on Linux, which has no authenticator that holds a key.</summary>
     public static BiometricUnlock? ForThisSystem() => ThisSystem.Value;
 
     static BiometricUnlock? Create()
     {
-        if (OperatingSystem.IsWindows()) return new(new WindowsHelloAuthenticator(), new WindowsCredentialBackend());
+        if (OperatingSystem.IsWindows()) return new(new WindowsHelloAuthenticator(), new WindowsCredentialBackend(), new WindowsRemoteSession());
         if (OperatingSystem.IsMacOS()) return new(new MacTouchIdAuthenticator(), new MacKeychainBackend());
         return null;
     }
 
     public string Name => authenticator.Name;
 
-    /// <inheritdoc cref="IPlatformAuthenticator.CheckAvailableAsync"/>
+    /// <summary>
+    /// Null when it can be used now; otherwise why not, as a sentence. Covers remote sessions as well as the
+    /// authenticator's own checks. Never prompts.
+    /// </summary>
     public async Task<string?> CheckAvailableAsync()
     {
+        if (RemoteReason() is { } remote)
+        {
+            return remote;
+        }
+
         try
         {
             return await authenticator.CheckAvailableAsync();
@@ -119,108 +171,180 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
     }
 
-    /// <summary>True when a key is saved for this vault. It may still turn out stale; see <see cref="TurnOffIfStaleAsync"/>.</summary>
-    public bool IsOn(VaultFileStore vault) => ReadRecord(vault) is not null;
+    string? RemoteReason() => remoteSession?.IsRemote == true
+        ? $"This is a remote session. {Name} unlock only works at the computer itself, so use the master password."
+        : null;
+
+    /// <summary>True when a key is saved for this vault's current key block.</summary>
+    public bool IsOn(VaultFileStore vault) => FingerprintOf(vault) is { } fingerprint && ReadCurrent(fingerprint) is not null;
 
     /// <summary>
-    /// Turns it on for <paramref name="vault"/>: checks the master password against the file, makes a new key (one
-    /// prompt) and saves the wrapped data key. Replaces any earlier key for this vault.
+    /// Turns it on for <paramref name="vault"/>: checks it can be used here, checks the master password against the
+    /// file, makes a new key (with the system prompt) and saves the wrapped data key. Replaces any earlier key for
+    /// this vault.
     /// </summary>
     /// <exception cref="WrongVaultPasswordException"><paramref name="masterPassword"/> doesn't open the vault.</exception>
-    public async Task<BiometricResult> TurnOnAsync(VaultFileStore vault, string masterPassword, nint window = 0)
+    public async Task<BiometricResult> TurnOnAsync(VaultFileStore vault, string masterPassword, nint window = 0, CancellationToken cancel = default)
     {
+        if (await CheckAvailableAsync() is { } unavailable)
+        {
+            return new(BiometricOutcome.Failed, unavailable);
+        }
+
         var (dataKey, fingerprint) = await vault.DataKeyForAsync(masterPassword);
         byte[]? secret = null;
+        if (!await _prompting.WaitAsync(0, CancellationToken.None))
+        {
+            CryptographicOperations.ZeroMemory(dataKey);
+            return new(BiometricOutcome.Failed, AlreadyAsking);
+        }
+
         try
         {
-            var name = KeyName(vault);
+            var name = KeyNameFor(fingerprint);
             var challenge = RandomNumberGenerator.GetBytes(ChallengeSize);
-            var created = await Ask(() => authenticator.CreateAsync(name, challenge, window));
+            var created = await Ask(() => authenticator.CreateAsync(name, challenge, window, cancel), cancel);
             secret = created.Secret;
+            if (cancel.IsCancellationRequested || created.Status == AuthenticatorStatus.Cancelled)
+            {
+                if (secret is not null) await DeleteKeyQuietlyAsync(name); // Made just now, and not wanted.
+                Logger.LogInformation("{Authenticator} unlock wasn't turned on: cancelled", Name);
+                return new(BiometricOutcome.Cancelled);
+            }
+
             if (created.Status != AuthenticatorStatus.Success || secret is null)
             {
                 Logger.LogInformation("{Authenticator} unlock wasn't turned on: {Status}", Name, created.Status);
-                return created.Status == AuthenticatorStatus.Cancelled
-                    ? new(BiometricOutcome.Cancelled)
-                    : new(BiometricOutcome.Failed, created.Message ?? $"{Name} couldn't make a key.");
+                return new(BiometricOutcome.Failed, created.Message ?? $"{Name} couldn't make a key.");
             }
 
-            var record = new Record(Format, Version, authenticator.Id, name, Convert.ToBase64String(challenge), fingerprint, null!, null!);
+            if (!created.HardwareBacked)
+            {
+                await DeleteKeyQuietlyAsync(name);
+                Logger.LogWarning("{Authenticator} unlock wasn't turned on: the key isn't shown to be in hardware", Name);
+                return new(BiometricOutcome.Failed, $"{Name} couldn't show that its key is held in hardware on this computer, so nothing was turned on.");
+            }
+
+            if (secret.Length < MinSecretSize)
+            {
+                await DeleteKeyQuietlyAsync(name);
+                Logger.LogWarning("{Authenticator} unlock wasn't turned on: its secret is too short", Name);
+                return new(BiometricOutcome.Failed, $"{Name} made a key Orrery can't use, so nothing was turned on.");
+            }
+
+            var record = new Record(Format, Version, authenticator.Id, name, Convert.ToBase64String(challenge), fingerprint, null!, null!, PlaceOf(vault));
             using var key = WrappingKey(secret, record);
             var nonce = RandomNumberGenerator.GetBytes(Aead.NonceSize);
             var wrapped = Aead.Encrypt(key, nonce, AssociatedData(record), dataKey);
-            records.Write(RecordName(vault), JsonSerializer.SerializeToUtf8Bytes(
+            records.Write(RecordNameFor(fingerprint), JsonSerializer.SerializeToUtf8Bytes(
                 record with { Nonce = Convert.ToBase64String(nonce), Ciphertext = Convert.ToBase64String(wrapped) }, JsonOptions));
+            _offThisSession.TryRemove(RecordNameFor(fingerprint), out _);
+
+            // Anything saved for this vault before is replaced now.
+            await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true);
+            await DeleteRetiredKeysAsync(keep: name);
             Logger.LogInformation("{Authenticator} unlock turned on for the vault", Name);
             return new(BiometricOutcome.Done);
         }
         finally
         {
+            _prompting.Release();
             CryptographicOperations.ZeroMemory(dataKey);
             if (secret is not null) CryptographicOperations.ZeroMemory(secret);
         }
     }
 
     /// <summary>
-    /// Turns it off when the master password has changed since it was turned on (perhaps by another copy of Orrery).
-    /// Never prompts. Returns the message to show, or null if nothing changed.
+    /// Removes keys saved for this vault before its master password changed, or by the first test builds, and says
+    /// so when that leaves it off. Never prompts and never deletes the authenticator's key. Returns the message to
+    /// show, or null if nothing changed for the user.
     /// </summary>
-    public async Task<string?> TurnOffIfStaleAsync(VaultFileStore vault)
+    public Task<string?> TurnOffIfStaleAsync(VaultFileStore vault)
     {
-        if (ReadRecord(vault) is not { } record)
+        if (FingerprintOf(vault) is not { } fingerprint)
         {
-            return null;
+            return Task.FromResult<string?>(null); // Can't tell; leave it for the unlock window to report the damaged file.
         }
 
-        string? fingerprint;
-        try
+        bool on = ReadCurrent(fingerprint) is not null;
+        var stale = Related(vault, fingerprint);
+        if (stale.Count == 0)
         {
-            fingerprint = vault.KeyFingerprint();
-        }
-        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
-        {
-            return null; // Can't tell; leave it for the unlock window to report the damaged file.
+            return Task.FromResult<string?>(null);
         }
 
-        if (fingerprint == record.Vault)
+        foreach (var record in stale)
         {
-            return null;
+            records.Delete(record.Name);
+            Retire(record.KeyName);
         }
 
-        await TurnOffAsync(vault, "the master password changed");
-        return $"The master password was changed, so {Name} unlock was turned off. Unlock with the master password, then turn it on again in Settings.";
+        Logger.LogInformation("Removed {Count} stale {Authenticator} unlock record(s) for the vault", stale.Count, Name);
+        if (on)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        bool earlierBuild = stale.Any(r => r.PathKeyed && r.Vault == fingerprint);
+        Logger.LogInformation("{Authenticator} unlock turned off: {Reason}", Name, earlierBuild ? "set up by an earlier build" : "the master password changed");
+        return Task.FromResult<string?>(earlierBuild
+            ? $"{Name} unlock was set up by an earlier test version of Orrery, so it was turned off. Unlock with the master password, then turn it on again in Settings."
+            : $"The master password was changed, so {Name} unlock was turned off. Unlock with the master password, then turn it on again in Settings.");
     }
 
     /// <summary>
-    /// Opens the vault with the saved key (one prompt). Turns itself off, and says why, when the key can never work
-    /// again: the master password changed, or the authenticator lost or replaced the key.
+    /// Opens the vault with the saved key (one prompt). Turns itself off, and says why, only when the saved record
+    /// provably can't work again: the master password changed, or it no longer decrypts. If
+    /// <paramref name="cancel"/> fires, the prompt is dismissed and the vault stays locked.
     /// </summary>
-    public async Task<BiometricResult> UnlockAsync(VaultFileStore vault, nint window = 0)
+    public async Task<BiometricResult> UnlockAsync(VaultFileStore vault, nint window = 0, CancellationToken cancel = default)
     {
-        if (ReadRecord(vault) is not { } record)
+        if (RemoteReason() is { } remote)
+        {
+            return new(BiometricOutcome.Unavailable, remote);
+        }
+
+        if (FingerprintOf(vault) is not { } fingerprint)
         {
             return new(BiometricOutcome.NotOn);
         }
 
-        if (await TurnOffIfStaleAsync(vault) is { } stale)
+        var stale = await TurnOffIfStaleAsync(vault);
+        var name = RecordNameFor(fingerprint);
+        if (ReadCurrent(fingerprint) is not { } record)
         {
-            return new(BiometricOutcome.TurnedOff, stale);
+            return stale is not null ? new(BiometricOutcome.TurnedOff, stale) : new(BiometricOutcome.NotOn);
         }
 
-        var released = await Ask(() => authenticator.ReleaseAsync(record.KeyName, Convert.FromBase64String(record.Challenge), window));
-        var secret = released.Secret;
+        if (_offThisSession.TryGetValue(name, out var reason))
+        {
+            return new(BiometricOutcome.Unavailable, reason);
+        }
+
+        if (!await _prompting.WaitAsync(0, CancellationToken.None))
+        {
+            return new(BiometricOutcome.Failed, AlreadyAsking);
+        }
+
+        byte[]? secret = null;
         try
         {
-            if (released.Status == AuthenticatorStatus.Cancelled)
+            var released = await Ask(() => authenticator.ReleaseAsync(record.KeyName, Convert.FromBase64String(record.Challenge), window, cancel), cancel);
+            secret = released.Secret;
+            if (cancel.IsCancellationRequested || released.Status == AuthenticatorStatus.Cancelled)
             {
                 return new(BiometricOutcome.Cancelled);
             }
 
             if (released.Status == AuthenticatorStatus.KeyGone)
             {
-                await TurnOffAsync(vault, "the key is gone");
-                return new(BiometricOutcome.TurnedOff, $"{released.Message ?? $"{Name} no longer has Orrery's key."} {Name} unlock was turned off. "
-                    + "Unlock with the master password, then turn it on again in Settings.");
+                // Perhaps for good, perhaps not (a profile still loading, a remote session missed): stop offering it
+                // until Orrery restarts, but keep the record and the key. Turning it off in Settings deletes both.
+                var message = $"{released.Message ?? $"{Name} couldn't find Orrery's key."} Use the master password this time. "
+                    + $"If this keeps happening, turn {Name} unlock off and on again in Settings.";
+                _offThisSession[name] = message;
+                Logger.LogWarning("{Authenticator} didn't find the vault's key; not offered again this session", Name);
+                return new(BiometricOutcome.Unavailable, message);
             }
 
             if (released.Status != AuthenticatorStatus.Success || secret is null)
@@ -229,59 +353,264 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
                 return new(BiometricOutcome.Failed, released.Message ?? $"{Name} didn't work. Use the master password.");
             }
 
+            if (secret.Length < MinSecretSize)
+            {
+                Logger.LogWarning("{Authenticator} unlock failed: its secret is too short", Name);
+                return new(BiometricOutcome.Failed, $"{Name} answered with something Orrery can't use. Use the master password.");
+            }
+
             var dataKey = Unwrap(secret, record);
             if (dataKey is null)
             {
-                await TurnOffAsync(vault, "the saved key doesn't decrypt");
+                RemoveStale(name, record, "the saved key doesn't decrypt");
                 return new(BiometricOutcome.TurnedOff, $"The key saved for {Name} no longer matches, so {Name} unlock was turned off. "
                     + "Unlock with the master password, then turn it on again in Settings.");
             }
 
+            bool opened;
             try
             {
-                if (!await vault.UnlockWithDataKeyAsync(dataKey, record.Vault))
-                {
-                    await TurnOffAsync(vault, "the master password changed");
-                    return new(BiometricOutcome.TurnedOff, $"The master password was changed, so {Name} unlock was turned off. "
-                        + "Unlock with the master password, then turn it on again in Settings.");
-                }
+                opened = await vault.UnlockWithDataKeyAsync(dataKey, record.Vault, cancel);
+            }
+            catch (OperationCanceledException)
+            {
+                return new(BiometricOutcome.Cancelled);
             }
             finally
             {
                 CryptographicOperations.ZeroMemory(dataKey);
             }
 
+            if (!opened)
+            {
+                RemoveStale(name, record, "the master password changed");
+                return new(BiometricOutcome.TurnedOff, $"The master password was changed, so {Name} unlock was turned off. "
+                    + "Unlock with the master password, then turn it on again in Settings.");
+            }
+
+            NotePlace(name, record, vault);
             Logger.LogInformation("Vault unlocked with {Authenticator}", Name);
             return new(BiometricOutcome.Done);
         }
         finally
         {
+            _prompting.Release();
             if (secret is not null) CryptographicOperations.ZeroMemory(secret);
         }
     }
 
-    /// <summary>Turns it off for <paramref name="vault"/>: deletes the saved key here and the authenticator's key.</summary>
-    public Task TurnOffAsync(VaultFileStore vault) => TurnOffAsync(vault, "turned off in Settings");
-
-    async Task TurnOffAsync(VaultFileStore vault, string reason)
+    /// <summary>
+    /// Turns it off for <paramref name="vault"/>: deletes the saved record and the authenticator's key, along with
+    /// any left from before a master password change or kept under the vault's old path. True if anything was on.
+    /// </summary>
+    public async Task<bool> TurnOffAsync(VaultFileStore vault)
     {
-        records.Delete(RecordName(vault));
+        var fingerprint = FingerprintOf(vault);
+        bool any = false;
+        if (fingerprint is not null)
+        {
+            var name = RecordNameFor(fingerprint);
+            any = records.Read(name) is not null;
+            records.Delete(name);
+            _offThisSession.TryRemove(name, out _);
+            await DeleteKeyQuietlyAsync(KeyNameFor(fingerprint));
+        }
+
+        any |= await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true);
+        await DeleteRetiredKeysAsync();
+        if (any)
+        {
+            Logger.LogInformation("{Authenticator} unlock turned off", Name);
+        }
+
+        return any;
+    }
+
+    /// <summary>Records for this vault other than the current one: an earlier key block, the vault's old path, or the old path-keyed format.</summary>
+    List<Saved> Related(VaultFileStore vault, string? fingerprint)
+    {
+        var retired = vault.RetiredKeyFingerprints();
+        var place = PlaceOf(vault);
+        var current = fingerprint is null ? null : RecordNameFor(fingerprint);
+        var related = new List<Saved>();
+        IReadOnlyList<string> names;
         try
         {
-            await authenticator.DeleteAsync(KeyName(vault));
+            names = records.List(RecordPrefix);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            // The saved key is gone, so the authenticator's key opens nothing; it's only left as clutter.
-            Logger.LogWarning("Couldn't delete the {Authenticator} key: {Message}", Name, e.Message);
+            Logger.LogWarning("Couldn't list the saved {Authenticator} keys: {Message}", Name, e.Message);
+            return related;
         }
 
+        foreach (var name in names)
+        {
+            if (name == current || !name.StartsWith(RecordPrefix, StringComparison.Ordinal) || Parse(records.Read(name)) is not { } record)
+            {
+                continue;
+            }
+
+            bool pathKeyed = record.Version == PathKeyedVersion;
+            bool mine = pathKeyed
+                ? name == RecordPrefix + place || record.Vault == fingerprint
+                : record.Version == Version && record.Authenticator == authenticator.Id
+                    && (record.Vault == fingerprint || retired.Contains(record.Vault) || record.Place == place);
+            if (mine)
+            {
+                // Only touch the authenticator key the record's own name implies, whatever the record says.
+                var ownKey = pathKeyed ? KeyNamePrefix + name[RecordPrefix.Length..]
+                    : record.Vault is not null && name == RecordNameFor(record.Vault) && name != current ? KeyNameFor(record.Vault) : null;
+                related.Add(new Saved(name, record.KeyName == ownKey ? ownKey : null, record.Vault, pathKeyed));
+            }
+        }
+
+        return related;
+    }
+
+    async Task<bool> RemoveRelatedAsync(VaultFileStore vault, string? fingerprint, bool deleteKeys)
+    {
+        var related = Related(vault, fingerprint);
+        foreach (var record in related)
+        {
+            records.Delete(record.Name);
+            if (deleteKeys)
+            {
+                if (IsOurKeyName(record.KeyName)) await DeleteKeyQuietlyAsync(record.KeyName!);
+            }
+            else
+            {
+                Retire(record.KeyName);
+            }
+        }
+
+        return related.Count > 0;
+    }
+
+    /// <summary>A record that can provably never open the vault again: delete it, but only note its key for later.</summary>
+    void RemoveStale(string name, Record record, string reason)
+    {
+        records.Delete(name);
+        Retire(record.KeyName);
         Logger.LogInformation("{Authenticator} unlock turned off: {Reason}", Name, reason);
     }
 
-    Record? ReadRecord(VaultFileStore vault)
+    /// <summary>Keeps the record's note of where the vault is up to date, so it's found if the vault's password changes there.</summary>
+    void NotePlace(string name, Record record, VaultFileStore vault)
     {
-        var bytes = records.Read(RecordName(vault));
+        var place = PlaceOf(vault);
+        if (record.Place == place)
+        {
+            return;
+        }
+
+        try
+        {
+            records.Write(name, JsonSerializer.SerializeToUtf8Bytes(record with { Place = place }, JsonOptions));
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Logger.LogWarning("Couldn't update the saved {Authenticator} key: {Message}", Name, e.Message);
+        }
+    }
+
+    /// <summary>Notes an authenticator key whose record is gone, to delete when the user next turns this on or off.</summary>
+    void Retire(string? keyName)
+    {
+        if (!IsOurKeyName(keyName))
+        {
+            return;
+        }
+
+        try
+        {
+            var retired = RetiredKeys();
+            if (!retired.Contains(keyName!))
+            {
+                retired.Add(keyName!);
+                records.Write(RetiredKeysRecord, JsonSerializer.SerializeToUtf8Bytes(retired, JsonOptions));
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Logger.LogWarning("Couldn't note an old {Authenticator} key for deletion: {Message}", Name, e.Message);
+        }
+    }
+
+    List<string> RetiredKeys()
+    {
+        try
+        {
+            return records.Read(RetiredKeysRecord) is { } bytes ? JsonSerializer.Deserialize<List<string>>(bytes, JsonOptions) ?? [] : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    /// <param name="keep">The key just made by turning it on, never deleted here.</param>
+    async Task DeleteRetiredKeysAsync(string? keep = null)
+    {
+        var retired = RetiredKeys();
+        foreach (var keyName in retired)
+        {
+            if (IsOurKeyName(keyName) && keyName != keep) await DeleteKeyQuietlyAsync(keyName);
+        }
+
+        if (retired.Count > 0)
+        {
+            records.Delete(RetiredKeysRecord);
+        }
+    }
+
+    static bool IsOurKeyName(string? keyName) => keyName is not null && keyName.StartsWith(KeyNamePrefix, StringComparison.Ordinal);
+
+    async Task DeleteKeyQuietlyAsync(string keyName)
+    {
+        try
+        {
+            await authenticator.DeleteAsync(keyName);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            // With its record gone the key opens nothing; it's only left as clutter.
+            Logger.LogWarning("Couldn't delete the {Authenticator} key: {Message}", Name, e.Message);
+        }
+    }
+
+    /// <summary>The record for <paramref name="fingerprint"/>, if one is saved and fits. A damaged one is dropped.</summary>
+    Record? ReadCurrent(string fingerprint)
+    {
+        var name = RecordNameFor(fingerprint);
+        var bytes = records.Read(name);
+        if (bytes is null)
+        {
+            return null;
+        }
+
+        var record = Parse(bytes);
+        if (record is { Format: Format, Version: Version, Nonce: not null, Ciphertext: not null }
+            && record.Authenticator == authenticator.Id && record.KeyName == KeyNameFor(fingerprint) && record.Vault == fingerprint
+            && DecodedLength(record.Challenge) == ChallengeSize)
+        {
+            return record;
+        }
+
+        // Damaged, or not for this vault: it can't open anything, so drop it. If it named this vault's own key, that's
+        // deleted the next time this is turned on or off; a key named for another vault is left alone.
+        Logger.LogWarning("The saved {Authenticator} key for the vault isn't readable; removed it", Name);
+        records.Delete(name);
+        if (record?.KeyName == KeyNameFor(fingerprint))
+        {
+            Retire(record.KeyName);
+        }
+
+        return null;
+    }
+
+    static Record? Parse(byte[]? bytes)
+    {
         if (bytes is null)
         {
             return null;
@@ -289,22 +618,24 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
 
         try
         {
-            var record = JsonSerializer.Deserialize<Record>(bytes, JsonOptions);
-            if (record is { Format: Format, Version: Version, Vault: not null, Nonce: not null, Ciphertext: not null }
-                && record.Authenticator == authenticator.Id && record.KeyName == KeyName(vault) && DecodedLength(record.Challenge) == ChallengeSize)
-            {
-                return record;
-            }
+            return JsonSerializer.Deserialize<Record>(bytes, JsonOptions) is { Format: Format } record ? record : null;
         }
         catch (JsonException)
         {
+            return null;
         }
+    }
 
-        // Damaged, or not for this vault: it can't open anything, so drop it. The authenticator's key is replaced the
-        // next time this is turned on.
-        Logger.LogWarning("The saved {Authenticator} key for the vault isn't readable; removed it", Name);
-        records.Delete(RecordName(vault));
-        return null;
+    static string? FingerprintOf(VaultFileStore vault)
+    {
+        try
+        {
+            return vault.KeyFingerprint();
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     static int DecodedLength(string? base64)
@@ -313,12 +644,18 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         return base64 is not null && Convert.TryFromBase64String(base64, buffer, out int written) ? written : -1;
     }
 
+    string AlreadyAsking => $"{Name} is already asking in another window. Answer it there, or use the master password.";
+
     /// <summary>Platform interop can fail in ways no status covers; report those as a failed attempt.</summary>
-    async Task<AuthenticatorResult> Ask(Func<Task<AuthenticatorResult>> call)
+    async Task<AuthenticatorResult> Ask(Func<Task<AuthenticatorResult>> call, CancellationToken cancel)
     {
         try
         {
             return await call();
+        }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            return new(AuthenticatorStatus.Cancelled);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -327,7 +664,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
     }
 
-    byte[]? Unwrap(byte[] secret, Record record)
+    static byte[]? Unwrap(byte[] secret, Record record)
     {
         try
         {
@@ -340,10 +677,16 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
     }
 
+    /// <summary>
+    /// The data key in a saved record, given the authenticator's secret for it, without checking which vault it's
+    /// for. Tests use it to show an old record really holds an old data key.
+    /// </summary>
+    internal static byte[]? UnwrapForTests(byte[] recordBytes, byte[] secret) => Parse(recordBytes) is { } record ? Unwrap(secret, record) : null;
+
     static Key WrappingKey(byte[] secret, Record record)
     {
         var bytes = HKDF.DeriveKey(HashAlgorithmName.SHA256, secret, KeySize, Convert.FromBase64String(record.Challenge),
-            Encoding.UTF8.GetBytes($"{Format}|v{Version}|{record.Authenticator}|{record.KeyName}"));
+            Encoding.UTF8.GetBytes($"{Format}|v{record.Version}|{record.Authenticator}|{record.KeyName}"));
         try
         {
             return Key.Import(Aead, bytes, KeyBlobFormat.RawSymmetricKey);
@@ -354,11 +697,23 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
     }
 
+    // The place is left out: it's only a hint for finding stale records, and is updated as the vault moves.
     static byte[] AssociatedData(Record record) =>
-        Encoding.UTF8.GetBytes($"{Format}|v{Version}|{record.Authenticator}|{record.KeyName}|challenge={record.Challenge}|vault={record.Vault}");
+        Encoding.UTF8.GetBytes($"{Format}|v{record.Version}|{record.Authenticator}|{record.KeyName}|challenge={record.Challenge}|vault={record.Vault}");
 
-    /// <summary>One per vault file, so an installed vault and a portable one don't share a key.</summary>
-    static string VaultId(VaultFileStore vault)
+    /// <summary>
+    /// The vault's identity for records and keys: derived from its key block, so it's the same wherever the file is
+    /// and new after every master password change.
+    /// </summary>
+    static string VaultId(string fingerprint) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{Format}|vault-id|{fingerprint}")))[..32].ToLowerInvariant();
+
+    internal static string RecordNameFor(string fingerprint) => RecordPrefix + VaultId(fingerprint);
+
+    internal static string KeyNameFor(string fingerprint) => KeyNamePrefix + VaultId(fingerprint);
+
+    /// <summary>Where the vault file is, hashed: the name the first test builds gave the record, and the hint kept in each record now.</summary>
+    internal static string PlaceOf(VaultFileStore vault)
     {
         var path = Path.GetFullPath(vault.FilePath);
         if (OperatingSystem.IsWindows())
@@ -369,9 +724,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path)))[..32].ToLowerInvariant();
     }
 
-    static string RecordName(VaultFileStore vault) => RecordPrefix + VaultId(vault);
-
-    static string KeyName(VaultFileStore vault) => "Orrery vault " + VaultId(vault);
+    sealed record Saved(string Name, string? KeyName, string? Vault, bool PathKeyed);
 
     sealed record Record(
         string Format,
@@ -381,5 +734,6 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         string Challenge,
         string Vault,
         string Nonce,
-        [property: System.Text.Json.Serialization.JsonPropertyName("ct")] string Ciphertext);
+        [property: JsonPropertyName("ct")] string Ciphertext,
+        string? Place = null);
 }
