@@ -91,7 +91,14 @@ sealed class SessionLogger
         }
     }
 
-    string Reason() => string.IsNullOrWhiteSpace(_tab.LastMessage) ? string.Empty : ": " + _tab.LastMessage;
+    /// <summary>The session's message, and for a failure what kind it was taken for when that's known.</summary>
+    string Reason()
+    {
+        var reason = string.IsNullOrWhiteSpace(_tab.LastMessage) ? string.Empty : ": " + _tab.LastMessage;
+        return _tab.Session.State == SessionState.Failed && _tab.Failure is { Kind: not FailureKind.Other } failure
+            ? $"{reason} [{failure.Kind}{(failure.Hop is null ? string.Empty : $" {failure.Cause} at {failure.Hop}")}]"
+            : reason;
+    }
 
     /// <summary>"42 s", "12 min 5 s" or "3 h 20 min".</summary>
     internal static string Duration(TimeSpan span) => span switch
