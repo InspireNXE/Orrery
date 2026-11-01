@@ -7,4 +7,7 @@
     <PackageReference Include="Devolutions.IronRdp" Version="$(IronRdpVersion)" />
     <ProjectReference Include="..\Orrery.Core\Orrery.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orrery.App.Tests" />
+  </ItemGroup>
 </Project>

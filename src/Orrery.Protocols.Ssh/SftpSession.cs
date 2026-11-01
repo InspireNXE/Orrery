@@ -78,7 +78,7 @@ public sealed class SftpSession : IConnectionSession
 
             var client = new SftpClient(SshSession.ConnectionInfoFor(host, port, login, _allowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
             hostKey = HostKeyCheck.Attach(client, _hostKeys, Target);
-            client.ErrorOccurred += (_, e) => Fail(SshSession.Describe(e.Exception, _allowLegacy));
+            client.ErrorOccurred += (_, e) => Fail(SshSession.Describe(e.Exception, _allowLegacy), SshSession.Recognise(e.Exception));
             lock (_lock)
             {
                 if (_closing)
@@ -100,21 +100,21 @@ public sealed class SftpSession : IConnectionSession
         }
         catch (RouteException e)
         {
-            Fail(e.Message);
+            Fail(e.Message, e);
         }
-        catch (SshConnectionException) when (hostKey?.Rejected == true)
+        catch (SshConnectionException e) when (hostKey?.Rejected == true)
         {
-            Fail("The server's host key was not trusted.");
+            Fail("The server's host key was not trusted.", hostKey.Failure("The server's host key was not trusted.", e));
         }
         catch (SshAuthenticationException e)
         {
             AuthenticationRejected = true;
-            Fail(SshSession.Refusal(e, login));
+            Fail(SshSession.Refusal(e, login), SshSession.Recognise(e));
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Sftp").LogError(e, "SFTP session to {Host} failed", Target.Host);
-            Fail(e is SftpPathNotFoundException ? "The server has no SFTP subsystem." : SshSession.Describe(e, _allowLegacy));
+            Fail(e is SftpPathNotFoundException ? "The server has no SFTP subsystem." : SshSession.Describe(e, _allowLegacy), SshSession.Recognise(e));
         }
     }
 
@@ -383,7 +383,7 @@ public sealed class SftpSession : IConnectionSession
         }
         catch (SshConnectionException e)
         {
-            Fail("The connection was lost.");
+            Fail("The connection was lost.", SshSession.Recognise(e));
             throw new SftpException("The connection was lost.", e);
         }
         catch (Exception e) when (e is SshException or IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -430,13 +430,13 @@ public sealed class SftpSession : IConnectionSession
 
     public async ValueTask DisposeAsync() => await DisconnectAsync();
 
-    void Fail(string message)
+    void Fail(string message, Exception? error = null)
     {
         if (State is SessionState.Disconnected or SessionState.Failed) return;
-        SetState(SessionState.Failed, message);
+        SetState(SessionState.Failed, message, error);
     }
 
-    void SetState(SessionState state, string? message = null)
+    void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         lock (_lock)
         {
@@ -444,7 +444,7 @@ public sealed class SftpSession : IConnectionSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
     }
 }
 
