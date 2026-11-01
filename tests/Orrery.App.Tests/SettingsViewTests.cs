@@ -19,6 +19,67 @@ public class SettingsViewTests : IDisposable
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
     [AvaloniaFact]
+    public void A_side_list_picks_one_page_at_a_time_and_the_last_one_is_remembered()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var list = Assert.Single(window.GetVisualDescendants().OfType<ListBox>(), l => l.Classes.Contains("side"));
+        Assert.Equal("Settings pages", AutomationProperties.GetName(list));
+        Assert.Equal(["General", "Appearance", "Sessions", "Data and security", "About"], list.Items.OfType<ListBoxItem>().Select(i => (string)i.Content!));
+        Assert.Equal("General", view.CurrentPage);
+        Assert.Null(settings.Load().SettingsPage);
+
+        // Every section sits on exactly one page, and only that page's headings show.
+        static List<string> Headings(Window w) =>
+            w.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Classes.Contains("section") && t.IsEffectivelyVisible).Select(t => t.Text!).ToList();
+        Assert.Equal(["START-UP", "KEYBOARD", "HOST STATUS"], Headings(window));
+
+        list.SelectedItem = list.Items.OfType<ListBoxItem>().Single(i => Equals(i.Content, "Appearance"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Appearance", view.CurrentPage);
+        Assert.Equal(["COLOURS", "ACCESSIBILITY"], Headings(window));
+        Assert.Equal("Appearance", settings.Load().SettingsPage);
+        window.Close();
+
+        var again = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        Assert.Equal("Appearance", again.CurrentPage);
+
+        var all = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        var shown = new List<string>();
+        var allWindow = new Window { Content = all };
+        allWindow.Show();
+        foreach (var page in new[] { "General", "Appearance", "Sessions", "Data and security", "About" })
+        {
+            all.ShowPage(page);
+            Dispatcher.UIThread.RunJobs();
+            shown.AddRange(Headings(allWindow));
+        }
+
+        Assert.Equal(12, shown.Count);
+        Assert.Equal(shown.Count, shown.Distinct().Count());
+        allWindow.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_remembered_page_that_no_longer_exists_opens_the_first()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        settings.Save(new AppSettings { SettingsPage = "Gone" });
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+
+        Assert.Equal("General", view.CurrentPage);
+    }
+
+    [AvaloniaFact]
     public void Records_a_full_screen_shortcut_and_refuses_one_that_types_a_character()
     {
         var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
