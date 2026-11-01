@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using Orrery.Core.Credentials;
+using Orrery.Core.Storage;
 using Xunit;
 
 namespace Orrery.Core.Tests.Credentials;
@@ -9,6 +10,7 @@ namespace Orrery.Core.Tests.Credentials;
 /// <summary>
 /// Stands in for Windows Hello or Touch ID: each key is a random secret that only "the authenticator" holds, and the
 /// released secret is an HMAC of the challenge under it, so the same key and challenge always give the same answer.
+/// Never touches the real Windows Hello.
 /// </summary>
 public sealed class FakeAuthenticator : IPlatformAuthenticator
 {
@@ -23,7 +25,24 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
     /// <summary>What the next prompt answers instead of succeeding; null to succeed.</summary>
     public AuthenticatorStatus? NextAnswer { get; set; }
 
+    /// <summary>Whether a new key is shown to be held in hardware.</summary>
+    public bool InHardware { get; set; } = true;
+
+    /// <summary>How many bytes of each secret to hand out; null for all 32.</summary>
+    public int? SecretLength { get; set; }
+
+    /// <summary>
+    /// While set, a prompt stays up until this is completed (or, when <see cref="HonoursCancel"/>, cancelled), as a
+    /// person deciding would.
+    /// </summary>
+    public TaskCompletionSource? Hold { get; set; }
+
+    /// <summary>Whether a held prompt gives up when cancelled. False is an authenticator that answers anyway.</summary>
+    public bool HonoursCancel { get; set; } = true;
+
     public int Prompts { get; private set; }
+
+    public bool SawCancel { get; private set; }
 
     public List<string> Deleted { get; } = [];
 
@@ -34,25 +53,25 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
 
     public Task<string?> CheckAvailableAsync() => Task.FromResult(Unavailable);
 
-    public Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window)
+    public async Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel)
     {
-        if (Answer() is { } answer)
+        if (await Answer(cancel) is { } answer)
         {
-            return Task.FromResult(answer);
+            return answer;
         }
 
         _keys[keyName] = RandomNumberGenerator.GetBytes(32);
-        return Task.FromResult(Sign(keyName, challenge));
+        return Sign(keyName, challenge) with { HardwareBacked = InHardware };
     }
 
-    public Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window)
+    public async Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel)
     {
-        if (Answer() is { } answer)
+        if (await Answer(cancel) is { } answer)
         {
-            return Task.FromResult(answer);
+            return answer;
         }
 
-        return Task.FromResult(_keys.ContainsKey(keyName) ? Sign(keyName, challenge) : new AuthenticatorResult(AuthenticatorStatus.KeyGone, Message: "The test key is gone."));
+        return _keys.ContainsKey(keyName) ? Sign(keyName, challenge) : new AuthenticatorResult(AuthenticatorStatus.KeyGone, Message: "The test key is gone.");
     }
 
     public Task DeleteAsync(string keyName)
@@ -62,15 +81,41 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
         return Task.CompletedTask;
     }
 
+    /// <summary>The secret for a key and challenge, as a prompt the user passed would give it.</summary>
+    public byte[] SecretFor(string keyName, byte[] challenge) => HMACSHA256.HashData(_keys[keyName], challenge);
+
     /// <summary>As if the platform replaced the key behind Orrery's back: same name, different secret.</summary>
     public void ReplaceKey(string keyName) => _keys[keyName] = RandomNumberGenerator.GetBytes(32);
 
-    /// <summary>As if Windows Hello were reset or the enrolled fingers changed.</summary>
+    /// <summary>As if Windows Hello were reset, or couldn't find its keys this time.</summary>
     public void LoseKeys() => _keys.Clear();
 
-    AuthenticatorResult? Answer()
+    async Task<AuthenticatorResult?> Answer(CancellationToken cancel)
     {
         Prompts++;
+        if (Hold is { } hold)
+        {
+            using (cancel.Register(() => SawCancel = true))
+            {
+                if (HonoursCancel)
+                {
+                    try
+                    {
+                        await hold.Task.WaitAsync(cancel);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        SawCancel = true;
+                        return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+                    }
+                }
+                else
+                {
+                    await hold.Task;
+                }
+            }
+        }
+
         if (NextAnswer is not { } status)
         {
             return null;
@@ -82,7 +127,7 @@ public sealed class FakeAuthenticator : IPlatformAuthenticator
 
     AuthenticatorResult Sign(string keyName, byte[] challenge)
     {
-        LastSecret = HMACSHA256.HashData(_keys[keyName], challenge);
+        LastSecret = SecretFor(keyName, challenge)[..(SecretLength ?? 32)];
         return AuthenticatorResult.Released(LastSecret.ToArray());
     }
 }
@@ -105,19 +150,31 @@ public sealed class MemorySecrets : ISecretBackend
     public byte[]? Read(string key) => Items.TryGetValue(key, out var secret) ? secret.ToArray() : null;
 
     public void Delete(string key) => Items.Remove(key);
+
+    public IReadOnlyList<string> List(string prefix) => Items.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+
+    /// <summary>The biometric unlock records, without the list of keys waiting to be deleted.</summary>
+    public List<KeyValuePair<string, byte[]>> Records => Items.Where(i => i.Key.StartsWith(BiometricUnlock.RecordPrefix, StringComparison.Ordinal)).ToList();
+}
+
+public sealed class FakeRemoteSession : IRemoteSession
+{
+    public bool IsRemote { get; set; }
 }
 
 public class BiometricUnlockTests : IDisposable
 {
     static readonly VaultFileStore.KdfSettings FastKdf = new(MemoryKiB: 8 * 1024, Iterations: 1);
     const string Password = "correct horse battery staple";
+    const string NewPassword = "a brand new password";
 
     readonly string _dir = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
     readonly FakeAuthenticator _hello = new();
     readonly MemorySecrets _records = new();
+    readonly FakeRemoteSession _remote = new();
     readonly Credential _saved = new(Guid.NewGuid(), "corp admin", CredentialKind.Password, "admin", "corp", "Sup3r-Secret!");
 
-    BiometricUnlock Biometric => new(_hello, _records);
+    BiometricUnlock Biometric => new(_hello, _records, _remote);
 
     string VaultPath => Path.Combine(_dir, "vault.frv");
 
@@ -233,11 +290,79 @@ public class BiometricUnlockTests : IDisposable
     }
 
     [Fact]
+    public async Task Cancelling_dismisses_the_prompt_and_leaves_the_vault_locked()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        using var cancel = new CancellationTokenSource();
+
+        var unlocking = Biometric.UnlockAsync(vault, cancel: cancel.Token);
+        Assert.False(unlocking.IsCompleted);
+        cancel.Cancel();
+
+        Assert.Equal(BiometricOutcome.Cancelled, (await unlocking.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
+        Assert.True(_hello.SawCancel);
+        Assert.True(vault.IsLocked);
+        Assert.True(Biometric.IsOn(vault));
+    }
+
+    [Fact]
+    public async Task An_answer_that_comes_after_cancelling_doesnt_unlock_the_vault()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        _hello.HonoursCancel = false; // The user passed the prompt just as the window closed.
+        using var cancel = new CancellationTokenSource();
+
+        var unlocking = Biometric.UnlockAsync(vault, cancel: cancel.Token);
+        cancel.Cancel();
+        _hello.Hold.SetResult();
+
+        Assert.Equal(BiometricOutcome.Cancelled, (await unlocking.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
+        Assert.True(vault.IsLocked);
+    }
+
+    [Fact]
+    public async Task Cancelling_while_the_vault_opens_locks_it_again()
+    {
+        using var vault = await NewVaultAsync();
+        var (dataKey, fingerprint) = await vault.DataKeyForAsync(Password);
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => vault.UnlockWithDataKeyAsync(dataKey, fingerprint, cancel.Token));
+
+        Assert.True(vault.IsLocked);
+    }
+
+    [Fact]
+    public async Task Only_one_prompt_at_a_time()
+    {
+        using var vault = await NewVaultAsync();
+        var biometric = Biometric;
+        await biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        int prompts = _hello.Prompts;
+
+        var first = biometric.UnlockAsync(vault);
+        var second = await biometric.UnlockAsync(vault);
+
+        Assert.Equal(BiometricOutcome.Failed, second.Outcome);
+        Assert.Contains("already asking", second.Message);
+        Assert.Equal(prompts + 1, _hello.Prompts);
+        _hello.Hold.SetResult();
+        Assert.Equal(BiometricOutcome.Done, (await first.WaitAsync(TimeSpan.FromSeconds(10))).Outcome);
+    }
+
+    [Fact]
     public async Task Changing_the_master_password_turns_it_off_and_says_why()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        await vault.ChangePasswordAsync(Password, "a brand new password");
+        var oldKey = Assert.Single(_hello.KeyNames);
+        await vault.ChangePasswordAsync(Password, NewPassword);
         vault.Lock();
         int prompts = _hello.Prompts;
 
@@ -248,8 +373,33 @@ public class BiometricUnlockTests : IDisposable
         Assert.Equal(prompts, _hello.Prompts); // Found out before asking for a finger.
         Assert.True(vault.IsLocked);
         Assert.False(Biometric.IsOn(vault));
-        Assert.Empty(_hello.KeyNames);
-        await vault.UnlockAsync("a brand new password");
+        Assert.Empty(_records.Records);
+        await vault.UnlockAsync(NewPassword);
+
+        // The authenticator's key isn't deleted by itself, only when the user next turns this on or off.
+        Assert.Empty(_hello.Deleted);
+        vault.Lock();
+        Assert.Equal(BiometricOutcome.Done, (await Biometric.TurnOnAsync(vault, NewPassword)).Outcome);
+        Assert.Contains(oldKey, _hello.Deleted);
+        Assert.DoesNotContain(oldKey, _hello.KeyNames);
+        Assert.Single(_records.Items);
+    }
+
+    [Fact]
+    public async Task A_password_change_made_by_another_copy_of_Orrery_is_noticed_where_the_vault_is()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+
+        // Another copy, which knows nothing of this one's history, changes the password.
+        using (var elsewhere = new VaultFileStore(VaultPath, FastKdf))
+        {
+            await elsewhere.ChangePasswordAsync(Password, NewPassword);
+        }
+
+        using var reopened = new VaultFileStore(VaultPath, FastKdf);
+        Assert.Contains("master password was changed", await Biometric.TurnOffIfStaleAsync(reopened));
+        Assert.Empty(_records.Records);
     }
 
     [Fact]
@@ -259,43 +409,87 @@ public class BiometricUnlockTests : IDisposable
         await Biometric.TurnOnAsync(vault, Password);
         Assert.Null(await Biometric.TurnOffIfStaleAsync(vault));
 
-        await vault.ChangePasswordAsync(Password, "a brand new password");
+        await vault.ChangePasswordAsync(Password, NewPassword);
         int prompts = _hello.Prompts;
 
         Assert.Contains("turned off", await Biometric.TurnOffIfStaleAsync(vault));
         Assert.Equal(prompts, _hello.Prompts);
         Assert.False(Biometric.IsOn(vault));
+        Assert.Empty(_hello.Deleted);
     }
 
     [Fact]
-    public async Task An_old_copy_of_the_record_cant_open_the_vault_after_a_password_change()
+    public async Task Turning_it_off_after_a_password_change_deletes_the_old_record_and_key()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        var oldRecord = _records.Items.ToDictionary(r => r.Key, r => r.Value);
-        await vault.ChangePasswordAsync(Password, "a brand new password");
+        var oldKey = Assert.Single(_hello.KeyNames);
+        await vault.ChangePasswordAsync(Password, NewPassword);
+
+        // What Settings does after the change.
+        Assert.True(await Biometric.TurnOffAsync(vault));
+
+        Assert.Empty(_records.Items);
+        Assert.Contains(oldKey, _hello.Deleted);
+        Assert.Empty(_hello.KeyNames);
+        Assert.False(await Biometric.TurnOffAsync(vault)); // Nothing left.
+    }
+
+    [Fact]
+    public async Task An_old_copy_of_the_record_holds_a_data_key_that_no_longer_opens_the_vault()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var oldRecord = Assert.Single(_records.Items).Value;
+        await vault.ChangePasswordAsync(Password, NewPassword);
         vault.Lock();
 
-        // Put the old record back, even with the authenticator's key: the vault's data key has changed.
-        foreach (var (key, value) in oldRecord) _records.Items[key] = value;
-        Assert.Equal(BiometricOutcome.TurnedOff, (await Biometric.UnlockAsync(vault)).Outcome);
+        // Someone kept the old record and can still pass the prompt for its key: the record decrypts, and holds the
+        // data key from before the change.
+        var record = JsonNode.Parse(oldRecord)!;
+        var secret = _hello.SecretFor((string)record["keyName"]!, Convert.FromBase64String((string)record["challenge"]!));
+        var oldDataKey = BiometricUnlock.UnwrapForTests(oldRecord, secret);
+        Assert.NotNull(oldDataKey);
+
+        // Even pointed at the vault's current key block, so no fingerprint check stops it, that key can't decrypt
+        // anything: the change made a new data key.
+        var current = vault.KeyFingerprint()!;
+        await Assert.ThrowsAsync<InvalidDataException>(() => vault.UnlockWithDataKeyAsync(oldDataKey!, current));
         Assert.True(vault.IsLocked);
+
+        // And put back where Orrery would look for it now, it's refused without a prompt.
+        _records.Items[BiometricUnlock.RecordNameFor(current)] = oldRecord;
+        int prompts = _hello.Prompts;
+        Assert.Equal(BiometricOutcome.TurnedOff, (await Biometric.UnlockAsync(vault)).Outcome);
+        Assert.Equal(prompts, _hello.Prompts);
+        Assert.True(vault.IsLocked);
+        Assert.Empty(_records.Records);
     }
 
     [Fact]
-    public async Task A_lost_key_turns_it_off_with_the_platforms_reason()
+    public async Task A_key_the_authenticator_cant_find_is_kept_and_only_stops_for_this_session()
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
+        var biometric = Biometric;
         _hello.LoseKeys();
 
-        var result = await Biometric.UnlockAsync(vault);
+        var result = await biometric.UnlockAsync(vault);
 
-        Assert.Equal(BiometricOutcome.TurnedOff, result.Outcome);
+        Assert.Equal(BiometricOutcome.Unavailable, result.Outcome);
         Assert.StartsWith("The test key is gone.", result.Message);
-        Assert.Contains("turn it on again in Settings", result.Message);
-        Assert.False(Biometric.IsOn(vault));
+        Assert.Contains("off and on again in Settings", result.Message);
         Assert.True(vault.IsLocked);
+
+        // Nothing is deleted: the record stays, and the authenticator's key is never deleted by itself.
+        Assert.True(biometric.IsOn(vault));
+        Assert.Single(_records.Records);
+        Assert.Empty(_hello.Deleted);
+
+        // Not asked again this session.
+        int prompts = _hello.Prompts;
+        Assert.Equal(BiometricOutcome.Unavailable, (await biometric.UnlockAsync(vault)).Outcome);
+        Assert.Equal(prompts, _hello.Prompts);
     }
 
     [Fact]
@@ -303,7 +497,8 @@ public class BiometricUnlockTests : IDisposable
     {
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
-        _hello.ReplaceKey(Assert.Single(_hello.KeyNames));
+        var key = Assert.Single(_hello.KeyNames);
+        _hello.ReplaceKey(key);
 
         var result = await Biometric.UnlockAsync(vault);
 
@@ -311,6 +506,7 @@ public class BiometricUnlockTests : IDisposable
         Assert.Contains("no longer matches", result.Message);
         Assert.True(vault.IsLocked);
         Assert.False(Biometric.IsOn(vault));
+        Assert.Empty(_hello.Deleted); // The record goes; the key waits for the user.
     }
 
     [Theory]
@@ -352,15 +548,16 @@ public class BiometricUnlockTests : IDisposable
         using var second = await NewVaultAsync(Path.Combine(_dir, "other", "vault.frv"));
         await Biometric.TurnOnAsync(first, Password);
         await Biometric.TurnOnAsync(second, Password);
-        Assert.Equal(2, _records.Items.Count);
+        Assert.Equal(2, _records.Records.Count);
         Assert.Equal(2, _hello.KeyNames.Count);
 
-        // The first vault's record copied into the second's slot is refused.
-        var firstRecord = _records.Items.Single(r => r.Key != RecordNameOf(second)).Value;
-        _records.Items[RecordNameOf(second)] = firstRecord;
+        // The first vault's record copied into the second's slot is refused, and the first's key is left alone.
+        var secondName = BiometricUnlock.RecordNameFor(second.KeyFingerprint()!);
+        _records.Items[secondName] = _records.Records.Single(r => r.Key != secondName).Value;
         Assert.Equal(BiometricOutcome.NotOn, (await Biometric.UnlockAsync(second)).Outcome);
         Assert.True(second.IsLocked);
 
+        await Biometric.TurnOnAsync(second, Password);
         Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(first)).Outcome);
     }
 
@@ -370,7 +567,7 @@ public class BiometricUnlockTests : IDisposable
         using var vault = await NewVaultAsync();
         await Biometric.TurnOnAsync(vault, Password);
 
-        await Biometric.TurnOffAsync(vault);
+        Assert.True(await Biometric.TurnOffAsync(vault));
 
         Assert.False(Biometric.IsOn(vault));
         Assert.Empty(_records.Items);
@@ -389,6 +586,198 @@ public class BiometricUnlockTests : IDisposable
         Assert.Single(_records.Items);
         Assert.Single(_hello.KeyNames);
         Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(vault)).Outcome);
+    }
+
+    // ---- Where the vault is doesn't matter ----
+
+    [Fact]
+    public async Task It_keeps_working_after_the_vault_file_moves()
+    {
+        using (var vault = await NewVaultAsync())
+        {
+            await Biometric.TurnOnAsync(vault, Password);
+        }
+
+        var moved = Path.Combine(_dir, "moved", "elsewhere", "vault.frv");
+        Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+        File.Move(VaultPath, moved);
+
+        using var there = new VaultFileStore(moved, FastKdf);
+        Assert.True(Biometric.IsOn(there));
+        Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(there)).Outcome);
+        Assert.Equal(_saved, await there.GetAsync(_saved.Id));
+
+        // The record now notes the new place, so a password change there is found too.
+        var record = JsonNode.Parse(Assert.Single(_records.Items).Value)!;
+        Assert.Equal(BiometricUnlock.PlaceOf(there), (string?)record["place"]);
+    }
+
+    [WindowsFact]
+    public async Task It_keeps_working_when_the_drive_letter_changes()
+    {
+        using (var vault = await NewVaultAsync())
+        {
+            await Biometric.TurnOnAsync(vault, Password);
+        }
+
+        // The same file reached through a path that differs from the root up, as it does when Windows gives the
+        // drive a new letter. (Changing a real drive letter needs an administrator, so the \\?\ form stands in.)
+        var differentRoot = @"\\?\" + Path.GetFullPath(VaultPath);
+        using var there = new VaultFileStore(differentRoot, FastKdf);
+        using var here = new VaultFileStore(VaultPath, FastKdf);
+        Assert.NotEqual(BiometricUnlock.PlaceOf(here), BiometricUnlock.PlaceOf(there));
+
+        Assert.True(Biometric.IsOn(there));
+        Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(there)).Outcome);
+    }
+
+    [Fact]
+    public async Task It_keeps_working_after_move_data_and_turning_it_off_covers_both_copies()
+    {
+        var oldDir = Path.Combine(_dir, "old");
+        var newDir = Path.Combine(_dir, "new");
+        Directory.CreateDirectory(oldDir);
+        using (var vault = await NewVaultAsync(Path.Combine(oldDir, "vault.frv")))
+        {
+            await Biometric.TurnOnAsync(vault, Password);
+        }
+
+        DataMover.Copy(oldDir, newDir);
+
+        using var moved = new VaultFileStore(Path.Combine(newDir, "vault.frv"), FastKdf);
+        Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(moved)).Outcome);
+        Assert.Equal(_saved, await moved.GetAsync(_saved.Id));
+
+        // The old copy is the same vault, so until it's deleted it opens too, and turning it off covers both.
+        using var old = new VaultFileStore(Path.Combine(oldDir, "vault.frv"), FastKdf);
+        Assert.True(Biometric.IsOn(old));
+        Assert.True(await Biometric.TurnOffAsync(moved));
+        Assert.False(Biometric.IsOn(old));
+        Assert.Empty(_records.Items);
+    }
+
+    [Fact]
+    public async Task Turning_it_off_leaves_nothing_saved_for_the_vault_or_its_earlier_passwords()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        await vault.ChangePasswordAsync(Password, NewPassword);
+        vault.Lock();
+        await Biometric.TurnOnAsync(vault, NewPassword);
+        Assert.Equal(2, _hello.Deleted.Count + _hello.KeyNames.Count); // The first key was replaced.
+
+        await Biometric.TurnOffAsync(vault);
+
+        Assert.Empty(_records.Items);
+        Assert.Empty(_hello.KeyNames);
+        Assert.Equal(BiometricOutcome.NotOn, (await Biometric.UnlockAsync(vault)).Outcome);
+    }
+
+    // ---- Records from the first test builds, named after the vault's path ----
+
+    [Fact]
+    public async Task A_path_keyed_record_is_removed_and_the_user_told()
+    {
+        using var vault = await NewVaultAsync();
+        var place = BiometricUnlock.PlaceOf(vault);
+        var legacyKey = "Orrery vault " + place;
+        var fingerprint = vault.KeyFingerprint()!;
+        _records.Items[BiometricUnlock.RecordPrefix + place] = Encoding.UTF8.GetBytes(new JsonObject
+        {
+            ["format"] = "orrery-biometric", ["version"] = 1, ["authenticator"] = "test-hello", ["keyName"] = legacyKey,
+            ["challenge"] = Convert.ToBase64String(new byte[32]), ["vault"] = fingerprint,
+            ["nonce"] = Convert.ToBase64String(new byte[24]), ["ct"] = Convert.ToBase64String(new byte[48]),
+        }.ToJsonString());
+        int prompts = _hello.Prompts;
+
+        var result = await Biometric.UnlockAsync(vault);
+
+        Assert.Equal(BiometricOutcome.TurnedOff, result.Outcome);
+        Assert.Contains("earlier test version", result.Message);
+        Assert.Equal(prompts, _hello.Prompts);
+        Assert.Empty(_records.Records);
+
+        // Its key goes when the user turns it on again.
+        Assert.Empty(_hello.Deleted);
+        await Biometric.TurnOnAsync(vault, Password);
+        Assert.Contains(legacyKey, _hello.Deleted);
+    }
+
+    // ---- What's refused ----
+
+    [Fact]
+    public async Task Nothing_is_offered_or_prompted_in_a_remote_session()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        int prompts = _hello.Prompts;
+        _remote.IsRemote = true;
+
+        Assert.Contains("remote session", await Biometric.CheckAvailableAsync());
+        var unlock = await Biometric.UnlockAsync(vault);
+        Assert.Equal(BiometricOutcome.Unavailable, unlock.Outcome);
+        Assert.Contains("master password", unlock.Message);
+        Assert.Equal(prompts, _hello.Prompts);
+        Assert.True(Biometric.IsOn(vault)); // Still on for when the user is back at the computer.
+
+        await Biometric.TurnOffAsync(vault);
+        var turnOn = await Biometric.TurnOnAsync(vault, Password);
+        Assert.Equal(BiometricOutcome.Failed, turnOn.Outcome);
+        Assert.Contains("remote session", turnOn.Message);
+        Assert.Equal(prompts, _hello.Prompts);
+        Assert.Empty(_records.Items);
+    }
+
+    [Fact]
+    public async Task Turning_on_is_refused_where_the_authenticator_isnt_available()
+    {
+        using var vault = await NewVaultAsync();
+        _hello.Unavailable = "No sensor.";
+
+        var result = await Biometric.TurnOnAsync(vault, Password);
+
+        Assert.Equal(BiometricOutcome.Failed, result.Outcome);
+        Assert.Equal("No sensor.", result.Message);
+        Assert.Equal(0, _hello.Prompts);
+        Assert.Empty(_records.Items);
+    }
+
+    [Fact]
+    public async Task A_key_not_shown_to_be_in_hardware_is_refused_and_deleted()
+    {
+        using var vault = await NewVaultAsync();
+        _hello.InHardware = false;
+
+        var result = await Biometric.TurnOnAsync(vault, Password);
+
+        Assert.Equal(BiometricOutcome.Failed, result.Outcome);
+        Assert.Contains("hardware", result.Message);
+        Assert.Empty(_records.Items);
+        Assert.Empty(_hello.KeyNames);
+        Assert.Single(_hello.Deleted);
+    }
+
+    [Fact]
+    public async Task A_secret_shorter_than_32_bytes_is_refused_when_turning_on()
+    {
+        using var vault = await NewVaultAsync();
+        _hello.SecretLength = BiometricUnlock.MinSecretSize - 1;
+
+        Assert.Equal(BiometricOutcome.Failed, (await Biometric.TurnOnAsync(vault, Password)).Outcome);
+        Assert.Empty(_records.Items);
+        Assert.Empty(_hello.KeyNames);
+    }
+
+    [Fact]
+    public async Task A_secret_shorter_than_32_bytes_is_refused_when_unlocking()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.SecretLength = 16;
+
+        Assert.Equal(BiometricOutcome.Failed, (await Biometric.UnlockAsync(vault)).Outcome);
+        Assert.True(vault.IsLocked);
+        Assert.True(Biometric.IsOn(vault));
     }
 
     [Fact]
@@ -411,14 +800,6 @@ public class BiometricUnlockTests : IDisposable
         {
             Assert.Equal("Windows Hello", BiometricUnlock.ForThisSystem()!.Name);
         }
-    }
-
-    string RecordNameOf(VaultFileStore vault)
-    {
-        // The record for a vault is the one that appears when it alone is turned on.
-        var probe = new MemorySecrets();
-        new BiometricUnlock(new FakeAuthenticator(), probe).TurnOnAsync(vault, Password).GetAwaiter().GetResult();
-        return Assert.Single(probe.Items).Key;
     }
 
     Dictionary<string, string> Snapshot() => Directory.GetFiles(_dir, "*", SearchOption.AllDirectories)

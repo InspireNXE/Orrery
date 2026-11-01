@@ -86,8 +86,9 @@ public class BiometricUnlockUiTests : IDisposable
         await Settle(() => Texts(window).Any(t => t.Contains("master password was changed")));
 
         Assert.True(vault.IsLocked);
-        Assert.False(Buttons(window).Single(b => b.Content as string == "Use Test Hello").IsVisible);
+        Assert.DoesNotContain(Buttons(window), b => b.IsVisible && b.Content as string == "Use Test Hello");
         Assert.False(Biometric.IsOn(vault));
+        Assert.Equal(1, _hello.Prompts); // Only the one that turned it on.
         window.Close();
     }
 
@@ -231,7 +232,7 @@ public class BiometricUnlockUiTests : IDisposable
     }
 }
 
-/// <summary>Stands in for Windows Hello: an HMAC of the challenge under a key only it holds.</summary>
+/// <summary>Stands in for Windows Hello: an HMAC of the challenge under a key only it holds. Never touches the real one.</summary>
 sealed class TestAuthenticator : IPlatformAuthenticator
 {
     readonly Dictionary<string, byte[]> _keys = [];
@@ -244,34 +245,56 @@ sealed class TestAuthenticator : IPlatformAuthenticator
 
     public AuthenticatorStatus? NextAnswer { get; set; }
 
+    /// <summary>While set, the prompt stays up until this completes; cancelling only gives up when <see cref="HonoursCancel"/>.</summary>
+    public TaskCompletionSource? Hold { get; set; }
+
+    public bool HonoursCancel { get; set; } = true;
+
+    public bool SawCancel { get; private set; }
+
     public int Prompts { get; private set; }
 
     public int Deleted { get; private set; }
 
     public Task<string?> CheckAvailableAsync() => Task.FromResult(Unavailable);
 
-    public Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window)
+    public async Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel)
     {
         _keys[keyName] = RandomNumberGenerator.GetBytes(32);
-        return ReleaseAsync(keyName, challenge, window);
+        return (await ReleaseAsync(keyName, challenge, window, cancel)) with { HardwareBacked = true };
     }
 
-    public Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window)
+    public async Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel)
     {
         Prompts++;
+        if (Hold is { } hold)
+        {
+            try
+            {
+                await (HonoursCancel ? hold.Task.WaitAsync(cancel) : hold.Task);
+            }
+            catch (OperationCanceledException)
+            {
+                SawCancel = true;
+                return new AuthenticatorResult(AuthenticatorStatus.Cancelled);
+            }
+
+            SawCancel |= cancel.IsCancellationRequested;
+        }
+
         if (NextAnswer is { } answer)
         {
             NextAnswer = null;
-            return Task.FromResult(new AuthenticatorResult(answer));
+            return new AuthenticatorResult(answer);
         }
 
         if (!_keys.TryGetValue(keyName, out var key))
         {
-            return Task.FromResult(new AuthenticatorResult(AuthenticatorStatus.KeyGone));
+            return new AuthenticatorResult(AuthenticatorStatus.KeyGone);
         }
 
         Secrets.Add(HMACSHA256.HashData(key, challenge));
-        return Task.FromResult(AuthenticatorResult.Released(Secrets[^1].ToArray()));
+        return AuthenticatorResult.Released(Secrets[^1].ToArray());
     }
 
     /// <summary>Every secret handed out, to check none reaches a file or the log.</summary>
@@ -298,4 +321,11 @@ sealed class MemorySecrets : ISecretBackend
     public byte[]? Read(string key) => Items.TryGetValue(key, out var secret) ? secret.ToArray() : null;
 
     public void Delete(string key) => Items.Remove(key);
+
+    public IReadOnlyList<string> List(string prefix) => Items.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+}
+
+sealed class TestRemoteSession : IRemoteSession
+{
+    public bool IsRemote { get; set; }
 }

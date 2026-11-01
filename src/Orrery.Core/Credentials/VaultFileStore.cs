@@ -55,6 +55,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     VaultFile? _file;
     DateTime _lastUsed;
     int _failedAttempts;
+    readonly List<string> _retiredFingerprints = [];
 
     public VaultFileStore(string path, KdfSettings? kdf = null, TimeSpan? autoLockAfter = null)
     {
@@ -265,10 +266,22 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     }
 
     /// <summary>
-    /// Opens the vault with a data key saved for biometric unlock. False, and still locked, when the file's key block
-    /// isn't <paramref name="fingerprint"/> any more (the master password was changed).
+    /// The key fingerprints this vault had before each master password change made through this object, oldest first.
+    /// Biometric unlock uses them to find saved keys left over from before the change.
     /// </summary>
-    internal Task<bool> UnlockWithDataKeyAsync(byte[] dataKey, string fingerprint) => Task.Run(() =>
+    internal IReadOnlyList<string> RetiredKeyFingerprints()
+    {
+        lock (_lock) return [.. _retiredFingerprints];
+    }
+
+    /// <summary>
+    /// Opens the vault with a data key saved for biometric unlock. False, and still locked, when the file's key block
+    /// isn't <paramref name="fingerprint"/> any more (the master password was changed). True without doing anything
+    /// when the vault is already open. If <paramref name="cancel"/> fires, the vault is left locked.
+    /// </summary>
+    /// <exception cref="OperationCanceledException"><paramref name="cancel"/> fired; the vault is locked.</exception>
+    /// <exception cref="InvalidDataException">The key block matches but the contents don't decrypt with this key.</exception>
+    internal Task<bool> UnlockWithDataKeyAsync(byte[] dataKey, string fingerprint, CancellationToken cancel = default) => Task.Run(() =>
     {
         var file = ReadFile();
         if (Fingerprint(file) != fingerprint)
@@ -276,7 +289,20 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             return false;
         }
 
+        if (!IsLocked)
+        {
+            return true;
+        }
+
+        cancel.ThrowIfCancellationRequested();
         OpenWith(file, dataKey);
+        if (cancel.IsCancellationRequested)
+        {
+            // Asked to stop while opening (the unlock window closed): don't leave it open behind the user's back.
+            Lock();
+            cancel.ThrowIfCancellationRequested();
+        }
+
         return true;
     });
 
@@ -358,6 +384,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                     }
 
                     previousKey?.Dispose();
+                    _retiredFingerprints.Add(Fingerprint(previousFile));
                     Logger.LogInformation("Vault master password changed");
                 }
             }

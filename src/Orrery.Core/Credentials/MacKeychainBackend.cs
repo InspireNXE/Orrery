@@ -14,6 +14,7 @@ public sealed class MacKeychainBackend : ISecretBackend
     const string Security = "/System/Library/Frameworks/Security.framework/Security";
     const string CoreFoundation = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
     const int ErrSecSuccess = 0, ErrSecItemNotFound = -25300;
+    const uint Utf8 = 0x08000100;
     static readonly byte[] Service = Encoding.UTF8.GetBytes("Orrery");
 
     public string Name => "the macOS Keychain";
@@ -101,6 +102,62 @@ public sealed class MacKeychainBackend : ISecretBackend
         }
     }
 
+    /// <summary>
+    /// Lists the accounts under service "Orrery" through SecItemCopyMatching, asking for attributes only, which reads no
+    /// secret and so doesn't prompt. Not yet checked on a Mac.
+    /// </summary>
+    public IReadOnlyList<string> List(string prefix)
+    {
+        var library = NativeLibrary.Load(Security);
+        IntPtr Key(string name) => Marshal.ReadIntPtr(NativeLibrary.GetExport(library, name));
+        var cf = NativeLibrary.Load(CoreFoundation);
+        var service = CFStringCreateWithCString(IntPtr.Zero, [.. Service, 0], Utf8);
+        IntPtr query = IntPtr.Zero, found = IntPtr.Zero;
+        try
+        {
+            IntPtr[] keys = [Key("kSecClass"), Key("kSecAttrService"), Key("kSecReturnAttributes"), Key("kSecMatchLimit")];
+            IntPtr[] values = [Key("kSecClassGenericPassword"), service, Marshal.ReadIntPtr(NativeLibrary.GetExport(cf, "kCFBooleanTrue")), Key("kSecMatchLimitAll")];
+            query = CFDictionaryCreate(IntPtr.Zero, keys, values, keys.Length,
+                NativeLibrary.GetExport(cf, "kCFTypeDictionaryKeyCallBacks"), NativeLibrary.GetExport(cf, "kCFTypeDictionaryValueCallBacks"));
+            int status = SecItemCopyMatching(query, out found);
+            if (status == ErrSecItemNotFound)
+            {
+                return [];
+            }
+
+            Check(status, "list");
+            var names = new List<string>();
+            var account = Key("kSecAttrAccount");
+            for (nint i = 0, count = CFArrayGetCount(found); i < count; i++)
+            {
+                var attributes = CFArrayGetValueAtIndex(found, i);
+                if (Text(CFDictionaryGetValue(attributes, account)) is { } name && name.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    names.Add(name);
+                }
+            }
+
+            return names;
+        }
+        finally
+        {
+            if (found != IntPtr.Zero) CFRelease(found);
+            if (query != IntPtr.Zero) CFRelease(query);
+            CFRelease(service);
+        }
+    }
+
+    static string? Text(IntPtr cfString)
+    {
+        if (cfString == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var buffer = new byte[CFStringGetMaximumSizeForEncoding(CFStringGetLength(cfString), Utf8) + 1];
+        return CFStringGetCString(cfString, buffer, buffer.Length, Utf8) ? Encoding.UTF8.GetString(buffer, 0, Array.IndexOf(buffer, (byte)0)) : null;
+    }
+
     static void Check(int status, string action)
     {
         if (status != ErrSecSuccess)
@@ -126,6 +183,34 @@ public sealed class MacKeychainBackend : ISecretBackend
 
     [DllImport(Security)]
     static extern int SecKeychainItemDelete(IntPtr item);
+
+    [DllImport(Security)]
+    static extern int SecItemCopyMatching(IntPtr query, out IntPtr result);
+
+    [DllImport(CoreFoundation)]
+    static extern IntPtr CFDictionaryCreate(IntPtr allocator, IntPtr[] keys, IntPtr[] values, nint count, IntPtr keyCallBacks, IntPtr valueCallBacks);
+
+    [DllImport(CoreFoundation)]
+    static extern IntPtr CFDictionaryGetValue(IntPtr dictionary, IntPtr key);
+
+    [DllImport(CoreFoundation)]
+    static extern nint CFArrayGetCount(IntPtr array);
+
+    [DllImport(CoreFoundation)]
+    static extern IntPtr CFArrayGetValueAtIndex(IntPtr array, nint index);
+
+    [DllImport(CoreFoundation)]
+    static extern IntPtr CFStringCreateWithCString(IntPtr allocator, byte[] text, uint encoding);
+
+    [DllImport(CoreFoundation)]
+    static extern nint CFStringGetLength(IntPtr text);
+
+    [DllImport(CoreFoundation)]
+    static extern nint CFStringGetMaximumSizeForEncoding(nint length, uint encoding);
+
+    [DllImport(CoreFoundation)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    static extern bool CFStringGetCString(IntPtr text, byte[] buffer, nint size, uint encoding);
 
     [DllImport(CoreFoundation)]
     static extern void CFRelease(IntPtr handle);

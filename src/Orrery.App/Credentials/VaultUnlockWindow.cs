@@ -103,11 +103,26 @@ sealed class VaultUnlockWindow : Window
         Opened += async (_, _) =>
         {
             _password.Focus();
+            if (_biometric is null && !_creating && biometric is not null && store is VaultFileStore staleVault)
+            {
+                // Not on for the vault as it is now; say so if that's because a saved key went stale.
+                await ShowIfTurnedOffAsync(biometric, staleVault);
+            }
+
             await UseBiometricAsync();
         };
     }
 
     static Control Field(string label, Control input) => Dialogs.Field(label, input);
+
+    async Task ShowIfTurnedOffAsync(BiometricUnlock biometric, VaultFileStore vault)
+    {
+        if (await biometric.TurnOffIfStaleAsync(vault) is { } message)
+        {
+            _notice.Text = message;
+            _notice.IsVisible = true;
+        }
+    }
 
     /// <summary>
     /// Shows the system prompt. Cancelling it leaves the password field; a key that can't work any more is turned off

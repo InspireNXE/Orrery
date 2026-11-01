@@ -54,7 +54,7 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
         return status == ErrSecMissingEntitlement ? NeedsSigning : null;
     });
 
-    public Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window) => Task.Run(() =>
+    public Task<AuthenticatorResult> CreateAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel) => Task.Run(() =>
     {
         Delete(keyName);
         var secret = RandomNumberGenerator.GetBytes(SecretSize);
@@ -82,39 +82,73 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
         }
 
         // Read it straight back, so the user's first Touch ID prompt is now and a key that can't be read isn't kept.
-        var released = Read(keyName);
+        // The item's access control is enforced by the Secure Enclave, so a key that reads back is held in hardware.
+        var released = Read(keyName, cancel);
         if (released.Status != AuthenticatorStatus.Success)
         {
             Delete(keyName);
+            return released;
         }
 
-        return released;
+        return released with { HardwareBacked = true };
     });
 
-    public Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window) => Task.Run(() => Read(keyName));
+    public Task<AuthenticatorResult> ReleaseAsync(string keyName, byte[] challenge, nint window, CancellationToken cancel) =>
+        Task.Run(() => Read(keyName, cancel));
 
     public Task DeleteAsync(string keyName) => Task.Run(() => Delete(keyName));
 
-    static AuthenticatorResult Read(string keyName)
+    /// <summary>
+    /// Reads the item, which shows the Touch ID prompt. The prompt runs under an LAContext so that
+    /// <paramref name="cancel"/> can dismiss it (<c>invalidate</c>); not yet checked on a Mac.
+    /// </summary>
+    static AuthenticatorResult Read(string keyName, CancellationToken cancel)
     {
+        if (cancel.IsCancellationRequested)
+        {
+            return new(AuthenticatorStatus.Cancelled);
+        }
+
         int status;
         IntPtr data;
-        using (var query = Query(keyName))
+        IntPtr context = NativeLibrary.TryLoad(LocalAuthentication, out _) ? objc_msgSend(objc_getClass("LAContext"), sel_registerName("new")) : IntPtr.Zero;
+        try
         {
+            using var dismiss = context == IntPtr.Zero ? default : cancel.Register(() => objc_msgSend(context, sel_registerName("invalidate")));
+            using var query = Query(keyName);
             query.Add("kSecReturnData", Constant(CoreFoundation, "kCFBooleanTrue"));
             query.Add("kSecMatchLimit", Constant(Security, "kSecMatchLimitOne"));
             query.AddString("kSecUseOperationPrompt", "unlock the Orrery vault"); // Shown as "Orrery is trying to …"
+            if (context != IntPtr.Zero)
+            {
+                query.Add("kSecUseAuthenticationContext", context);
+            }
+
             status = SecItemCopyMatching(query.Create(), out data);
+        }
+        finally
+        {
+            if (context != IntPtr.Zero) objc_msgSend(context, sel_registerName("release"));
         }
 
         try
         {
+            if (cancel.IsCancellationRequested)
+            {
+                return new(AuthenticatorStatus.Cancelled); // Even if it was read: the caller has gone.
+            }
+
+            // An item made with BiometryCurrentSet can't be read once the enrolled fingers change. Apple's documents
+            // say the item becomes inaccessible without naming the status; reports differ between errSecItemNotFound
+            // and errSecAuthFailed, so both count as "not found", which only stops offering it until Orrery restarts.
+            // Not yet checked on a Mac.
             return status switch
             {
                 ErrSecSuccess when data != IntPtr.Zero => AuthenticatorResult.Released(Bytes(data)),
                 ErrSecUserCanceled => new(AuthenticatorStatus.Cancelled),
-                ErrSecItemNotFound => new(AuthenticatorStatus.KeyGone, Message: "The fingers enrolled in Touch ID changed, so Touch ID no longer has Orrery's key."),
-                ErrSecAuthFailed or ErrSecInteractionNotAllowed => new(AuthenticatorStatus.Failed, Message: "Touch ID didn't recognise you. Use the master password."),
+                ErrSecItemNotFound or ErrSecAuthFailed => new(AuthenticatorStatus.KeyGone,
+                    Message: "Touch ID didn't release Orrery's key. That happens if your finger isn't recognised, and for good once the enrolled fingers change."),
+                ErrSecInteractionNotAllowed => new(AuthenticatorStatus.Failed, Message: "Touch ID can't ask right now. Use the master password."),
                 ErrSecMissingEntitlement => new(AuthenticatorStatus.Failed, Message: NeedsSigning),
                 _ => new(AuthenticatorStatus.Failed, Message: $"Touch ID didn't work (keychain error {status}). Use the master password."),
             };
@@ -139,9 +173,12 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
             return "Touch ID isn't available on this Mac.";
         }
 
+        // canEvaluatePolicy:error: hands back an autoreleased NSError, and this thread has no pool of its own.
+        IntPtr pool = objc_autoreleasePoolPush();
         IntPtr context = objc_msgSend(objc_getClass("LAContext"), sel_registerName("new"));
         if (context == IntPtr.Zero)
         {
+            objc_autoreleasePoolPop(pool);
             return "Touch ID isn't available on this Mac.";
         }
 
@@ -165,6 +202,7 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
         finally
         {
             objc_msgSend(context, sel_registerName("release"));
+            objc_autoreleasePoolPop(pool);
         }
     }
 
@@ -277,6 +315,12 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
 
     [DllImport(ObjC)]
     static extern IntPtr objc_msgSend(IntPtr receiver, IntPtr selector);
+
+    [DllImport(ObjC)]
+    static extern IntPtr objc_autoreleasePoolPush();
+
+    [DllImport(ObjC)]
+    static extern void objc_autoreleasePoolPop(IntPtr pool);
 
     [DllImport(ObjC, EntryPoint = "objc_msgSend")]
     static extern long objc_msgSend_long(IntPtr receiver, IntPtr selector);
