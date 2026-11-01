@@ -118,7 +118,9 @@ package has no licence text it can find, so a new dependency can't ship unacknow
 Every project keeps a `packages.lock.json` beside its `.csproj`, recording the exact version and content hash of each
 package it restores, transitive ones and the self-contained runtime packs for every platform in
 `<RuntimeIdentifiers>` in `Directory.Build.props` included. `nuget.config` clears the machine's package sources and uses
-nuget.org only, with every package mapped to it.
+nuget.org, with every package mapped to it except `Devolutions.IronRdp`, which comes from a locally built package for
+now (see the README's Building section). Packages built this way need that folder on the building machine, and their
+Linux and macOS IronRDP libraries don't have the RDP clipboard yet.
 
 Changing a package (adding, removing or bumping one, including the `AvaloniaVersion`, `IronRdpVersion` and
 `BouncyCastleVersion` properties in `Directory.Build.props`) needs this, with the updated `packages.lock.json` files
