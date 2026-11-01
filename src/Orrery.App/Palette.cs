@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Media;
+using Orrery.Core.Settings;
 
 namespace Orrery.App;
 
@@ -50,6 +51,20 @@ static class Palette
         Danger: Color.Parse("#E0603A"),
         Accent: Color.Parse("#56B4E9"));
 
+    /// <summary>
+    /// Brighter and further apart than <see cref="Standard"/> under protanopia, deuteranopia and tritanopia, with
+    /// teal, yellow and red. The accent stays as in Standard.
+    /// </summary>
+    public static readonly UiColours Clearer = new(
+        StateUp: Color.Parse("#3CC6B4"),
+        StateConnecting: Color.Parse("#F5DA7A"),
+        StateDown: Color.Parse("#EE4B58"),
+        StateEnded: Color.Parse("#7A8494"),
+        Success: Color.Parse("#3CC6B4"),
+        Warning: Color.Parse("#F5DA7A"),
+        Danger: Color.Parse("#EE4B58"),
+        Accent: Standard.Accent);
+
     public static SolidColorBrush StateUp { get; } = new(Standard.StateUp);
     public static SolidColorBrush StateConnecting { get; } = new(Standard.StateConnecting);
     public static SolidColorBrush StateDown { get; } = new(Standard.StateDown);
@@ -62,7 +77,10 @@ static class Palette
     /// <summary>The set in use.</summary>
     public static UiColours Current { get; private set; } = Standard;
 
-    public static bool IsColourBlind => Current == ColourBlind;
+    public static InterfaceColourScheme Scheme =>
+        Current == ColourBlind ? InterfaceColourScheme.ColourBlind
+        : Current == Clearer ? InterfaceColourScheme.Clearer
+        : InterfaceColourScheme.Standard;
 
     /// <summary>Raised on the UI thread after the brushes change.</summary>
     public static event EventHandler? Changed;
@@ -90,10 +108,15 @@ static class Palette
         }
     }
 
-    /// <summary>Switches between <see cref="Standard"/> and <see cref="ColourBlind"/>.</summary>
-    public static void Use(bool colourBlind)
+    /// <summary>Switches to the set for <paramref name="scheme"/>.</summary>
+    public static void Use(InterfaceColourScheme scheme)
     {
-        var colours = colourBlind ? ColourBlind : Standard;
+        var colours = scheme switch
+        {
+            InterfaceColourScheme.Clearer => Clearer,
+            InterfaceColourScheme.ColourBlind => ColourBlind,
+            _ => Standard,
+        };
         if (colours == Current)
         {
             return;

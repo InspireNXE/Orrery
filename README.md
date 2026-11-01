@@ -29,7 +29,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Display quality per connection or folder: Balanced, Best look or Fastest
 - RDP fits the window and follows it as it resizes, or keeps a fixed size
 - *Enlarge to match display scaling* for high-DPI screens
-- Colour-blind friendly colours for the interface and, separately, the terminal, in Settings
+- Interface colours in Settings: Standard, Clearer (easier to tell apart for most colour blindness) or Colour-blind (Okabe-Ito); the terminal has its own colour-blind friendly scheme
 - Session states, host status, warnings and errors have a shape, an icon or a word as well as a colour
 
 ### Organising
