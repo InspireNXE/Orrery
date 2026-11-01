@@ -68,7 +68,9 @@ Writes to `artifacts/linux/`: `orrery_<version>-1_amd64.deb`, `orrery_<version>-
   require the C runtime, ICU, OpenSSL, fontconfig and the X11 libraries, and recommend libsecret. Their dependency
   lists are in the script.
 - **AppImage** needs [appimagetool](https://github.com/AppImage/appimagetool/releases) (on PATH or
-  `-AppImageToolPath`), which only runs on Linux, so on Windows the script skips it with a warning. The image is
+  `-AppImageToolPath`), which only runs on Linux, so on Windows the script skips it with a warning. appimagetool
+  downloads the newest AppImage runtime for each image unless `-AppImageRuntimeDir` names a folder holding
+  `runtime-x86_64` and `runtime-aarch64` from [type2-runtime](https://github.com/AppImage/type2-runtime/releases). The image is
   read-only and has no `orrery.portable.json`, so it runs in installed mode; settings' restart relaunches the
   `.AppImage` file (`$APPIMAGE`), not the copy inside its mount.
 
@@ -83,6 +85,36 @@ window with its icon.
 Status: the .deb and .rpm build on Windows, and their contents have been checked (file modes, the symlink, control fields
 and dependencies). None of them has been installed on a real Linux machine yet, and the AppImage hasn't been built,
 since that needs Linux.
+
+## GitHub Actions
+
+`.github/workflows/packages.yml` builds every package above on each push (any branch, and `v*` tags), each pull
+request, and by hand (`workflow_dispatch`). A newer push to the same branch or pull request cancels the older run; tag
+builds always finish. It publishes nothing: the packages are the run's artifacts (`orrery-windows-portable`,
+`orrery-windows-installer`, `orrery-linux-portable`, `orrery-linux-packages`, `orrery-macos-portable`).
+
+- **IronRDP first.** GitHub can't reach the local `ironrdp-local` folder, so the workflow builds `Devolutions.IronRdp`
+  itself, the way IronRDP's own `nuget-publish.yml` does, for the six platforms Orrery ships (the package leaves out
+  Android, iOS and the macOS universal library, which Orrery doesn't use). The fork and commit are `IRONRDP_REPOSITORY`
+  and `IRONRDP_SHA` in the workflow's `env`, the one place to change them. **That commit must be pushed to the fork
+  first**, or the IronRDP jobs fail at checkout. The package version is `IronRdpVersion` from `Directory.Build.props`.
+- **Lock files.** A package built anywhere else has a different content hash from the one in the lock files, so each
+  build job points `ironrdp-local` at the downloaded package and runs `build/Update-IronRdpLockHashes.ps1`. It runs
+  `dotnet restore Orrery.sln --force-evaluate` and fails if any lock file changed beyond `Devolutions.IronRdp`'s
+  content hash, so everything else stays exactly as committed.
+- **Jobs.** Windows runs the tests, then builds the win-x64 and win-arm64 zips and Orrery Setup (Inno Setup 7.1.1).
+  Linux builds the linux-x64 and linux-arm64 zips, .deb, .rpm and both AppImages (nfpm 2.48.0, appimagetool 1.9.1
+  and the type2-runtime 20251108 runtimes, passed with `-AppImageRuntimeDir` so appimagetool doesn't download the
+  newest one). macOS builds the macos-arm64 and macos-x64 zips.
+- **Pinned.** Every action is pinned by commit, every downloaded tool by version and SHA-256 (the workflow says where
+  each hash came from), the Chocolatey packages by version, Rust by IronRDP's `rust-toolchain.toml`, and the .NET SDK
+  by `DOTNET_SDK_VERSION` (written to a `global.json` on the runner only, so local builds can use any .NET 10 SDK).
+- **Caches.** The built IronRDP package is cached as `ironrdp-nupkg-<IRONRDP_CACHE_EPOCH>-<IRONRDP_SHA>-<IronRdpVersion>`;
+  when that key exists, the IronRDP native builds are skipped. Bump `IRONRDP_CACHE_EPOCH` after changing the IronRDP
+  jobs to force a rebuild. Cargo's registry and `target` folder are cached per runner and platform as
+  `cargo-<runner>-<os>-<arch>-<IRONRDP_SHA>`, with a new commit starting from the last one's. NuGet packages are cached
+  per OS as `nuget-<OS>-<hash of the lock files>`, without `Devolutions.IronRdp`. GitHub only shares caches from the
+  default branch with other branches, so a branch's first run builds IronRDP unless `main` already has it cached.
 
 ## Running on Linux
 
