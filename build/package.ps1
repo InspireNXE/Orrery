@@ -9,7 +9,7 @@
     libraries (Skia, HarfBuzz, ANGLE, IronRDP, libsodium) beside it, LICENSE, THIRD-PARTY-NOTICES.txt and an empty
     orrery.portable.json, so the first launch asks where to keep its data (docs/design-storage-vault-import.md §2.1).
 
-    macOS: Orrery-<version>-<rid>-portable.zip holding Orrery.app (Info.plist, icon) with the marker beside it,
+    macOS: Orrery-<version>-macos-<arch>-portable.zip (macos-arm64, macos-x64) holding Orrery.app (Info.plist, icon) with the marker beside it,
     since the marker belongs next to the bundle, never inside it. The bundle isn't signed or notarized, so
     macOS asks before the first launch.
 
@@ -31,7 +31,8 @@ $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Projec
 New-Item -ItemType Directory -Force $artifacts | Out-Null
 
 foreach ($rid in $Runtimes) {
-    $name = "Orrery-$version-$rid-portable"
+    # .NET calls macOS osx; the file people download says macos.
+    $name = "Orrery-$version-$($rid -replace '^osx-', 'macos-')-portable"
     $stage = Join-Path $artifacts $name
     $zip = Join-Path $artifacts "$name.zip"
     Remove-Item -Recurse -Force $stage, $zip -ErrorAction SilentlyContinue

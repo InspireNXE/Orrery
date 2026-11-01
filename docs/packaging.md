@@ -36,7 +36,8 @@ install folder, which would otherwise switch it to portable mode.
 ./build/package.ps1 -Runtimes win-x64    # just one
 ```
 
-Each writes `artifacts/Orrery-<version>-<rid>-portable.zip` with the app, `LICENSE`, `THIRD-PARTY-NOTICES.txt` and
+Each writes `artifacts/Orrery-<version>-<rid>-portable.zip`, with `macos` in place of .NET's `osx` (so
+`Orrery-<version>-macos-arm64-portable.zip`), with the app, `LICENSE`, `THIRD-PARTY-NOTICES.txt` and
 an empty `orrery.portable.json`, so the first launch asks where to keep the data
 ([design doc](design-storage-vault-import.md) §2.2). On Windows and Linux the app is one executable (`Orrery.exe`)
 holding the managed code, with its native libraries (Skia, HarfBuzz, ANGLE, IronRDP, libsodium) beside it. The
