@@ -97,6 +97,7 @@ sealed class SettingsView : UserControl
                             StorageSection(),
                             CredentialsSection(),
                             RemoteDesktopSection(),
+                            ColoursSection(),
                             KeyboardSection(),
                             ImportSection(),
                             LogsSection(),
@@ -115,6 +116,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
+
+    /// <summary>A new terminal colour scheme was chosen, for open terminals to follow.</summary>
+    public event EventHandler<TerminalColourScheme>? TerminalColoursChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -443,15 +447,55 @@ sealed class SettingsView : UserControl
                 + "A connection or folder can set its own choice in its properties."));
     }
 
+    // ---- Colours ----
+
+    Control ColoursSection()
+    {
+        var colourBlind = new CheckBox { Content = "Colour-blind friendly colours", IsChecked = _settings.UseColourBlindColours };
+        colourBlind.IsCheckedChanged += (_, _) =>
+        {
+            bool on = colourBlind.IsChecked == true;
+            _settings = _settings with { ColourBlindColours = on ? true : null };
+            TrySaveSettings();
+            Palette.Use(on);
+            Log.For("Settings").LogInformation("Colour-blind friendly colours {State}", on ? "on" : "off");
+        };
+
+        var terminal = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        terminal.Items.Add(new ComboBoxItem { Content = "Standard", Tag = TerminalColourScheme.Standard });
+        terminal.Items.Add(new ComboBoxItem { Content = "Colour-blind friendly", Tag = TerminalColourScheme.ColourBlind });
+        var scheme = _settings.TerminalColours ?? TerminalColourScheme.Standard;
+        terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColourScheme)i.Tag! == scheme);
+        terminal.SelectionChanged += (_, _) =>
+        {
+            if (_loading || terminal.SelectedItem is not ComboBoxItem { Tag: TerminalColourScheme chosen })
+            {
+                return;
+            }
+
+            _settings = _settings with { TerminalColours = chosen == TerminalColourScheme.Standard ? null : chosen };
+            TrySaveSettings();
+            TerminalColoursChanged?.Invoke(this, chosen);
+            Log.For("Settings").LogInformation("Terminal colours set to {Scheme}", chosen);
+        };
+
+        return Section("Colours",
+            colourBlind,
+            Note("Session states, warnings and errors use blue, yellow and vermilion, which stay apart with red-green or blue-yellow colour blindness. "
+                + "They always have a shape, an icon or a word as well."),
+            Row("Terminal colours", terminal),
+            Note("Colour-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green stay readable. "
+                + "Applies to open terminals too."));
+    }
+
     // ---- Keyboard ----
 
     Control KeyboardSection()
     {
         var recorder = new ShortcutRecorder(FullScreenShortcut.FromSettings(_settings.FullScreenShortcut));
         var reset = new Button { Content = "Use the default" };
-        var problem = Note(string.Empty);
-        problem.Foreground = Dialogs.DangerBrush;
-        problem.IsVisible = false;
+        var problem = new Notice(NoticeKind.Error) { IsVisible = false };
+        problem.Message.FontSize = 12;
 
         void Save(KeyGesture shortcut)
         {

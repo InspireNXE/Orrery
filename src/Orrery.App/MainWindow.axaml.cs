@@ -110,6 +110,7 @@ public partial class MainWindow : Window
         _location = location;
         _movedFrom = movedFrom;
         _settingsStore = AppSettingsStore.In(location);
+        Palette.Use(_settingsStore.Load().UseColourBlindColours);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";
@@ -117,9 +118,9 @@ public partial class MainWindow : Window
         if (FolderAccess.IsOpenToOthers(location.DataDir))
         {
             // Said once, at start-up; it doesn't stop anything.
-            var accessText = this.FindControl<TextBlock>("DataAccessText")!;
+            var accessText = this.FindControl<Controls.Notice>("DataAccessText")!;
             accessText.Text = "Other people who use this computer can change the data folder";
-            accessText.Foreground = Dialogs.WarningBrush;
+            accessText.Message.FontSize = 11;
             accessText.IsVisible = true;
             ToolTip.SetTip(accessText, $"{location.DataDir}\n\nOrrery's saved hosts and trusted keys live here, so someone else could change them. "
                 + "Settings › Move data can move them to a folder only you can use.");
@@ -1684,13 +1685,15 @@ public partial class MainWindow : Window
         return hops;
     }
 
-    /// <summary>A terminal at the saved text size; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
+    /// <summary>A terminal at the saved text size and colours; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
     TerminalView NewTerminalView(ITerminalSession session)
     {
+        var settings = _settingsStore.Load();
         var view = new TerminalView(session)
         {
             Margin = TerminalMargin,
-            TextSize = _settingsStore.Load().TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            TextSize = settings.TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            ColourScheme = settings.TerminalColours ?? TerminalColourScheme.Standard,
         };
         view.TextSizeRequested += (_, step) => ChangeTerminalTextSize(step);
         return view;
@@ -2497,6 +2500,13 @@ public partial class MainWindow : Window
                 UpdateSessionToolbar();
             };
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
+            view.TerminalColoursChanged += (_, scheme) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.ColourScheme = scheme;
+                }
+            };
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;
 

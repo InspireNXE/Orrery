@@ -14,6 +14,15 @@ public enum CredentialStoreKind
     VaultFile,
 }
 
+/// <summary>The 16 colours terminals draw with.</summary>
+public enum TerminalColourScheme
+{
+    Standard,
+
+    /// <summary>Red and green kept apart for colour blindness.</summary>
+    ColourBlind,
+}
+
 /// <summary>
 /// App preferences, kept in <c>settings.json</c> in the data folder. A null value means "use the default",
 /// so defaults can change in later versions without rewriting everyone's file.
@@ -50,6 +59,17 @@ public sealed record AppSettings
     public double? TerminalFontSize { get; init; }
 
     public const double DefaultTerminalFontSize = 14;
+
+    /// <summary>The terminal's colours. Null is <see cref="TerminalColourScheme.Standard"/>.</summary>
+    public TerminalColourScheme? TerminalColours { get; init; }
+
+    /// <summary>
+    /// Colours for states, warnings and errors that stay apart with colour blindness. Null is off.
+    /// </summary>
+    public bool? ColourBlindColours { get; init; }
+
+    [JsonIgnore]
+    public bool UseColourBlindColours => ColourBlindColours ?? false;
 
     /// <summary>
     /// The key that turns full screen on and off, e.g. "Ctrl+Alt+Home". Null is the default (Ctrl+Alt+Enter,

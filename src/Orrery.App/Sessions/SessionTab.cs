@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -31,13 +30,8 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
 /// </summary>
 sealed class SessionTab
 {
-    static readonly IBrush ConnectedBrush = new SolidColorBrush(Color.Parse("#5FD38D")).ToImmutable();
-    static readonly IBrush ConnectingBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
-    static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#FF9AA2")).ToImmutable();
-    static readonly IBrush EndedBrush = new SolidColorBrush(Color.Parse("#5B6372")).ToImmutable();
-    static readonly IBrush AccentBrush = new SolidColorBrush(Color.Parse("#5B9DFF")).ToImmutable();
 
-    readonly Ellipse _dot = new() { Width = 7, Height = 7, VerticalAlignment = VerticalAlignment.Center };
+    readonly StateGlyph _state = new() { VerticalAlignment = VerticalAlignment.Center };
     // The current tab's top edge: drawn over the tab's own outline (hence the -1 margin) so it
     // follows the rounded corners instead of sitting inside them.
     readonly Border _accent = new()
@@ -45,7 +39,7 @@ sealed class SessionTab
         Margin = new Thickness(-1, -1, -1, 0),
         BorderThickness = new Thickness(0, 2, 0, 0),
         CornerRadius = new CornerRadius(8, 8, 0, 0),
-        BorderBrush = AccentBrush,
+        BorderBrush = Palette.Accent,
         IsHitTestVisible = false,
         IsVisible = false,
     };
@@ -92,13 +86,12 @@ sealed class SessionTab
                         Spacing = 8,
                         Margin = new Thickness(12, 0, 6, 0),
                         VerticalAlignment = VerticalAlignment.Center,
-                        Children = { _dot, title, protocol, close },
+                        Children = { _state, title, protocol, close },
                     },
                 },
             },
         };
         Header.Classes.Add("tab");
-        ToolTip.SetTip(Header, Address);
         Header.Click += (_, _) => Selected?.Invoke(this, EventArgs.Empty);
 
         // Middle-click closes the tab, as in a browser: pressed and released over the same tab.
@@ -285,11 +278,14 @@ sealed class SessionTab
         }
     }
 
-    void ShowState() => _dot.Fill = Session.State switch
+    /// <summary>The state in words, as the tooltip and screen readers give it.</summary>
+    public string StateText => StateGlyph.Describe(Session.State);
+
+    // The mark's shape and the tooltip say the state too, so it never rests on the colour alone.
+    void ShowState()
     {
-        SessionState.Connected => ConnectedBrush,
-        SessionState.Connecting => ConnectingBrush,
-        SessionState.Failed => FailedBrush,
-        _ => EndedBrush,
-    };
+        _state.State = Session.State;
+        ToolTip.SetTip(Header, $"{Address} · {StateText}");
+        Avalonia.Automation.AutomationProperties.SetName(Header, $"{Origin.Title}, {StateText}");
+    }
 }

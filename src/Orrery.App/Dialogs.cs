@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 
 namespace Orrery.App;
 
@@ -10,8 +11,9 @@ static class Dialogs
 {
     public static readonly IBrush PanelBrush = new SolidColorBrush(Color.Parse("#14161B"));
     public static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    public static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
-    public static readonly IBrush WarningBrush = new SolidColorBrush(Color.Parse("#F3B672"));
+    /// <summary>Errors and destructive actions; one brush app-wide, see <see cref="Palette"/>.</summary>
+    public static IBrush DangerBrush => Palette.Danger;
+    public static IBrush WarningBrush => Palette.Warning;
     public static readonly FontFamily MonoFont = new("Cascadia Mono, Consolas, Menlo, monospace");
 
     public static Window MessageWindow(string title, string body)
@@ -55,7 +57,7 @@ static class Dialogs
         panel.Children.Insert(2, box);
         if (error is not null)
         {
-            panel.Children.Insert(3, new TextBlock { Text = error, Foreground = DangerBrush, TextWrapping = TextWrapping.Wrap });
+            panel.Children.Insert(3, new Notice(NoticeKind.Error, error));
         }
 
         ok.Click += (_, _) => window.Close(box.Text ?? string.Empty);
@@ -108,6 +110,23 @@ static class Dialogs
             },
         },
     };
+
+    /// <summary>
+    /// A trust prompt's heading. For a changed host key or certificate it's in the danger colour with the error icon
+    /// beside it, so the change is plain without colour.
+    /// </summary>
+    public static Control TrustHeading(string text, bool changed)
+    {
+        if (!changed)
+        {
+            return new TextBlock { Text = text, FontSize = 18, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap };
+        }
+
+        var heading = new Notice(NoticeKind.Error, text) { IconSize = 22, Prefix = "Warning" };
+        heading.Message.FontSize = 18;
+        heading.Message.FontWeight = FontWeight.SemiBold;
+        return heading;
+    }
 
     public static TextBlock Label(string text) => new() { Text = text, FontSize = 12, Foreground = MutedBrush };
 

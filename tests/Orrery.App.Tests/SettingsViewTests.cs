@@ -62,8 +62,8 @@ public class SettingsViewTests : IDisposable
         Assert.Contains("Portable", texts);
         Assert.Contains(texts, t => t?.Contains("InspireNXE") == true);
 
-        // Portable copies have no store choice, so the only combo box is the auto-lock time.
-        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>());
+        // Portable copies have no store choice, so the only combo box of minutes is the auto-lock time.
+        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().All(i => i.Tag is int));
         Assert.Equal(30, (int)((ComboBoxItem)autoLock.SelectedItem!).Tag!);
 
         autoLock.SelectedItem = autoLock.Items.OfType<ComboBoxItem>().Single(i => (int)i.Tag! == 0);
@@ -72,6 +72,50 @@ public class SettingsViewTests : IDisposable
         Assert.Equal(0, settings.Load().AutoLockMinutes);
         Assert.Null(vault.AutoLockAfter);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Colour_settings_are_saved_and_applied_at_once()
+    {
+        var location = new DataLocation(StorageMode.Portable, _root, Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        var settings = AppSettingsStore.In(location);
+        using var vault = new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: CredentialStores.DefaultAutoLock);
+        var view = new SettingsView(location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        TerminalColourScheme? terminalScheme = null;
+        view.TerminalColoursChanged += (_, scheme) => terminalScheme = scheme;
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        try
+        {
+            var colourBlind = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => Equals(c.Content, "Colour-blind friendly colours"));
+            Assert.False(colourBlind.IsChecked);
+            colourBlind.IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(settings.Load().ColourBlindColours);
+            Assert.True(Palette.IsColourBlind);
+            Assert.Equal(Palette.ColourBlind.Danger, Palette.Danger.Color);
+            Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
+
+            var terminal = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().Any(i => i.Tag is TerminalColourScheme));
+            terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, TerminalColourScheme.ColourBlind));
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(TerminalColourScheme.ColourBlind, settings.Load().TerminalColours);
+            Assert.Equal(TerminalColourScheme.ColourBlind, terminalScheme);
+
+            colourBlind.IsChecked = false;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Null(settings.Load().ColourBlindColours);
+            Assert.Equal(Palette.Standard.Danger, Palette.Danger.Color);
+        }
+        finally
+        {
+            Palette.Use(false);
+            window.Close();
+        }
     }
 
     public void Dispose()

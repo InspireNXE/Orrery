@@ -49,14 +49,7 @@ sealed class HostKeyPromptWindow : Window
             Margin = new Thickness(24),
             Children =
             {
-                new TextBlock
-                {
-                    Text = changed ? $"The host key for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}",
-                    FontSize = 18,
-                    FontWeight = FontWeight.SemiBold,
-                    Foreground = changed ? Dialogs.DangerBrush : null,
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                Dialogs.TrustHeading(changed ? $"The host key for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}", changed),
                 new TextBlock
                 {
                     Text = changed
