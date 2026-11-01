@@ -1,8 +1,8 @@
 {
   "$comment": "The Devolutions.IronRdp package build/Get-IronRdp.ps1 downloads: a release of the IronRDP fork, made by its orrery-nuget.yml workflow, which prints these fields for each package it publishes. See docs/packaging.md.",
-  "version": "2026.10.29-orrery.3",
+  "version": "2026.10.29-orrery.4",
   "repository": "Grinch/IronRDP",
-  "commit": "01a1d0cab4869bdfa904af891f688afee73a858d",
-  "url": "https://github.com/Grinch/IronRDP/releases/download/nuget-2026.10.29-orrery.3/Devolutions.IronRdp.2026.10.29-orrery.3.nupkg",
-  "sha256": "f3721e825f8d51e367b92cfeccc37ceaa10080e2460fedc4c4ae91318a2ad822"
+  "commit": "fd92810b06c96e982f73c3e22c59136369af6401",
+  "url": "https://github.com/Grinch/IronRDP/releases/download/nuget-2026.10.29-orrery.4/Devolutions.IronRdp.2026.10.29-orrery.4.nupkg",
+  "sha256": "7b65bf5ef556df3120a397d1f9f082b6397271f88ffc80988bbf885cb56ff400"
 }

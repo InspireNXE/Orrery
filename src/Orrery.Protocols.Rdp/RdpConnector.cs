@@ -72,6 +72,13 @@ static class RdpConnector
 
         bool drivesShared = options.Drives.Count > 0 && ShareDrives(connector, options.Drives);
 
+        if (options.PlayAudio && !drivesShared)
+        {
+            // Windows servers only start sound once the client has the device redirection channel, so it goes
+            // along with no drive in it.
+            Optional("Remote audio's device channel", () => connector.WithStaticChannelRdpdrDrives(ClientName, DriveRedirection.New()));
+        }
+
         if (clipboard is not null)
         {
             connector.AttachStaticCliprdr(clipboard.BuildCliprdr());

@@ -74,6 +74,8 @@ host you type in.
   sending your keys and clicks.
 - RDP passes on touch and pen input, with pressure, tilt and the eraser, when the server takes it.
 - A remote desktop's sound plays here unless you turn it off, and then the server isn't asked to send any.
+  Windows servers only send sound to a client that has the drive-sharing channel, so Orrery opens it, with no drive
+  in it, when none are shared.
 - RDP can share every drive of this computer, or folders you choose, as drives on the remote computer, which can read
   and change their files. Linux and macOS can share only one folder: your home folder when sharing every drive, else
   the first folder you chose. Orrery says so when a folder isn't shared.
@@ -376,8 +378,8 @@ what works differently there, and what hasn't been tried on a real machine yet.
 ### Every platform
 
 RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
-`2026.10.29-orrery.3` or later. With a package built on one machine, whose libraries for the other platforms are
-older, Orrery connects there without them and logs which it left out. IronRDP is built without Opus, which needs
+`2026.10.29-orrery.3` or later, and sound without shared drives `orrery.4`. With a package built on one machine,
+whose libraries for the other platforms are older, Orrery connects there without them and logs which it left out. IronRDP is built without Opus, which needs
 CMake to build, so the server sends sound as PCM, ADPCM or G.711 instead (or AAC, on Windows only).
 
 Not yet checked on real machines:
