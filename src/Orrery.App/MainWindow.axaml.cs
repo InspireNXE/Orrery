@@ -88,6 +88,7 @@ public partial class MainWindow : Window
     readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
+    readonly NetworkWatch _network = new();
 
     bool _rebuilding;
     Point? _dragStart;
@@ -270,8 +271,10 @@ public partial class MainWindow : Window
             }
         };
 
+        _network.Back += (_, _) => NetworkBack();
         Closing += (_, _) =>
         {
+            _network.Dispose();
             _properties.TrySave();
             SaveNow();
             SessionLogger.CloseAll();
@@ -889,7 +892,7 @@ public partial class MainWindow : Window
         // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
         ExtendClientAreaToDecorationsHint = false;
         WindowState = WindowState.FullScreen;
-        Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
     }
 
     void ExitFullScreen()
@@ -917,7 +920,7 @@ public partial class MainWindow : Window
         UpdateSessionToolbar();
         if (_currentTab is { } tab)
         {
-            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
     }
 
@@ -1741,6 +1744,7 @@ public partial class MainWindow : Window
         SessionLogger.Attach(tab);
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
+        tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
         tab.StateChanged += (_, _) =>
         {
@@ -1760,20 +1764,59 @@ public partial class MainWindow : Window
 
     // ---- Reconnecting by itself ----
 
-    static readonly TimeSpan[] ReconnectDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30)];
+    bool ShouldReconnect(SessionTab tab) => tab.CanRetryByItself && !tab.IsReconnecting && _tabs.Contains(tab);
 
-    bool ShouldReconnect(SessionTab tab) => tab.WasCutOff && !tab.IsReconnecting && _tabs.Contains(tab);
-
-    void BeginReconnect(SessionTab tab)
+    /// <param name="fresh">Count from the first try again, as when the network has just come back.</param>
+    void BeginReconnect(SessionTab tab, bool fresh = false)
     {
         // A try that got connected starts the count again.
-        int attempt = tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
-        if (attempt > ReconnectDelays.Length)
+        int attempt = fresh || tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
+        if (attempt > ReconnectSchedule.MaxAttempts)
+        {
+            tab.ShowGaveUp(ReconnectSchedule.MaxAttempts);
+            return;
+        }
+
+        var delay = fresh ? NetworkWatch.Settle : ReconnectSchedule.Delay(attempt);
+        tab.ShowReconnecting(attempt, ReconnectSchedule.MaxAttempts, delay, () => _ = RestartTabAsync(tab, attempt));
+    }
+
+    /// <summary>
+    /// The OS says the network is back: sessions counting down try now, and ones that gave up start again, unless
+    /// the user pressed Stop or the failure needs them.
+    /// </summary>
+    void NetworkBack()
+    {
+        foreach (var tab in _tabs.ToList())
+        {
+            if (!tab.RetrySoon(TimeSpan.FromSeconds(1)) && ShouldReconnect(tab))
+            {
+                BeginReconnect(tab, fresh: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reconnect, from the connection-lost screen or the toolbar. A session that can reopen itself does so in its
+    /// own tab with the same login; one whose login, host key or certificate was refused is opened afresh, so the
+    /// login is asked for and the key or certificate shown again.
+    /// </summary>
+    async Task ReconnectAsync(SessionTab tab)
+    {
+        if (!_tabs.Contains(tab))
         {
             return;
         }
 
-        tab.ShowReconnecting(attempt, ReconnectDelays.Length, ReconnectDelays[attempt - 1], () => _ = RestartTabAsync(tab, attempt));
+        tab.CancelReconnect();
+        if (tab.Origin.Restart is not null && tab.Failure is not { NeedsUser: true })
+        {
+            await RestartTabAsync(tab, 0);
+            return;
+        }
+
+        await CloseTabAsync(tab.Session);
+        await tab.Origin.Reconnect();
     }
 
     /// <summary>Puts a new session, opened the same way, in place of <paramref name="old"/>.</summary>
@@ -1817,7 +1860,7 @@ public partial class MainWindow : Window
         if (tab is not null)
         {
             tab.Header.BringIntoView();
-            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
     }
 
@@ -1865,7 +1908,7 @@ public partial class MainWindow : Window
         {
             SessionState.Connecting => "Connecting…",
             SessionState.Disconnected => "Disconnected",
-            SessionState.Failed => "Couldn't connect",
+            SessionState.Failed => tab.HasConnected ? "Connection lost" : "Couldn't connect",
             _ when session is IFrameBufferSession frame && frame.Width > 0 => $"{frame.Width}×{frame.Height}",
             _ => "Connected",
         } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
@@ -1916,11 +1959,7 @@ public partial class MainWindow : Window
         {
             var reconnect = new Button { Content = "Reconnect" };
             reconnect.Classes.Add("accent");
-            reconnect.Click += async (_, _) =>
-            {
-                await CloseTabAsync(session);
-                await tab.Origin.Reconnect();
-            };
+            reconnect.Click += async (_, _) => await ReconnectAsync(tab);
             _sessionActions.Children.Add(reconnect);
         }
     }
@@ -2518,7 +2557,7 @@ public partial class MainWindow : Window
         _settingsHost.Content = null;
         _settingsRailButton.Classes.Set("active", false);
         ShowSidePanel(_sidePanel.IsVisible, save: false);
-        _currentTab?.View.Focus();
+        _currentTab?.FocusContent();
     }
 
     /// <summary>

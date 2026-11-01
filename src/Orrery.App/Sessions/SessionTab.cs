@@ -134,12 +134,19 @@ sealed class SessionTab
             }
 
             LastMessage = e.Message ?? LastMessage;
+            if (e.State == SessionState.Failed)
+            {
+                Failure = ConnectionFailure.Classify(e.Error, LastMessage, Session.Target, NetworkWatch.IsAvailable());
+                FailedAt = DateTimeOffset.Now;
+            }
+
             ShowState();
+            ShowFailure();
             StateChanged?.Invoke(this, EventArgs.Empty);
         });
 
         _countdown.Tick += (_, _) => CountDown();
-        Host = new Grid { Children = { view, BuildOverlay() } };
+        Host = new Grid { Children = { view, BuildScreen() } };
         ShowState();
     }
 
@@ -148,7 +155,7 @@ sealed class SessionTab
     public SessionOrigin Origin { get; }
     public Button Header { get; }
 
-    /// <summary>The view with the reconnect notice over it; what goes in the session area.</summary>
+    /// <summary>The view with the connection-lost screen over it; what goes in the session area.</summary>
     public Control Host { get; }
 
     /// <summary>Whether this session got as far as connected, as opposed to failing on the way.</summary>
@@ -163,79 +170,282 @@ sealed class SessionTab
     /// <summary>Why it last failed, from the session.</summary>
     public string? LastMessage { get; private set; }
 
-    public bool IsReconnecting => _overlay.IsVisible;
+    /// <summary>What went wrong, once it has failed.</summary>
+    public ConnectionFailure? Failure { get; private set; }
+
+    /// <summary>When it failed.</summary>
+    public DateTimeOffset? FailedAt { get; private set; }
+
+    /// <summary>The user pressed Stop, so it isn't tried again by itself, not even when the network comes back.</summary>
+    public bool RetryStopped { get; private set; }
+
+    /// <summary>Counting down to an automatic try.</summary>
+    public bool IsReconnecting => _reconnectNow is not null;
+
+    /// <summary>The connection-lost screen is up.</summary>
+    public bool IsShowingFailure => _screen.IsVisible;
 
     /// <summary>
-    /// Whether this should reconnect by itself: it can, it failed after connecting (or while an automatic try was
-    /// connecting), the user didn't end it, and the server didn't refuse the login. A logoff ends as Disconnected
-    /// and isn't retried.
+    /// Whether this may reconnect by itself: it can (its connection has reconnecting on), it failed, the user didn't
+    /// end it or press Stop, and the failure allows it: a drop (or an automatic try failing) or a network error,
+    /// never a refused login, a host key or a certificate. A logoff ends as Disconnected and isn't retried.
     /// </summary>
-    public bool WasCutOff =>
-        Session.State == SessionState.Failed && Origin.Restart is not null && !EndedByUser
-        && (HasConnected || ReconnectAttempt > 0)
-        && Session is not Orrery.Protocols.Ssh.SshSession { AuthenticationRejected: true };
+    public bool CanRetryByItself =>
+        Session.State == SessionState.Failed && Origin.Restart is not null && !EndedByUser && !RetryStopped
+        && Failure is { } failure && failure.CanRetryByItself(Dropped);
 
-    // ---- Reconnect notice ----
+    /// <summary>It failed after connecting, or while an automatic try after a failure was connecting.</summary>
+    bool Dropped => HasConnected || ReconnectAttempt > 0;
 
-    readonly Border _overlay = new() { IsVisible = false };
-    readonly TextBlock _overlayReason = new() { TextWrapping = TextWrapping.Wrap, Foreground = Dialogs.MutedBrush, MaxWidth = 380, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-    readonly TextBlock _overlayCountdown = new() { HorizontalAlignment = HorizontalAlignment.Center };
+    /// <summary>The user pressed Reconnect on the connection-lost screen.</summary>
+    public event EventHandler? ReconnectRequested;
+
+    // ---- Connection-lost screen ----
+
+    readonly Panel _screen = new() { IsVisible = false };
+    readonly Border _icon = new() { HorizontalAlignment = HorizontalAlignment.Center };
+    readonly TextBlock _heading = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
+    readonly TextBlock _summary = Centred(new TextBlock());
+    readonly TextBlock _advice = Themed(Centred(new TextBlock()), TextBlock.ForegroundProperty, "OrreryMuted");
+    readonly TextBlock _retryText = Themed(new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }, TextBlock.ForegroundProperty, "OrrerySoftText");
+    readonly Button _stop = new() { Content = "Stop" };
+    readonly StackPanel _retryRow = new() { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, IsVisible = false };
+    readonly Button _reconnect = new() { Content = "Reconnect" };
+    readonly TextBlock _when = Themed(new TextBlock { FontSize = 12 }, TextBlock.ForegroundProperty, "OrreryMuted");
+    readonly SelectableTextBlock _detail = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, FontFamily = Dialogs.MonoFont };
+    readonly Expander _details = new() { Header = "Details", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly DispatcherTimer _countdown = new() { Interval = TimeSpan.FromSeconds(1) };
     DateTime _reconnectAt;
     string _attemptText = string.Empty;
     Action? _reconnectNow;
 
-    Control BuildOverlay()
+    Control BuildScreen()
     {
-        var now = new Button { Content = "Reconnect now" };
-        now.Classes.Add("accent");
-        now.Click += (_, _) => Fire();
-        var cancel = new Button { Content = "Cancel" };
-        cancel.Click += (_, _) => CancelReconnect();
+        _reconnect.Classes.Add("accent");
+        _reconnect.Click += (_, _) => ReconnectRequested?.Invoke(this, EventArgs.Empty);
+        _stop.Click += (_, _) => StopReconnecting();
+        var copy = new Button { Content = "Copy details" };
+        copy.Click += async (_, _) => await CopyDetailsAsync();
+        _retryRow.Children.Add(_retryText);
+        _retryRow.Children.Add(_stop);
+        _details.Content = new StackPanel { Spacing = 6, Children = { _when, _detail } };
 
-        _overlay.Background = new SolidColorBrush(Color.Parse("#C00E1117")).ToImmutable();
-        _overlay.Child = new Border
+        // The session stays faintly visible behind, so it's clear which one this is about.
+        var backdrop = Themed(new Border { Opacity = 0.85 }, Border.BackgroundProperty, "OrreryBackground");
+        var card = new Border
         {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            Width = 460,
             Padding = new Thickness(28, 22),
             CornerRadius = new CornerRadius(10),
-            Background = new SolidColorBrush(Color.Parse("#171B23")).ToImmutable(),
-            BorderBrush = new SolidColorBrush(Color.Parse("#2A303B")).ToImmutable(),
             BorderThickness = new Thickness(1),
             Child = new StackPanel
             {
                 Spacing = 10,
                 Children =
                 {
-                    new TextBlock { Text = "Connection lost", FontSize = 15, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center },
-                    _overlayReason,
-                    _overlayCountdown,
-                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), Children = { now, cancel } },
+                    _icon,
+                    _heading,
+                    _summary,
+                    _advice,
+                    _retryRow,
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), Children = { _reconnect, copy } },
+                    _details,
                 },
             },
         };
-        return _overlay;
+        Themed(card, Border.BackgroundProperty, "OrreryRaised");
+        Themed(card, Border.BorderBrushProperty, "OrreryControlBorder");
+        _screen.Children.Add(backdrop);
+        _screen.Children.Add(card);
+        return _screen;
     }
 
-    /// <summary>Shows the notice over the session and calls <paramref name="reconnect"/> after <paramref name="delay"/>, unless cancelled.</summary>
+    static TextBlock Centred(TextBlock text)
+    {
+        text.TextWrapping = TextWrapping.Wrap;
+        text.TextAlignment = TextAlignment.Center;
+        text.HorizontalAlignment = HorizontalAlignment.Center;
+        return text;
+    }
+
+    /// <summary>Follows a palette brush, so a different palette (colour-blind safe, say) reaches the screen too.</summary>
+    static T Themed<T>(T control, AvaloniaProperty property, string key) where T : Control
+    {
+        control.Bind(property, control.GetResourceObservable(key));
+        return control;
+    }
+
+    /// <summary>
+    /// The three kinds of failure the screen tells apart, each by its icon and its words and never by colour alone:
+    /// one Orrery can try again, one that needs the user, and anything else.
+    /// </summary>
+    internal enum Look
+    {
+        Retry,
+        NeedsYou,
+        Other,
+    }
+
+    /// <summary>The icon on the screen, as its path data.</summary>
+    internal string? IconShown { get; private set; }
+
+    internal Look Shown => Failure switch
+    {
+        { NeedsUser: true } => Look.NeedsYou,
+        { } failure when failure.CanRetryByItself(Dropped) => Look.Retry,
+        _ => Look.Other,
+    };
+
+    /// <summary>Shows the connection-lost screen while the session has failed, and hides it otherwise.</summary>
+    void ShowFailure()
+    {
+        bool show = Session.State == SessionState.Failed && Failure is not null && !EndedByUser;
+        if (!show)
+        {
+            CancelReconnect();
+            _screen.IsVisible = false;
+            return;
+        }
+
+        var failure = Failure!;
+        var (icon, brush) = Shown switch
+        {
+            Look.Retry => (Icons.Refresh, "OrreryAccent"),
+            Look.NeedsYou => (Icons.Shield, "OrreryDanger"),
+            _ => (Icons.Alert, "OrreryMuted"),
+        };
+        IconShown = icon;
+        _icon.Child = Themed(StrokeIcon.Create(icon, 30), StrokeIcon.ForegroundProperty, brush);
+        _heading.Text = Heading(failure);
+        _summary.Text = failure.Summary;
+        _advice.Text = failure.Advice;
+        _advice.IsVisible = !string.IsNullOrEmpty(failure.Advice);
+        _when.Text = $"At {FailedAt:HH:mm:ss} on {FailedAt:d MMMM yyyy}";
+        _detail.Text = failure.Detail;
+
+        // Says in words why there's no countdown; a countdown, when there is one, replaces it.
+        _stop.IsVisible = false;
+        _retryText.Text = failure.NeedsUser ? "This needs you, so Orrery won't try again by itself."
+            : failure.CanRetryByItself(Dropped) && Origin.Restart is null ? "Reconnecting by itself is off for this connection."
+            : null;
+        _retryRow.IsVisible = _retryText.Text is not null;
+        _screen.IsVisible = true;
+        if (Host.IsVisible)
+        {
+            Dispatcher.UIThread.Post(FocusContent, DispatcherPriority.Background);
+        }
+    }
+
+    string Heading(ConnectionFailure failure) => failure.Cause switch
+    {
+        FailureKind.LoginFailed => "Login refused",
+        FailureKind.HostKeyChanged => "Host key changed",
+        FailureKind.HostKeyNotTrusted => "Host key not trusted",
+        FailureKind.CertificateNotTrusted => "Certificate not trusted",
+        _ => Dropped ? "Connection lost" : "Couldn't connect",
+    };
+
+    /// <summary>Focuses what the user is most likely to want: Reconnect when the session has failed, else the session.</summary>
+    public void FocusContent()
+    {
+        if (_screen.IsVisible)
+        {
+            _reconnect.Focus();
+        }
+        else
+        {
+            View.Focus();
+        }
+    }
+
+    /// <summary>What Copy details puts on the clipboard: what happened, to what, when, and the technical messages.</summary>
+    public string DetailsText
+    {
+        get
+        {
+            if (Failure is not { } failure)
+            {
+                return string.Empty;
+            }
+
+            var protocol = Origin.Files ? "SFTP" : ProtocolInfo.Label(Origin.Protocol);
+            var lines = new List<string> { $"{Heading(failure)}: \"{Origin.Title}\", {protocol} to {Address}", failure.Summary };
+            if (failure.Advice is { } advice)
+            {
+                lines.Add(advice);
+            }
+
+            lines.Add($"At {FailedAt:yyyy-MM-dd HH:mm:ss zzz}");
+            lines.Add(string.Empty);
+            lines.Add(failure.Detail);
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
+    async Task CopyDetailsAsync()
+    {
+        if (TopLevel.GetTopLevel(_screen)?.Clipboard is { } clipboard)
+        {
+            await clipboard.SetTextAsync(DetailsText);
+        }
+    }
+
+    /// <summary>Counts down on the screen and calls <paramref name="reconnect"/> after <paramref name="delay"/>, unless stopped.</summary>
     public void ShowReconnecting(int attempt, int attempts, TimeSpan delay, Action reconnect)
     {
         _reconnectNow = reconnect;
         _reconnectAt = DateTime.UtcNow + delay;
-        _overlayReason.Text = LastMessage;
-        _overlayReason.IsVisible = !string.IsNullOrEmpty(LastMessage);
         _attemptText = $"(try {attempt} of {attempts})";
-        _overlay.IsVisible = true;
+        _stop.IsVisible = _retryRow.IsVisible = true;
         CountDown();
         _countdown.Start();
+    }
+
+    /// <summary>Says the automatic tries have run out. Reconnect still works, and so does the network coming back.</summary>
+    public void ShowGaveUp(int attempts)
+    {
+        CancelReconnect();
+        _retryText.Text = $"Stopped trying after {attempts} tries.";
+        _retryRow.IsVisible = true;
+    }
+
+    /// <summary>
+    /// The network is back: an automatic try that's waiting goes in a moment instead. True when one was waiting.
+    /// </summary>
+    public bool RetrySoon(TimeSpan within)
+    {
+        if (!IsReconnecting)
+        {
+            return false;
+        }
+
+        var soon = DateTime.UtcNow + within;
+        if (soon < _reconnectAt)
+        {
+            _reconnectAt = soon;
+            CountDown();
+        }
+
+        return true;
+    }
+
+    /// <summary>The user pressed Stop: no more automatic tries for this session.</summary>
+    public void StopReconnecting()
+    {
+        RetryStopped = true;
+        CancelReconnect();
+        _retryText.Text = "Stopped. Press Reconnect to try again.";
+        _retryRow.IsVisible = true;
     }
 
     public void CancelReconnect()
     {
         _countdown.Stop();
         _reconnectNow = null;
-        _overlay.IsVisible = false;
+        _stop.IsVisible = false;
+        _retryRow.IsVisible = false;
     }
 
     void CountDown()
@@ -247,7 +457,7 @@ sealed class SessionTab
             return;
         }
 
-        _overlayCountdown.Text = $"Reconnecting in {left} s {_attemptText}";
+        _retryText.Text = $"Trying again in {left} s {_attemptText}";
     }
 
     void Fire()
