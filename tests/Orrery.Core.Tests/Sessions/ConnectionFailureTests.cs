@@ -37,7 +37,7 @@ public class ConnectionFailureTests
     }
 
     [Fact]
-    public void Timeouts_and_the_stream_ending_are_recognised()
+    public void Timeouts_and_the_stream_ending_are_recognized()
     {
         Assert.Equal(FailureKind.TimedOut, Classify(new TimeoutException("The server took too long to sign in.")).Kind);
         Assert.Equal(FailureKind.ServerClosed, Classify(new EndOfStreamException()).Kind);
@@ -45,7 +45,7 @@ public class ConnectionFailureTests
     }
 
     [Fact]
-    public void What_a_protocol_recognised_wins_over_what_is_inside_it()
+    public void What_a_protocol_recognized_wins_over_what_is_inside_it()
     {
         var error = new SessionFailureException(FailureKind.LoginFailed, "Refused", new SocketException((int)SocketError.ConnectionReset));
         Assert.Equal(FailureKind.LoginFailed, Classify(error).Kind);

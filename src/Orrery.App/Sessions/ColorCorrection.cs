@@ -4,18 +4,18 @@ using Orrery.Core.Settings;
 namespace Orrery.App.Sessions;
 
 /// <summary>
-/// Daltonisation of remote desktops: colours a colour-blind viewer would confuse are pushed apart into ones they can
+/// Daltonization of remote desktops: colors a color-blind viewer would confuse are pushed apart into ones they can
 /// tell apart. The deficiency is simulated with the matrix S of Machado, Oliveira and Fernandes (2009); what it loses,
 /// c - Sc, is moved by E into channels the viewer does see and added back (Fidaner, Lin and Ozguven). All of that is
-/// linear in linear-light RGB, so it folds into one 3x3 matrix, I + strength × E(I - S), worked out once. Greys come
+/// linear in linear-light RGB, so it folds into one 3x3 matrix, I + strength × E(I - S), worked out once. Grays come
 /// through unchanged because S keeps them.
 /// </summary>
 /// <remarks>
 /// Per pixel it costs nine table lookups and three more for the result: the tables hold the matrix times each
 /// channel's 256 values already turned into linear light, and the sRGB curve back from 14-bit linear light. Results
-/// outside the screen's colours are clamped.
+/// outside the screen's colors are clamped.
 /// </remarks>
-sealed class ColourCorrection
+sealed class ColorCorrection
 {
     // Machado et al. 2009 at full severity, for linear RGB.
     static readonly double[,] Protan =
@@ -39,7 +39,7 @@ sealed class ColourCorrection
         { 0.004733, 0.691367, 0.303900 },
     };
 
-    // Where the lost colour goes. Red-green: what red loses becomes more green and blue, so a red and a green differ
+    // Where the lost color goes. Red-green: what red loses becomes more green and blue, so a red and a green differ
     // in blue-yellow, which the viewer sees. Blue-yellow: what blue loses goes to red and green instead.
     static readonly double[,] RedGreenShift =
     {
@@ -63,7 +63,7 @@ sealed class ColourCorrection
     // Row-major: entry (row × 3 + column) × 256 + value is matrix[row, column] × linear(value) in LinearMax steps.
     readonly int[] _tables = new int[9 * 256];
 
-    ColourCorrection(double[,] matrix)
+    ColorCorrection(double[,] matrix)
     {
         Matrix = matrix;
         for (int v = 0; v < 256; v++)
@@ -80,11 +80,11 @@ sealed class ColourCorrection
     public double[,] Matrix { get; }
 
     /// <summary>The correction for <paramref name="vision"/> at <paramref name="strengthPercent"/>; null when it would change nothing.</summary>
-    public static ColourCorrection? For(ColourVision vision, int strengthPercent) =>
-        vision == ColourVision.None || strengthPercent <= 0 ? null : new ColourCorrection(MatrixFor(vision, Math.Min(strengthPercent, 100) / 100.0));
+    public static ColorCorrection? For(ColorVision vision, int strengthPercent) =>
+        vision == ColorVision.None || strengthPercent <= 0 ? null : new ColorCorrection(MatrixFor(vision, Math.Min(strengthPercent, 100) / 100.0));
 
     /// <summary>I + <paramref name="strength"/> × E(I - S): the identity for no deficiency or no strength.</summary>
-    public static double[,] MatrixFor(ColourVision vision, double strength)
+    public static double[,] MatrixFor(ColorVision vision, double strength)
     {
         var result = new double[3, 3];
         for (int i = 0; i < 3; i++)
@@ -92,15 +92,15 @@ sealed class ColourCorrection
             result[i, i] = 1;
         }
 
-        if (vision == ColourVision.None || strength <= 0)
+        if (vision == ColorVision.None || strength <= 0)
         {
             return result;
         }
 
         var (simulate, shift) = vision switch
         {
-            ColourVision.Protanopia => (Protan, RedGreenShift),
-            ColourVision.Deuteranopia => (Deutan, RedGreenShift),
+            ColorVision.Protanopia => (Protan, RedGreenShift),
+            ColorVision.Deuteranopia => (Deutan, RedGreenShift),
             _ => (Tritan, BlueYellowShift),
         };
         for (int row = 0; row < 3; row++)
@@ -121,7 +121,7 @@ sealed class ColourCorrection
         return result;
     }
 
-    /// <summary>Corrects one colour, as the filter does a pixel.</summary>
+    /// <summary>Corrects one color, as the filter does a pixel.</summary>
     public (byte R, byte G, byte B) Apply(byte r, byte g, byte b)
     {
         var t = _tables;

@@ -5,10 +5,10 @@ using Orrery.Core.Settings;
 namespace Orrery.App;
 
 /// <summary>
-/// The colours that carry meaning: session states, success, warnings, errors and the accent. Each has a word or a
+/// The colors that carry meaning: session states, success, warnings, errors and the accent. Each has a word or a
 /// shape beside it too, so none of them is the only sign of anything.
 /// </summary>
-sealed record UiColours(
+sealed record UiColors(
     Color StateUp,
     Color StateConnecting,
     Color StateDown,
@@ -20,13 +20,13 @@ sealed record UiColours(
 
 /// <summary>
 /// The app's meaning-carrying brushes, shared by every window and published as resources (see
-/// <see cref="ResourceKeys"/>). Switching sets change the brushes' colours in place, so whatever uses them follows
+/// <see cref="ResourceKeys"/>). Switching sets change the brushes' colors in place, so whatever uses them follows
 /// at once, without a restart.
 /// </summary>
 static class Palette
 {
     /// <summary>The palette from the mockup.</summary>
-    public static readonly UiColours Standard = new(
+    public static readonly UiColors Standard = new(
         StateUp: Color.Parse("#5FD38D"),
         StateConnecting: Color.Parse("#E0B45A"),
         StateDown: Color.Parse("#FF9AA2"),
@@ -37,11 +37,11 @@ static class Palette
         Accent: Color.Parse("#5B9DFF"));
 
     /// <summary>
-    /// Okabe and Ito's colours, lightened to read on the dark panels: sky blue for up and success, yellow for
+    /// Okabe and Ito's colors, lightened to read on the dark panels: sky blue for up and success, yellow for
     /// connecting and warnings, vermilion for down and errors. Blue, yellow and vermilion stay apart for red-green
-    /// and blue-yellow colour blindness alike.
+    /// and blue-yellow color blindness alike.
     /// </summary>
-    public static readonly UiColours ColourBlind = new(
+    public static readonly UiColors ColorBlind = new(
         StateUp: Color.Parse("#56B4E9"),
         StateConnecting: Color.Parse("#F0E442"),
         StateDown: Color.Parse("#E0603A"),
@@ -55,7 +55,7 @@ static class Palette
     /// Brighter and further apart than <see cref="Standard"/> under protanopia, deuteranopia and tritanopia, with
     /// teal, yellow and red. The accent stays as in Standard.
     /// </summary>
-    public static readonly UiColours Clearer = new(
+    public static readonly UiColors Clearer = new(
         StateUp: Color.Parse("#3CC6B4"),
         StateConnecting: Color.Parse("#F5DA7A"),
         StateDown: Color.Parse("#EE4B58"),
@@ -75,12 +75,12 @@ static class Palette
     public static SolidColorBrush Accent { get; } = new(Standard.Accent);
 
     /// <summary>The set in use.</summary>
-    public static UiColours Current { get; private set; } = Standard;
+    public static UiColors Current { get; private set; } = Standard;
 
-    public static InterfaceColourScheme Scheme =>
-        Current == ColourBlind ? InterfaceColourScheme.ColourBlind
-        : Current == Clearer ? InterfaceColourScheme.Clearer
-        : InterfaceColourScheme.Standard;
+    public static InterfaceColorScheme Scheme =>
+        Current == ColorBlind ? InterfaceColorScheme.ColorBlind
+        : Current == Clearer ? InterfaceColorScheme.Clearer
+        : InterfaceColorScheme.Standard;
 
     /// <summary>Raised on the UI thread after the brushes change.</summary>
     public static event EventHandler? Changed;
@@ -109,28 +109,28 @@ static class Palette
     }
 
     /// <summary>Switches to the set for <paramref name="scheme"/>.</summary>
-    public static void Use(InterfaceColourScheme scheme)
+    public static void Use(InterfaceColorScheme scheme)
     {
-        var colours = scheme switch
+        var colors = scheme switch
         {
-            InterfaceColourScheme.Clearer => Clearer,
-            InterfaceColourScheme.ColourBlind => ColourBlind,
+            InterfaceColorScheme.Clearer => Clearer,
+            InterfaceColorScheme.ColorBlind => ColorBlind,
             _ => Standard,
         };
-        if (colours == Current)
+        if (colors == Current)
         {
             return;
         }
 
-        Current = colours;
-        StateUp.Color = colours.StateUp;
-        StateConnecting.Color = colours.StateConnecting;
-        StateDown.Color = colours.StateDown;
-        StateEnded.Color = colours.StateEnded;
-        Success.Color = colours.Success;
-        Warning.Color = colours.Warning;
-        Danger.Color = colours.Danger;
-        Accent.Color = colours.Accent;
+        Current = colors;
+        StateUp.Color = colors.StateUp;
+        StateConnecting.Color = colors.StateConnecting;
+        StateDown.Color = colors.StateDown;
+        StateEnded.Color = colors.StateEnded;
+        Success.Color = colors.Success;
+        Warning.Color = colors.Warning;
+        Danger.Color = colors.Danger;
+        Accent.Color = colors.Accent;
         Changed?.Invoke(null, EventArgs.Empty);
     }
 }

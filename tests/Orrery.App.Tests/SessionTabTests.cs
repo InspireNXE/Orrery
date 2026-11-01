@@ -26,7 +26,7 @@ public class SessionTabTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    static (SessionTab Tab, Window Window, Point Centre, List<string> Events) Show()
+    static (SessionTab Tab, Window Window, Point Center, List<string> Events) Show()
     {
         var tab = new SessionTab(new FakeSession(), new Border(),
             new SessionOrigin("box", Protocol.Ssh, null, () => Task.CompletedTask));
@@ -41,17 +41,17 @@ public class SessionTabTests
         };
         window.Show();
         Dispatcher.UIThread.RunJobs();
-        var centre = tab.Header.TranslatePoint(new Point(tab.Header.Bounds.Width / 2, tab.Header.Bounds.Height / 2), window)!.Value;
-        return (tab, window, centre, events);
+        var center = tab.Header.TranslatePoint(new Point(tab.Header.Bounds.Width / 2, tab.Header.Bounds.Height / 2), window)!.Value;
+        return (tab, window, center, events);
     }
 
     [AvaloniaFact]
     public void Middle_click_on_a_tab_closes_it()
     {
-        var (_, window, centre, events) = Show();
+        var (_, window, center, events) = Show();
 
-        window.MouseDown(centre, MouseButton.Middle);
-        window.MouseUp(centre, MouseButton.Middle);
+        window.MouseDown(center, MouseButton.Middle);
+        window.MouseUp(center, MouseButton.Middle);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(["close"], events);
@@ -60,9 +60,9 @@ public class SessionTabTests
     [AvaloniaFact]
     public void Middle_button_released_off_the_tab_leaves_it_open()
     {
-        var (_, window, centre, events) = Show();
+        var (_, window, center, events) = Show();
 
-        window.MouseDown(centre, MouseButton.Middle);
+        window.MouseDown(center, MouseButton.Middle);
         window.MouseMove(new Point(700, 150));
         window.MouseUp(new Point(700, 150), MouseButton.Middle);
         Dispatcher.UIThread.RunJobs();
@@ -73,10 +73,10 @@ public class SessionTabTests
     [AvaloniaFact]
     public void Left_click_still_selects_the_tab()
     {
-        var (_, window, centre, events) = Show();
+        var (_, window, center, events) = Show();
 
-        window.MouseDown(centre, MouseButton.Left);
-        window.MouseUp(centre, MouseButton.Left);
+        window.MouseDown(center, MouseButton.Left);
+        window.MouseUp(center, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(["select"], events);
@@ -184,7 +184,7 @@ public class SessionTabTests
     }
 
     [AvaloniaFact]
-    public void Cancelling_the_reconnect_notice_stops_it()
+    public void Canceling_the_reconnect_notice_stops_it()
     {
         var tab = NewTab(new ScriptedSession());
         int reconnects = 0;
@@ -270,7 +270,7 @@ public class SessionTabTests
     }
 
     [AvaloniaFact]
-    public void Each_kind_of_failure_has_its_own_icon_and_heading_not_just_a_colour()
+    public void Each_kind_of_failure_has_its_own_icon_and_heading_not_just_a_color()
     {
         (string? Icon, string? Heading) Look(Exception error, bool connectFirst)
         {

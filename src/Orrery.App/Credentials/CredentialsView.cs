@@ -199,7 +199,7 @@ sealed class CredentialsView
     /// <summary>The selected credential's editor, for the right-hand pane.</summary>
     public Control Editor { get; }
 
-    /// <summary>Reloads the list, unlocking the store first if needed. Cancelling leaves the locked notice up.</summary>
+    /// <summary>Reloads the list, unlocking the store first if needed. Canceling leaves the locked notice up.</summary>
     public async Task ShowAsync()
     {
         if (_store.IsLocked && !await _unlock())

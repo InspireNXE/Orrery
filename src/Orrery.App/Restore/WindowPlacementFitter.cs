@@ -15,7 +15,7 @@ static class WindowPlacementFitter
     /// <summary>A screen's usable area (clear of the taskbar) in pixels, and its scale (1.5 for 150%).</summary>
     public readonly record struct ScreenArea(PixelRect WorkArea, double Scaling);
 
-    /// <param name="Position">Null when the window should be centred instead.</param>
+    /// <param name="Position">Null when the window should be centerd instead.</param>
     /// <param name="Size">Device-independent units, no larger than the screen.</param>
     public readonly record struct Fitted(PixelPoint? Position, Size Size);
 
@@ -29,7 +29,7 @@ static class WindowPlacementFitter
             return new(null, size);
         }
 
-        // The screen showing most of the title bar. If none shows enough, the window is lost: centre it on the main screen.
+        // The screen showing most of the title bar. If none shows enough, the window is lost: center it on the main screen.
         ScreenArea? home = null;
         long best = 0;
         foreach (var screen in screens)

@@ -5,10 +5,10 @@ namespace Orrery.App.Tests;
 public enum Deficiency { None, Protanopia, Deuteranopia, Tritanopia }
 
 /// <summary>
-/// Colour science for the accessibility tests: colour blindness simulated with the matrices of Machado, Oliveira and
-/// Fernandes (2009) at full severity, applied to linear sRGB; CIEDE2000 colour difference; WCAG 2 contrast ratio.
+/// Color science for the accessibility tests: color blindness simulated with the matrices of Machado, Oliveira and
+/// Fernandes (2009) at full severity, applied to linear sRGB; CIEDE2000 color difference; WCAG 2 contrast ratio.
 /// </summary>
-public static class ColourVision
+public static class ColorVision
 {
     static readonly double[,] Protan =
     {
@@ -31,10 +31,10 @@ public static class ColourVision
         { 0.004733, 0.691367, 0.303900 },
     };
 
-    /// <summary>How <paramref name="colour"/> looks with <paramref name="deficiency"/>, as linear RGB in 0..1.</summary>
-    public static (double R, double G, double B) Simulate(Color colour, Deficiency deficiency)
+    /// <summary>How <paramref name="color"/> looks with <paramref name="deficiency"/>, as linear RGB in 0..1.</summary>
+    public static (double R, double G, double B) Simulate(Color color, Deficiency deficiency)
     {
-        var (r, g, b) = Linear(colour);
+        var (r, g, b) = Linear(color);
         if (deficiency == Deficiency.None)
         {
             return (r, g, b);
@@ -52,7 +52,7 @@ public static class ColourVision
             Math.Clamp(m[2, 0] * r + m[2, 1] * g + m[2, 2] * b, 0, 1));
     }
 
-    /// <summary>CIEDE2000 difference between two colours as seen with <paramref name="deficiency"/>.</summary>
+    /// <summary>CIEDE2000 difference between two colors as seen with <paramref name="deficiency"/>.</summary>
     public static double Difference(Color a, Color b, Deficiency deficiency) =>
         DeltaE2000(Lab(Simulate(a, deficiency)), Lab(Simulate(b, deficiency)));
 

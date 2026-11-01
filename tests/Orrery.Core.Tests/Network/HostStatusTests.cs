@@ -190,7 +190,7 @@ public class HostStatusTests
     }
 
     [Fact]
-    public async Task Cancelling_stops_probes_and_records_nothing()
+    public async Task Canceling_stops_probes_and_records_nothing()
     {
         var probe = new FakeProbe { Gate = new TaskCompletionSource() };
         var monitor = new HostStatusMonitor(probe);
@@ -249,7 +249,7 @@ public class HostStatusTests
     }
 
     [Fact]
-    public async Task The_tcp_probe_throws_only_when_cancelled()
+    public async Task The_tcp_probe_throws_only_when_canceled()
     {
         using var cancel = new CancellationTokenSource();
         cancel.Cancel();

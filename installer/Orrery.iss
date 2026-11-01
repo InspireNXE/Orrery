@@ -1,4 +1,4 @@
-; Orrery Setup, modelled on Prober's desktop setup (Prober.Installer\Prober.Desktop.iss): same wizard style
+; Orrery Setup, modeled on Prober's desktop setup (Prober.Installer\Prober.Desktop.iss): same wizard style
 ; and art, installed for everyone under Program Files. Build it with build\Build-Installer.ps1.
 ;
 ; The installed copy runs in installed mode (no orrery.portable.json beside it), so each person's

@@ -7,7 +7,7 @@ namespace Orrery.App.Controls;
 
 /// <summary>
 /// A line icon drawn on a 24×24 grid, scaled to the control's size and stroked in the inherited
-/// foreground colour, so it follows its button's hover and active states.
+/// foreground color, so it follows its button's hover and active states.
 /// </summary>
 public sealed class StrokeIcon : Control
 {

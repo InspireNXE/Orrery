@@ -11,15 +11,15 @@ public enum NoticeKind
     /// <summary>Plain, muted text with no icon.</summary>
     Info,
 
-    /// <summary>A triangle with an exclamation mark, in the warning colour.</summary>
+    /// <summary>A triangle with an exclamation mark, in the warning color.</summary>
     Warning,
 
-    /// <summary>A circle with an exclamation mark, in the danger colour.</summary>
+    /// <summary>A circle with an exclamation mark, in the danger color.</summary>
     Error,
 }
 
 /// <summary>
-/// A message with an icon that says what kind it is, so an error or a warning doesn't rely on its colour. Screen
+/// A message with an icon that says what kind it is, so an error or a warning doesn't rely on its color. Screen
 /// readers hear "Error:" or "Warning:" before the text.
 /// </summary>
 public sealed class Notice : DockPanel

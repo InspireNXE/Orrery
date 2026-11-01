@@ -12,7 +12,7 @@ static class WorkspaceRestorer
 
     /// <summary>
     /// Calls <paramref name="open"/> for each tab in order, waiting <paramref name="stagger"/> (through
-    /// <paramref name="delay"/>) between them and not before the first. One that fails or is cancelled at its
+    /// <paramref name="delay"/>) between them and not before the first. One that fails or is canceled at its
     /// login prompt doesn't stop the rest. The result has what each returned, null where nothing opened.
     /// </summary>
     public static async Task<T?[]> OpenAllAsync<T>(IReadOnlyList<WorkspaceTab> tabs, Func<WorkspaceTab, Task<T?>> open,

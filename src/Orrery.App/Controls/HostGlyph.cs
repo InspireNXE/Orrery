@@ -7,9 +7,9 @@ using Orrery.Core.Network;
 namespace Orrery.App.Controls;
 
 /// <summary>
-/// Whether a connection's host answered the last check, as a small mark whose shape says it as well as its colour:
+/// Whether a connection's host answered the last check, as a small mark whose shape says it as well as its color:
 /// a filled dot when it's up, a cross when it's down, and a dashed ring when it wasn't checked. Nothing is drawn when
-/// checks are off. It uses the palette's state brushes, so it follows the colour-blind setting like
+/// checks are off. It uses the palette's state brushes, so it follows the color-blind setting like
 /// <see cref="StateGlyph"/>, which shows the session's state; the tree keeps the two apart by where they sit.
 /// </summary>
 public sealed class HostGlyph : Control
@@ -58,7 +58,7 @@ public sealed class HostGlyph : Control
         }
     }
 
-    // The palette changes its brushes in place; redrawing makes sure the new colour shows at once.
+    // The palette changes its brushes in place; redrawing makes sure the new color shows at once.
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -82,24 +82,24 @@ public sealed class HostGlyph : Control
         }
 
         var brush = BrushFor(state);
-        var centre = new Point(Bounds.Width / 2, Bounds.Height / 2);
+        var center = new Point(Bounds.Width / 2, Bounds.Height / 2);
         double radius = size / 2;
         switch (state)
         {
             case HostState.Up:
-                context.DrawEllipse(brush, null, centre, radius, radius);
+                context.DrawEllipse(brush, null, center, radius, radius);
                 break;
 
             case HostState.Down:
                 double d = radius * 0.75;
                 var pen = new Pen(brush, Math.Max(1.2, size / 5), lineCap: PenLineCap.Round);
-                context.DrawLine(pen, new Point(centre.X - d, centre.Y - d), new Point(centre.X + d, centre.Y + d));
-                context.DrawLine(pen, new Point(centre.X + d, centre.Y - d), new Point(centre.X - d, centre.Y + d));
+                context.DrawLine(pen, new Point(center.X - d, center.Y - d), new Point(center.X + d, center.Y + d));
+                context.DrawLine(pen, new Point(center.X + d, center.Y - d), new Point(center.X - d, center.Y + d));
                 break;
 
             default:
                 double ring = radius - 0.6;
-                context.DrawEllipse(null, new Pen(brush, 1.2, new DashStyle(Dashes, 0)), centre, ring, ring);
+                context.DrawEllipse(null, new Pen(brush, 1.2, new DashStyle(Dashes, 0)), center, ring, ring);
                 break;
         }
     }

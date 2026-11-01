@@ -467,7 +467,7 @@ sealed class FileBrowserView : DockPanel
         }
         catch (OperationCanceledException)
         {
-            _status.Text = $"{what}: cancelled.";
+            _status.Text = $"{what}: canceled.";
         }
         catch (SftpException e)
         {

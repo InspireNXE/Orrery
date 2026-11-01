@@ -41,7 +41,7 @@ public class WindowPlacementFitterTests
     }
 
     [Fact]
-    public void A_window_whose_screen_is_gone_is_centred_on_the_main_one()
+    public void A_window_whose_screen_is_gone_is_centered_on_the_main_one()
     {
         var fit = WindowPlacementFitter.Fit(new WindowPlacement(2100, 100, 1440, 900, true), [Main], Minimum);
 
@@ -54,7 +54,7 @@ public class WindowPlacementFitterTests
     [InlineData(5000, 100)]
     [InlineData(100, 9000)]
     [InlineData(-1400, 100)] // all but 40 pixels off the left edge
-    public void A_window_that_would_be_out_of_reach_is_centred(int x, int y)
+    public void A_window_that_would_be_out_of_reach_is_centered(int x, int y)
     {
         Assert.Null(WindowPlacementFitter.Fit(new WindowPlacement(x, y, 1440, 900, false), [Main], Minimum).Position);
     }
@@ -89,7 +89,7 @@ public class WindowPlacementFitterTests
     }
 
     [Fact]
-    public void With_no_screens_to_judge_by_the_size_is_kept_and_the_window_is_centred()
+    public void With_no_screens_to_judge_by_the_size_is_kept_and_the_window_is_centered()
     {
         var fit = WindowPlacementFitter.Fit(new WindowPlacement(10, 10, 1200, 800, false), [], Minimum);
 
@@ -131,7 +131,7 @@ public class WorkspaceRestorerTests
     }
 
     [Fact]
-    public async Task Cancelling_stops_opening_more()
+    public async Task Canceling_stops_opening_more()
     {
         using var cancel = new CancellationTokenSource();
         var host = new List<string>();
@@ -242,7 +242,7 @@ public class WorkspaceWindowTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Closing_remembers_the_window_and_whether_it_was_maximised()
+    public void Closing_remembers_the_window_and_whether_it_was_maximized()
     {
         var window = NewWindow();
         window.Show();
@@ -262,7 +262,7 @@ public class WorkspaceWindowTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void A_maximised_window_is_remembered_with_its_normal_size_and_comes_back_maximised()
+    public void A_maximized_window_is_remembered_with_its_normal_size_and_comes_back_maximized()
     {
         new WorkspaceStore(WorkspaceFile).Save(new Workspace { Window = new WindowPlacement(60, 50, 1200, 800, Maximized: true) });
         var window = NewWindow();

@@ -35,7 +35,7 @@ static unsafe class WinRt
         var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
-            int initialised = RoInitialize(1); // RO_INIT_MULTITHREADED
+            int initialized = RoInitialize(1); // RO_INIT_MULTITHREADED
             try
             {
                 done.SetResult(work());
@@ -46,7 +46,7 @@ static unsafe class WinRt
             }
             finally
             {
-                if (initialised >= 0) RoUninitialize();
+                if (initialized >= 0) RoUninitialize();
             }
         })
         {
@@ -151,7 +151,7 @@ static unsafe class WinRt
     /// prompt) when <paramref name="cancel"/> fires or after <paramref name="timeout"/>. Calls
     /// <paramref name="whileWaiting"/> on each poll.
     /// </summary>
-    /// <exception cref="OperationCanceledException">It was cancelled, by <paramref name="cancel"/> or by Windows.</exception>
+    /// <exception cref="OperationCanceledException">It was canceled, by <paramref name="cancel"/> or by Windows.</exception>
     /// <exception cref="TimeoutException"></exception>
     public static void Wait(IntPtr operation, TimeSpan timeout, CancellationToken cancel, Action? whileWaiting = null)
     {

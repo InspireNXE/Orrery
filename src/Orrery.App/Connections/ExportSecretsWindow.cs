@@ -12,7 +12,7 @@ sealed record ExportSecretsChoice(string? Password);
 
 /// <summary>
 /// Asked before an Orrery or mRemoteNG export that uses saved credentials: whether to include their
-/// passwords (and, for Orrery, keys), and the password that protects them. Closes with null when cancelled.
+/// passwords (and, for Orrery, keys), and the password that protects them. Closes with null when canceled.
 /// </summary>
 sealed class ExportSecretsWindow : Window
 {

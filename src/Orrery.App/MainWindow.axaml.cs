@@ -117,7 +117,7 @@ public partial class MainWindow : Window
         _location = location;
         _movedFrom = movedFrom;
         _settingsStore = AppSettingsStore.In(location);
-        Palette.Use(_settingsStore.Load().InterfaceColourScheme);
+        Palette.Use(_settingsStore.Load().InterfaceColorScheme);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";
@@ -549,7 +549,7 @@ public partial class MainWindow : Window
             }
         };
 
-        // The title bar is drawn by Orrery, so its empty parts move and maximise the window.
+        // The title bar is drawn by Orrery, so its empty parts move and maximize the window.
         var titleBar = this.FindControl<Border>("TitleBar")!;
         titleBar.PointerPressed += (_, e) =>
         {
@@ -571,7 +571,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Leaves room for the system's window buttons: on the right on Windows, on the left on macOS. Where the
     /// window keeps its own title bar (most Linux desktops), none is needed. Both side columns stay equal
-    /// so quick connect is centred on the window.
+    /// so quick connect is centerd on the window.
     /// </summary>
     void FitTitleBarToCaptionButtons()
     {
@@ -852,8 +852,8 @@ public partial class MainWindow : Window
         double left = _tabs[0].Header.Bounds.Left, right = _tabs[^1].Header.Bounds.Right;
         dx = Math.Clamp(dx, left - bounds.Left, right - bounds.Right);
 
-        // Judged by the leading edge, not the centre: a tab wider than its neighbour could never get its centre
-        // past the neighbour's middle at the end of the strip.
+        // Judged by the leading edge, not the center: a tab wider than its neighbor could never get its center
+        // past the neighbor's middle at the end of the strip.
         double edge = dx < 0 ? bounds.Left + dx : bounds.Right + dx;
         _tabDropIndex = Input.TabShortcuts.DropIndex([.. _tabs.Select(t => t.Header.Bounds.Center.X)], from, edge);
         double step = bounds.Width + _tabStrip.Spacing;
@@ -1513,7 +1513,7 @@ public partial class MainWindow : Window
             {
                 if (await PrepareKeyFileAsync(keyPath, entry.Name) is not { } prepared)
                 {
-                    ConnectLog.LogDebug("\"{Name}\": the key file passphrase prompt was cancelled", entry.Name);
+                    ConnectLog.LogDebug("\"{Name}\": the key file passphrase prompt was canceled", entry.Name);
                     return;
                 }
 
@@ -1537,7 +1537,7 @@ public partial class MainWindow : Window
                     .ShowDialog<ConnectPromptResult?>(this);
                 if (prompt is null)
                 {
-                    ConnectLog.LogDebug("\"{Name}\": the login prompt was cancelled", entry.Name);
+                    ConnectLog.LogDebug("\"{Name}\": the login prompt was canceled", entry.Name);
                     return;
                 }
 
@@ -1650,16 +1650,16 @@ public partial class MainWindow : Window
         UpdateVaultButton();
     }
 
-    /// <summary>A remote desktop view with the colour correction from Settings, unless its connection turns that off.</summary>
+    /// <summary>A remote desktop view with the color correction from Settings, unless its connection turns that off.</summary>
     RemoteFrameView NewRemoteFrameView(SessionOrigin origin, IFrameBufferSession session, bool zoom, bool followsViewSize)
     {
         var settings = _settingsStore.Load();
-        bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColourCorrection.Value;
+        bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
         return new RemoteFrameView(session, zoom)
         {
             FollowsViewSize = followsViewSize,
-            AllowsColourCorrection = allowed,
-            Correction = ColourCorrection.For(settings.Vision, settings.CorrectionStrength),
+            AllowsColorCorrection = allowed,
+            Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
         };
     }
 
@@ -1812,7 +1812,7 @@ public partial class MainWindow : Window
     /// Gets <paramref name="path"/> ready to log in with. Only an encrypted key needs anything: its passphrase, from
     /// the credential store if one was saved there (and the store is open), else asked for until it opens the key.
     /// A key file that is missing or unusable isn't dealt with here; the session says so on the connection-lost
-    /// screen. Null if the passphrase prompt was cancelled.
+    /// screen. Null if the passphrase prompt was canceled.
     /// </summary>
     /// <param name="what">Which connection wants it, for the prompt.</param>
     async Task<KeyFileLogin?> PrepareKeyFileAsync(string path, string what)
@@ -1910,7 +1910,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// The jump hosts on the way to <paramref name="entry"/>, each with its login: its saved credential, else the
-    /// SSH agent's keys, else asked for now. Null when the chain is broken or a prompt was cancelled.
+    /// SSH agent's keys, else asked for now. Null when the chain is broken or a prompt was canceled.
     /// </summary>
     async Task<List<SshHop>?> JumpHopsAsync(ConnectionEntry entry)
     {
@@ -1987,7 +1987,7 @@ public partial class MainWindow : Window
         return hops;
     }
 
-    /// <summary>A terminal at the saved text size and colours; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
+    /// <summary>A terminal at the saved text size and colors; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
     TerminalView NewTerminalView(ITerminalSession session)
     {
         var settings = _settingsStore.Load();
@@ -1995,8 +1995,8 @@ public partial class MainWindow : Window
         {
             Margin = TerminalMargin,
             TextSize = settings.TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
-            ColourVision = settings.Vision,
-            ColourScheme = settings.TerminalColours ?? TerminalColourScheme.Standard,
+            ColorVision = settings.Vision,
+            ColorScheme = settings.TerminalColors ?? TerminalColorScheme.Standard,
             Announcements = Controls.ScreenReader.TerminalAnnouncements(settings),
         };
         view.TextSizeRequested += (_, step) => ChangeTerminalTextSize(step);
@@ -2884,21 +2884,21 @@ public partial class MainWindow : Window
             };
             view.HostStatusChecksChanged += (_, on) => _hostStatus.Enabled = on;
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
-            view.TerminalColoursChanged += (_, scheme) =>
+            view.TerminalColorsChanged += (_, scheme) =>
             {
                 foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
                 {
-                    terminal.ColourScheme = scheme;
+                    terminal.ColorScheme = scheme;
                 }
             };
-            view.ColourVisionChanged += (_, change) =>
+            view.ColorVisionChanged += (_, change) =>
             {
                 foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
                 {
-                    terminal.ColourVision = change.Vision;
+                    terminal.ColorVision = change.Vision;
                 }
 
-                var correction = ColourCorrection.For(change.Vision, change.Strength);
+                var correction = ColorCorrection.For(change.Vision, change.Strength);
                 foreach (var desktop in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
                 {
                     desktop.Correction = correction;

@@ -18,10 +18,10 @@ public class WakeOnLanTests
     [InlineData("001a2b3c4d5e")]
     [InlineData("  00:1a:2b:3c:4d:5e  ")]
     [InlineData("0:1a:2b:3c:4d:5e")]
-    public void Common_mac_formats_are_read_and_normalised(string text)
+    public void Common_mac_formats_are_read_and_normalized(string text)
     {
-        Assert.True(MacAddress.TryNormalise(text, out var normalised));
-        Assert.Equal("00:1A:2B:3C:4D:5E", normalised);
+        Assert.True(MacAddress.TryNormalize(text, out var normalized));
+        Assert.Equal("00:1A:2B:3C:4D:5E", normalized);
     }
 
     [Theory]
@@ -39,7 +39,7 @@ public class WakeOnLanTests
     [InlineData("FF:FF:FF:FF:FF:FF")]
     [InlineData("not a mac")]
     public void Things_that_are_not_mac_addresses_are_refused(string? text) =>
-        Assert.False(MacAddress.TryNormalise(text, out _));
+        Assert.False(MacAddress.TryNormalize(text, out _));
 
     [Fact]
     public void The_magic_packet_is_six_ff_bytes_then_the_mac_sixteen_times()
@@ -163,7 +163,7 @@ public class WakeOnLanTests
     }
 
     [Fact]
-    public void An_mremoteng_mac_address_in_another_format_is_normalised_and_a_bad_one_warned_about()
+    public void An_mremoteng_mac_address_in_another_format_is_normalized_and_a_bad_one_warned_about()
     {
         var export = ConnectionExporter.Export(Sample().Root, ExportFormat.MRemoteNg, null, DateTimeOffset.Now);
 

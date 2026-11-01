@@ -74,6 +74,25 @@ public class ConnectionExporterTests
     }
 
     [Fact]
+    public void An_export_writes_color_correction_with_the_american_key_and_one_with_the_british_key_still_imports()
+    {
+        var (_, prod, _, _, _) = Sample();
+        prod.Settings.ColorCorrection = false;
+
+        var export = ConnectionExporter.Export(prod, ExportFormat.Orrery, Credentials, Now);
+        Assert.Contains("\"colorCorrection\": false", export.Content);
+        Assert.DoesNotContain("colour", export.Content, StringComparison.OrdinalIgnoreCase);
+
+        // As builds before the switch to American spelling wrote it.
+        var british = export.Content.Replace("\"colorCorrection\"", "\"colourCorrection\"", StringComparison.Ordinal);
+        Assert.Contains("\"colourCorrection\": false", british);
+        var folder = Assert.IsType<ConnectionFolder>(Assert.Single(ImportOrrery(british).Root.Children));
+        Assert.False(folder.Settings.ColorCorrection);
+        var web = new ConnectionTree(ImportOrrery(british).Root).AllConnections().Single(e => e.Name == "web");
+        Assert.False(SettingsResolver.Resolve(web).ColorCorrection.Value);
+    }
+
+    [Fact]
     public void Importing_an_export_into_the_tree_it_came_from_finds_what_is_already_there()
     {
         var (tree, prod, _, _, _) = Sample();
