@@ -258,7 +258,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
     /// <summary>
     /// Removes keys saved for this vault before a master password change made in this run, or by the first test
     /// builds, and says so when that leaves it off. A record found only by the vault's path (another copy of Orrery
-    /// changed the password, or a different vault was here before) is reported the same way but left alone. Never
+    /// changed the password, or a different vault was here before) is left alone, and reported as either. Never
     /// prompts and never deletes the authenticator's key. Returns the message to show, or null if there's nothing to say.
     /// </summary>
     public Task<string?> TurnOffIfStaleAsync(VaultFileStore vault)
@@ -294,10 +294,49 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         }
 
         bool earlierBuild = stale.Any(r => r.PathKeyed && r.Vault == fingerprint);
+        if (!earlierBuild && removed.Count == 0)
+        {
+            // Only a record for this path, so it can't be told which vault it was for: say both, and claim neither.
+            Logger.LogInformation("{Authenticator} unlock is off: only a record for a vault once at this path was found", Name);
+            return Task.FromResult<string?>(PlaceOnlyMessage);
+        }
+
         Logger.LogInformation("{Authenticator} unlock turned off: {Reason}", Name, earlierBuild ? "set up by an earlier build" : "the master password changed");
         return Task.FromResult<string?>(earlierBuild
             ? $"{Name} unlock was set up by an earlier test version of Orrery, so it was turned off. Unlock with the master password, then turn it on again in Settings."
             : $"The master password was changed, so {Name} unlock was turned off. Unlock with the master password, then turn it on again in Settings.");
+    }
+
+    string PlaceOnlyMessage =>
+        $"{Name} unlock was set up for a vault that used to be at this location, or for this vault before another copy of Orrery "
+        + $"changed its master password, so it's off for this vault. Unlock with the master password, and turn it on again in Settings if you want it.";
+
+    /// <summary>
+    /// True when a record found only by this vault's path is saved: one left by a vault that used to be here, or by
+    /// this vault before another copy of Orrery changed its password. Settings offers to remove those. Never prompts.
+    /// </summary>
+    public bool HasLeftovers(VaultFileStore vault) => Leftovers(vault).Count > 0;
+
+    /// <summary>
+    /// Removes the records <see cref="HasLeftovers"/> finds, and their authenticator keys: whatever they opened (an
+    /// old vault, a backup from before a password change) won't open with this any more. The user asks for this.
+    /// Returns how many were removed.
+    /// </summary>
+    public async Task<int> RemoveLeftoversAsync(VaultFileStore vault)
+    {
+        var leftovers = Leftovers(vault);
+        foreach (var record in leftovers)
+        {
+            records.Delete(record.Name);
+            if (IsOurKeyName(record.KeyName)) await DeleteKeyQuietlyAsync(record.KeyName!);
+        }
+
+        if (leftovers.Count > 0)
+        {
+            Logger.LogInformation("Removed {Count} old {Authenticator} unlock record(s) left at the vault's path", leftovers.Count, Name);
+        }
+
+        return leftovers.Count;
     }
 
     /// <summary>
@@ -434,6 +473,10 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
 
         return any;
     }
+
+    // Without the vault's own fingerprint its own record would look like one only found by path, so none are listed.
+    List<Saved> Leftovers(VaultFileStore vault) =>
+        FingerprintOf(vault) is { } fingerprint ? Related(vault, fingerprint).Where(r => r.PlaceOnly).ToList() : [];
 
     /// <summary>
     /// Records for this vault other than the current one: an earlier key block this run saw, the old path-keyed

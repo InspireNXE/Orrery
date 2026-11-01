@@ -93,6 +93,91 @@ public class BiometricUnlockUiTests : IDisposable
         window.Close();
     }
 
+    /// <summary>Turns it on, then has a copy of Orrery that knows nothing of it change the password: what's left is found only by path.</summary>
+    async Task<VaultFileStore> VaultWithLeftoverAsync()
+    {
+        using (var vault = await NewVaultAsync())
+        {
+            await Biometric.TurnOnAsync(vault, Password);
+        }
+
+        using (var elsewhere = new VaultFileStore(Location.FileIn("vault.frv"), new VaultFileStore.KdfSettings(8 * 1024, 1)))
+        {
+            await elsewhere.ChangePasswordAsync(Password, "a brand new password");
+        }
+
+        return new VaultFileStore(Location.FileIn("vault.frv"), new VaultFileStore.KdfSettings(8 * 1024, 1));
+    }
+
+    [AvaloniaFact]
+    public async Task A_setup_found_only_by_the_vaults_location_is_described_as_either_and_not_removed()
+    {
+        using var vault = await VaultWithLeftoverAsync();
+        var window = new VaultUnlockWindow(vault, Biometric);
+
+        window.Show();
+        await Settle(() => Texts(window).Any(t => t.Contains("used to be at this location")));
+
+        Assert.DoesNotContain(Texts(window), t => t.Contains("The master password was changed"));
+        Assert.Contains(Texts(window), t => t.Contains("before another copy of Orrery changed its master password"));
+        Assert.True(Biometric.HasLeftovers(vault));
+        Assert.Equal(0, _hello.Deleted);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Settings_removes_an_old_setup_after_saying_what_it_will_stop_opening()
+    {
+        using var vault = await VaultWithLeftoverAsync();
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
+        var window = Show(view);
+        await view.BiometricChecked;
+
+        var remove = Buttons(window).Single(b => b.Content as string == "Remove old Test Hello setup");
+        Assert.True(remove.IsEffectivelyVisible);
+        Assert.Equal("Remove old Test Hello setup", Avalonia.Automation.AutomationProperties.GetName(remove));
+        Assert.Contains(Texts(window), t => t.Contains("used to be at this location"));
+        bool finished = false;
+        view.BiometricLeftoversRemoved += (_, _) => finished = true;
+
+        // Cancelling the confirmation keeps it.
+        remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle(() => window.OwnedWindows.Count == 1);
+        var confirm = window.OwnedWindows.Single();
+        Assert.Contains(Texts(confirm), t => t.Contains("won't open with Test Hello any more"));
+        Buttons(confirm).Single(b => b.Content as string == "Cancel").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle(() => finished);
+        Assert.True(Biometric.HasLeftovers(vault));
+        Assert.Equal(0, _hello.Deleted);
+
+        finished = false;
+        remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle(() => window.OwnedWindows.Count == 1);
+        Buttons(window.OwnedWindows.Single()).Single(b => b.Content as string == "Remove").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle(() => finished);
+
+        Assert.False(Biometric.HasLeftovers(vault));
+        Assert.DoesNotContain(_records.Items.Keys, k => k.StartsWith(BiometricUnlock.RecordPrefix));
+        Assert.Equal(1, _hello.Deleted);
+        Assert.False(remove.IsEffectivelyVisible);
+        Assert.Contains(Texts(window), t => t.Contains("old Test Hello setup was removed"));
+        AccessibilityAudit.AssertAllNamed(window);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Settings_offers_no_removal_when_nothing_is_left_over()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
+        var window = Show(view);
+        await view.BiometricChecked;
+
+        Assert.False(Buttons(window).Single(b => b.Content as string == "Remove old Test Hello setup").IsEffectivelyVisible);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task Without_it_turned_on_the_unlock_window_only_asks_for_the_password()
     {
