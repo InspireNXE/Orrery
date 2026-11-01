@@ -17,6 +17,7 @@ using Orrery.App.Logging;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
+using Orrery.Core.Network;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.App.Settings;
@@ -85,7 +86,10 @@ public partial class MainWindow : Window
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
+    readonly HostStatusController _hostStatus;
+    readonly TextBlock _noticeText;
+    int _noticeVersion;
+    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
 
@@ -167,6 +171,8 @@ public partial class MainWindow : Window
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
         _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
+        _wakeMenuItem = this.FindControl<MenuItem>("WakeMenuItem")!;
+        _noticeText = this.FindControl<TextBlock>("NoticeText")!;
         _addGuestMenuItem = this.FindControl<MenuItem>("AddGuestMenuItem")!;
         _moveOutOfHostMenuItem = this.FindControl<MenuItem>("MoveOutOfHostMenuItem")!;
         _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
@@ -236,6 +242,10 @@ public partial class MainWindow : Window
         _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
 
+        _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
+            () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
+        _hostStatus.Enabled = _settingsStore.Load().ChecksHostStatus;
+
         WireTree();
         WireTitleBar();
         WireFullScreen();
@@ -274,6 +284,7 @@ public partial class MainWindow : Window
         {
             _properties.TrySave();
             SaveNow();
+            _hostStatus.Dispose();
             SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
             {
@@ -394,6 +405,11 @@ public partial class MainWindow : Window
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
             _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
+            int wakeable = nodes.OfType<ConnectionEntry>().Count(e => !string.IsNullOrEmpty(e.MacAddress));
+            _wakeMenuItem.IsVisible = nodes.OfType<ConnectionEntry>().Any();
+            _wakeMenuItem.IsEnabled = wakeable > 0;
+            _wakeMenuItem.Header = wakeable > 1 ? $"Wake {wakeable}" : "Wake";
+            ToolTip.SetTip(_wakeMenuItem, wakeable == 0 ? "Set a MAC address in the connection's settings to wake it." : null);
             _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
             _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
             _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
@@ -995,7 +1011,11 @@ public partial class MainWindow : Window
         _rebuilding = true;
         try
         {
-            _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, ScheduleSave);
+            _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, () =>
+            {
+                ScheduleSave();
+                _hostStatus.Refresh();
+            });
             Select(selected);
         }
         finally
@@ -1005,6 +1025,7 @@ public partial class MainWindow : Window
 
         _treeEmptyState.IsVisible = _tree.Root.Children.Count == 0;
         UpdateTreeStatus();
+        _hostStatus.Refresh();
         if (SelectedNode != _properties.Node)
         {
             _ = _properties.ShowAsync(SelectedNode);
@@ -1088,6 +1109,58 @@ public partial class MainWindow : Window
         if (SingleSelectedNode is ConnectionEntry entry)
         {
             await ConnectAsync(entry, files: true);
+        }
+    }
+
+    async void OnWakeMenuClick(object? sender, RoutedEventArgs e) => await WakeSelectedAsync();
+
+    /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
+    async Task WakeSelectedAsync()
+    {
+        var problems = new List<string>();
+        var woken = new List<string>();
+        foreach (var entry in SelectedNodes().OfType<ConnectionEntry>().Where(en => !string.IsNullOrEmpty(en.MacAddress)))
+        {
+            if (WakeOnLan.PlanFor(entry, out var whyNot) is not { } plan)
+            {
+                problems.Add($"{entry.Name}: {whyNot}");
+                continue;
+            }
+
+            try
+            {
+                await WakeOnLan.SendAsync(plan.Mac, plan.Destination);
+                woken.Add(entry.Name);
+                WakeLog.LogInformation("Sent a wake-up packet for \"{Name}\" ({Mac}) to {Destination}", entry.Name, entry.MacAddress, plan.Destination);
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                problems.Add($"{entry.Name}: {ex.Message}");
+                WakeLog.LogWarning("Couldn't send a wake-up packet for \"{Name}\" to {Destination}: {Message}", entry.Name, plan.Destination, ex.Message);
+            }
+        }
+
+        if (woken.Count > 0)
+        {
+            ShowNotice(woken.Count == 1 ? $"Sent a wake-up packet to {woken[0]}" : $"Sent wake-up packets to {woken.Count} connections");
+        }
+
+        if (problems.Count > 0)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't send the wake-up packet", string.Join("\n", problems));
+        }
+    }
+
+    /// <summary>A line in the status bar for a few seconds.</summary>
+    async void ShowNotice(string text)
+    {
+        int version = ++_noticeVersion;
+        _noticeText.Text = text;
+        _noticeText.IsVisible = true;
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        if (version == _noticeVersion)
+        {
+            _noticeText.IsVisible = false;
         }
     }
 
@@ -1612,6 +1685,7 @@ public partial class MainWindow : Window
 
     static readonly ILogger ConnectLog = Log.For("Connect");
     static readonly ILogger StorageLog = Log.For("Storage");
+    static readonly ILogger WakeLog = Log.For("Wake");
 
     /// <summary>A username as the log shows it, with its domain when there is one.</summary>
     static string Account(string? username, string? domain) =>
@@ -2496,6 +2570,7 @@ public partial class MainWindow : Window
                 _fullScreenShortcut = shortcut;
                 UpdateSessionToolbar();
             };
+            view.HostStatusChecksChanged += (_, on) => _hostStatus.Enabled = on;
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;

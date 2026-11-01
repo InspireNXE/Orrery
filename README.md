@@ -15,6 +15,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
+- Up, down or unknown dot beside each connection, from a plain TCP connect to its host and port about once a minute (only for connections you can see, never through a jump host, and it can be turned off in Settings)
+- Wake-on-LAN: give a connection a MAC address, then choose Wake in its right-click menu
 
 ### Display
 
@@ -32,7 +34,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
-- Import mRemoteNG `confCons.xml` and Orrery `.json`
+- Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
 

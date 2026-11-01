@@ -46,6 +46,15 @@ public sealed record AppSettings
     /// <summary>The right-hand pane (connection settings, credential editor) is showing. Null is open.</summary>
     public bool? InspectorOpen { get; init; }
 
+    /// <summary>
+    /// Check from time to time whether the connections on screen are up, by opening a TCP connection to each one's
+    /// host and port. Null is on. Off sends nothing and shows no dots.
+    /// </summary>
+    public bool? HostStatusChecks { get; init; }
+
+    [JsonIgnore]
+    public bool ChecksHostStatus => HostStatusChecks ?? true;
+
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }
 

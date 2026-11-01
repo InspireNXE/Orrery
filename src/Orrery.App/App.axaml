@@ -9,6 +9,10 @@
     <SolidColorBrush x:Key="OrreryInput" Color="#1B1E24" />
     <SolidColorBrush x:Key="OrreryRaised" Color="#181B21" />
     <SolidColorBrush x:Key="OrreryBorder" Color="#23272F" />
+    <!-- Host up/down/unknown dots; each state also has its own shape, so colour is never the only cue. -->
+    <SolidColorBrush x:Key="OrreryHostUp" Color="#5FD38D" />
+    <SolidColorBrush x:Key="OrreryHostDown" Color="#FF9AA2" />
+    <SolidColorBrush x:Key="OrreryHostUnknown" Color="#8A93A3" />
     <SolidColorBrush x:Key="OrreryControlBorder" Color="#2A2F38" />
     <SolidColorBrush x:Key="OrreryHover" Color="#1F232B" />
     <SolidColorBrush x:Key="OrrerySelected" Color="#232833" />

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Export;
+using Orrery.Core.Network;
 
 namespace Orrery.Core.Import;
 
@@ -186,6 +187,34 @@ public static class OrreryImporter
         };
         copy.Name = node.Name ?? string.Empty;
         copy.Notes = node.Notes;
+        if (node is ConnectionEntry fromEntry && copy is ConnectionEntry toEntry)
+        {
+            // Both go into a UDP packet's destination and contents, so anything unreadable is left out, not kept as text.
+            if (!string.IsNullOrWhiteSpace(fromEntry.MacAddress))
+            {
+                if (MacAddress.TryNormalise(fromEntry.MacAddress, out var mac))
+                {
+                    toEntry.MacAddress = mac;
+                }
+                else
+                {
+                    warnings.Add($"{copy.Name}: its MAC address isn't valid, so it was left out.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(fromEntry.WakeBroadcast))
+            {
+                if (WakeOnLan.TryParseBroadcast(fromEntry.WakeBroadcast, out var broadcast))
+                {
+                    toEntry.WakeBroadcast = broadcast.ToString();
+                }
+                else
+                {
+                    warnings.Add($"{copy.Name}: its wake-up broadcast address isn't valid, so it was left out.");
+                }
+            }
+        }
+
         copy.ImportSourceId = node.ImportSourceId ?? SourcePrefix + node.Id;
         copy.Settings = node.Settings?.Clone() ?? new InheritableSettings();
 

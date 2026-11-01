@@ -69,6 +69,7 @@
             <TextBlock x:Name="SessionCountText" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
             <TextBlock x:Name="StorageText" FontSize="11" Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" MaxWidth="700" />
             <TextBlock x:Name="DataAccessText" FontSize="11" IsVisible="False" />
+            <TextBlock x:Name="NoticeText" FontSize="11" Foreground="{StaticResource OrreryMuted}" IsVisible="False" />
           </StackPanel>
         </DockPanel>
       </Border>
@@ -148,6 +149,16 @@
                           <TextBlock Text="{Binding Badge}" FontSize="10" FontWeight="Medium" Foreground="{Binding BadgeForeground}"
                                      FontFamily="{StaticResource OrreryMono}" />
                         </Border>
+                        <Border DockPanel.Dock="Right" IsVisible="{Binding ReachabilityShown}" Background="Transparent" Padding="3" Margin="5,0,0,0"
+                                VerticalAlignment="Center" ToolTip.Tip="{Binding ReachabilityTip}" AutomationProperties.Name="{Binding ReachabilityTip}">
+                          <Panel Width="8" Height="8">
+            <Ellipse Name="HostUp" IsVisible="{Binding ReachabilityUp}" Fill="{StaticResource OrreryHostUp}" />
+            <Path Name="HostDown" IsVisible="{Binding ReachabilityDown}" Data="M1 1L7 7M7 1L1 7" Stroke="{StaticResource OrreryHostDown}"
+                  StrokeThickness="1.6" StrokeLineCap="Round" />
+            <Ellipse Name="HostUnknown" IsVisible="{Binding ReachabilityUnknown}" Margin="0.5" Stroke="{StaticResource OrreryHostUnknown}"
+                     StrokeThickness="1" StrokeDashArray="1.5,1.5" />
+          </Panel>
+                        </Border>
                         <TextBlock DockPanel.Dock="Right" IsVisible="{Binding IsFolder}" Text="{Binding Count}" FontSize="11"
                                    Foreground="#8A93A3" VerticalAlignment="Center" Margin="8,0,0,0" />
                         <TextBlock DockPanel.Dock="Right" IsVisible="{Binding IsHost}" Text="{Binding GuestCount}" FontSize="11"
@@ -166,6 +177,7 @@
                     <ContextMenu>
                       <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
                       <MenuItem x:Name="BrowseFilesMenuItem" Header="Browse files (SFTP)" Click="OnBrowseFilesMenuClick" />
+                      <MenuItem x:Name="WakeMenuItem" Header="Wake" Click="OnWakeMenuClick" />
                       <Separator />
                       <MenuItem Header="New connection" Click="OnNewConnectionClick" />
                       <MenuItem Header="New folder" Click="OnNewFolderClick" />
