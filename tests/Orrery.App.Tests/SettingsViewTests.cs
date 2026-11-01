@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Orrery.App.Controls;
 using Orrery.App.Settings;
 using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
@@ -181,12 +182,17 @@ public class SettingsViewTests : IDisposable
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
-        var announce = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Read new terminal output aloud");
+        var announce = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Content as string == "Send new terminal output to your screen reader");
         Assert.Null(settings.Load().TerminalAnnouncements);
         bool start = announce.IsChecked == true;
 
+        // Turned on with no screen reader running, a warning says nothing will be heard.
+        static bool Warned(Window w) => w.GetVisualDescendants().OfType<Notice>().Any(n => n.IsVisible && n.Message.Text?.StartsWith("No screen reader is running") == true);
+        Assert.Equal(OperatingSystem.IsWindows() && start && !ScreenReader.IsRunning, Warned(window));
+
         announce.IsChecked = !start;
         Assert.Equal(!start, settings.Load().TerminalAnnouncements);
+        Assert.Equal(OperatingSystem.IsWindows() && !start && !ScreenReader.IsRunning, Warned(window));
         announce.IsChecked = start;
         Assert.Equal(start, settings.Load().TerminalAnnouncements);
         Assert.Equal([!start, start], changes);
