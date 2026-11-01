@@ -102,17 +102,31 @@ public class RemoteFrameViewTests
     }
 
     [AvaloniaFact]
-    public void Clipboard_text_the_session_refused_becomes_a_notice_on_the_ui_thread()
+    public void Clipboard_text_the_session_refused_shows_across_the_top_and_is_read_out()
     {
         var session = new CutTextDesktop();
         var view = new RemoteFrameView(session);
-        var notices = new List<(string Text, bool OnUiThread)>();
-        view.Notice += (_, text) => notices.Add((text, Dispatcher.UIThread.CheckAccess()));
-
-        Task.Run(() => session.Refuse("too long")).Wait();
+        var window = new Window { Content = view, Width = 800, Height = 500 };
+        window.Show();
         Dispatcher.UIThread.RunJobs();
+        var spoken = new List<string>();
+        void Heard(string text) => spoken.Add(text);
+        ScreenReader.Announced += Heard;
+        try
+        {
+            Assert.Null(view.BannerText);
+            Task.Run(() => session.Refuse("too long")).Wait();
+            Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(("too long", true), Assert.Single(notices));
+            Assert.Equal("too long", view.BannerText);
+            Assert.Contains("too long", spoken);
+            AccessibilityAudit.AssertAllNamed(window);
+        }
+        finally
+        {
+            ScreenReader.Announced -= Heard;
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
