@@ -112,23 +112,19 @@ public class SerialSessionTests
     {
         await using var session = SerialSession.Start(new ConnectionTarget("COM9", 0, null, null), SerialLine.Default,
             (_, _) => throw new UnauthorizedAccessException("Access to the path 'COM9' is denied."));
-        string? message = null;
-        session.StateChanged += (_, e) => message ??= e.Message;
-
         Assert.Equal(SessionState.Failed, await StateAsync(session, SessionState.Failed));
-        Assert.StartsWith("COM9 is in use by another program", message ?? session.State.ToString());
+        Assert.StartsWith("COM9 is in use by another program", session.LastChange?.Message);
     }
 
     [Fact]
-    public async Task A_handler_added_after_the_port_failed_still_hears_why()
+    public async Task Whoever_looks_after_the_port_failed_still_learns_why()
     {
+        // The port fails at once, before a tab made afterwards adds its handler; the tab reads LastChange instead.
         await using var session = SerialSession.Start(new ConnectionTarget("COM9", 0, null, null), SerialLine.Default,
             (_, _) => throw new UnauthorizedAccessException("Access to the path 'COM9' is denied."));
         Assert.Equal(SessionState.Failed, await StateAsync(session, SessionState.Failed));
 
-        var heard = new List<SessionStateChangedEventArgs>();
-        session.StateChanged += (_, e) => heard.Add(e);
-        var change = Assert.Single(heard);
+        var change = Assert.IsType<SessionStateChangedEventArgs>(session.LastChange);
         Assert.Equal(SessionState.Failed, change.State);
         Assert.StartsWith("COM9 is in use by another program", change.Message);
         Assert.IsType<UnauthorizedAccessException>(change.Error);
