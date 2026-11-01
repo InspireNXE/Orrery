@@ -1,0 +1,8 @@
+{
+  "$comment": "The Devolutions.IronRdp package build/Get-IronRdp.ps1 downloads. The publish-ironrdp job of .github/workflows/packages.yml prints this file's contents for each package it publishes. url and sha256 stay empty until the first one is published. See docs/packaging.md.",
+  "version": "2026.10.29-orrery.2",
+  "repository": "Grinch/IronRDP",
+  "commit": "75e51a76369c6dbe6ab22584e7c8ce6f0f402470",
+  "url": "",
+  "sha256": ""
+}

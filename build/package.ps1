@@ -71,7 +71,7 @@ foreach ($rid in $Runtimes) {
 <dict>
   <key>CFBundleName</key><string>Orrery</string>
   <key>CFBundleDisplayName</key><string>Orrery</string>
-  <key>CFBundleIdentifier</key><string>app.orrery.Orrery</string>
+  <key>CFBundleIdentifier</key><string>org.inspirenxe.Orrery</string>
   <key>CFBundleVersion</key><string>$version</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleExecutable</key><string>Orrery</string>
