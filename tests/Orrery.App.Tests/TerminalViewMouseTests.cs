@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using Orrery.App.Sessions;
 using Orrery.Core.Sessions;
@@ -33,6 +34,32 @@ public class TerminalViewMouseTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
         return (window, session);
+    }
+
+    [AvaloniaFact]
+    public async Task Ctrl_shift_a_selects_everything_for_copying_and_plain_ctrl_a_goes_to_the_session()
+    {
+        var (window, session) = Open();
+        var view = (TerminalView)window.Content!;
+        session.Output("first line\r\nsecond line");
+        Dispatcher.UIThread.RunJobs();
+        session.Sent.Clear();
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["\u0001"], session.Sent);
+        Assert.False(view.HasSelection);
+
+        window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control | RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(view.HasSelection);
+        Assert.Equal(["\u0001"], session.Sent);
+
+        await view.CopyAsync();
+        var copied = await window.Clipboard!.TryGetTextAsync();
+        Assert.StartsWith("first line", copied);
+        Assert.Contains("second line", copied);
+        window.Close();
     }
 
     [AvaloniaFact]

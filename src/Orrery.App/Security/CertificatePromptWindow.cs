@@ -27,18 +27,18 @@ sealed class CertificatePromptWindow : Window
 
         var body = new StackPanel { Spacing = 14, Margin = new Thickness(24) };
 
-        body.Children.Add(Dialogs.TrustHeading(
-            changed ? $"The certificate for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}",
-            changed));
+        string heading = changed ? $"The certificate for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}";
+        string explanation = changed
+            ? "This server presented a different certificate from the one you trusted before. That's expected after "
+              + "the server is rebuilt or its certificate is renewed, but it can also mean someone is intercepting "
+              + "the connection. Don't continue unless you know why it changed."
+            : "Orrery can't confirm this is the server you meant to reach. Check the fingerprint with whoever "
+              + "manages the server before you trust it. Your credentials haven't been sent yet.";
+        body.Children.Add(Dialogs.TrustHeading(heading, changed));
 
         body.Children.Add(new TextBlock
         {
-            Text = changed
-                ? "This server presented a different certificate from the one you trusted before. That's expected after "
-                  + "the server is rebuilt or its certificate is renewed, but it can also mean someone is intercepting "
-                  + "the connection. Don't continue unless you know why it changed."
-                : "Orrery can't confirm this is the server you meant to reach. Check the fingerprint with whoever "
-                  + "manages the server before you trust it. Your credentials haven't been sent yet.",
+            Text = explanation,
             TextWrapping = TextWrapping.Wrap,
         });
 
@@ -76,6 +76,7 @@ sealed class CertificatePromptWindow : Window
         primary.Classes.Add("accent");
         primary.IsDefault = true;
         cancel.IsCancel = true;
+        Dialogs.FocusAndSayOnOpen(this, primary, $"{heading}. {explanation}");
 
         var buttons = new StackPanel
         {

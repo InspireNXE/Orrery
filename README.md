@@ -89,6 +89,7 @@ On macOS, Cmd replaces Ctrl.
 | --- | --- |
 | Ctrl+K | Quick connect |
 | Ctrl+Shift+T | Local terminal |
+| Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste. Plain Ctrl+A goes to the session |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel |
 | Ctrl+Alt+B | Show or hide the properties pane |

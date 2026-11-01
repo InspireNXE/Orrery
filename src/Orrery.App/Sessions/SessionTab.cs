@@ -59,15 +59,18 @@ sealed class SessionTab
         View = view;
         Origin = origin;
 
-        var title = new TextBlock { Text = origin.Title, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 200, TextTrimming = TextTrimming.CharacterEllipsis };
+        var title = new TextBlock { Text = origin.Title, VerticalAlignment = VerticalAlignment.Top, MaxWidth = 200, TextTrimming = TextTrimming.CharacterEllipsis };
         var protocol = new TextBlock
         {
             Text = origin.Label,
             FontFamily = Dialogs.MonoFont,
             FontSize = 10,
             Foreground = ProtocolStyle.Foreground(origin.Protocol),
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
         };
+
+        // The tag is smaller and in another font, so centring it leaves it off the name's line; sit it on the same baseline.
+        title.Loaded += (_, _) => protocol.Margin = new Thickness(0, Math.Max(0, title.TextLayout.Baseline - protocol.TextLayout.Baseline), 0, 0);
 
         var close = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center };
         close.Classes.Add("icon");
@@ -95,7 +98,7 @@ sealed class SessionTab
                         Spacing = 8,
                         Margin = new Thickness(12, 0, 6, 0),
                         VerticalAlignment = VerticalAlignment.Center,
-                        Children = { _state, title, protocol, close },
+                        Children = { _state, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { title, protocol } }, close },
                     },
                 },
             },
@@ -386,6 +389,12 @@ sealed class SessionTab
     /// <summary>Focuses what the user is most likely to want: Reconnect when the session has failed, else the session.</summary>
     public void FocusContent()
     {
+        // A prompt over the window (a host key to verify, say) keeps the focus; the session gets it when the prompt closes.
+        if (TopLevel.GetTopLevel(View) is Window { OwnedWindows.Count: > 0 })
+        {
+            return;
+        }
+
         if (_screen.IsVisible)
         {
             _reconnect.Focus();
