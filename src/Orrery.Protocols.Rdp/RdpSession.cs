@@ -30,8 +30,13 @@ namespace Orrery.Protocols.Rdp;
 /// Sound, shared drives and the console session (<see cref="RdpOptions"/>) need IronRDP's native library to have them,
 /// which Orrery's own build does on Windows. Where it doesn't, each is logged and left off, and the session goes on.
 /// </para>
+/// <para>
+/// The desktop comes through the graphics pipeline (RDPGFX) when the server takes it, as it does from Windows' own
+/// client, and else as bitmaps. Either way IronRDP draws it into the same image. A resize through the pipeline changes
+/// that image's size in place (<see cref="FollowGraphicsReset"/>); one without it restarts the session's activation.
+/// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchInput, IMultiMonitorSession
+public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
@@ -71,12 +76,19 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
     readonly ISessionRoute? _route;
     readonly RdpOptions _options;
 
-    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator, ISessionRoute? route, RdpOptions options)
+    // The display's scaling in percent, when the server is told it, and the one it was last told.
+    readonly bool _followsDisplayScale;
+    volatile int _desktopScale;
+    volatile int _sentScale;
+
+    RdpSession(ConnectionTarget target, ServerCertificateValidator certificateValidator, ISessionRoute? route, RdpOptions options, int? desktopScale)
     {
         Target = target;
         _certificateValidator = certificateValidator;
         _route = route;
         _options = options;
+        _followsDisplayScale = desktopScale is not null;
+        _desktopScale = _sentScale = desktopScale ?? 100;
     }
 
     public ConnectionTarget Target { get; }
@@ -104,11 +116,14 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
     /// <param name="route">How to reach the server, such as an SSH tunnel; directly when null. Disposed with the session.</param>
     /// <param name="quality">Which of the remote desktop's visual effects to ask for.</param>
     /// <param name="options">Sound, shared drives and the console session; IronRDP's defaults and sound here when null.</param>
+    /// <param name="displayScale">This display's scaling (1.5 for 150%) to tell the server, with the desktop size in
+    /// device pixels, so it draws at full resolution and sizes its UI to match; null leaves the server at its own.</param>
     public static RdpSession Start(ConnectionTarget target, string password, int desktopWidth, int desktopHeight,
         ServerCertificateValidator certificateValidator, bool shareClipboard = true, ISessionRoute? route = null,
-        DisplayQuality quality = DisplayQuality.Balanced, RdpOptions? options = null)
+        DisplayQuality quality = DisplayQuality.Balanced, RdpOptions? options = null, double? displayScale = null)
     {
-        var session = new RdpSession(target, certificateValidator, route, options ?? new RdpOptions());
+        var session = new RdpSession(target, certificateValidator, route, options ?? new RdpOptions(),
+            displayScale is { } scale ? ScalePercent(scale) : null);
         if (shareClipboard)
         {
             try
@@ -159,9 +174,9 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
                 _activeStage = ActiveStage.New(result);
             }
 
-            Logger.LogInformation("Connected to {Host}: desktop {Width}x{Height} (asked for {AskedWidth}x{AskedHeight}), {Quality} quality, clipboard {Clipboard}, "
-                + "sound {Sound}, {Drives} shared drive(s), {Session} session",
-                Target.Host, Width, Height, desktopWidth, desktopHeight, quality.ToString(),
+            Logger.LogInformation("Connected to {Host}: desktop {Width}x{Height} (asked for {AskedWidth}x{AskedHeight}), scaling {Scale}, {Quality} quality, "
+                + "clipboard {Clipboard}, sound {Sound}, {Drives} shared drive(s), {Session} session",
+                Target.Host, Width, Height, desktopWidth, desktopHeight, _followsDisplayScale ? $"{_sentScale}%" : "the server's", quality.ToString(),
                 _clipboard is not null ? "on" : _textClipboard is not null ? "text" : "off",
                 _options.PlayAudio ? "here" : "off", drivesShared ? _options.Drives.Count : 0, _options.AdminSession ? "console" : "own");
 
@@ -221,7 +236,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         RdpRedirection? redirectedFrom = null;
         for (int hop = 0; ; hop++)
         {
-            var config = BuildConfig(target, password, width, height, quality, _options.PlayAudio);
+            var config = BuildConfig(target, password, width, height, quality, _options.PlayAudio, _followsDisplayScale ? _sentScale : null);
             var dial = await _route.DialAsync(target, token);
             var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
             try
@@ -322,7 +337,29 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         while (!token.IsCancellationRequested)
         {
             var (action, payload) = await _framed!.ReadPdu(token);
-            var outputs = WithStageLock(() => _activeStage!.Process(_image!, action, payload));
+            bool resized = false;
+            var outputs = WithStageLock(() =>
+            {
+                var processed = _activeStage!.Process(_image!, action, payload);
+                try
+                {
+                    resized = FollowGraphicsReset();
+                }
+                catch
+                {
+                    processed.Dispose();
+                    throw;
+                }
+
+                return processed;
+            });
+
+            if (resized)
+            {
+                // Before the outputs, so the view takes the new size before the updates drawn at it.
+                FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
+            }
+
             if (!await HandleOutputsAsync(outputs, token))
             {
                 return;
@@ -584,6 +621,29 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         {
             throw new NotSupportedException(DesktopLimits.RefusalMessage(width, height));
         }
+    }
+
+    /// <summary>
+    /// Follows the graphics pipeline resizing IronRDP's image in place, which it does when the server resets its
+    /// graphics output, as it does for a resize instead of restarting the activation. Caller holds _stageLock.
+    /// </summary>
+    /// <returns>Whether the desktop changed size.</returns>
+    bool FollowGraphicsReset()
+    {
+        ushort width = _image!.Width, height = _image.Height;
+        if (width == Width && height == Height)
+        {
+            return false;
+        }
+
+        CheckDesktopSize(width, height);
+        var frame = new byte[checked((long)width * height * BytesPerPixel)];
+        _image.FillData(frame);
+        _frame = frame;
+        Width = width;
+        Height = height;
+        Logger.LogInformation("{Host}: the server reset its graphics, desktop {Width}x{Height}", Target.Host, width, height);
+        return true;
     }
 
     // Caller holds _stageLock. Width and Height change only once both buffers exist, so a failed
@@ -854,7 +914,8 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         // MS-RDPEDISP: 200 to 8192 pixels, and the width must be even.
         width = Math.Clamp(width, 200, DesktopLimits.MaxSide) & ~1;
         height = Math.Clamp(height, 200, DesktopLimits.MaxSide);
-        if (width == Width && height == Height)
+        int scale = _desktopScale;
+        if (width == Width && height == Height && scale == _sentScale)
         {
             return;
         }
@@ -864,10 +925,13 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
             try
             {
                 // Null when the server hasn't opened the display-control channel, i.e. it can't resize.
-                var outputs = WithStageLock(() => _activeStage!.EncodedResize((uint)width, (uint)height));
+                var outputs = WithStageLock(() => _followsDisplayScale
+                    ? _activeStage!.EncodedResizeWithScale((uint)width, (uint)height, (uint)scale)
+                    : _activeStage!.EncodedResize((uint)width, (uint)height));
                 if (outputs is not null)
                 {
-                    Logger.LogDebug("{Host}: asking for a {Width}x{Height} desktop", Target.Host, width, height);
+                    _sentScale = scale;
+                    Logger.LogDebug("{Host}: asking for a {Width}x{Height} desktop at {Scale}%", Target.Host, width, height, scale);
                     await HandleOutputsAsync(outputs, _cts.Token);
                 }
                 else
@@ -899,7 +963,14 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
             var layout = DisplayMonitorLayout.New();
             foreach (var monitor in monitors)
             {
-                layout.AddMonitor(monitor.Left, monitor.Top, (uint)monitor.Width, (uint)monitor.Height, monitor.IsPrimary);
+                if (_followsDisplayScale)
+                {
+                    layout.AddMonitorWithScale(monitor.Left, monitor.Top, (uint)monitor.Width, (uint)monitor.Height, monitor.IsPrimary, (uint)_desktopScale);
+                }
+                else
+                {
+                    layout.AddMonitor(monitor.Left, monitor.Top, (uint)monitor.Width, (uint)monitor.Height, monitor.IsPrimary);
+                }
             }
 
             outputs = WithStageLock(() => _activeStage!.EncodedMonitorLayout(layout));
@@ -930,6 +1001,22 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         });
         return true;
     }
+
+    /// <inheritdoc/>
+    public bool FollowsDisplayScale => _followsDisplayScale;
+
+    /// <inheritdoc/>
+    public void SetDisplayScale(double renderScaling)
+    {
+        if (_followsDisplayScale)
+        {
+            _desktopScale = ScalePercent(renderScaling);
+        }
+    }
+
+    /// <summary>A display's scaling as the percentage RDP takes, 100 to 500 (MS-RDPBCGR 2.2.1.3.2).</summary>
+    internal static int ScalePercent(double renderScaling) =>
+        double.IsFinite(renderScaling) ? (int)Math.Clamp(Math.Round(renderScaling * 100), 100, 500) : 100;
 
     void SendInput(Operation operation)
     {
@@ -1082,7 +1169,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         _ => [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing],
     };
 
-    static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality, bool playAudio)
+    static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality, bool playAudio, int? desktopScale)
     {
         var builder = ConfigBuilder.New();
         builder.WithUsernameAndPassword(target.Username ?? string.Empty, password);
@@ -1112,6 +1199,18 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
             catch (EntryPointNotFoundException e)
             {
                 Logger.LogWarning("Can't ask the server to keep its sound: {Message}", e.Message);
+            }
+        }
+
+        if (desktopScale is { } scale)
+        {
+            try
+            {
+                builder.DesktopScaleFactor = (uint)scale;
+            }
+            catch (EntryPointNotFoundException e)
+            {
+                Logger.LogWarning("Can't tell the server this display's scaling: {Message}", e.Message);
             }
         }
 

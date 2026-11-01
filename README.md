@@ -43,7 +43,7 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 | --- | --- | --- |
 | RDP | [IronRDP](https://github.com/Devolutions/IronRDP) | Fits the window and follows it as you resize, or keeps a fixed size; sound; shared drives and folders; full screen over every display (Windows); the console session; touch and pen; follows RD Connection Broker redirections; opens `.rdp` files |
 | SSH | [SSH.NET](https://github.com/sshnet/SSH.NET) | Port forwards (`L`, `R`, `D`), a SOCKS proxy for a whole folder, key files, agent keys, a keep-alive interval, and an SFTP browser |
-| VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard, view only, shrink to fit, fill the tab or actual size |
+| VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard, view only, fill the tab, shrink to fit or actual size |
 | Telnet | Built in | |
 | Serial | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports) | A terminal on a COM port or `/dev/tty*` device, with its speed, data bits, parity, stop bits and flow control |
 | Web (HTTP, HTTPS) | Your browser | Opens in your default browser rather than a tab, so a router's or a server's admin page sits in the tree with the rest |
@@ -76,6 +76,9 @@ host you type in.
 - A remote desktop's sound plays here unless you turn it off, and then the server isn't asked to send any.
   Windows servers only send sound to a client that has the drive-sharing channel, so Orrery opens it, with no drive
   in it, when none are shared.
+- A remote desktop comes through the graphics pipeline (RDPGFX) when the server offers it, as it does to Windows' own
+  client, though without H.264, which blurred text. Resizing it, which full screen does too, then keeps the session running, sound
+  included. A server without it sends bitmaps, and each resize restarts the session's display.
 - RDP can share every drive of this computer, or folders you choose, as drives on the remote computer, which can read
   and change their files. Linux and macOS can share only one folder: your home folder when sharing every drive, else
   the first folder you chose. Orrery says so when a folder isn't shared.
@@ -137,7 +140,12 @@ host you type in.
 ### Display and color
 
 - Display quality can be set per connection or folder: Balanced, Best look or Fastest.
-- *Enlarge to match display scaling* helps on high-DPI screens.
+- *Enlarge to match display scaling* (on by default) helps on high-DPI screens. For RDP it tells the server your
+  scaling, as Windows' own client does, so the desktop is drawn at your screen's full resolution with text the size
+  of your local apps'. VNC can't be told, so its picture is enlarged on your side. Off, every remote pixel is one of
+  your screen's, at 100%.
+- *Scaling* fits a remote desktop that doesn't match its tab: *Fit the tab* (the default), *Shrink to fit*, or
+  *Actual size*, pixel for pixel with scroll bars.
 - Interface colors come in three sets: Standard, Clearer (easier to tell apart for most kinds of color blindness),
   and Color-blind (the Okabe-Ito palette). The terminal has its own color-blind friendly scheme.
 - Under *Color vision* you can say whether you have protanopia, deuteranopia or tritanopia. Orrery then uses the
@@ -151,8 +159,7 @@ host you type in.
        alt="Settings open on the Appearance page. The Color vision card has Deuteranopia: green-weak chosen and the correction strength slider at 80%. The Interface colors card offers Standard, Clearer and Color-blind (Okabe-Ito), with Color-blind selected. The Terminal colors card below it is set to Color-blind friendly.">
 </p>
 
-HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet, because IronRDP's .NET binding doesn't
-pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.
+HDR isn't possible over RDP or VNC.
 
 ### Your workspace
 

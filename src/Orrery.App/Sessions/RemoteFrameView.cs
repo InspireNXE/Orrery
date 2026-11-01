@@ -97,9 +97,10 @@ public sealed class RemoteFrameView : Panel
 
     readonly bool _zoom;
 
-    // Remote pixels per DIP. Unzoomed, the remote desktop is sized in device pixels and drawn at that DPI,
-    // so it stays sharp but its text is as small as at 100%. Zoomed, it is sized in DIPs and enlarged to fit,
-    // because IronRDP's .NET API can't tell the server the display scale. Pointer positions use the same factor.
+    // Remote pixels per DIP. Unzoomed, the remote desktop is sized in device pixels and drawn one to one (SizeImage), so it stays
+    // sharp; an RDP session that tells the server the display's scaling (IDisplayScaleSession) also gets text the
+    // size of local apps' text, and otherwise it's as small as at 100%. Zoomed, it is sized in DIPs and enlarged to
+    // fit, for a session that can't tell the server (VNC). Pointer positions use the same factor.
     double _scale = 1;
     double _wheelX, _wheelY;
 
@@ -183,6 +184,7 @@ public sealed class RemoteFrameView : Panel
             {
                 // Spread over the displays when the server takes a layout; otherwise one desktop the size of the view,
                 // which covers them all, as mstsc /span does.
+                (Session as IDisplayScaleSession)?.SetDisplayScale(_topLevel?.RenderScaling ?? 1);
                 if (_spannedMonitors is not { } monitors || Session is not IMultiMonitorSession spread || !spread.RequestMonitorLayout(monitors))
                 {
                     var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
@@ -246,7 +248,7 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Whether there's a picture to save yet.</summary>
     public bool HasFrame => _bitmap is not null;
 
-    DesktopScaling _scaling = DesktopScaling.ShrinkToFit;
+    DesktopScaling _scaling = DesktopScaling.Fit;
 
     /// <summary>
     /// How a desktop that doesn't match the view is fitted into it: shrunk when it's bigger (the default), shrunk or
@@ -259,10 +261,35 @@ public sealed class RemoteFrameView : Panel
         {
             _scaling = value;
             bool actual = value == DesktopScaling.ActualSize;
-            _image.Stretch = actual ? Stretch.None : Stretch.Uniform;
             _image.StretchDirection = value == DesktopScaling.Fit ? StretchDirection.Both : StretchDirection.DownOnly;
             _scroller.HorizontalScrollBarVisibility = _scroller.VerticalScrollBarVisibility = actual ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+            SizeImage();
         }
+    }
+
+    /// <summary>
+    /// Holds the image to the desktop's size in DIPs, one remote pixel per device pixel when unzoomed: exactly at actual
+    /// size, at most when shrinking to fit, and not at all when fitting the tab. The bitmap itself stays at 96 DPI,
+    /// because Avalonia's Image takes a bitmap's size in DIPs as the pixels to draw, so at 120 DPI it showed only the
+    /// top-left part of the desktop, enlarged, and clicks landed off.
+    /// </summary>
+    void SizeImage()
+    {
+        double width = double.NaN, height = double.NaN, maxWidth = double.PositiveInfinity, maxHeight = double.PositiveInfinity;
+        if (_bitmap is { } bitmap && _scaling != DesktopScaling.Fit)
+        {
+            double desktopWidth = bitmap.PixelSize.Width / _scale, desktopHeight = bitmap.PixelSize.Height / _scale;
+            if (_scaling == DesktopScaling.ActualSize)
+            {
+                (width, height) = (desktopWidth, desktopHeight);
+            }
+            else
+            {
+                (maxWidth, maxHeight) = (desktopWidth, desktopHeight);
+            }
+        }
+
+        (_image.Width, _image.Height, _image.MaxWidth, _image.MaxHeight) = (width, height, maxWidth, maxHeight);
     }
 
     ColorCorrection? _correction;
@@ -484,13 +511,13 @@ public sealed class RemoteFrameView : Panel
 
         try
         {
-            var dpi = new Vector(96 * _scale, 96 * _scale);
-            if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height) || _bitmap.Dpi != dpi)
+            if (resize || _bitmap is null || _bitmap.PixelSize != new PixelSize(width, height))
             {
                 _bitmap?.Dispose();
                 _bitmap = null;
-                _bitmap = new WriteableBitmap(new PixelSize(width, height), dpi, PixelFormat.Rgba8888, AlphaFormat.Opaque);
+                _bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Opaque);
                 _image.Source = _bitmap;
+                SizeImage();
                 dirty = new FrameRect(0, 0, width, height);
             }
 
@@ -874,6 +901,7 @@ public sealed class RemoteFrameView : Panel
     {
         double displayScale = _topLevel?.RenderScaling ?? 1;
         _scale = _zoom ? 1 : displayScale;
+        SizeImage();
 
         // Whole-number zoom (200%) stays crisp with plain pixel doubling; other factors need smoothing.
         bool wholeZoom = Math.Abs(displayScale - Math.Round(displayScale)) < 0.01;

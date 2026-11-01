@@ -33,7 +33,7 @@ public class ProtocolSettingsTests : IDisposable
         Assert.False(resolved.UseAllMonitors.Value);
         Assert.False(resolved.AdminSession.Value);
         Assert.False(resolved.ViewOnly.Value);
-        Assert.Equal(DesktopScaling.ShrinkToFit, resolved.Scaling.Value);
+        Assert.Equal(DesktopScaling.Fit, resolved.Scaling.Value);
         Assert.Equal(30, resolved.KeepAliveSeconds.Value);
         Assert.Null(resolved.SocksProxy.Value);
         Assert.Equal(9600, resolved.BaudRate.Value);

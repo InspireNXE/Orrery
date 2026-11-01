@@ -400,6 +400,32 @@ public class WorkspaceWindowTests : IDisposable
     }
 
 
+    [AvaloniaFact]
+    public async Task The_offer_hides_while_a_session_is_full_screen_and_comes_back_after()
+    {
+        new WorkspaceStore(WorkspaceFile).Save(new Workspace { Tabs = [new WorkspaceTab(_saved.Id, null, 0, Protocol.Ssh)] });
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            await window.OfferWorkspaceAsync();
+            AddTab(window, new IdleSession("desk.example", 3389), new SessionOrigin("desk", Protocol.Rdp, null, () => Task.CompletedTask));
+            Dispatcher.UIThread.RunJobs();
+            var bar = window.FindControl<Border>("RestoreBar")!;
+            Assert.True(bar.IsVisible);
+
+            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null]);
+            Assert.False(bar.IsVisible);
+
+            typeof(MainWindow).GetMethod("ExitFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, []);
+            Assert.True(bar.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaTheory]
     [InlineData(RestoreSessionsMode.Never, true)]
     [InlineData(RestoreSessionsMode.Ask, false)] // only a connection deleted since: nothing left to offer

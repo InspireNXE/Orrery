@@ -47,6 +47,7 @@ static class RdpConnector
 
         var connector = ClientConnector.New(config, tcp.Client.LocalEndPoint!.ToString()!);
         connector.WithDynamicChannelDisplayControl();
+        OfferGraphicsPipeline(connector);
 
         // Touch and pen (MS-RDPEI). A server without the channel never opens it, and the view then sends touches as the
         // mouse; the server draws no touch visuals of its own, since this computer already shows the touch.
@@ -164,6 +165,25 @@ static class RdpConnector
             Logger.LogWarning("{What} is off for this connection: {Message}", what, e.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Offers the graphics pipeline (RDPGFX), as Windows' own client does. A server that takes it resizes the desktop
+    /// without restarting the session's activation, which on Windows 11 can stop its sound; one that doesn't keeps
+    /// sending bitmaps. H.264 isn't offered: Windows 11 sent it as AVC420, which smeared text and its colors, while the
+    /// pipeline's other codecs drew it as sharp as mstsc. For testing, <c>ORRERY_RDP_GRAPHICS_PIPELINE=0</c> leaves the
+    /// pipeline off, and <c>=h264</c> offers H.264 too, where IronRDP has a decoder for it (Windows).
+    /// </summary>
+    static void OfferGraphicsPipeline(ClientConnector connector)
+    {
+        var setting = Environment.GetEnvironmentVariable("ORRERY_RDP_GRAPHICS_PIPELINE");
+        if (setting == "0")
+        {
+            Logger.LogInformation("The graphics pipeline is off for this connection: ORRERY_RDP_GRAPHICS_PIPELINE is 0");
+            return;
+        }
+
+        Optional("The graphics pipeline", () => connector.WithDynamicChannelGraphicsPipeline(h264: setting == "h264"));
     }
 
     /// <summary>

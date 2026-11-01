@@ -73,6 +73,22 @@ public interface IFrameBufferSession : IConnectionSession
 }
 
 /// <summary>
+/// A session that can tell the server this display's scaling, so the remote desktop is drawn at full resolution and
+/// sized like local apps (RDP, as mstsc does). The view then asks for desktop sizes in device pixels.
+/// </summary>
+public interface IDisplayScaleSession
+{
+    /// <summary>Whether the session sends the scaling, as it was started to.</summary>
+    bool FollowsDisplayScale { get; }
+
+    /// <summary>
+    /// The display's scaling (1.5 for 150%), sent with the next <see cref="IFrameBufferSession.RequestResize"/> or
+    /// monitor layout. Ignored unless <see cref="FollowsDisplayScale"/>.
+    /// </summary>
+    void SetDisplayScale(double renderScaling);
+}
+
+/// <summary>
 /// A session that takes keys as X11 keysyms (what a key types, e.g. 'a' or Shift_L) rather than scancodes
 /// (where the key sits). VNC works this way, so the remote side doesn't need the local keyboard layout.
 /// </summary>

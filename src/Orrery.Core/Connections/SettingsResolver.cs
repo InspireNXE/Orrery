@@ -114,7 +114,7 @@ public static class SettingsResolver
             UseAllMonitors = Flag(nameof(InheritableSettings.UseAllMonitors), s => s.UseAllMonitors, false),
             AdminSession = Flag(nameof(InheritableSettings.AdminSession), s => s.AdminSession, false),
             ViewOnly = Flag(nameof(InheritableSettings.ViewOnly), s => s.ViewOnly, false),
-            Scaling = Value(nameof(InheritableSettings.Scaling), s => s.Scaling, DesktopScaling.ShrinkToFit),
+            Scaling = Value(nameof(InheritableSettings.Scaling), s => s.Scaling, DesktopScaling.Fit),
             KeepAliveSeconds = Value(nameof(InheritableSettings.KeepAliveSeconds), s => s.KeepAliveSeconds, DefaultKeepAliveSeconds),
             SocksProxy = FindString(node, includeSelf, nameof(InheritableSettings.SocksProxy), s => s.SocksProxy),
             BaudRate = Value(nameof(InheritableSettings.BaudRate), s => s.BaudRate, DefaultBaudRate),
