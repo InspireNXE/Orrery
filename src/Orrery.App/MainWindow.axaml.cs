@@ -243,6 +243,9 @@ public partial class MainWindow : Window
         var layout = _settingsStore.Load();
         ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
         ShowInspector(layout.InspectorOpen ?? true, save: false);
+        _workspaceStore = WorkspaceStore.In(location);
+        _savedWorkspace = _workspaceStore.Load();
+        InitWorkspace();
         RebuildTree();
         UpdateVaultButton();
         UpdateSessionChrome();
@@ -268,12 +271,15 @@ public partial class MainWindow : Window
             {
                 await OfferMRemoteNgImportAsync();
             }
+
+            await OfferWorkspaceAsync();
         };
 
         Closing += (_, _) =>
         {
             _properties.TrySave();
             SaveNow();
+            SaveWorkspace();
             SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
             {

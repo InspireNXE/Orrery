@@ -41,6 +41,7 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Installed, or portable with its data wherever you choose
 - Windows, Linux and macOS
 - Dark-first interface
+- Remembers the window and the tabs you had open, and reopens them at the next start if you want (ask, always or never, in Settings). A host typed into quick connect comes back by address only and asks for its login again
 
 HDR isn't possible over RDP or VNC. RDP can't follow your display scaling yet because IronRDP's .NET binding doesn't
 pass it on; *Enlarge to match display scaling* enlarges the picture on your side instead.

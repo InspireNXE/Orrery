@@ -46,6 +46,12 @@ public sealed record AppSettings
     /// <summary>The right-hand pane (connection settings, credential editor) is showing. Null is open.</summary>
     public bool? InspectorOpen { get; init; }
 
+    /// <summary>Whether to reopen last time's sessions at start-up. Null is <see cref="RestoreSessionsMode.Ask"/>.</summary>
+    public RestoreSessionsMode? RestoreSessions { get; init; }
+
+    [JsonIgnore]
+    public RestoreSessionsMode RestoreMode => RestoreSessions ?? RestoreSessionsMode.Ask;
+
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }
 
