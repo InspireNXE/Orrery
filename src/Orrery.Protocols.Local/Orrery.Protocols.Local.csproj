@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orrery.Protocols.Local.Tests" />
+    <ProjectReference Include="..\Orrery.Core\Orrery.Core.csproj" />
+  </ItemGroup>
+</Project>

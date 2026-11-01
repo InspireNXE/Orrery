@@ -57,6 +57,12 @@ public sealed record AppSettings
     /// </summary>
     public string? FullScreenShortcut { get; init; }
 
+    /// <summary>
+    /// The shell a local terminal runs, by id ("pwsh", "cmd", "wsl:Ubuntu"). Null, or one no longer installed, is
+    /// PowerShell 7 if there is one, else Windows PowerShell; the login shell on Linux and macOS.
+    /// </summary>
+    public string? LocalShell { get; init; }
+
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;
