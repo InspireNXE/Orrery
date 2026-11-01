@@ -353,6 +353,7 @@ public static class ConnectionExporter
             Lost("Older SSH algorithms allowed", resolved.Protocol.Value == Protocol.Ssh && resolved.AllowLegacySsh.Value);
             Lost("Reconnect turned off", !resolved.AutoReconnect.Value);
             Lost("Enlarge setting chosen per connection", resolved.EnlargeRemoteDesktop.Value is not null);
+            Lost("Colour correction turned off", !resolved.ColourCorrection.Value);
         }
 
         foreach (var (what, count) in lost.OrderByDescending(l => l.Value))

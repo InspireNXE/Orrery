@@ -34,7 +34,10 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Display quality per connection or folder: Balanced, Best look or Fastest
 - RDP fits the window and follows it as it resizes, or keeps a fixed size
 - *Enlarge to match display scaling* for high-DPI screens
-- Colour-blind friendly colours for the interface and, separately, the terminal, in Settings
+- Interface colours in Settings: Standard, Clearer (easier to tell apart for most colour blindness) or Colour-blind (Okabe-Ito); the terminal has its own colour-blind friendly scheme
+- *Colour vision* in Settings (protanopia, deuteranopia or tritanopia) switches to the colour-blind colours, tunes the
+  terminal's to that kind, and corrects RDP and VNC desktops so colours you'd confuse look different, at a strength
+  you choose. A connection or folder can turn the correction off, for design or photo work
 - Session states, host status, warnings and errors have a shape, an icon or a word as well as a colour
 
 ### Organising
@@ -111,12 +114,16 @@ Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
 - A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
   on while a screen reader is running. Turn it on or off in Settings, under Accessibility.
 - A screen reader can also read the whole terminal screen and the cursor's line and column.
+- Colours that carry meaning are checked by the tests against simulated protanopia, deuteranopia and tritanopia
+  (Machado et al. 2009) for difference (CIEDE2000) and against WCAG contrast.
 - Terminals and remote desktops keep every key, Tab included. Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the
   session for its tab, and leaves full screen first. Enter on the tab goes back in.
 
 What doesn't work yet:
 
 - A remote desktop is a picture, so a screen reader can only tell you its name, "Remote desktop:" and the connection.
+- Remote desktop colour correction is daltonisation: it makes confusable colours differ, but can't show you colours
+  you can't see, and changes how pictures look. It's been checked by numbers, not yet by colour-blind users.
 - Avalonia, the toolkit Orrery is built with, doesn't let screen readers move through the terminal by line or word.
   They get the screen as one block of text.
 - Tree rows don't report their level or "2 of 5", and password fields aren't marked as passwords, so a screen reader

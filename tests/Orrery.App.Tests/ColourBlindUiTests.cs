@@ -122,6 +122,33 @@ public class ColourBlindUiTests
     }
 
     [AvaloniaFact]
+    public void Switching_to_and_from_clearer_changes_the_brushes_in_place()
+    {
+        var up = Palette.StateUp;
+        try
+        {
+            Palette.Use(InterfaceColourScheme.Clearer);
+            Assert.Same(up, Palette.StateUp);
+            Assert.Equal(InterfaceColourScheme.Clearer, Palette.Scheme);
+            Assert.Equal(Color.Parse("#3CC6B4"), Palette.StateUp.Color);
+            Assert.Equal(Palette.Clearer.Danger, Palette.Danger.Color);
+            Assert.Equal(Palette.Standard.Accent, Palette.Accent.Color);
+
+            Palette.Use(InterfaceColourScheme.ColourBlind);
+            Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
+
+            Palette.Use(InterfaceColourScheme.Clearer);
+            Palette.Use(InterfaceColourScheme.Standard);
+            Assert.Equal(Palette.Standard.StateUp, Palette.StateUp.Color);
+            Assert.Equal(InterfaceColourScheme.Standard, Palette.Scheme);
+        }
+        finally
+        {
+            Palette.Use(InterfaceColourScheme.Standard);
+        }
+    }
+
+    [AvaloniaFact]
     public void Switching_palettes_changes_the_shared_brushes_in_place()
     {
         var danger = Palette.Danger;
@@ -130,18 +157,18 @@ public class ColourBlindUiTests
         Palette.Changed += Count;
         try
         {
-            Palette.Use(true);
+            Palette.Use(InterfaceColourScheme.ColourBlind);
             Assert.Same(danger, Palette.Danger);
             Assert.Equal(Palette.ColourBlind.Danger, Palette.Danger.Color);
             Assert.Equal(Palette.ColourBlind.StateUp, Palette.StateUp.Color);
             Assert.Equal(Palette.ColourBlind.Warning, ((ISolidColorBrush)Dialogs.WarningBrush).Color);
 
-            Palette.Use(true);
+            Palette.Use(InterfaceColourScheme.ColourBlind);
             Assert.Equal(1, changes);
         }
         finally
         {
-            Palette.Use(false);
+            Palette.Use(InterfaceColourScheme.Standard);
             Palette.Changed -= Count;
         }
 
@@ -192,5 +219,21 @@ public class ColourBlindUiTests
 
         view.ColourScheme = TerminalColourScheme.Standard;
         Assert.Equal(TerminalPalette.Standard.Ansi[2], view.AnsiColour(2));
+    }
+
+    [AvaloniaFact]
+    public void A_colour_vision_tunes_the_colour_blind_terminal_colours()
+    {
+        var view = new TerminalView(new FakeSession()) { ColourVision = Orrery.Core.Settings.ColourVision.Tritanopia };
+        Assert.Equal(TerminalPalette.Standard.Ansi[2], view.AnsiColour(2)); // Standard stays standard.
+
+        view.ColourScheme = TerminalColourScheme.ColourBlind;
+        Assert.Equal(TerminalPalette.Tritanopia.Ansi[2], view.AnsiColour(2));
+
+        view.ColourVision = Orrery.Core.Settings.ColourVision.Deuteranopia;
+        Assert.Equal(TerminalPalette.Deuteranopia.Ansi[5], view.AnsiColour(5));
+
+        view.ColourVision = Orrery.Core.Settings.ColourVision.None;
+        Assert.Equal(TerminalPalette.ColourBlind.Ansi[5], view.AnsiColour(5));
     }
 }

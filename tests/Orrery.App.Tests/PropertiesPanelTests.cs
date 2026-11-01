@@ -231,6 +231,30 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaFact]
+    public async Task Colour_correction_can_be_turned_off_for_one_connection()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "design", Host = "design.example" };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var correction = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ColourCorrection");
+        Assert.Equal("Use app setting", (correction.SelectedItem as ComboBoxItem)?.Content);
+        Assert.Equal("Colour correction", Avalonia.Automation.AutomationProperties.GetName(correction));
+
+        InheritBoxFor(correction).IsChecked = false;
+        correction.SelectedItem = correction.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, false));
+        Assert.True(panel.TrySave());
+
+        Assert.False(entry.Settings.ColourCorrection);
+        Assert.False(SettingsResolver.Resolve(entry).ColourCorrection.Value);
+    }
+
+    [AvaloniaFact]
     public async Task A_guest_says_whose_guest_it_is_and_names_the_host_where_a_setting_comes_from_it()
     {
         var tree = ConnectionTree.Empty();

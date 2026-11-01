@@ -19,7 +19,34 @@ public enum TerminalColourScheme
 {
     Standard,
 
-    /// <summary>Red and green kept apart for colour blindness.</summary>
+    /// <summary>Red and green kept apart for colour blindness; tuned further for the <see cref="ColourVision"/> chosen.</summary>
+    ColourBlind,
+}
+
+/// <summary>A kind of colour blindness the app allows for, in its colours and by correcting remote desktops.</summary>
+public enum ColourVision
+{
+    None,
+
+    /// <summary>Red-weak: reds look dark and close to greens.</summary>
+    Protanopia,
+
+    /// <summary>Green-weak, the most common: reds, greens and yellows run together.</summary>
+    Deuteranopia,
+
+    /// <summary>Blue-yellow: blues look like greens, and yellows like pinks or greys.</summary>
+    Tritanopia,
+}
+
+/// <summary>The colours that carry meaning in the interface: states, success, warnings, errors.</summary>
+public enum InterfaceColourScheme
+{
+    Standard,
+
+    /// <summary>Brighter colours that are easier to tell apart for most kinds of colour blindness.</summary>
+    Clearer,
+
+    /// <summary>Okabe and Ito's colour-blind safe colours.</summary>
     ColourBlind,
 }
 
@@ -78,13 +105,43 @@ public sealed record AppSettings
     /// <summary>The terminal's colours. Null is <see cref="TerminalColourScheme.Standard"/>.</summary>
     public TerminalColourScheme? TerminalColours { get; init; }
 
+    /// <summary>The interface colours. Null is <see cref="InterfaceColourScheme.Standard"/>, unless <see cref="ColourBlindColours"/> says otherwise.</summary>
+    public InterfaceColourScheme? InterfaceColours { get; init; }
+
     /// <summary>
-    /// Colours for states, warnings and errors that stay apart with colour blindness. Null is off.
+    /// The old on/off setting, read from existing files and never written back: <see cref="AppSettingsStore"/> turns
+    /// true into <see cref="InterfaceColourScheme.ColourBlind"/> when it loads or saves.
     /// </summary>
     public bool? ColourBlindColours { get; init; }
 
+    /// <summary>The interface colours in use, counting the old setting.</summary>
     [JsonIgnore]
-    public bool UseColourBlindColours => ColourBlindColours ?? false;
+    public InterfaceColourScheme InterfaceColourScheme =>
+        InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : InterfaceColourScheme.Standard);
+
+    /// <summary>Moves the old colour-blind setting into <see cref="InterfaceColours"/>.</summary>
+    public AppSettings Migrated() =>
+        ColourBlindColours is null
+            ? this
+            : this with { InterfaceColours = InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : null), ColourBlindColours = null };
+
+    /// <summary>
+    /// The user's colour vision. Null is none. Choosing one in Settings also picks the colour-blind interface and
+    /// terminal colours, which stay separate settings the user can change back.
+    /// </summary>
+    public ColourVision? ColourVision { get; init; }
+
+    [JsonIgnore]
+    public ColourVision Vision => ColourVision ?? default;
+
+    /// <summary>How strongly remote desktops are corrected for <see cref="ColourVision"/>, 0 to 100 percent. Null is <see cref="DefaultColourCorrectionStrength"/>.</summary>
+    public int? ColourCorrectionStrength { get; init; }
+
+    public const int DefaultColourCorrectionStrength = 100;
+
+    /// <summary>The correction strength in use, 0 to 100; a hand-edited value out of range is brought into it.</summary>
+    [JsonIgnore]
+    public int CorrectionStrength => Math.Clamp(ColourCorrectionStrength ?? DefaultColourCorrectionStrength, 0, 100);
 
     /// <summary>
     /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
@@ -130,7 +187,7 @@ public sealed class AppSettingsStore(string path)
     {
         try
         {
-            return File.Exists(path) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new() : new();
+            return File.Exists(path) ? (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new()).Migrated() : new();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -139,5 +196,5 @@ public sealed class AppSettingsStore(string path)
     }
 
     public void Save(AppSettings settings) =>
-        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
+        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
 }

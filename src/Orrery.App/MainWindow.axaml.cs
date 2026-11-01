@@ -117,7 +117,7 @@ public partial class MainWindow : Window
         _location = location;
         _movedFrom = movedFrom;
         _settingsStore = AppSettingsStore.In(location);
-        Palette.Use(_settingsStore.Load().UseColourBlindColours);
+        Palette.Use(_settingsStore.Load().InterfaceColourScheme);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";
@@ -1621,7 +1621,7 @@ public partial class MainWindow : Window
         Open(origin, () =>
         {
             var session = VncSession.Start(target, password, shareClipboard, route: Tunnel(jumps), quality: quality);
-            return (new RemoteFrameView(session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops), session);
+            return (NewRemoteFrameView(origin, session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops, followsViewSize: true), session);
         });
         UpdateVaultButton();
     }
@@ -1637,9 +1637,22 @@ public partial class MainWindow : Window
             bool zoom = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
             var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
             var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality);
-            return (new RemoteFrameView(session, zoom) { FollowsViewSize = fixedSize is null }, session);
+            return (NewRemoteFrameView(origin, session, zoom, followsViewSize: fixedSize is null), session);
         });
         UpdateVaultButton();
+    }
+
+    /// <summary>A remote desktop view with the colour correction from Settings, unless its connection turns that off.</summary>
+    RemoteFrameView NewRemoteFrameView(SessionOrigin origin, IFrameBufferSession session, bool zoom, bool followsViewSize)
+    {
+        var settings = _settingsStore.Load();
+        bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColourCorrection.Value;
+        return new RemoteFrameView(session, zoom)
+        {
+            FollowsViewSize = followsViewSize,
+            AllowsColourCorrection = allowed,
+            Correction = ColourCorrection.For(settings.Vision, settings.CorrectionStrength),
+        };
     }
 
     void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
@@ -1974,6 +1987,7 @@ public partial class MainWindow : Window
         {
             Margin = TerminalMargin,
             TextSize = settings.TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            ColourVision = settings.Vision,
             ColourScheme = settings.TerminalColours ?? TerminalColourScheme.Standard,
             Announcements = Controls.ScreenReader.TerminalAnnouncements(settings),
         };
@@ -2867,6 +2881,19 @@ public partial class MainWindow : Window
                 foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
                 {
                     terminal.ColourScheme = scheme;
+                }
+            };
+            view.ColourVisionChanged += (_, change) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.ColourVision = change.Vision;
+                }
+
+                var correction = ColourCorrection.For(change.Vision, change.Strength);
+                foreach (var desktop in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
+                {
+                    desktop.Correction = correction;
                 }
             };
             _settingsHost.Content = view;
