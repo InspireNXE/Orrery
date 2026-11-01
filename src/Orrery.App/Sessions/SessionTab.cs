@@ -264,8 +264,9 @@ sealed class SessionTab
     readonly StackPanel _retryRow = new() { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, MinHeight = 32 };
     readonly Button _reconnect = new() { Content = "Reconnect" };
     readonly TextBlock _when = Themed(new TextBlock { FontSize = 12 }, TextBlock.ForegroundProperty, "OrreryMuted");
-    readonly SelectableTextBlock _detail = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, FontFamily = Dialogs.MonoFont };
-    readonly Expander _details = new() { Header = "Details", HorizontalAlignment = HorizontalAlignment.Stretch };
+    // Open from the start, in the interface's own font: the details are what's read first, not a code listing.
+    readonly SelectableTextBlock _detail = Themed(new SelectableTextBlock { FontSize = 12.5, LineHeight = 18, TextWrapping = TextWrapping.Wrap }, TextBlock.ForegroundProperty, "OrrerySoftText");
+    readonly Expander _details = new() { Header = "Details", HorizontalAlignment = HorizontalAlignment.Stretch, IsExpanded = true };
     readonly DispatcherTimer _countdown = new() { Interval = TimeSpan.FromSeconds(1) };
     DateTime _reconnectAt;
     string _attemptText = string.Empty;

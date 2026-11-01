@@ -1,6 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Orrery.Core.Storage;
 using Xunit;
 
@@ -34,6 +36,37 @@ public class TreeMenuTests : IDisposable
             Assert.True(items["Open Remote Desktop file…"].IsEnabled);
             Assert.True(items["Import…"].IsEnabled);
             menu.Close();
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_long_folder_name_keeps_every_rows_badge_inside_the_pane()
+    {
+        var location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
+        Directory.CreateDirectory(location.DataDir);
+        var longName = "Imported from Orrery (2026-11-01) with a much longer name than the pane has room for";
+        File.WriteAllText(Path.Combine(location.DataDir, "connections.json"), """
+            {"schemaVersion":1,"root":{"type":"folder","name":"Connections","id":"00000000-0000-0000-0000-000000000001","children":[
+              {"type":"folder","name":"LONG","id":"00000000-0000-0000-0000-000000000002","children":[
+                {"type":"connection","name":"desk","id":"00000000-0000-0000-0000-000000000003","host":"desk.example","settings":{"protocol":"rdp"}}]}]}}
+            """.Replace("LONG", longName));
+        VaultAutoLockTests.AddMainWindowResources();
+        var window = new MainWindow(location) { Width = 1400, Height = 900 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var tree = window.FindControl<TreeView>("Tree")!;
+            var badge = tree.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "RDP" && t.IsEffectivelyVisible);
+            var right = badge.TranslatePoint(new Avalonia.Point(badge.Bounds.Width, 0), tree)!.Value.X;
+            Assert.InRange(right, 0, tree.Bounds.Width);
+
+            var folderName = tree.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == longName);
+            Assert.True(folderName.TranslatePoint(new Avalonia.Point(folderName.Bounds.Width, 0), tree)!.Value.X <= tree.Bounds.Width);
         }
         finally
         {
