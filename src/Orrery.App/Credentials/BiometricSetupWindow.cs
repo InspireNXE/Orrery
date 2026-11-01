@@ -1,22 +1,25 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Credentials;
 
 namespace Orrery.App.Credentials;
 
 /// <summary>
-/// Turns on Windows Hello or Touch ID unlock: asks for the master password once, then shows the system prompt.
-/// Closes with true once it's on.
+/// Turns on Windows Hello or Touch ID unlock: says what will open the vault from now on, asks for the master password
+/// once, then shows the system prompt. Closes with true once it's on.
 /// </summary>
 sealed class BiometricSetupWindow : Window
 {
     readonly VaultFileStore _vault;
     readonly BiometricUnlock _biometric;
-    readonly TextBox _password = new() { PasswordChar = '•' };
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly TextBox _password = new PasswordBox();
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
+    CancellationTokenSource? _prompt;
 
     public BiometricSetupWindow(VaultFileStore vault, BiometricUnlock biometric)
     {
@@ -31,9 +34,12 @@ sealed class BiometricSetupWindow : Window
 
         _ok = new Button { Content = "Turn on", IsDefault = true, Padding = new Thickness(16, 6) };
         _ok.Classes.Add("accent");
+        AutomationProperties.SetName(_ok, $"Turn on {biometric.Name} unlock");
         _ok.Click += async (_, _) => await SubmitAsync();
         var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(16, 6) };
         cancel.Click += (_, _) => Close(false);
+
+        var trade = new Notice(NoticeKind.Warning, TradeOff(biometric.Name));
 
         Content = new StackPanel
         {
@@ -41,13 +47,14 @@ sealed class BiometricSetupWindow : Window
             Spacing = 12,
             Children =
             {
-                new TextBlock { Text = $"Unlock the vault with {biometric.Name}", FontSize = 18, FontWeight = FontWeight.SemiBold },
+                Dialogs.Heading(new TextBlock { Text = $"Unlock the vault with {biometric.Name}", FontSize = 18, FontWeight = FontWeight.SemiBold }),
                 new TextBlock
                 {
                     Text = $"Enter the master password once, then confirm with {biometric.Name}. After that, {biometric.Name} opens the vault on this computer. "
                         + "The master password still works.",
                     TextWrapping = TextWrapping.Wrap,
                 },
+                trade,
                 Dialogs.Field("Master password", _password),
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, _ok } },
@@ -55,7 +62,14 @@ sealed class BiometricSetupWindow : Window
         };
 
         Opened += (_, _) => _password.Focus();
+        Closed += (_, _) => _prompt?.Cancel();
     }
+
+    /// <summary>What will open the vault once this is on, said before the user agrees.</summary>
+    internal static string TradeOff(string name) => OperatingSystem.IsMacOS()
+        ? $"Only the fingers enrolled in {name} now will open the vault. Adding or removing a finger stops it working until you turn it on again."
+        : $"Your {name} PIN, and any face or fingerprint set up in {name} on this Windows account, will open the vault on this computer. "
+            + "Changing the PIN or adding a face or finger doesn't turn this off. To stop it, turn it off in Settings or change the master password.";
 
     async Task SubmitAsync()
     {
@@ -68,9 +82,23 @@ sealed class BiometricSetupWindow : Window
 
         _ok.IsEnabled = false;
         _ok.Content = "Turning on…";
+        _error.IsVisible = false;
+        using var prompt = new CancellationTokenSource();
+        _prompt = prompt;
         try
         {
-            var result = await _biometric.TurnOnAsync(_vault, password, TryGetPlatformHandle()?.Handle ?? 0);
+            var result = await _biometric.TurnOnAsync(_vault, password, TryGetPlatformHandle()?.Handle ?? 0, prompt.Token);
+            if (prompt.IsCancellationRequested)
+            {
+                // Closed while the prompt was up: leave it off.
+                if (result.Outcome == BiometricOutcome.Done)
+                {
+                    await _biometric.TurnOffAsync(_vault);
+                }
+
+                return;
+            }
+
             if (result.Outcome == BiometricOutcome.Done)
             {
                 Close(true);
@@ -93,6 +121,7 @@ sealed class BiometricSetupWindow : Window
         }
         finally
         {
+            _prompt = null;
             _ok.IsEnabled = true;
             _ok.Content = "Turn on";
         }

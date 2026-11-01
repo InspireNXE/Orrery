@@ -43,6 +43,7 @@ public class SecretLeakTests : IDisposable
 
         var hello = new TestAuthenticator();
         var biometric = new BiometricUnlock(hello, new MemorySecrets());
+        var dataKeys = new List<byte[]>();
 
         AppLog.Start(location);
         AppLog.Detailed = true;
@@ -63,9 +64,11 @@ public class SecretLeakTests : IDisposable
                 await Assert.ThrowsAsync<WrongVaultPasswordException>(() => biometric.TurnOnAsync(vault, WrongPassword));
                 await biometric.TurnOnAsync(vault, MasterPassword);
                 Assert.Equal(BiometricOutcome.Done, (await biometric.UnlockAsync(vault)).Outcome);
+                dataKeys.Add((await vault.DataKeyForAsync(MasterPassword)).DataKey);
                 await vault.ChangePasswordAsync(MasterPassword, NewMasterPassword);
                 vault.Lock();
                 Assert.Equal(BiometricOutcome.TurnedOff, (await biometric.UnlockAsync(vault)).Outcome);
+                dataKeys.Add((await vault.DataKeyForAsync(NewMasterPassword)).DataKey);
             }
 
             // Connections saved, backed up and loaded.
@@ -113,8 +116,10 @@ public class SecretLeakTests : IDisposable
             Assert.DoesNotContain(secret, details);
         }
 
+        // The authenticator's secrets, and the vault's data keys before and after the password change.
         Assert.NotEmpty(hello.Secrets);
-        foreach (var secret in hello.Secrets)
+        Assert.Equal(2, dataKeys.Count);
+        foreach (var secret in hello.Secrets.Concat(dataKeys))
         {
             Assert.DoesNotContain(Convert.ToBase64String(secret), log);
             Assert.DoesNotContain(Convert.ToHexString(secret), log, StringComparison.OrdinalIgnoreCase);

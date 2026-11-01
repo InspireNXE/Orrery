@@ -2746,8 +2746,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // The old copy's vault has the same key as the one in use, so biometric unlock opens it too.
+        var biometric = VaultUnlockWindow.Biometric;
+        var biometricNote = biometric is not null && _credentials is VaultFileStore vault && biometric.IsOn(vault)
+            ? $"\n\nUntil it's deleted, {biometric.Name} unlock opens the old copy's vault as well."
+            : string.Empty;
         if (!await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
-                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.", "Delete old copy"))
+                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.{biometricNote}", "Delete old copy"))
         {
             return;
         }
