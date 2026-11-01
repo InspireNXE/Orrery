@@ -83,17 +83,13 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     public bool Exists => File.Exists(_path);
 
+    /// <summary>Where <c>vault.frv</c> is.</summary>
+    public string FilePath => _path;
+
     public async Task UnlockAsync(string masterPassword)
     {
         ArgumentException.ThrowIfNullOrEmpty(masterPassword);
-
-        // Slow down guessing after a few wrong passwords: 1s, 2s, 4s… up to 30s. No lockout, no wipe.
-        int failures;
-        lock (_lock) failures = _failedAttempts;
-        if (failures >= FreeAttempts)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, failures - FreeAttempts))));
-        }
+        await SlowDownAfterFailuresAsync();
 
         // Argon2id is deliberately slow; keep it off the caller's thread.
         await Task.Run(() =>
@@ -140,6 +136,39 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     void Open(string masterPassword)
     {
+        var file = ReadFile();
+        var dataKeyBytes = UnwrapDataKey(file, masterPassword) ?? throw WrongPassword();
+        try
+        {
+            OpenWith(file, dataKeyBytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(dataKeyBytes);
+        }
+    }
+
+    // Slow down guessing after a few wrong passwords: 1s, 2s, 4s… up to 30s. No lockout, no wipe.
+    async Task SlowDownAfterFailuresAsync()
+    {
+        int failures;
+        lock (_lock) failures = _failedAttempts;
+        if (failures >= FreeAttempts)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, failures - FreeAttempts))));
+        }
+    }
+
+    WrongVaultPasswordException WrongPassword()
+    {
+        int attempts;
+        lock (_lock) attempts = ++_failedAttempts;
+        Logger.LogWarning("Vault unlock failed: wrong master password ({Attempts} in a row)", attempts);
+        return new WrongVaultPasswordException();
+    }
+
+    VaultFile ReadFile()
+    {
         VaultFile? file;
         try
         {
@@ -169,52 +198,90 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             throw new InvalidDataException("This isn't an Orrery vault, or it was made by a newer version.");
         }
 
-        byte[]? dataKeyBytes;
-        using (var kek = DeriveKeyEncryptionKey(masterPassword, file.Kdf))
-        {
-            dataKeyBytes = Aead.Decrypt(kek, Convert.FromBase64String(file.WrappedKey.Nonce),
-                AssociatedData(file.Kdf, "key"), Convert.FromBase64String(file.WrappedKey.Ciphertext));
-        }
-
-        if (dataKeyBytes is null)
-        {
-            int attempts;
-            lock (_lock) attempts = ++_failedAttempts;
-            Logger.LogWarning("Vault unlock failed: wrong master password ({Attempts} in a row)", attempts);
-            throw new WrongVaultPasswordException();
-        }
-
-        try
-        {
-            var dataKey = Key.Import(Aead, dataKeyBytes, KeyBlobFormat.RawSymmetricKey);
-            var plaintext = Aead.Decrypt(dataKey, Convert.FromBase64String(file.Payload.Nonce),
-                AssociatedData(file.Kdf, "payload"), Convert.FromBase64String(file.Payload.Ciphertext));
-            if (plaintext is null)
-            {
-                dataKey.Dispose();
-                throw new InvalidDataException("The vault's contents are damaged; the password was right but the data doesn't decrypt.");
-            }
-
-            var items = JsonSerializer.Deserialize<List<Credential>>(plaintext, JsonOptions) ?? [];
-            CryptographicOperations.ZeroMemory(plaintext);
-
-            lock (_lock)
-            {
-                _dataKey?.Dispose();
-                _dataKey = dataKey;
-                _items = items;
-                _file = file;
-                _failedAttempts = 0;
-                Touch();
-            }
-
-            Logger.LogInformation("Vault unlocked, {Count} credentials", items.Count);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(dataKeyBytes);
-        }
+        return file;
     }
+
+    /// <summary>The data key, or null if <paramref name="masterPassword"/> doesn't open <paramref name="file"/>.</summary>
+    static byte[]? UnwrapDataKey(VaultFile file, string masterPassword)
+    {
+        using var kek = DeriveKeyEncryptionKey(masterPassword, file.Kdf);
+        return Aead.Decrypt(kek, Convert.FromBase64String(file.WrappedKey.Nonce),
+            AssociatedData(file.Kdf, "key"), Convert.FromBase64String(file.WrappedKey.Ciphertext));
+    }
+
+    // Decrypts the contents with the data key and makes this the open vault. The caller zeroes dataKeyBytes.
+    void OpenWith(VaultFile file, byte[] dataKeyBytes)
+    {
+        var dataKey = Key.Import(Aead, dataKeyBytes, KeyBlobFormat.RawSymmetricKey);
+        var plaintext = Aead.Decrypt(dataKey, Convert.FromBase64String(file.Payload!.Nonce),
+            AssociatedData(file.Kdf, "payload"), Convert.FromBase64String(file.Payload.Ciphertext));
+        if (plaintext is null)
+        {
+            dataKey.Dispose();
+            throw new InvalidDataException("The vault's contents are damaged; the key was right but the data doesn't decrypt.");
+        }
+
+        var items = JsonSerializer.Deserialize<List<Credential>>(plaintext, JsonOptions) ?? [];
+        CryptographicOperations.ZeroMemory(plaintext);
+
+        lock (_lock)
+        {
+            _dataKey?.Dispose();
+            _dataKey = dataKey;
+            _items = items;
+            _file = file;
+            _failedAttempts = 0;
+            Touch();
+        }
+
+        Logger.LogInformation("Vault unlocked, {Count} credentials", items.Count);
+    }
+
+    // ---- For biometric unlock (docs/design-biometric-unlock.md). The vault file itself never changes for it. ----
+
+    /// <summary>
+    /// Identifies the vault's current key block: the KDF settings, salt and wrapped data key. Ordinary saves leave it
+    /// alone; every master password change makes a new one. Read from the file, so it needs no password.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The file is damaged or not a vault.</exception>
+    internal string? KeyFingerprint() => Exists ? Fingerprint(ReadFile()) : null;
+
+    /// <summary>
+    /// The data key and key fingerprint, once <paramref name="masterPassword"/> is checked against the file. Wrong
+    /// guesses count towards the same slow-down as the unlock window. The caller zeroes the key.
+    /// </summary>
+    /// <exception cref="WrongVaultPasswordException"></exception>
+    internal async Task<(byte[] DataKey, string Fingerprint)> DataKeyForAsync(string masterPassword)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(masterPassword);
+        await SlowDownAfterFailuresAsync();
+        return await Task.Run(() =>
+        {
+            var file = ReadFile();
+            var dataKey = UnwrapDataKey(file, masterPassword) ?? throw WrongPassword();
+            lock (_lock) _failedAttempts = 0;
+            return (dataKey, Fingerprint(file));
+        });
+    }
+
+    /// <summary>
+    /// Opens the vault with a data key saved for biometric unlock. False, and still locked, when the file's key block
+    /// isn't <paramref name="fingerprint"/> any more (the master password was changed).
+    /// </summary>
+    internal Task<bool> UnlockWithDataKeyAsync(byte[] dataKey, string fingerprint) => Task.Run(() =>
+    {
+        var file = ReadFile();
+        if (Fingerprint(file) != fingerprint)
+        {
+            return false;
+        }
+
+        OpenWith(file, dataKey);
+        return true;
+    });
+
+    static string Fingerprint(VaultFile file) => Convert.ToBase64String(SHA256.HashData(
+        AssociatedData(file.Kdf, $"key|{file.WrappedKey.Nonce}|{file.WrappedKey.Ciphertext}")));
 
     /// <summary>
     /// Sets a new master password. A new random data key is wrapped under the new password (with a fresh salt
