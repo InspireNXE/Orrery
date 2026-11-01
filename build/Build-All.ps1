@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Runs, in order:
-      build/package.ps1              portable zips for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64
+      build/package.ps1              portable zips for win-x64, win-arm64, linux-x64, linux-arm64, macos-arm64, macos-x64
       build/Build-Installer.ps1      Windows installer (Windows only; needs Inno Setup 7)
       build/Build-LinuxPackages.ps1  .deb and .rpm (needs nfpm), AppImage (needs appimagetool, Linux only)
 
@@ -35,7 +35,8 @@ if (-not $SkipPortable) {
 }
 
 if ($SkipInstaller) { }
-elseif (-not $IsWindows) { $skipped.Add('Windows installer: Inno Setup only runs on Windows') }
+# Windows PowerShell 5.1 has no $IsWindows, but only runs on Windows.
+elseif (-not ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop')) { $skipped.Add('Windows installer: Inno Setup only runs on Windows') }
 else {
     $installerArgs = @{}
     if ($IsccPath) { $installerArgs.IsccPath = $IsccPath }

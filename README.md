@@ -198,7 +198,7 @@ lists what was built and what wasn't. On Windows you get everything except the A
 
 | Script | Builds | Needs |
 | --- | --- | --- |
-| `./build/package.ps1` | Portable zips for win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64 and osx-x64 (`-Runtimes win-x64` for just one) | .NET SDK |
+| `./build/package.ps1` | Portable zips for win-x64, win-arm64, linux-x64, linux-arm64, macos-arm64 and macos-x64 (`-Runtimes win-x64` for just one; .NET calls the Mac ones `osx-arm64` and `osx-x64`) | .NET SDK |
 | `build\Build-Installer.ps1` | Windows installer | Windows, [Inno Setup](https://jrsoftware.org/isinfo.php) 7 |
 | `./build/Build-LinuxPackages.ps1` | .deb and .rpm, x64 and arm64 | [nfpm](https://nfpm.goreleaser.com/install/) (runs on Windows too) |
 | | AppImage, x64 and arm64 | Linux, [appimagetool](https://github.com/AppImage/appimagetool/releases) |
