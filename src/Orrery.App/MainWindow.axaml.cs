@@ -543,17 +543,20 @@ public partial class MainWindow : Window
         // Maximized, Windows pushes a window that draws its own title bar a few pixels past each screen edge;
         // Avalonia reports how far, so the content is kept inside by that much.
         var root = this.FindControl<Grid>("Root")!;
+        var titleBar = this.FindControl<Border>("TitleBar")!;
         root.Margin = OffScreenMargin;
+        titleBar.Padding = TitleBarPadding();
         PropertyChanged += (_, e) =>
         {
-            if (e.Property == OffScreenMarginProperty || e.Property == WindowStateProperty)
+            if (e.Property == OffScreenMarginProperty || e.Property == WindowStateProperty
+                || e.Property == ExtendClientAreaToDecorationsHintProperty)
             {
                 root.Margin = OffScreenMargin;
+                titleBar.Padding = TitleBarPadding();
             }
         };
 
         // The title bar is drawn by Orrery, so its empty parts move and maximize the window.
-        var titleBar = this.FindControl<Border>("TitleBar")!;
         titleBar.PointerPressed += (_, e) =>
         {
             if (e.Source is Visual source && source.FindAncestorOfType<Button>(includeSelf: true) is null
@@ -572,9 +575,19 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// On Windows a window that isn't maximized has a 1-pixel border drawn over the top row of the title bar, which
+    /// would leave quick connect a pixel closer to the top than to the bar's bottom line. Maximized, the border is
+    /// off screen, so the bar's content is centered as it is.
+    /// </summary>
+    Thickness TitleBarPadding() =>
+        OperatingSystem.IsWindows() && ExtendClientAreaToDecorationsHint && WindowState == WindowState.Normal
+            ? new Thickness(0, 1, 0, 0)
+            : default;
+
+    /// <summary>
     /// Leaves room for the system's window buttons: on the right on Windows, on the left on macOS. Where the
     /// window keeps its own title bar (most Linux desktops), none is needed. Both side columns stay equal
-    /// so quick connect is centerd on the window.
+    /// so quick connect is centered on the window.
     /// </summary>
     void FitTitleBarToCaptionButtons()
     {
