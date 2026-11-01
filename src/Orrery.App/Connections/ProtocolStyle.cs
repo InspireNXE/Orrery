@@ -4,7 +4,7 @@ using Orrery.Core.Connections;
 
 namespace Orrery.App.Connections;
 
-/// <summary>The badge colours and icon for each protocol, so a connection reads the same everywhere.</summary>
+/// <summary>The badge colors and icon for each protocol, so a connection reads the same everywhere.</summary>
 static class ProtocolStyle
 {
     static readonly IBrush RdpBack = Brush("#1D2E45"), RdpFore = Brush("#8CC2FF");

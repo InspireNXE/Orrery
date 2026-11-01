@@ -13,7 +13,7 @@ using Xunit;
 namespace Orrery.App.Tests;
 
 /// <summary>
-/// Plants recognisable secrets, runs the flows that handle them with the real log running, and checks none of
+/// Plants recognizable secrets, runs the flows that handle them with the real log running, and checks none of
 /// them reach the log file.
 /// </summary>
 [Collection(nameof(LoggingTests))]
@@ -112,7 +112,7 @@ public class SecretLeakTests : IDisposable
             await RunToEnd(SshSession.Start(new ConnectionTarget("db.internal", 22, "deploy", null), new SshLogin("deploy", null, key.Secret, KeyPassphrase),
                 hostKeys, 80, 24, jumps: [new SshHop(new ConnectionTarget("127.0.0.1", closed, "admin", null), new SshLogin("admin", TypedPassword))]));
 
-            // Key files, named in a folder that must not be quoted back: one that isn't a usable key but has a recognisable body,
+            // Key files, named in a folder that must not be quoted back: one that isn't a usable key but has a recognizable body,
             // one encrypted and opened with the wrong passphrase, one opened with the right one (the server is closed, so it fails at
             // the socket after reading the key), and a missing one. Directly, as a jump host, and in the file browser.
             var keyFolder = Path.Combine(_root, KeyFolder);

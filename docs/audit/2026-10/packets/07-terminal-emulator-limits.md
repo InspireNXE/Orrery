@@ -24,7 +24,7 @@ contains that). Each item below was reproduced by a verifier against a copy of t
   `ResizeScreen` pulls `_scrollback[^1]` back in (`:1063-1070`) at its old width, after the screen lines were resized.
   Later writes index past those short lines: `ClearWideAt` (`:566-578`), DECALN (`:375-380`), DCH (`:747-754`), and an
   ordinary `clear` followed by a long line. Repro: 80x24, print 40 lines, `Resize(120, 30)`, then `ESC[1;100Hx`.
-  Maximising, full screen, collapsing a pane or Ctrl+- all grow both dimensions in one resize.
+  Maximizing, full screen, collapsing a pane or Ctrl+- all grow both dimensions in one resize.
 - **S-12.** `_intermediates` (`:47`) grows without limit in the escape-intermediate (`:275-279`) and CSI (`:407-411`)
   states. 200 MiB of spaces after `ESC (` grew the heap by 401 MiB, and `StringBuilder.Clear` kept the capacity.
 - **S-13.** REP (`CSI n b`, `:481`) repeats up to 65535 times (the parameter cap at `:390`), and `Feed` (`:170-195`)
@@ -35,12 +35,12 @@ contains that). Each item below was reproduced by a verifier against a copy of t
   strips anything that could end the bracket early.
 - **S-21.** Code points U+0080-U+009F print as width-1 cells (`:264-268`, `CharWidth.Of` at `:1089-1110`) and come out
   verbatim in `GetText`/`AllText` (`:101-157`) and so in Copy and Save output. U+009B is CSI: `cat`-ing a saved log in a
-  terminal that honours C1 in UTF-8 runs it.
+  terminal that honors C1 in UTF-8 runs it.
 
 ## Changes
 1. S-10: in `Print`, when auto-wrap is off and a width-2 character doesn't fit (`_cx + 1 >= Columns`), behave like xterm:
    don't write the continuation cell past the margin. Either place the character one column left, or print a
-   replacement width-1 character; pick xterm's behaviour if you can confirm it, otherwise the replacement, and say which.
+   replacement width-1 character; pick xterm's behavior if you can confirm it, otherwise the replacement, and say which.
    Remove the dead `Columns < 2` test.
 2. S-11: resize each line as it's pulled back from scrollback (or resize scrollback before the screens), so every
    line on screen has `Cells.Length == Columns`. Add a debug assertion of that invariant after `Resize`.
@@ -67,4 +67,4 @@ contains that). Each item below was reproduced by a verifier against a copy of t
 
 ## Do not touch
 - `TelnetSession` (packet 08) and `TerminalView` (packets 06 and 16).
-- Hidden (SGR 8) text and bidi characters in copy and save: that's ordinary terminal behaviour and out of scope.
+- Hidden (SGR 8) text and bidi characters in copy and save: that's ordinary terminal behavior and out of scope.

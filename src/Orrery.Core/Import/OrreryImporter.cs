@@ -184,7 +184,7 @@ public static class OrreryImporter
         {
             ConnectionEntry entry => new ConnectionEntry { Id = newIds[entry.Id], Host = entry.Host?.Trim() ?? string.Empty, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Id = newIds[folder.Id], Expanded = folder.Expanded },
-            _ => throw new ImportException("This file has an item Orrery doesn't recognise."),
+            _ => throw new ImportException("This file has an item Orrery doesn't recognize."),
         };
         copy.Name = node.Name ?? string.Empty;
         copy.Notes = node.Notes;
@@ -193,7 +193,7 @@ public static class OrreryImporter
             // Both go into a UDP packet's destination and contents, so anything unreadable is left out, not kept as text.
             if (!string.IsNullOrWhiteSpace(fromEntry.MacAddress))
             {
-                if (MacAddress.TryNormalise(fromEntry.MacAddress, out var mac))
+                if (MacAddress.TryNormalize(fromEntry.MacAddress, out var mac))
                 {
                     toEntry.MacAddress = mac;
                 }

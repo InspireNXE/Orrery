@@ -77,7 +77,7 @@ public class DesktopResolutionTests
     }
 
     [Fact]
-    public void Colour_correction_follows_the_app_setting_until_a_folder_or_connection_turns_it_off()
+    public void Color_correction_follows_the_app_setting_until_a_folder_or_connection_turns_it_off()
     {
         var tree = ConnectionTree.Empty();
         var folder = new ConnectionFolder { Name = "Design" };
@@ -85,14 +85,14 @@ public class DesktopResolutionTests
         tree.Add(folder, tree.Root);
         tree.Add(entry, folder);
 
-        Assert.True(SettingsResolver.Resolve(entry).ColourCorrection.Value);
-        Assert.True(SettingsResolver.Resolve(entry).ColourCorrection.IsDefault);
+        Assert.True(SettingsResolver.Resolve(entry).ColorCorrection.Value);
+        Assert.True(SettingsResolver.Resolve(entry).ColorCorrection.IsDefault);
 
-        folder.Settings.ColourCorrection = false;
-        Assert.False(SettingsResolver.Resolve(entry).ColourCorrection.Value);
-        Assert.Same(folder, SettingsResolver.Resolve(entry).ColourCorrection.Source);
+        folder.Settings.ColorCorrection = false;
+        Assert.False(SettingsResolver.Resolve(entry).ColorCorrection.Value);
+        Assert.Same(folder, SettingsResolver.Resolve(entry).ColorCorrection.Source);
 
-        entry.Settings.ColourCorrection = true;
-        Assert.True(SettingsResolver.Resolve(entry).ColourCorrection.Value);
+        entry.Settings.ColorCorrection = true;
+        Assert.True(SettingsResolver.Resolve(entry).ColorCorrection.Value);
     }
 }

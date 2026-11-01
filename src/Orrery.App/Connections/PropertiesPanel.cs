@@ -43,13 +43,13 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, Watermark = "Fit the window" };
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
-    readonly ComboBox _colourCorrection = new() { Name = "ColourCorrection", HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _colorCorrection = new() { Name = "ColorCorrection", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
     readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
     readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
     readonly Control _wakeSection;
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colourCorrectionRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -112,11 +112,11 @@ sealed class PropertiesPanel : UserControl
         _qualityRow = new InheritRow("Display quality", _quality, () => ShowInherited(r => SelectQuality(r.DisplayQuality.Value)));
         _qualityRow.Tip("RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
             + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
-        _colourCorrection.Items.Add(new ComboBoxItem { Content = "Use app setting", Tag = true });
-        _colourCorrection.Items.Add(new ComboBoxItem { Content = "Off", Tag = false });
-        _colourCorrectionRow = new InheritRow("Colour correction", _colourCorrection, () => ShowInherited(r => SelectColourCorrection(r.ColourCorrection.Value)));
-        _colourCorrectionRow.Tip("RDP and VNC: Use app setting corrects the remote desktop's colours for the colour vision chosen in Settings, if any. "
-            + "Off shows its colours unchanged, for design or photo work. Applies to new connections.");
+        _colorCorrection.Items.Add(new ComboBoxItem { Content = "Use app setting", Tag = true });
+        _colorCorrection.Items.Add(new ComboBoxItem { Content = "Off", Tag = false });
+        _colorCorrectionRow = new InheritRow("Color correction", _colorCorrection, () => ShowInherited(r => SelectColorCorrection(r.ColorCorrection.Value)));
+        _colorCorrectionRow.Tip("RDP and VNC: Use app setting corrects the remote desktop's colors for the color vision chosen in Settings, if any. "
+            + "Off shows its colors unchanged, for design or photo work. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
         _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
@@ -186,7 +186,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
                 Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View),
-                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _colourCorrectionRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
+                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _colorCorrectionRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
                 _wakeSection,
                 _notesField,
@@ -220,8 +220,8 @@ sealed class PropertiesPanel : UserControl
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
-        _colourCorrection.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colourCorrectionRow })
+        _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -310,8 +310,8 @@ sealed class PropertiesPanel : UserControl
             _qualityRow.Load(own.DisplayQuality is null, Describe(inherited.DisplayQuality));
             SelectQuality(own.DisplayQuality ?? inherited.DisplayQuality.Value);
 
-            _colourCorrectionRow.Load(own.ColourCorrection is null, Describe(inherited.ColourCorrection));
-            SelectColourCorrection(own.ColourCorrection ?? inherited.ColourCorrection.Value);
+            _colorCorrectionRow.Load(own.ColorCorrection is null, Describe(inherited.ColorCorrection));
+            SelectColorCorrection(own.ColorCorrection ?? inherited.ColorCorrection.Value);
 
             _autoReconnectRow.Load(own.AutoReconnect is null, Describe(inherited.AutoReconnect));
             _autoReconnect.IsChecked = own.AutoReconnect ?? inherited.AutoReconnect.Value;
@@ -464,7 +464,7 @@ sealed class PropertiesPanel : UserControl
         {
             if (!string.IsNullOrWhiteSpace(_mac.Text))
             {
-                if (!MacAddress.TryNormalise(_mac.Text, out mac))
+                if (!MacAddress.TryNormalize(_mac.Text, out mac))
                 {
                     return Fail("The MAC address needs six pairs of hex digits, such as 00:1A:2B:3C:4D:5E or 00-1A-2B-3C-4D-5E.");
                 }
@@ -496,7 +496,7 @@ sealed class PropertiesPanel : UserControl
             DesktopSize = desktopSize,
             EnlargeRemoteDesktop = _enlargeRow.Inherit.IsChecked == true ? null : _enlarge.IsChecked == true,
             DisplayQuality = _qualityRow.Inherit.IsChecked == true ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?,
-            ColourCorrection = _colourCorrectionRow.Inherit.IsChecked == true ? null : (_colourCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
+            ColorCorrection = _colorCorrectionRow.Inherit.IsChecked == true ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inherit.IsChecked == true ? null : _autoReconnect.IsChecked == true,
             JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
         };
@@ -636,7 +636,7 @@ sealed class PropertiesPanel : UserControl
         _lastFailed.IsVisible = use.FailedSince is not null;
     }
 
-    /// <summary>The coloured square beside the name: the protocol for a connection, a folder otherwise.</summary>
+    /// <summary>The colored square beside the name: the protocol for a connection, a folder otherwise.</summary>
     void ShowTile(ConnectionNode node, Protocol protocol)
     {
         bool folder = node is not ConnectionEntry;
@@ -673,8 +673,8 @@ sealed class PropertiesPanel : UserControl
     void SelectQuality(DisplayQuality quality) =>
         _quality.SelectedItem = _quality.Items.OfType<ComboBoxItem>().First(i => (DisplayQuality)i.Tag! == quality);
 
-    void SelectColourCorrection(bool useAppSetting) =>
-        _colourCorrection.SelectedItem = _colourCorrection.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == useAppSetting);
+    void SelectColorCorrection(bool useAppSetting) =>
+        _colorCorrection.SelectedItem = _colorCorrection.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == useAppSetting);
 
     /// <summary>"Connect directly", then every saved SSH connection except <paramref name="node"/> itself.</summary>
     void FillJumpHosts(ConnectionNode node)

@@ -128,7 +128,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         catch (Exception e)
         {
             Log.For("Vnc").LogError(e, "VNC session to {Host} failed", Target.Host);
-            SetState(SessionState.Failed, Describe(e), Recognise(e));
+            SetState(SessionState.Failed, Describe(e), Recognize(e));
         }
     }
 
@@ -136,7 +136,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     /// The VNC library's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside:
     /// the server hanging up, and a refused password. Socket errors already say what happened.
     /// </summary>
-    internal static Exception Recognise(Exception e) => e switch
+    internal static Exception Recognize(Exception e) => e switch
     {
         UnexpectedEndOfStreamException => new SessionFailureException(FailureKind.ServerClosed, e.Message, e),
         HandshakeFailedException when IsRefusedLogin(e.Message) => new SessionFailureException(FailureKind.LoginFailed, e.Message, e),
@@ -174,7 +174,7 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
                 SetState(SessionState.Connected);
                 break;
             case ConnectionState.Interrupted or ConnectionState.ReconnectFailed:
-                SetState(SessionState.Failed, e.Exception?.Message ?? e.Reason ?? "The connection was lost.", e.Exception is null ? null : Recognise(e.Exception));
+                SetState(SessionState.Failed, e.Exception?.Message ?? e.Reason ?? "The connection was lost.", e.Exception is null ? null : Recognize(e.Exception));
                 break;
             case ConnectionState.Closed:
                 SetState(SessionState.Disconnected);

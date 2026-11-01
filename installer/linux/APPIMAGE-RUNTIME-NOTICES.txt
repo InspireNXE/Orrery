@@ -12,7 +12,7 @@ Components
 - libfuse 3 (GNU LGPL 2.1)                    https://github.com/libfuse/libfuse
 - squashfuse (BSD 2-clause)                   https://github.com/vasi/squashfuse
 - Zstandard (BSD 3-clause)                    https://github.com/facebook/zstd
-- zlib (zlib licence)                         https://github.com/madler/zlib
+- zlib (zlib license)                         https://github.com/madler/zlib
 - mimalloc (MIT)                              https://github.com/microsoft/mimalloc
 - musl libc (MIT)                             https://musl.libc.org/
 
@@ -20,7 +20,7 @@ libfuse is used under the GNU Lesser General Public License 2.1. Its source, and
 it (needed to relink the runtime against a modified libfuse), are published at the addresses above; the runtime's
 build scripts are in its repository. Orrery doesn't modify either.
 
-The licence texts below are copied unchanged from each project's repository.
+The license texts below are copied unchanged from each project's repository.
 
 ====================================================================================================
 Applies to: AppImage type2-runtime

@@ -46,10 +46,10 @@ public static class FullScreenShortcut
     /// <summary>A key press as a shortcut, or null while only modifiers are down.</summary>
     public static KeyGesture? FromKeyPress(Key key, KeyModifiers modifiers) => IsModifier(key)
         ? null
-        : new KeyGesture(Normalise(key), modifiers & (KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Shift | KeyModifiers.Meta));
+        : new KeyGesture(Normalize(key), modifiers & (KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Shift | KeyModifiers.Meta));
 
     public static bool Matches(KeyGesture gesture, Key key, KeyModifiers modifiers) =>
-        Normalise(key) == Normalise(gesture.Key) && modifiers == gesture.KeyModifiers;
+        Normalize(key) == Normalize(gesture.Key) && modifiers == gesture.KeyModifiers;
 
     public static bool SameAs(KeyGesture a, KeyGesture b) => Matches(a, b.Key, b.KeyModifiers);
 
@@ -58,7 +58,7 @@ public static class FullScreenShortcut
     {
         var on = platform ?? CurrentPlatform;
         var mods = gesture.KeyModifiers;
-        var key = Normalise(gesture.Key);
+        var key = Normalize(gesture.Key);
         bool mac = on == ShortcutPlatform.MacOS;
 
         if (IsModifier(key))
@@ -147,7 +147,7 @@ public static class FullScreenShortcut
     }
 
     /// <summary>Ctrl+Break arrives as Cancel on Windows; both mean the Pause/Break key.</summary>
-    static Key Normalise(Key key) => key == Key.Cancel ? Key.Pause : key;
+    static Key Normalize(Key key) => key == Key.Cancel ? Key.Pause : key;
 
     static bool IsModifier(Key key) => key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
         or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.None;
@@ -165,7 +165,7 @@ public static class FullScreenShortcut
         if (gesture.KeyModifiers.HasFlag(KeyModifiers.Alt)) parts.Add("Alt");
         if (gesture.KeyModifiers.HasFlag(KeyModifiers.Shift)) parts.Add("Shift");
         if (gesture.KeyModifiers.HasFlag(KeyModifiers.Meta)) parts.Add("Meta");
-        parts.Add(Normalise(gesture.Key) == Key.Enter ? "Enter" : Normalise(gesture.Key).ToString());
+        parts.Add(Normalize(gesture.Key) == Key.Enter ? "Enter" : Normalize(gesture.Key).ToString());
         return string.Join('+', parts);
     }
 
@@ -190,7 +190,7 @@ public static class FullScreenShortcut
         if (gesture.KeyModifiers.HasFlag(KeyModifiers.Alt)) parts.Add(mac ? "Option" : "Alt");
         if (gesture.KeyModifiers.HasFlag(KeyModifiers.Shift)) parts.Add("Shift");
         if (gesture.KeyModifiers.HasFlag(KeyModifiers.Meta)) parts.Add(mac ? "Cmd" : "Win");
-        parts.Add(Normalise(gesture.Key) switch
+        parts.Add(Normalize(gesture.Key) switch
         {
             Key.Enter => "Enter",
             Key.Pause => "Break",

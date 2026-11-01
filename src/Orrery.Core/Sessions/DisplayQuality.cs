@@ -12,6 +12,6 @@ public enum DisplayQuality
     /// <summary>RDP: every visual effect, desktop composition included. VNC is already at full quality in <see cref="Balanced"/>.</summary>
     Best,
 
-    /// <summary>For slow links: RDP without wallpaper, themes or font smoothing; VNC with lower JPEG quality and colour detail.</summary>
+    /// <summary>For slow links: RDP without wallpaper, themes or font smoothing; VNC with lower JPEG quality and color detail.</summary>
     Fastest,
 }

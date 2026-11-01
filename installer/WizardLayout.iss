@@ -1,5 +1,5 @@
 // Copied from Prober's setup (Prober.Installer\WizardLayout.iss) so Orrery's wizard looks the same: the art as a
-// side stripe on every page, the version under it, and page reflow. Only the version label's colour differs.
+// side stripe on every page, the version under it, and page reflow. Only the version label's color differs.
 
 function DesignTop(Ctrl: TControl): Integer;
 begin

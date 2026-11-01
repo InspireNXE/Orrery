@@ -106,7 +106,7 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
     {
         if (cancel.IsCancellationRequested)
         {
-            return new(AuthenticatorStatus.Cancelled);
+            return new(AuthenticatorStatus.Canceled);
         }
 
         int status;
@@ -135,7 +135,7 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
         {
             if (cancel.IsCancellationRequested)
             {
-                return new(AuthenticatorStatus.Cancelled); // Even if it was read: the caller has gone.
+                return new(AuthenticatorStatus.Canceled); // Even if it was read: the caller has gone.
             }
 
             // An item made with BiometryCurrentSet can't be read once the enrolled fingers change. Apple's documents
@@ -145,9 +145,9 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
             return status switch
             {
                 ErrSecSuccess when data != IntPtr.Zero => AuthenticatorResult.Released(Bytes(data)),
-                ErrSecUserCanceled => new(AuthenticatorStatus.Cancelled),
+                ErrSecUserCanceled => new(AuthenticatorStatus.Canceled),
                 ErrSecItemNotFound or ErrSecAuthFailed => new(AuthenticatorStatus.KeyGone,
-                    Message: "Touch ID didn't release Orrery's key. That happens if your finger isn't recognised, and for good once the enrolled fingers change."),
+                    Message: "Touch ID didn't release Orrery's key. That happens if your finger isn't recognized, and for good once the enrolled fingers change."),
                 ErrSecInteractionNotAllowed => new(AuthenticatorStatus.Failed, Message: "Touch ID can't ask right now. Use the master password."),
                 ErrSecMissingEntitlement => new(AuthenticatorStatus.Failed, Message: NeedsSigning),
                 _ => new(AuthenticatorStatus.Failed, Message: $"Touch ID didn't work (keychain error {status}). Use the master password."),

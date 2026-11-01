@@ -57,7 +57,7 @@
           </Button>
 
           <!-- The side columns match, so quick connect sits in the middle of the window. The right one
-               leaves room for the system's minimise, maximise and close buttons. -->
+               leaves room for the system's minimize, maximize and close buttons. -->
         </Grid>
       </Border>
 

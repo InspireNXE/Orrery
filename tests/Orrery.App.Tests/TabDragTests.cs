@@ -47,11 +47,11 @@ public class TabDragTests : IDisposable
             window.UpdateLayout();
             var tabs = VaultAutoLockTests.Private<List<SessionTab>>(window, "_tabs");
             var (alpha, bravo, charlie) = (tabs[0], tabs[1], tabs[2]);
-            Point Centre(SessionTab tab) => tab.Header.TranslatePoint(new Point(tab.Header.Bounds.Width / 2, tab.Header.Bounds.Height / 2), window)!.Value;
+            Point Center(SessionTab tab) => tab.Header.TranslatePoint(new Point(tab.Header.Bounds.Width / 2, tab.Header.Bounds.Height / 2), window)!.Value;
 
             // Hold alpha and carry it past bravo's middle.
-            var start = Centre(alpha);
-            double distance = Centre(bravo).X - start.X + 10;
+            var start = Center(alpha);
+            double distance = Center(bravo).X - start.X + 10;
             window.MouseDown(start, MouseButton.Left);
             window.MouseMove(start + new Point(20, 0));
             window.MouseMove(start + new Point(distance, 0));

@@ -15,8 +15,8 @@ public enum CellFlags : byte
 }
 
 /// <summary>
-/// A cell colour: the terminal default, one of the 256 palette entries, or 24-bit RGB.
-/// The renderer turns it into a real colour; the emulator never needs to.
+/// A cell color: the terminal default, one of the 256 palette entries, or 24-bit RGB.
+/// The renderer turns it into a real color; the emulator never needs to.
 /// </summary>
 public readonly record struct TerminalColor(uint Value)
 {
@@ -40,7 +40,7 @@ public readonly record struct CellStyle(TerminalColor Foreground, TerminalColor 
 {
     public static readonly CellStyle Default = new(TerminalColor.Default, TerminalColor.Default, CellFlags.None);
 
-    /// <summary>What erased cells get: the current background, nothing else (xterm's "background colour erase").</summary>
+    /// <summary>What erased cells get: the current background, nothing else (xterm's "background color erase").</summary>
     public CellStyle ForErase => new(TerminalColor.Default, Background, CellFlags.None);
 }
 

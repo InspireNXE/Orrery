@@ -118,7 +118,7 @@ sealed class SettingsView : UserControl
         var pages = new (string Name, Control[] Sections)[]
         {
             ("General", [StartupSection(), KeyboardSection(), HostStatusSection()]),
-            ("Appearance", [.. ColourSections(), AccessibilitySection()]),
+            ("Appearance", [.. ColorSections(), AccessibilitySection()]),
             ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
             ("About", [LogsSection(), AboutSection()]),
@@ -203,11 +203,11 @@ sealed class SettingsView : UserControl
     /// <summary>Terminal announcements were turned on (true) or off.</summary>
     public event EventHandler<bool>? TerminalAnnouncementsChanged;
 
-    /// <summary>A new terminal colour scheme was chosen, for open terminals to follow.</summary>
-    public event EventHandler<TerminalColourScheme>? TerminalColoursChanged;
+    /// <summary>A new terminal color scheme was chosen, for open terminals to follow.</summary>
+    public event EventHandler<TerminalColorScheme>? TerminalColorsChanged;
 
-    /// <summary>The colour vision or the correction strength changed, for open terminals and remote desktops to follow.</summary>
-    public event EventHandler<(ColourVision Vision, int Strength)>? ColourVisionChanged;
+    /// <summary>The color vision or the correction strength changed, for open terminals and remote desktops to follow.</summary>
+    public event EventHandler<(ColorVision Vision, int Strength)>? ColorVisionChanged;
 
     /// <summary>Checking whether hosts are up was turned on (true) or off.</summary>
     public event EventHandler<bool>? HostStatusChecksChanged;
@@ -343,12 +343,12 @@ sealed class SettingsView : UserControl
 
         if (CredentialStores.CanUseOsKeychain(_location))
         {
-            _storeChoice.Items.Add(new ComboBoxItem { Content = Capitalised(KeychainName), Tag = CredentialStoreKind.OsKeychain });
+            _storeChoice.Items.Add(new ComboBoxItem { Content = Capitalized(KeychainName), Tag = CredentialStoreKind.OsKeychain });
             _storeChoice.Items.Add(new ComboBoxItem { Content = "Encrypted vault file (master password)", Tag = CredentialStoreKind.VaultFile });
             _storeChoice.SelectedIndex = current == CredentialStoreKind.OsKeychain ? 0 : 1;
             _storeChoice.SelectionChanged += async (_, _) => await SwitchStoreAsync();
             section.Children.Add(Row("Saved credentials are kept in", _storeChoice));
-            section.Children.Add(Note($"{Capitalised(KeychainName)} is protected by your login on this computer. The vault file is one encrypted file you can back up or move, opened with a master password."));
+            section.Children.Add(Note($"{Capitalized(KeychainName)} is protected by your login on this computer. The vault file is one encrypted file you can back up or move, opened with a master password."));
         }
         else
         {
@@ -449,7 +449,7 @@ sealed class SettingsView : UserControl
         BiometricLeftoversRemoved?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>Raised when removing old Windows Hello or Touch ID setups has finished, or was cancelled. For tests.</summary>
+    /// <summary>Raised when removing old Windows Hello or Touch ID setups has finished, or was canceled. For tests.</summary>
     internal event EventHandler? BiometricLeftoversRemoved;
 
     void ShowBiometricLeftovers(VaultFileStore vault, BiometricUnlock biometric) => _biometricLeftovers.IsVisible = biometric.HasLeftovers(vault);
@@ -557,7 +557,7 @@ sealed class SettingsView : UserControl
         _autoLock.IsEnabled = kind == CredentialStoreKind.VaultFile;
         _autoLockNote.Text = kind == CredentialStoreKind.VaultFile
             ? "Open sessions keep running when the vault locks."
-            : $"Applies only to the vault file. {Capitalised(KeychainName)} unlocks with your login.";
+            : $"Applies only to the vault file. {Capitalized(KeychainName)} unlocks with your login.";
     }
 
     void SaveAutoLock()
@@ -673,7 +673,7 @@ sealed class SettingsView : UserControl
 
     static string KeychainName => CredentialStores.OsKeychain?.Name ?? "the system keychain";
 
-    static string Capitalised(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
+    static string Capitalized(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     bool TrySaveSettings()
     {
@@ -804,32 +804,32 @@ sealed class SettingsView : UserControl
                 + "Some networks treat this as a port scan, so turn it off there. Off, nothing is sent and no marks show."));
     }
 
-    // ---- Colours ----
+    // ---- Colors ----
 
-    static readonly (ColourVision Vision, string Label)[] ColourVisionChoices =
+    static readonly (ColorVision Vision, string Label)[] ColorVisionChoices =
     [
-        (ColourVision.None, "No colour blindness"),
-        (ColourVision.Protanopia, "Protanopia: red-weak"),
-        (ColourVision.Deuteranopia, "Deuteranopia: green-weak"),
-        (ColourVision.Tritanopia, "Tritanopia: blue-yellow"),
+        (ColorVision.None, "No color blindness"),
+        (ColorVision.Protanopia, "Protanopia: red-weak"),
+        (ColorVision.Deuteranopia, "Deuteranopia: green-weak"),
+        (ColorVision.Tritanopia, "Tritanopia: blue-yellow"),
     ];
 
     /// <summary>Color vision, interface colors and terminal colors: three cards, since choosing a color vision sets the other two.</summary>
-    Control[] ColourSections()
+    Control[] ColorSections()
     {
-        var current = _settings.InterfaceColourScheme;
-        var radios = new Dictionary<InterfaceColourScheme, RadioButton>();
-        var choices = new (InterfaceColourScheme Scheme, string Text)[]
+        var current = _settings.InterfaceColorScheme;
+        var radios = new Dictionary<InterfaceColorScheme, RadioButton>();
+        var choices = new (InterfaceColorScheme Scheme, string Text)[]
         {
-            (InterfaceColourScheme.Standard, "Standard"),
-            (InterfaceColourScheme.Clearer, "Clearer"),
-            (InterfaceColourScheme.ColourBlind, "Color-blind (Okabe-Ito)"),
+            (InterfaceColorScheme.Standard, "Standard"),
+            (InterfaceColorScheme.Clearer, "Clearer"),
+            (InterfaceColorScheme.ColorBlind, "Color-blind (Okabe-Ito)"),
         };
-        var interfaceColours = new StackPanel { Spacing = 4 };
-        Avalonia.Automation.AutomationProperties.SetName(interfaceColours, "Interface colors");
+        var interfaceColors = new StackPanel { Spacing = 4 };
+        Avalonia.Automation.AutomationProperties.SetName(interfaceColors, "Interface colors");
         foreach (var (choice, text) in choices)
         {
-            var radio = new RadioButton { Content = text, GroupName = "InterfaceColours", Tag = choice, IsChecked = choice == current };
+            var radio = new RadioButton { Content = text, GroupName = "InterfaceColors", Tag = choice, IsChecked = choice == current };
             radios[choice] = radio;
             radio.IsCheckedChanged += (_, _) =>
             {
@@ -838,42 +838,42 @@ sealed class SettingsView : UserControl
                     return;
                 }
 
-                _settings = _settings with { InterfaceColours = choice == InterfaceColourScheme.Standard ? null : choice, ColourBlindColours = null };
+                _settings = _settings with { InterfaceColors = choice == InterfaceColorScheme.Standard ? null : choice, ColorBlindColors = null };
                 TrySaveSettings();
                 Palette.Use(choice);
-                Log.For("Settings").LogInformation("Interface colours set to {Scheme}", choice);
+                Log.For("Settings").LogInformation("Interface colors set to {Scheme}", choice);
             };
-            interfaceColours.Children.Add(radio);
+            interfaceColors.Children.Add(radio);
         }
 
         var terminal = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        terminal.Items.Add(new ComboBoxItem { Content = "Standard", Tag = TerminalColourScheme.Standard });
-        terminal.Items.Add(new ComboBoxItem { Content = "Colour-blind friendly", Tag = TerminalColourScheme.ColourBlind });
-        var scheme = _settings.TerminalColours ?? TerminalColourScheme.Standard;
-        terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColourScheme)i.Tag! == scheme);
+        terminal.Items.Add(new ComboBoxItem { Content = "Standard", Tag = TerminalColorScheme.Standard });
+        terminal.Items.Add(new ComboBoxItem { Content = "Color-blind friendly", Tag = TerminalColorScheme.ColorBlind });
+        var scheme = _settings.TerminalColors ?? TerminalColorScheme.Standard;
+        terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColorScheme)i.Tag! == scheme);
         terminal.SelectionChanged += (_, _) =>
         {
-            if (_loading || terminal.SelectedItem is not ComboBoxItem { Tag: TerminalColourScheme chosen })
+            if (_loading || terminal.SelectedItem is not ComboBoxItem { Tag: TerminalColorScheme chosen })
             {
                 return;
             }
 
-            _settings = _settings with { TerminalColours = chosen == TerminalColourScheme.Standard ? null : chosen };
+            _settings = _settings with { TerminalColors = chosen == TerminalColorScheme.Standard ? null : chosen };
             TrySaveSettings();
-            TerminalColoursChanged?.Invoke(this, chosen);
-            Log.For("Settings").LogInformation("Terminal colours set to {Scheme}", chosen);
+            TerminalColorsChanged?.Invoke(this, chosen);
+            Log.For("Settings").LogInformation("Terminal colors set to {Scheme}", chosen);
         };
 
-        var visionNote = "If you're colour blind, choose which kind. Orrery then switches to its colour-blind interface and terminal colours, "
-            + "with terminal colours tuned to that kind, and corrects remote desktops so colours you'd confuse look different. "
-            + "You can still change the interface and terminal colours below, and turn correction off for a connection in its settings.";
+        var visionNote = "If you're color blind, choose which kind. Orrery then switches to its color-blind interface and terminal colors, "
+            + "with terminal colors tuned to that kind, and corrects remote desktops so colors you'd confuse look different. "
+            + "You can still change the interface and terminal colors below, and turn correction off for a connection in its settings.";
         var vision = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var (choice, label) in ColourVisionChoices)
+        foreach (var (choice, label) in ColorVisionChoices)
         {
             vision.Items.Add(new ComboBoxItem { Content = label, Tag = choice });
         }
 
-        vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColourVision)i.Tag! == _settings.Vision);
+        vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColorVision)i.Tag! == _settings.Vision);
         Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
 
         var strengthNote = "Only for remote desktops: how far their colors are shifted. Lower it if pictures look too changed; "
@@ -887,33 +887,33 @@ sealed class SettingsView : UserControl
             SmallChange = 10,
             LargeChange = 25,
             Value = _settings.CorrectionStrength,
-            IsEnabled = _settings.Vision != ColourVision.None,
+            IsEnabled = _settings.Vision != ColorVision.None,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         Avalonia.Automation.AutomationProperties.SetName(strength, "Correction strength");
         Avalonia.Automation.AutomationProperties.SetHelpText(strength, strengthNote);
         var strengthText = new TextBlock { Text = $"{_settings.CorrectionStrength}%", Width = 44, VerticalAlignment = VerticalAlignment.Center };
 
-        void VisionChanged() => ColourVisionChanged?.Invoke(this, (_settings.Vision, _settings.CorrectionStrength));
+        void VisionChanged() => ColorVisionChanged?.Invoke(this, (_settings.Vision, _settings.CorrectionStrength));
 
         vision.SelectionChanged += (_, _) =>
         {
-            if (_loading || vision.SelectedItem is not ComboBoxItem { Tag: ColourVision chosen })
+            if (_loading || vision.SelectedItem is not ComboBoxItem { Tag: ColorVision chosen })
             {
                 return;
             }
 
-            _settings = _settings with { ColourVision = chosen == ColourVision.None ? null : chosen };
+            _settings = _settings with { ColorVision = chosen == ColorVision.None ? null : chosen };
             TrySaveSettings();
-            strength.IsEnabled = chosen != ColourVision.None;
-            Log.For("Settings").LogInformation("Colour vision set to {Vision}", chosen);
+            strength.IsEnabled = chosen != ColorVision.None;
+            Log.For("Settings").LogInformation("Color vision set to {Vision}", chosen);
 
-            // The colour-blind sets suit every kind; the choices below stay the user's to change afterwards.
+            // The color-blind sets suit every kind; the choices below stay the user's to change afterwards.
             // Going back to none leaves them as they are.
-            if (chosen != ColourVision.None)
+            if (chosen != ColorVision.None)
             {
-                radios[InterfaceColourScheme.ColourBlind].IsChecked = true;
-                terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColourScheme)i.Tag! == TerminalColourScheme.ColourBlind);
+                radios[InterfaceColorScheme.ColorBlind].IsChecked = true;
+                terminal.SelectedItem = terminal.Items.OfType<ComboBoxItem>().First(i => (TerminalColorScheme)i.Tag! == TerminalColorScheme.ColorBlind);
             }
 
             VisionChanged();
@@ -927,7 +927,7 @@ sealed class SettingsView : UserControl
                 return;
             }
 
-            _settings = _settings with { ColourCorrectionStrength = percent == AppSettings.DefaultColourCorrectionStrength ? null : percent };
+            _settings = _settings with { ColorCorrectionStrength = percent == AppSettings.DefaultColorCorrectionStrength ? null : percent };
             TrySaveSettings();
             VisionChanged();
         };
@@ -943,7 +943,7 @@ sealed class SettingsView : UserControl
             Section("Interface colors",
                 Note("The colors of session states in tabs and the connection list, and of warnings and errors. "
                     + "Each also has a shape, an icon or a word, so color is never the only sign."),
-                interfaceColours,
+                interfaceColors,
                 Note("Clearer uses teal, yellow and red, brighter and further apart than Standard. Color-blind uses blue, yellow and "
                     + "vermilion, which stay apart with any kind of color blindness.")),
             Section("Terminal colors",

@@ -6,7 +6,7 @@ namespace Orrery.Core.Terminal;
 /// <summary>
 /// An xterm-compatible terminal: feed it the bytes a shell sends and it maintains the screen, the
 /// alternate screen (full-screen programs) and scrollback. Covers what shells, vim, less, top, tmux and
-/// htop use: cursor movement, erasing, insert/delete, scroll regions, SGR colours (16, 256, 24-bit),
+/// htop use: cursor movement, erasing, insert/delete, scroll regions, SGR colors (16, 256, 24-bit),
 /// DEC private modes, line-drawing characters, titles and status reports. No UI dependency.
 /// <para>
 /// Thread safety: <see cref="Feed"/>, <see cref="Resize"/> and all reads must hold <see cref="SyncRoot"/>
@@ -1026,7 +1026,7 @@ public sealed class TerminalEmulator
         _style = new CellStyle(fg, bg, flags);
     }
 
-    /// <summary>38/48;5;n (256 colours) or 38/48;2;r;g;b (24-bit). Colon forms arrive as the same list.</summary>
+    /// <summary>38/48;5;n (256 colors) or 38/48;2;r;g;b (24-bit). Colon forms arrive as the same list.</summary>
     TerminalColor ExtendedColor(ref int i, TerminalColor current)
     {
         int Param(int at) => at < _params.Count ? Math.Max(0, _params[at]) : 0;
@@ -1040,7 +1040,7 @@ public sealed class TerminalEmulator
 
         if (Param(i + 1) == 2)
         {
-            // "38:2::r:g:b" carries an empty colour-space id; skip it when six values follow.
+            // "38:2::r:g:b" carries an empty color-space id; skip it when six values follow.
             int start = i + 5 < _params.Count && _params.Count - i > 5 && _params[i + 2] < 0 ? i + 3 : i + 2;
             if (start + 2 < _params.Count)
             {

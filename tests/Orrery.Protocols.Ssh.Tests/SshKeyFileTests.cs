@@ -186,7 +186,7 @@ public class SshKeyFileTests : IDisposable
     }
 
     [Fact]
-    public void A_public_key_is_recognised_and_the_user_is_pointed_at_the_private_one()
+    public void A_public_key_is_recognized_and_the_user_is_pointed_at_the_private_one()
     {
         var path = Write("id_ed25519.pub", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOnotarealkeyatallbutshapedlikeone me@host\n");
 

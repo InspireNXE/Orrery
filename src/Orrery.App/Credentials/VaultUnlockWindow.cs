@@ -155,7 +155,7 @@ sealed class VaultUnlockWindow : Window
     }
 
     /// <summary>
-    /// Shows the system prompt. Cancelling it leaves the password field; a key that can't work any more is turned off
+    /// Shows the system prompt. Canceling it leaves the password field; a key that can't work any more is turned off
     /// and the reason shown. Cancel stays usable throughout and dismisses the prompt.
     /// </summary>
     async Task UseBiometricAsync()
@@ -266,7 +266,7 @@ sealed class VaultUnlockWindow : Window
     }
 
     /// <summary>
-    /// Unlocks the store if needed. False if the user cancelled. While an unlock window is already open for the
+    /// Unlocks the store if needed. False if the user canceled. While an unlock window is already open for the
     /// store, waits for that one instead of opening a second (and a second Windows Hello prompt).
     /// </summary>
     public static Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner) => EnsureUnlockedAsync(store, owner, Biometric);
@@ -280,7 +280,7 @@ sealed class VaultUnlockWindow : Window
 
         if (OpenWindows.TryGetValue(store, out var open))
         {
-            // The window's answer, not just the store's state: a window cancelled as its prompt answered is a no.
+            // The window's answer, not just the store's state: a window canceled as its prompt answered is a no.
             return await open && !store.IsLocked;
         }
 

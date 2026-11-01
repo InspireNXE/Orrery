@@ -55,7 +55,7 @@ public class FileBrowserViewTests
     }
 
     [AvaloniaFact]
-    public void A_file_tab_is_labelled_SFTP()
+    public void A_file_tab_is_labeled_SFTP()
     {
         var tab = new SessionTab(new FakeSession(), new Border(), new SessionOrigin("box · files", Protocol.Ssh, null, () => Task.CompletedTask) { Files = true });
         var window = new Window { Content = tab.Header };

@@ -13,7 +13,7 @@ public class SshFailureTests
 {
     static readonly ConnectionTarget Box = new("box", 22, "me", null);
 
-    static FailureKind KindOf(Exception e) => ConnectionFailure.Classify(SshSession.Recognise(e), e.Message, Box).Kind;
+    static FailureKind KindOf(Exception e) => ConnectionFailure.Classify(SshSession.Recognize(e), e.Message, Box).Kind;
 
     [Fact]
     public void A_refused_login_is_a_login_failure()
