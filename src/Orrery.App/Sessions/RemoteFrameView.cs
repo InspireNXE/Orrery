@@ -50,6 +50,13 @@ public sealed class RemoteFrameView : Panel
         MaxWidth = 480,
     };
 
+    // Something to tell the user while they're looking at the desktop, such as clipboard text that wasn't shared: across
+    // the top, where it's seen, not in the status bar.
+    readonly Notice _bannerNotice = new(NoticeKind.Warning) { VerticalAlignment = VerticalAlignment.Center };
+    readonly Border _banner;
+    static readonly TimeSpan BannerTime = TimeSpan.FromSeconds(8);
+    int _bannerVersion;
+
     const int WheelDelta = 120;
     static readonly TimeSpan ResizeSettleDelay = TimeSpan.FromMilliseconds(400);
 
@@ -85,7 +92,7 @@ public sealed class RemoteFrameView : Panel
                 // Forgotten, so the next time the session gets the keyboard it's tried, and refused out loud, again:
                 // the first refusal can come as the session opens, before anyone is looking.
                 _lastClipboard = null;
-                Notice?.Invoke(this, reason);
+                ShowBanner(reason);
             });
             clipboardSession.RemoteClipboardChanged += (_, text) => Dispatcher.UIThread.Post(async () =>
             {
@@ -116,6 +123,27 @@ public sealed class RemoteFrameView : Panel
         Children.Add(_image);
         Children.Add(_status);
 
+        var closeBanner = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        closeBanner.Classes.Add("icon");
+        Avalonia.Automation.AutomationProperties.SetName(closeBanner, "Dismiss");
+        closeBanner.Click += (_, _) => _banner!.IsVisible = false;
+        _banner = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(16, 12),
+            MaxWidth = 640,
+            Padding = new Thickness(14, 10, 8, 10),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Palette.Warning,
+            Background = Dialogs.PanelBrush,
+            BoxShadow = BoxShadows.Parse("0 4 16 0 #80000000"),
+            IsVisible = false,
+            Child = new DockPanel { Children = { Pane.Docked(closeBanner, Dock.Right), _bannerNotice } },
+        };
+        Children.Add(_banner);
+
         // Window drags fire many size changes; ask the server once the size settles.
         _resizeTimer = new DispatcherTimer { Interval = ResizeSettleDelay };
         _resizeTimer.Tick += (_, _) =>
@@ -140,8 +168,22 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Replaces the write to the local clipboard, which tests can't make fail: IClipboard can't be implemented outside Avalonia.</summary>
     internal Func<string, Task>? SetClipboardText { get; set; }
 
-    /// <summary>Something the user should be told in a line, such as clipboard text that wasn't shared. Raised on the UI thread.</summary>
-    public event EventHandler<string>? Notice;
+    /// <summary>What the banner across the top says while it shows, for tests.</summary>
+    internal string? BannerText => _banner.IsVisible ? _bannerNotice.Text : null;
+
+    /// <summary>Shows <paramref name="text"/> across the top of the desktop for a few seconds, and has the screen reader read it.</summary>
+    async void ShowBanner(string text)
+    {
+        int version = ++_bannerVersion;
+        _bannerNotice.Text = text;
+        _banner.IsVisible = true;
+        ScreenReader.Announce(this, text, "Orrery.RemoteNotice", ScreenReader.MostRecent);
+        await Task.Delay(BannerTime);
+        if (version == _bannerVersion)
+        {
+            _banner.IsVisible = false;
+        }
+    }
 
     bool _viewOnly;
 
