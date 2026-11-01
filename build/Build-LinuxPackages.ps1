@@ -42,15 +42,18 @@ $work = Join-Path $out 'work'
 $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 
 # Package dependencies. Self-contained .NET still needs the C runtime, ICU (globalization isn't invariant) and
-# OpenSSL (TLS and crypto); Avalonia needs X11 and fontconfig. libsecret is only for keeping credentials in the
-# system keyring, so it's recommended rather than required: without it Orrery uses the vault file.
+# OpenSSL (TLS and crypto); Avalonia needs X11 (XWayland, on the Wayland sessions Orrery supports) and fontconfig;
+# IronRDP's native library links ALSA (libasound.so.2) for remote sound, and won't load without it. libsecret is only
+# for keeping credentials in the system keyring, so it's recommended rather than required: without it Orrery uses the
+# vault file.
 $debDepends = @(
     'libc6', 'libgcc-s1', 'libstdc++6',
     'libicu78 | libicu77 | libicu76 | libicu74 | libicu72 | libicu70',
     'libssl3t64 | libssl3',
-    'libfontconfig1', 'libx11-6', 'libice6', 'libsm6'
+    'libfontconfig1', 'libx11-6', 'libice6', 'libsm6',
+    'libasound2t64 | libasound2'
 )
-$rpmDepends = @('glibc', 'libgcc', 'libstdc++', 'libicu', 'openssl-libs', 'fontconfig', 'libX11', 'libICE', 'libSM')
+$rpmDepends = @('glibc', 'libgcc', 'libstdc++', 'libicu', 'openssl-libs', 'fontconfig', 'libX11', 'libICE', 'libSM', 'alsa-lib')
 $iconSizes = 16, 24, 32, 48, 64, 128, 256, 512
 # Everything else in the publish is a library or data file.
 $executables = 'Orrery', 'createdump'

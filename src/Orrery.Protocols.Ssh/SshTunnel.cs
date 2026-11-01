@@ -59,7 +59,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         HostKeyCheck? hostKey = null;
         try
         {
-            var client = new SshClient(SshSession.ConnectionInfoFor(host, port, hop.Login, hop.AllowLegacy)) { KeepAliveInterval = SshSession.KeepAlive };
+            var client = new SshClient(SshSession.ConnectionInfoFor(host, port, hop.Login, hop.AllowLegacy)) { KeepAliveInterval = hop.KeepAlive ?? SshSession.KeepAlive };
             hostKey = HostKeyCheck.Attach(client, hostKeys, hop.Target);
             // A hop that drops later breaks the connections through it, which their sessions report.
             client.ErrorOccurred += (_, e) => Log.For("JumpHost").LogWarning("Jump host {Host}: {Message}", hop.Target.Host, e.Exception.Message);

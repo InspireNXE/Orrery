@@ -27,7 +27,8 @@ public sealed record SshLogin(string Username, string? Password, string? Private
 }
 
 /// <summary>A jump host to go through on the way (ssh -J): where it is, how to log in, and whether old algorithms are allowed.</summary>
-public sealed record SshHop(ConnectionTarget Target, SshLogin Login, bool AllowLegacy = false);
+/// <param name="KeepAlive">How often to send keep-alive messages through this hop; <see cref="SshSession.KeepAlive"/> when null.</param>
+public sealed record SshHop(ConnectionTarget Target, SshLogin Login, bool AllowLegacy = false, TimeSpan? KeepAlive = null);
 
 /// <summary>
 /// An interactive shell over SSH.NET with an xterm-256color pty. The host key is checked during key
@@ -37,13 +38,17 @@ public sealed class SshSession : ITerminalSession
 {
     const string TerminalType = "xterm-256color";
     internal static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
-    internal static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan KeepAlive = TimeSpan.FromSeconds(Orrery.Core.Connections.SettingsResolver.DefaultKeepAliveSeconds);
+
+    /// <summary>The keep-alive interval for a connection's setting in seconds; 0 or less sends none.</summary>
+    public static TimeSpan KeepAliveFor(int seconds) => seconds > 0 ? TimeSpan.FromSeconds(seconds) : Timeout.InfiniteTimeSpan;
     static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     readonly HostKeyValidator _hostKeys;
     readonly bool _allowLegacy;
     readonly IReadOnlyList<SshHop> _jumps;
     readonly IReadOnlyList<PortForward> _forwards;
+    readonly TimeSpan _keepAlive;
     readonly object _lock = new();
     SshTunnel? _tunnel;
     SshClient? _client;
@@ -53,9 +58,10 @@ public sealed class SshSession : ITerminalSession
     bool _closing;
 
     SshSession(ConnectionTarget target, HostKeyValidator hostKeys, int columns, int rows, bool allowLegacy,
-        IReadOnlyList<SshHop> jumps, IReadOnlyList<PortForward> forwards)
+        IReadOnlyList<SshHop> jumps, IReadOnlyList<PortForward> forwards, TimeSpan keepAlive)
     {
         Target = target;
+        _keepAlive = keepAlive;
         _hostKeys = hostKeys;
         _allowLegacy = allowLegacy;
         _jumps = jumps;
@@ -80,10 +86,11 @@ public sealed class SshSession : ITerminalSession
     /// in order, outermost first; <paramref name="forwards"/> open once logged in, and any that can't are reported
     /// in the terminal without ending the session.
     /// </summary>
+    /// <param name="keepAlive">How often to send a keep-alive message; <see cref="KeepAlive"/> when null, none when infinite.</param>
     public static SshSession Start(ConnectionTarget target, SshLogin login, HostKeyValidator hostKeys, int columns, int rows, bool allowLegacy = false,
-        IReadOnlyList<SshHop>? jumps = null, IReadOnlyList<PortForward>? forwards = null)
+        IReadOnlyList<SshHop>? jumps = null, IReadOnlyList<PortForward>? forwards = null, TimeSpan? keepAlive = null)
     {
-        var session = new SshSession(target, hostKeys, columns, rows, allowLegacy, jumps ?? [], forwards ?? []);
+        var session = new SshSession(target, hostKeys, columns, rows, allowLegacy, jumps ?? [], forwards ?? [], keepAlive ?? KeepAlive);
         _ = Task.Run(() => session.Run(login));
         return session;
     }
@@ -162,7 +169,7 @@ public sealed class SshSession : ITerminalSession
         HostKeyCheck? hostKey = null;
         try
         {
-            var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = KeepAlive };
+            var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = _keepAlive };
             hostKey = HostKeyCheck.Attach(client, _hostKeys, target);
             client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy), Recognize(e.Exception));
 

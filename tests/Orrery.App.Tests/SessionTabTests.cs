@@ -490,6 +490,20 @@ public class SessionTabTests
     }
 
     [AvaloniaFact]
+    public void The_details_show_from_the_start_in_the_interface_font()
+    {
+        var (_, session, window) = ShowFailing();
+        session.Become(SessionState.Connected);
+        session.Become(SessionState.Failed, "reset", new SocketException((int)SocketError.ConnectionReset));
+        Dispatcher.UIThread.RunJobs();
+
+        var details = window.GetVisualDescendants().OfType<Expander>().Single();
+        Assert.True(details.IsExpanded);
+        var detail = details.GetLogicalDescendants().OfType<SelectableTextBlock>().Single();
+        Assert.NotEqual(Dialogs.MonoFont, detail.FontFamily);
+    }
+
+    [AvaloniaFact]
     public void The_card_stays_put_when_the_next_failure_says_more()
     {
         var (old, oldSession, window) = ShowFailing();

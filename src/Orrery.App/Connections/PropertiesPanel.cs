@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -12,6 +13,7 @@ using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Network;
 using Orrery.Core.Sessions;
+using Orrery.Protocols.Serial;
 
 namespace Orrery.App.Connections;
 
@@ -19,6 +21,10 @@ namespace Orrery.App.Connections;
 /// Edits the selected connection or folder. Each inheritable setting has an "Inherit" chip: on, the
 /// field shows what the parent provides and stores nothing; off, the node's own value overrides it.
 /// Edits are applied with Save, or automatically when another node is selected.
+/// <para>
+/// A connection shows the sections for the protocol picked (RDP, VNC, SSH, serial); a folder and the defaults show
+/// them all, since what they set reaches connections of every protocol. Hidden fields keep their values.
+/// </para>
 /// </summary>
 sealed class PropertiesPanel : UserControl
 {
@@ -49,7 +55,28 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
     readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
     readonly Control _wakeSection;
+
+    readonly ComboBox _remoteAudio = Choices("RemoteAudio", (RemoteAudio.PlayHere, "Play on this computer"), (RemoteAudio.DoNotPlay, "Don't play"));
+    readonly ToggleSwitch _shareAllDrives = Switch("ShareAllDrives");
+    readonly TextBox _sharedFolders = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = OperatingSystem.IsWindows() ? "~/Documents\nD:\\Projects" : "~/Documents\n/Volumes/Projects" };
+    readonly ToggleSwitch _useAllMonitors = Switch("UseAllMonitors");
+    readonly ToggleSwitch _adminSession = Switch("AdminSession");
+    readonly ToggleSwitch _viewOnly = Switch("ViewOnly");
+    readonly ComboBox _scaling = Choices("Scaling", (DesktopScaling.Fit, "Fit the tab"), (DesktopScaling.ShrinkToFit, "Shrink to fit"), (DesktopScaling.ActualSize, "Actual size"));
+    readonly TextBox _keepAlive = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultKeepAliveSeconds.ToString(CultureInfo.InvariantCulture) };
+    readonly TextBox _socksProxy = new() { FontFamily = Dialogs.MonoFont, Watermark = "None" };
+    readonly TextBox _baudRate = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultBaudRate.ToString(CultureInfo.InvariantCulture) };
+    readonly ComboBox _dataBits = Choices("DataBits", (8, "8"), (7, "7"), (6, "6"), (5, "5"));
+    readonly ComboBox _parity = Choices("Parity", (SerialParity.None, "None"), (SerialParity.Even, "Even"), (SerialParity.Odd, "Odd"), (SerialParity.Mark, "Mark"), (SerialParity.Space, "Space"));
+    readonly ComboBox _stopBits = Choices("StopBits", (SerialStopBits.One, "1"), (SerialStopBits.OnePointFive, "1.5"), (SerialStopBits.Two, "2"));
+    readonly ComboBox _flowControl = Choices("FlowControl", (SerialFlowControl.None, "None"), (SerialFlowControl.XOnXOff, "XON/XOFF (software)"), (SerialFlowControl.RtsCts, "RTS/CTS (hardware)"));
+    readonly TextBlock _hostLabel = Dialogs.Label("Host");
+    readonly Button _choosePort = new() { Content = "Ports…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0, IsVisible = false };
+    readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
+
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow;
+    readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _useAllMonitorsRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
+        _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
@@ -103,7 +130,9 @@ sealed class PropertiesPanel : UserControl
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
         _desktopSizeRow.Tip("RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
-        _enlargeRow.Tip("RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
+        _enlargeRow.Tip("RDP: when on, the server is told this display's scaling, so the remote desktop is as sharp as this display and its text the size of "
+            + "local apps' text (a fixed desktop size is enlarged instead). VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. "
+            + "When off, each of its pixels is one of this display's, at 100%. Applies to new connections.");
         foreach (var (quality, label) in QualityLabels)
         {
             _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
@@ -144,6 +173,47 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
+        _remoteAudioRow = new InheritRow("Remote audio", _remoteAudio, () => ShowInherited(r => Choose(_remoteAudio, r.RemoteAudio.Value)));
+        _remoteAudioRow.Tip("RDP: play the remote computer's sound here, or not at all. Applies to new connections.");
+        _shareAllDrivesRow = new InheritRow("Share every drive", _shareAllDrives, () => ShowInherited(r => _shareAllDrives.IsChecked = r.ShareAllDrives.Value), inline: true);
+        _shareAllDrivesRow.Tip("RDP: every drive on this computer shows on the remote one, under This PC, and the remote computer can read and change their files. "
+            + "Linux and macOS can share only one folder, so there it's your home folder.");
+        var browseFolder = new Button { Content = "Add folder…", MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Left };
+        browseFolder.Click += async (_, _) => await AddSharedFolderAsync();
+        AutomationProperties.SetName(browseFolder, "Add a shared folder");
+        AutomationProperties.SetName(_sharedFolders, "Shared folders");
+        _sharedFoldersRow = new InheritRow("Shared folders", new StackPanel { Spacing = 6, Children = { _sharedFolders, browseFolder } },
+            () => ShowInherited(r => _sharedFolders.Text = string.Join("\n", r.SharedFolders.Value)));
+        _sharedFoldersRow.Tip("RDP: folders on this computer to show on the remote one as drives, one per line; ~ means your home folder. "
+            + "The remote computer can read and change their files. Leave it empty to share none. Linux and macOS share only the first.");
+        _useAllMonitorsRow = new InheritRow("Use every display in full screen", _useAllMonitors, () => ShowInherited(r => _useAllMonitors.IsChecked = r.UseAllMonitors.Value), inline: true);
+        _useAllMonitorsRow.Tip("RDP: full screen spreads the remote desktop over all of this computer's displays, each one a display of the remote computer. "
+            + "Windows only; elsewhere, or when the displays don't sit against each other, full screen stays on one display.");
+        _adminSessionRow = new InheritRow("Connect to the console session", _adminSession, () => ShowInherited(r => _adminSession.IsChecked = r.AdminSession.Value), inline: true);
+        _adminSessionRow.Tip("RDP: the server's console (administrative) session, as mstsc /admin, for administering a server without a Remote Desktop license.");
+        _viewOnlyRow = new InheritRow("View only", _viewOnly, () => ShowInherited(r => _viewOnly.IsChecked = r.ViewOnly.Value), inline: true);
+        _viewOnlyRow.Tip("VNC: watch the remote desktop without sending keys, clicks or the clipboard. The session's More menu turns it off.");
+        _scalingRow = new InheritRow("Scaling", _scaling, () => ShowInherited(r => Choose(_scaling, r.Scaling.Value)));
+        _scalingRow.Tip("RDP and VNC, for a desktop that doesn't match the tab (a fixed desktop size, a server that won't resize, or a moment while one "
+            + "resizes): Fit the tab shrinks or enlarges it to fill the tab; Shrink to fit makes a bigger one smaller and leaves a smaller one as it is; "
+            + "Actual size shows it pixel for pixel, with scroll bars. Each keeps its shape.");
+        _keepAliveRow = new InheritRow("Keep-alive (seconds)", _keepAlive, () => ShowInherited(r => _keepAlive.Text = r.KeepAliveSeconds.Value.ToString(CultureInfo.InvariantCulture)));
+        _keepAliveRow.Tip("SSH: how often to send the server a keep-alive message, so an idle session isn't dropped by a firewall or the server. 0 sends none. "
+            + "Also used for the connection as a jump host.");
+        _socksProxyRow = new InheritRow("SOCKS proxy", _socksProxy, () => ShowInherited(r => _socksProxy.Text = r.SocksProxy.Value));
+        _socksProxyRow.Tip("SSH: every SSH connection under this opens a SOCKS proxy on this port, like its own D port forward: a port, such as 1080, "
+            + "or an address and a port, such as 127.0.0.1:1080. Only one open session can have the port; the others say so in their terminal.");
+        _baudRateRow = new InheritRow("Speed (baud)", _baudRate, () => ShowInherited(r => _baudRate.Text = r.BaudRate.Value.ToString(CultureInfo.InvariantCulture)));
+        _baudRateRow.Tip("Serial: bits per second, the same as the device's. Consoles mostly use 9600 or 115200.");
+        _dataBitsRow = new InheritRow("Data bits", _dataBits, () => ShowInherited(r => Choose(_dataBits, r.DataBits.Value)));
+        _parityRow = new InheritRow("Parity", _parity, () => ShowInherited(r => Choose(_parity, r.Parity.Value)));
+        _stopBitsRow = new InheritRow("Stop bits", _stopBits, () => ShowInherited(r => Choose(_stopBits, r.StopBits.Value)));
+        _flowControlRow = new InheritRow("Flow control", _flowControl, () => ShowInherited(r => Choose(_flowControl, r.FlowControl.Value)));
+        _flowControlRow.Tip("Serial: how the two ends pause each other. Most consoles use none; use what the device's manual says.");
+        _choosePort.Click += (_, _) => ShowSerialPorts();
+        AutomationProperties.SetName(_choosePort, "Choose a serial port on this computer");
+        ToolTip.SetTip(_choosePort, "The serial ports on this computer");
+
         AutomationProperties.SetName(_forwards, "Port forwards");
         AutomationProperties.SetHelpText(_forwards, "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy.");
         AutomationProperties.SetName(_notes, "Notes");
@@ -159,7 +229,8 @@ sealed class PropertiesPanel : UserControl
                 TextWrapping = TextWrapping.Wrap,
             });
 
-        _hostField = Dialogs.Field("Host", _host);
+        AutomationProperties.SetName(_host, "Host");
+        _hostField = new StackPanel { Spacing = 4, Children = { _hostLabel, new DockPanel { Children = { Pane.Docked(_choosePort, Dock.Right), _host } } } };
         _nameField = Dialogs.Field("Name", _name);
         _notesField = Pane.Section("Notes", _notes);
 
@@ -185,9 +256,14 @@ sealed class PropertiesPanel : UserControl
             {
                 Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
-                Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View),
-                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _colorCorrectionRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
-                Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
+                (_credentialsSection = Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
+                (_sessionSection = Pane.Section("Session", _clipboardRow.View, _autoReconnectRow.View)),
+                (_displaySection = Pane.Section("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_rdpSection = Pane.Section("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _useAllMonitorsRow.View, _adminSessionRow.View)),
+                (_vncSection = Pane.Section("VNC", _viewOnlyRow.View)),
+                (_sshSection = Pane.Section("SSH", _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }, _keepAliveRow.View, _socksProxyRow.View)),
+                (_serialSection = Pane.Section("Serial line", Pane.Pair(_baudRateRow.View, _dataBitsRow.View), Pane.Pair(_parityRow.View, _stopBitsRow.View), _flowControlRow.View)),
+                (_tunnelSection = Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField)),
                 _wakeSection,
                 _notesField,
             },
@@ -199,7 +275,7 @@ sealed class PropertiesPanel : UserControl
             Children = { _error, _connect, Pane.Pair(_save, revert) },
         });
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
@@ -210,6 +286,7 @@ sealed class PropertiesPanel : UserControl
             if (_node is ConnectionEntry entry && (_protocol.SelectedItem as ComboBoxItem)?.Tag is Protocol chosen)
             {
                 ShowTile(entry, chosen);
+                ShowSections(chosen);
             }
 
             // An inherited port that's only Orrery's default follows the protocol shown.
@@ -228,7 +305,22 @@ sealed class PropertiesPanel : UserControl
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
         _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow })
+        foreach (var box in new[] { _remoteAudio, _scaling, _dataBits, _parity, _stopBits, _flowControl })
+        {
+            box.SelectionChanged += (_, _) => MarkDirty();
+        }
+
+        foreach (var toggle in new[] { _shareAllDrives, _useAllMonitors, _adminSession, _viewOnly })
+        {
+            toggle.IsCheckedChanged += (_, _) => MarkDirty();
+        }
+
+        foreach (var row in new[]
+                 {
+                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow,
+                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _useAllMonitorsRow,
+                     _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
+                 })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -323,6 +415,35 @@ sealed class PropertiesPanel : UserControl
             _autoReconnectRow.Load(own.AutoReconnect is null, Describe(inherited.AutoReconnect));
             _autoReconnect.IsChecked = own.AutoReconnect ?? inherited.AutoReconnect.Value;
 
+            _remoteAudioRow.Load(own.RemoteAudio is null, Describe(inherited.RemoteAudio));
+            Choose(_remoteAudio, own.RemoteAudio ?? inherited.RemoteAudio.Value);
+            _shareAllDrivesRow.Load(own.ShareAllDrives is null, Describe(inherited.ShareAllDrives));
+            _shareAllDrives.IsChecked = own.ShareAllDrives ?? inherited.ShareAllDrives.Value;
+            _sharedFoldersRow.Load(own.SharedFolders is null, Describe(inherited.SharedFolders));
+            _sharedFolders.Text = string.Join("\n", own.SharedFolders ?? inherited.SharedFolders.Value);
+            _useAllMonitorsRow.Load(own.UseAllMonitors is null, Describe(inherited.UseAllMonitors));
+            _useAllMonitors.IsChecked = own.UseAllMonitors ?? inherited.UseAllMonitors.Value;
+            _adminSessionRow.Load(own.AdminSession is null, Describe(inherited.AdminSession));
+            _adminSession.IsChecked = own.AdminSession ?? inherited.AdminSession.Value;
+            _viewOnlyRow.Load(own.ViewOnly is null, Describe(inherited.ViewOnly));
+            _viewOnly.IsChecked = own.ViewOnly ?? inherited.ViewOnly.Value;
+            _scalingRow.Load(own.Scaling is null, Describe(inherited.Scaling));
+            Choose(_scaling, own.Scaling ?? inherited.Scaling.Value);
+            _keepAliveRow.Load(own.KeepAliveSeconds is null, Describe(inherited.KeepAliveSeconds));
+            _keepAlive.Text = (own.KeepAliveSeconds ?? inherited.KeepAliveSeconds.Value).ToString(CultureInfo.InvariantCulture);
+            _socksProxyRow.Load(own.SocksProxy is null, Describe(inherited.SocksProxy));
+            _socksProxy.Text = own.SocksProxy ?? inherited.SocksProxy.Value;
+            _baudRateRow.Load(own.BaudRate is null, Describe(inherited.BaudRate));
+            _baudRate.Text = (own.BaudRate ?? inherited.BaudRate.Value).ToString(CultureInfo.InvariantCulture);
+            _dataBitsRow.Load(own.DataBits is null, Describe(inherited.DataBits));
+            Choose(_dataBits, own.DataBits ?? inherited.DataBits.Value);
+            _parityRow.Load(own.Parity is null, Describe(inherited.Parity));
+            Choose(_parity, own.Parity ?? inherited.Parity.Value);
+            _stopBitsRow.Load(own.StopBits is null, Describe(inherited.StopBits));
+            Choose(_stopBits, own.StopBits ?? inherited.StopBits.Value);
+            _flowControlRow.Load(own.FlowControl is null, Describe(inherited.FlowControl));
+            Choose(_flowControl, own.FlowControl ?? inherited.FlowControl.Value);
+
             FillJumpHosts(node);
             _jumpHostRow.Load(own.JumpHostId is null, Describe(inherited.JumpHostId));
             SelectJumpHost(own.JumpHostId switch
@@ -332,12 +453,11 @@ sealed class PropertiesPanel : UserControl
                 var id => id,
             });
 
-            _forwardsField.IsVisible = node is ConnectionEntry;
             _forwards.Text = PortForward.FormatAll((node as ConnectionEntry)?.PortForwards);
 
-            _wakeSection.IsVisible = node is ConnectionEntry;
             _mac.Text = (node as ConnectionEntry)?.MacAddress;
             _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
+            ShowSections(own.Protocol ?? inherited.Protocol.Value);
 
             Content = _editorView;
         }
@@ -423,7 +543,7 @@ sealed class PropertiesPanel : UserControl
         }
 
         int? port = null;
-        if (_portRow.Inherit.IsChecked != true)
+        if (_portRow.Inherit.IsChecked != true && _portRow.View.IsVisible)
         {
             if (!int.TryParse(_port.Text, out var p) || p is < 1 or > 65535)
             {
@@ -452,6 +572,52 @@ sealed class PropertiesPanel : UserControl
             if (keyFile.Length > MaxKeyFilePathLength || keyFile.Any(char.IsControl))
             {
                 return Fail("The key file path is too long or has characters a path can't have.");
+            }
+        }
+
+        int? keepAlive = null;
+        if (_keepAliveRow.Inherit.IsChecked != true)
+        {
+            if (!int.TryParse(_keepAlive.Text?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) || seconds > MaxKeepAliveSeconds)
+            {
+                return Fail($"The keep-alive interval must be a number of seconds from 0 (none) to {MaxKeepAliveSeconds}.");
+            }
+
+            keepAlive = seconds;
+        }
+
+        string? socksProxy = null;
+        if (_socksProxyRow.Inherit.IsChecked != true)
+        {
+            // Empty with Inherit off means none, overriding a folder's.
+            socksProxy = _socksProxy.Text?.Trim() ?? string.Empty;
+            if (socksProxy.Length > 0 && PortForward.TryParseSocks(socksProxy, out var socksError) is null)
+            {
+                return Fail(socksError!);
+            }
+        }
+
+        int? baudRate = null;
+        if (_baudRateRow.Inherit.IsChecked != true)
+        {
+            if (!int.TryParse(_baudRate.Text?.Trim(), NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var baud)
+                || (SerialLine.Default with { BaudRate = baud }).Problem() is not null)
+            {
+                return Fail("The speed must be a number of bits per second from 50 to 4,000,000, such as 9600 or 115200.");
+            }
+
+            baudRate = baud;
+        }
+
+        List<string>? sharedFolders = null;
+        if (_sharedFoldersRow.Inherit.IsChecked != true)
+        {
+            // Only paths, which can't be checked here: a folder may be on a drive that isn't plugged in now.
+            sharedFolders = (_sharedFolders.Text ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToList();
+            if (sharedFolders.Any(f => f.Length > MaxKeyFilePathLength || f.Any(char.IsControl)))
+            {
+                return Fail("A shared folder's path is too long or has characters a path can't have.");
             }
         }
 
@@ -506,6 +672,20 @@ sealed class PropertiesPanel : UserControl
             ColorCorrection = _colorCorrectionRow.Inherit.IsChecked == true ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inherit.IsChecked == true ? null : _autoReconnect.IsChecked == true,
             JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
+            RemoteAudio = _remoteAudioRow.Inherit.IsChecked == true ? null : Chosen<RemoteAudio>(_remoteAudio),
+            ShareAllDrives = _shareAllDrivesRow.Inherit.IsChecked == true ? null : _shareAllDrives.IsChecked == true,
+            SharedFolders = sharedFolders,
+            UseAllMonitors = _useAllMonitorsRow.Inherit.IsChecked == true ? null : _useAllMonitors.IsChecked == true,
+            AdminSession = _adminSessionRow.Inherit.IsChecked == true ? null : _adminSession.IsChecked == true,
+            ViewOnly = _viewOnlyRow.Inherit.IsChecked == true ? null : _viewOnly.IsChecked == true,
+            Scaling = _scalingRow.Inherit.IsChecked == true ? null : Chosen<DesktopScaling>(_scaling),
+            KeepAliveSeconds = keepAlive,
+            SocksProxy = socksProxy,
+            BaudRate = baudRate,
+            DataBits = _dataBitsRow.Inherit.IsChecked == true ? null : Chosen<int>(_dataBits),
+            Parity = _parityRow.Inherit.IsChecked == true ? null : Chosen<SerialParity>(_parity),
+            StopBits = _stopBitsRow.Inherit.IsChecked == true ? null : Chosen<SerialStopBits>(_stopBits),
+            FlowControl = _flowControlRow.Inherit.IsChecked == true ? null : Chosen<SerialFlowControl>(_flowControl),
         };
         _node.Name = name;
         _node.Notes = string.IsNullOrWhiteSpace(_notes.Text) ? null : _notes.Text.Trim();
@@ -525,6 +705,86 @@ sealed class PropertiesPanel : UserControl
     }
 
     const int MaxKeyFilePathLength = 1024;
+
+    /// <summary>An hour: anything longer wouldn't keep a session from being dropped as idle.</summary>
+    const int MaxKeepAliveSeconds = 3600;
+
+    /// <summary>
+    /// Shows the sections that apply to <paramref name="protocol"/>, the one picked. A folder and the defaults show every
+    /// section, since what they set reaches connections of every protocol; a host also shows what it passes to its guests
+    /// (the clipboard, reconnecting and the jump host).
+    /// </summary>
+    void ShowSections(Protocol protocol)
+    {
+        bool all = _node is not ConnectionEntry;
+        bool host = _node is ConnectionEntry { IsHost: true };
+        bool Is(Protocol p) => all || protocol == p;
+        bool rdp = Is(Protocol.Rdp), vnc = Is(Protocol.Vnc), ssh = Is(Protocol.Ssh), serial = Is(Protocol.Serial);
+        bool web = !all && ProtocolInfo.IsWeb(protocol), network = all || ProtocolInfo.UsesNetwork(protocol);
+
+        _portRow.View.IsVisible = network;
+        _credentialsSection.IsVisible = network && !web;
+        _domainRow.View.IsVisible = rdp;
+        _keyFileRow.View.IsVisible = ssh;
+        _clipboardRow.View.IsVisible = rdp || vnc || host;
+        _autoReconnectRow.View.IsVisible = !web || host;
+        _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible;
+        _displaySection.IsVisible = rdp || vnc;
+        _desktopSizeRow.View.IsVisible = rdp;
+        _rdpSection.IsVisible = rdp;
+        _vncSection.IsVisible = vnc;
+        _sshSection.IsVisible = ssh;
+        _serialSection.IsVisible = serial;
+        _jumpHostRow.View.IsVisible = network && !web || host;
+        _forwardsField.IsVisible = _node is ConnectionEntry && protocol == Protocol.Ssh;
+        _tunnelSection.IsVisible = _jumpHostRow.View.IsVisible || _forwardsField.IsVisible;
+        _wakeSection.IsVisible = _node is ConnectionEntry && network;
+
+        // A serial port is named where a host would be; a web page's host can have a path after it.
+        _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";
+        AutomationProperties.SetName(_host, _hostLabel.Text);
+        _host.Watermark = protocol == Protocol.Serial ? (OperatingSystem.IsWindows() ? "COM3" : "/dev/ttyUSB0") : ProtocolInfo.IsWeb(protocol) ? "router.lan/admin" : null;
+        _choosePort.IsVisible = protocol == Protocol.Serial && _node is ConnectionEntry;
+    }
+
+    /// <summary>The serial ports on this computer, to fill the host with.</summary>
+    void ShowSerialPorts()
+    {
+        var ports = SerialSession.PortNames();
+        List<Control> items = ports.Count == 0
+            ? [new MenuItem { Header = "No serial ports found", IsEnabled = false }]
+            : [.. ports.Select(name =>
+            {
+                var item = new MenuItem { Header = name };
+                item.Click += (_, _) => _host.Text = name;
+                return item;
+            })];
+        PopupMenu.ShowAt(_choosePort, items, PlacementMode.BottomEdgeAlignedRight);
+    }
+
+    /// <summary>Adds a folder from the folder picker to the shared folders, written with ~ when it's under the home folder.</summary>
+    async Task AddSharedFolderAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+        {
+            return;
+        }
+
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose a folder to share", AllowMultiple = false });
+        if (folders.Count == 0)
+        {
+            return;
+        }
+
+        if (folders[0].TryGetLocalPath() is not { } path)
+        {
+            Fail("That folder isn't on this computer, so it can't be shared.");
+            return;
+        }
+
+        var text = _sharedFolders.Text?.TrimEnd() ?? string.Empty;
+        _sharedFolders.Text = (text.Length > 0 ? text + "\n" : string.Empty) + WithHome(path.TrimEnd('/', '\\') is { Length: > 0 } trimmed ? trimmed : path);
+    }
 
     /// <summary>
     /// Fills the key file box from the file picker. A file under the home folder is kept as ~/..., which also
@@ -662,6 +922,22 @@ sealed class PropertiesPanel : UserControl
 
     static readonly IBrush FolderTileBrush = new SolidColorBrush(Color.Parse("#33291A")).ToImmutable();
     static readonly IBrush FolderBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
+
+    /// <summary>A drop-down of values, each shown by its label.</summary>
+    static ComboBox Choices<T>(string name, params (T Value, string Label)[] choices) where T : notnull
+    {
+        var box = new ComboBox { Name = name, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var (value, label) in choices)
+        {
+            box.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+        }
+
+        return box;
+    }
+
+    static void Choose(ComboBox box, object value) => box.SelectedItem = box.Items.OfType<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, value));
+
+    static T? Chosen<T>(ComboBox box) where T : struct => (box.SelectedItem as ComboBoxItem)?.Tag as T?;
 
     // Fluent's switch keeps a gap on its right for On/Off text; the negative margin lines the track up
     // with the right edge of the text fields.

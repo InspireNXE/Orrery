@@ -75,9 +75,50 @@ public class MRemoteNgImporterTests
     [Fact]
     public void Settings_orrery_cannot_use_yet_are_reported()
     {
-        var result = ImportFixture("mremoteng-2.6-no-passwords.xml");
-        Assert.Contains("Connect to console session: 1 connection", result.Report.NotYetSupported);
+        var result = Import(File(new[]
+        {
+            Node("Printing", "Connection", Conn("RDP", "3389"), new XAttribute("RedirectPrinters", "true")),
+        }));
+        Assert.Contains("Printer redirection: 1 connection", result.Report.NotYetSupported);
         Assert.Contains("# mRemoteNG import", result.Report.ToMarkdown(DateTimeOffset.Now));
+    }
+
+    [Fact]
+    public void The_console_session_is_imported_as_the_admin_session()
+    {
+        var result = ImportFixture("mremoteng-2.6-no-passwords.xml");
+        Assert.True(SettingsResolver.Resolve(Entry(result, "server-15")).AdminSession.Value);
+        Assert.DoesNotContain(result.Report.NotYetSupported, s => s.Contains("console", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Web_pages_vnc_viewing_and_chosen_drives_are_imported()
+    {
+        var result = Import(File(new[]
+        {
+            Node("Intranet", "Connection", Conn("HTTPS", "443", "intranet.example")),
+            Node("Printer", "Connection", Conn("HTTP", "8080", "printer.lan")),
+            Node("Watch", "Connection", Conn("VNC", "5900"), new XAttribute("VNCViewOnly", "true"), new XAttribute("VNCSmartSizeMode", "SmartSNo")),
+            Node("Files", "Connection", Conn("RDP", "3389"), new XAttribute("RedirectDiskDrives", "Custom"), new XAttribute("RedirectDiskDrivesCustom", "C;E:"),
+                new XAttribute("RedirectSound", "BringToThisComputer")),
+        }));
+
+        var intranet = SettingsResolver.Resolve(Entry(result, "Intranet"));
+        Assert.Equal(Protocol.Https, intranet.Protocol.Value);
+        Assert.Equal(443, intranet.Port.Value);
+        var printer = SettingsResolver.Resolve(Entry(result, "Printer"));
+        Assert.Equal(Protocol.Http, printer.Protocol.Value);
+        Assert.Equal(8080, printer.Port.Value);
+
+        var watch = SettingsResolver.Resolve(Entry(result, "Watch"));
+        Assert.True(watch.ViewOnly.Value);
+        Assert.Equal(DesktopScaling.ActualSize, watch.Scaling.Value);
+
+        var files = SettingsResolver.Resolve(Entry(result, "Files"));
+        Assert.False(files.ShareAllDrives.Value);
+        Assert.Equal(["C:\\", "E:\\"], files.SharedFolders.Value);
+        Assert.Equal(RemoteAudio.PlayHere, files.RemoteAudio.Value);
+        Assert.Empty(result.Report.Skipped);
     }
 
     // ---- Generated files ----

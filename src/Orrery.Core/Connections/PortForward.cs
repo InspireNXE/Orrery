@@ -127,6 +127,44 @@ public sealed record PortForward(ForwardKind Kind, int ListenPort, string? Desti
 
     public static string FormatAll(IEnumerable<PortForward>? forwards) => string.Join("\n", (forwards ?? []).Select(f => f.ToString()));
 
+    /// <summary>
+    /// Reads a folder's SOCKS proxy setting: a port, or an address and a port ("1080", "127.0.0.1:1080"), with or
+    /// without the D in front. Null, with <paramref name="error"/> set, when it doesn't parse.
+    /// </summary>
+    public static PortForward? TryParseSocks(string text, out string? error)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.Length > 2 && char.ToUpperInvariant(trimmed[0]) == 'D' && char.IsWhiteSpace(trimmed[1]))
+        {
+            trimmed = trimmed[2..].Trim();
+        }
+
+        if (TryParse("D " + trimmed, out _) is { } forward)
+        {
+            error = null;
+            return forward;
+        }
+
+        error = $"The SOCKS proxy \"{text.Trim()}\" should be a port, like 1080, or an address and a port, like 127.0.0.1:1080.";
+        return null;
+    }
+
+    /// <summary>
+    /// A connection's own port forwards, plus the SOCKS proxy its folder asks for, unless one of its own already
+    /// listens on that port.
+    /// </summary>
+    public static List<PortForward> WithSocks(IReadOnlyList<PortForward>? own, string? socksProxy)
+    {
+        var forwards = own?.ToList() ?? [];
+        if (socksProxy is { Length: > 0 } && TryParseSocks(socksProxy, out _) is { } socks
+            && !forwards.Any(f => f.Kind != ForwardKind.Remote && f.ListenPort == socks.ListenPort))
+        {
+            forwards.Add(socks);
+        }
+
+        return forwards;
+    }
+
     static PortForward? Fail(string text, out string? error)
     {
         error = $"\"{text}\" should look like D 1080.";
