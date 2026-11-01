@@ -97,7 +97,7 @@ sealed class PropertiesPanel : UserControl
         _qualityRow.Tip("RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
             + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
-        _autoReconnectRow.Tip("If an open session is cut off, Orrery tries again up to 5 times. It doesn't after you log off or press Disconnect.");
+        _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
         _sshAgentRow.Tip("SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);

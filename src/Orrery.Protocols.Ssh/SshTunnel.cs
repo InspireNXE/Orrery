@@ -84,17 +84,18 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         }
         catch (SshConnectionException e) when (hostKey?.Rejected == true)
         {
-            throw new RouteException($"The host key of jump host {hop.Target.Host} was not trusted.", e);
+            var message = $"The host key of jump host {hop.Target.Host} was not trusted.";
+            throw new RouteException(message, hostKey.Failure(message, e), hop.Target);
         }
         catch (SshAuthenticationException e)
         {
             Log.For("JumpHost").LogWarning("Jump host {Host}: login as {User} refused: {Reason}", hop.Target.Host, hop.Login.Username, e.Message);
-            throw new RouteException(where + SshSession.Refusal(e, hop.Login), e);
+            throw new RouteException(where + SshSession.Refusal(e, hop.Login), SshSession.Recognise(e), hop.Target);
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("JumpHost").LogError(e, "SSH connection to jump host {Host} failed", hop.Target.Host);
-            throw new RouteException(where + SshSession.Describe(e, hop.AllowLegacy), e);
+            throw new RouteException(where + SshSession.Describe(e, hop.AllowLegacy), SshSession.Recognise(e), hop.Target);
         }
     }
 

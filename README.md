@@ -15,6 +15,11 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
+- When a connection fails or drops, the tab says in a sentence what happened and what to try, with Reconnect
+  (Enter), the technical details and a button to copy them
+- Reconnects by itself after a drop or a network error, waiting a little longer each time (up to a minute), and
+  straight away when the network comes back. It never retries a refused login or an untrusted host key or
+  certificate, since those need you. On by default; can be turned off per connection or folder
 
 ### Display
 
@@ -163,9 +168,10 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, and VNC authentication. The
-Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
-single-file executable as a false positive.
+the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, VNC authentication, and how
+each protocol reports real network failures (an RDP server refusing a login, especially) on the connection-lost
+screen. The Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools
+can flag the single-file executable as a false positive.
 
 ## Licence and credits
 

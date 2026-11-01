@@ -15,7 +15,11 @@ public interface ISessionRoute : IDisposable
 }
 
 /// <summary>The route couldn't be opened; the message says which hop and why.</summary>
-public sealed class RouteException(string message, Exception? inner = null) : Exception(message, inner);
+/// <param name="hop">The jump host that failed, when it was one; the inner exception says what went wrong there.</param>
+public sealed class RouteException(string message, Exception? inner = null, ConnectionTarget? hop = null) : Exception(message, inner)
+{
+    public ConnectionTarget? Hop { get; } = hop;
+}
 
 public static class SessionRoute
 {
