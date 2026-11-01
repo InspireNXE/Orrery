@@ -1116,7 +1116,8 @@ sealed class SettingsView : UserControl
         buttons.Children.Add(export);
         return Section("Import and export",
             buttons,
-            Note("Import adds the connections from an mRemoteNG confCons.xml, an Orrery export or an OpenSSH config file. You can also drop the file onto the connections list. "
+            Note("Import adds the connections from an mRemoteNG confCons.xml, an Orrery export, a Remote Desktop (.rdp) file or an OpenSSH config file. "
+                + "You can also drop the file onto the connections list. To connect with a .rdp file without saving it, right-click the connections list and choose Open Remote Desktop file. "
                 + "Import SSH config reads your ~/.ssh/config: each Host name becomes an SSH connection, with its jump hosts. Nothing in the file is run."),
             Note("Export saves every connection as an Orrery file, an mRemoteNG confCons.xml or a CSV. To export one folder, right-click it. "
                 + "Passwords and keys are left out unless you choose to include them, encrypted with a password you set. CSV never includes them."));

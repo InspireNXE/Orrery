@@ -190,7 +190,10 @@
                       <MenuItem Header="New connection" Click="OnNewConnectionClick" />
                       <MenuItem Header="New folder" Click="OnNewFolderClick" />
                       <MenuItem Header="Local terminal" Click="OnLocalTerminalClick" InputGesture="Ctrl+Shift+T" />
+                      <Separator />
                       <MenuItem Header="Open Remote Desktop file…" Click="OnOpenRdpFileClick" />
+                      <MenuItem Header="Import…" Click="OnImportMenuClick" />
+                      <Separator />
                       <MenuItem x:Name="AddGuestMenuItem" Header="Add guest" Click="OnAddGuestMenuClick" />
                       <MenuItem x:Name="MoveOutOfHostMenuItem" Header="Move out of host" Click="OnMoveOutOfHostMenuClick" />
                       <MenuItem x:Name="DuplicateMenuItem" Header="Duplicate" Click="OnDuplicateMenuClick" InputGesture="Ctrl+D" />
