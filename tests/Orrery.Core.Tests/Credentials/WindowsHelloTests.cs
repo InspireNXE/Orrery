@@ -148,6 +148,50 @@ public class WindowsHelloTests
         Assert.Contains("Try again later", problem);
     }
 
+    // ---- When a 24H2 "ForWindow" call is asked again without the window ----
+
+    [Theory]
+    [InlineData(WindowsHelloAuthenticator.ENotImpl)]
+    [InlineData(WindowsHelloAuthenticator.ENoInterface)]
+    [InlineData(WindowsHelloAuthenticator.RegdbClassNotReg)]
+    [InlineData(WindowsHelloAuthenticator.EInvalidArg)]
+    [InlineData(WindowsHelloAuthenticator.ErrorInvalidWindowHandle)]
+    public void A_call_or_window_refused_as_it_starts_is_asked_again_without_the_window(int hresult)
+    {
+        Assert.True(WindowsHelloAuthenticator.RetryWithoutWindow(hresult, whenStarting: true));
+    }
+
+    [Theory]
+    [InlineData(WindowsHelloAuthenticator.EInvalidArg)]
+    [InlineData(WindowsHelloAuthenticator.ErrorInvalidWindowHandle)]
+    public void A_window_refused_when_the_call_finishes_is_asked_again_without_it(int hresult)
+    {
+        Assert.True(WindowsHelloAuthenticator.RetryWithoutWindow(hresult, whenStarting: false));
+    }
+
+    [Theory]
+    [InlineData(WindowsHelloAuthenticator.ENotImpl)]
+    [InlineData(WindowsHelloAuthenticator.ENoInterface)]
+    [InlineData(WindowsHelloAuthenticator.RegdbClassNotReg)]
+    [InlineData(unchecked((int)0x80004005))] // E_FAIL
+    [InlineData(unchecked((int)0x80090036))] // NTE_USER_CANCELLED
+    [InlineData(unchecked((int)0x800704C7))] // ERROR_CANCELLED
+    [InlineData(unchecked((int)0x80090011))] // NTE_NOT_FOUND
+    [InlineData(unchecked((int)0x80090035))] // NTE_DEVICE_NOT_READY
+    public void Any_other_error_when_the_call_finishes_stands_so_there_is_no_second_prompt(int hresult)
+    {
+        Assert.False(WindowsHelloAuthenticator.RetryWithoutWindow(hresult, whenStarting: false));
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x80004005))] // E_FAIL
+    [InlineData(unchecked((int)0x80090036))] // NTE_USER_CANCELLED
+    [InlineData(unchecked((int)0x8007000E))] // E_OUTOFMEMORY
+    public void Any_other_error_as_the_call_starts_stands(int hresult)
+    {
+        Assert.False(WindowsHelloAuthenticator.RetryWithoutWindow(hresult, whenStarting: true));
+    }
+
     // ---- Which window is brought forward before 24H2 ----
 
     static string Broker => WindowsHelloAuthenticator.PromptProcessPath();

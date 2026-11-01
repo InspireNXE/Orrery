@@ -70,6 +70,14 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
 
     const int NteUserCancelled = unchecked((int)0x80090036);
     const int ErrorCancelled = unchecked((int)0x800704C7);
+
+    // What a 24H2 "ForWindow" call fails with when Windows refuses it or the window, so asking without one may work.
+    internal const int ENotImpl = unchecked((int)0x80004001);
+    internal const int ENoInterface = unchecked((int)0x80004002);
+    internal const int RegdbClassNotReg = unchecked((int)0x80040154);
+    internal const int EInvalidArg = unchecked((int)0x80070057);
+    internal const int ErrorInvalidWindowHandle = unchecked((int)0x80070578);
+    const int EPointer = unchecked((int)0x80004003);
     static readonly int[] NotFoundErrors =
     [
         unchecked((int)0x80090011), // NTE_NOT_FOUND
@@ -124,14 +132,15 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
                     var withWindow = WinRt.TryGetFactory(ManagerClass, IKeyCredentialManagerCreateWithWindowStatics);
                     if (withWindow == IntPtr.Zero)
                     {
-                        return IntPtr.Zero;
+                        return (ENoInterface, IntPtr.Zero);
                     }
 
                     try
                     {
                         IntPtr started = 0;
-                        return ((delegate* unmanaged[Stdcall]<IntPtr, ulong, IntPtr, int, IntPtr*, int>)WinRt.Method(withWindow, RequestCreateForWindowAsync))(
-                            withWindow, windowId, name, ReplaceExisting, &started) >= 0 ? started : IntPtr.Zero;
+                        int hr = ((delegate* unmanaged[Stdcall]<IntPtr, ulong, IntPtr, int, IntPtr*, int>)WinRt.Method(withWindow, RequestCreateForWindowAsync))(
+                            withWindow, windowId, name, ReplaceExisting, &started);
+                        return (hr, started);
                     }
                     finally
                     {
@@ -270,23 +279,30 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
     }
 
     /// <summary>
-    /// Starts a 24H2 "ForWindow" call and waits for it; if that's refused straight away or ends in an error (an
-    /// unexpected window, say), starts the plain call instead and clears <paramref name="windowId"/>. Returns the
-    /// finished operation, which the caller releases.
+    /// Starts a 24H2 "ForWindow" call and waits for it. Only when Windows refuses that call or the window
+    /// (<see cref="RetryWithoutWindow"/>) does it start the plain call instead and clear <paramref name="windowId"/>;
+    /// any other error is the answer, so the user isn't asked twice. Returns the finished operation, which the caller
+    /// releases.
     /// </summary>
-    static IntPtr WaitPreferringWindow(Func<IntPtr>? withWindow, Func<IntPtr> plain, ref ulong windowId, CancellationToken cancel)
+    /// <param name="withWindow">Starts the call: its HRESULT and the operation. <see cref="ENoInterface"/> when this Windows doesn't have it.</param>
+    static IntPtr WaitPreferringWindow(Func<(int Result, IntPtr Operation)>? withWindow, Func<IntPtr> plain, ref ulong windowId, CancellationToken cancel)
     {
         if (withWindow is not null)
         {
-            var operation = withWindow();
-            if (operation != IntPtr.Zero)
+            var (hr, operation) = withWindow();
+            if (hr >= 0)
             {
+                if (operation == IntPtr.Zero)
+                {
+                    throw new COMException("Windows returned no object.", EPointer);
+                }
+
                 try
                 {
                     WinRt.Wait(operation, PromptTimeout, cancel);
                     return operation;
                 }
-                catch (Exception e) when (e is not OperationCanceledException and not TimeoutException && !IsCancellation(e.HResult))
+                catch (Exception e) when (e is not OperationCanceledException and not TimeoutException && RetryWithoutWindow(e.HResult, whenStarting: false))
                 {
                     WinRt.Release(operation);
                 }
@@ -296,10 +312,19 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
                     throw;
                 }
             }
+            else if (!RetryWithoutWindow(hr, whenStarting: true))
+            {
+                WinRt.Check(hr);
+            }
         }
 
         windowId = 0;
         var fallback = plain();
+        if (fallback == IntPtr.Zero)
+        {
+            throw new COMException("Windows returned no object.", EPointer);
+        }
+
         try
         {
             WinRt.Wait(fallback, PromptTimeout, cancel, PromptToFront());
@@ -363,14 +388,15 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
                     var withWindow = WinRt.TryQuery(credential, IKeyCredentialWithWindow);
                     if (withWindow == IntPtr.Zero)
                     {
-                        return IntPtr.Zero;
+                        return (ENoInterface, IntPtr.Zero);
                     }
 
                     try
                     {
                         IntPtr started = 0;
-                        return ((delegate* unmanaged[Stdcall]<IntPtr, ulong, IntPtr, IntPtr*, int>)WinRt.Method(withWindow, RequestSignForWindowAsync))(
-                            withWindow, windowId, data, &started) >= 0 ? started : IntPtr.Zero;
+                        int hr = ((delegate* unmanaged[Stdcall]<IntPtr, ulong, IntPtr, IntPtr*, int>)WinRt.Method(withWindow, RequestSignForWindowAsync))(
+                            withWindow, windowId, data, &started);
+                        return (hr, started);
                     }
                     finally
                     {
@@ -445,6 +471,16 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
             return false;
         }
     }
+
+    /// <summary>
+    /// Whether a 24H2 "ForWindow" call that failed with <paramref name="hresult"/> should be asked again without the
+    /// window. Only for a refusal of the call itself (this Windows doesn't have it), which can only come as it starts,
+    /// or of the window. Anything else, cancelling included, may mean the user already saw a prompt, so it stands.
+    /// </summary>
+    /// <param name="whenStarting">True when the call failed as it was made, false when it finished with the error.</param>
+    internal static bool RetryWithoutWindow(int hresult, bool whenStarting) =>
+        hresult is EInvalidArg or ErrorInvalidWindowHandle
+        || (whenStarting && hresult is ENotImpl or ENoInterface or RegdbClassNotReg);
 
     static bool IsCancellation(int hresult) => hresult is NteUserCancelled or ErrorCancelled;
 
