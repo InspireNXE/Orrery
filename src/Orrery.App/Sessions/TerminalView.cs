@@ -253,7 +253,26 @@ public sealed class TerminalView : Control
             }
 
             _colourScheme = value;
-            _palette = TerminalPalette.For(value);
+            _palette = TerminalPalette.For(value, _colourVision);
+            InvalidateVisual();
+        }
+    }
+
+    ColourVision _colourVision;
+
+    /// <summary>The user's colour vision, which tunes the colour-blind scheme. Changing it repaints too.</summary>
+    public ColourVision ColourVision
+    {
+        get => _colourVision;
+        set
+        {
+            if (value == _colourVision)
+            {
+                return;
+            }
+
+            _colourVision = value;
+            _palette = TerminalPalette.For(_colourScheme, value);
             InvalidateVisual();
         }
     }

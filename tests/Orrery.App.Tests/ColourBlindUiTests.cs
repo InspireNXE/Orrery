@@ -220,4 +220,20 @@ public class ColourBlindUiTests
         view.ColourScheme = TerminalColourScheme.Standard;
         Assert.Equal(TerminalPalette.Standard.Ansi[2], view.AnsiColour(2));
     }
+
+    [AvaloniaFact]
+    public void A_colour_vision_tunes_the_colour_blind_terminal_colours()
+    {
+        var view = new TerminalView(new FakeSession()) { ColourVision = Orrery.Core.Settings.ColourVision.Tritanopia };
+        Assert.Equal(TerminalPalette.Standard.Ansi[2], view.AnsiColour(2)); // Standard stays standard.
+
+        view.ColourScheme = TerminalColourScheme.ColourBlind;
+        Assert.Equal(TerminalPalette.Tritanopia.Ansi[2], view.AnsiColour(2));
+
+        view.ColourVision = Orrery.Core.Settings.ColourVision.Deuteranopia;
+        Assert.Equal(TerminalPalette.Deuteranopia.Ansi[5], view.AnsiColour(5));
+
+        view.ColourVision = Orrery.Core.Settings.ColourVision.None;
+        Assert.Equal(TerminalPalette.ColourBlind.Ansi[5], view.AnsiColour(5));
+    }
 }

@@ -75,4 +75,24 @@ public class DesktopResolutionTests
         entry.Settings.EnlargeRemoteDesktop = true;
         Assert.True(SettingsResolver.Resolve(entry).Enlarge(appSetting: false));
     }
+
+    [Fact]
+    public void Colour_correction_follows_the_app_setting_until_a_folder_or_connection_turns_it_off()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Design" };
+        var entry = new ConnectionEntry { Name = "mac-1", Host = "mac-1" };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        Assert.True(SettingsResolver.Resolve(entry).ColourCorrection.Value);
+        Assert.True(SettingsResolver.Resolve(entry).ColourCorrection.IsDefault);
+
+        folder.Settings.ColourCorrection = false;
+        Assert.False(SettingsResolver.Resolve(entry).ColourCorrection.Value);
+        Assert.Same(folder, SettingsResolver.Resolve(entry).ColourCorrection.Source);
+
+        entry.Settings.ColourCorrection = true;
+        Assert.True(SettingsResolver.Resolve(entry).ColourCorrection.Value);
+    }
 }

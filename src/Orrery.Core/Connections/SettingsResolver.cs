@@ -21,7 +21,8 @@ public sealed record ResolvedSettings(
     Resolved<bool> AutoReconnect,
     Resolved<string?> DesktopSize,
     Resolved<bool?> EnlargeRemoteDesktop,
-    Resolved<DisplayQuality> DisplayQuality)
+    Resolved<DisplayQuality> DisplayQuality,
+    Resolved<bool> ColourCorrection)
 {
     /// <summary>Whether to enlarge the remote desktop: the tree's value, else <paramref name="appSetting"/>.</summary>
     public bool Enlarge(bool appSetting) => EnlargeRemoteDesktop.Value ?? appSetting;
@@ -73,7 +74,9 @@ public static class SettingsResolver
                 : new Resolved<bool?>(null, null),
             Find(node, includeSelf, nameof(InheritableSettings.DisplayQuality), s => s.DisplayQuality) is { } quality
                 ? new Resolved<DisplayQuality>(quality.Value!.Value, quality.Source)
-                : new Resolved<DisplayQuality>(Sessions.DisplayQuality.Balanced, null));
+                : new Resolved<DisplayQuality>(Sessions.DisplayQuality.Balanced, null),
+            // On means "as Settings says", so with no colour vision chosen it changes nothing.
+            Flag(nameof(InheritableSettings.ColourCorrection), s => s.ColourCorrection, true));
     }
 
     /// <summary>

@@ -19,8 +19,23 @@ public enum TerminalColourScheme
 {
     Standard,
 
-    /// <summary>Red and green kept apart for colour blindness.</summary>
+    /// <summary>Red and green kept apart for colour blindness; tuned further for the <see cref="ColourVision"/> chosen.</summary>
     ColourBlind,
+}
+
+/// <summary>A kind of colour blindness the app allows for, in its colours and by correcting remote desktops.</summary>
+public enum ColourVision
+{
+    None,
+
+    /// <summary>Red-weak: reds look dark and close to greens.</summary>
+    Protanopia,
+
+    /// <summary>Green-weak, the most common: reds, greens and yellows run together.</summary>
+    Deuteranopia,
+
+    /// <summary>Blue-yellow: blues look like greens, and yellows like pinks or greys.</summary>
+    Tritanopia,
 }
 
 /// <summary>The colours that carry meaning in the interface: states, success, warnings, errors.</summary>
@@ -109,6 +124,24 @@ public sealed record AppSettings
         ColourBlindColours is null
             ? this
             : this with { InterfaceColours = InterfaceColours ?? (ColourBlindColours == true ? InterfaceColourScheme.ColourBlind : null), ColourBlindColours = null };
+
+    /// <summary>
+    /// The user's colour vision. Null is none. Choosing one in Settings also picks the colour-blind interface and
+    /// terminal colours, which stay separate settings the user can change back.
+    /// </summary>
+    public ColourVision? ColourVision { get; init; }
+
+    [JsonIgnore]
+    public ColourVision Vision => ColourVision ?? default;
+
+    /// <summary>How strongly remote desktops are corrected for <see cref="ColourVision"/>, 0 to 100 percent. Null is <see cref="DefaultColourCorrectionStrength"/>.</summary>
+    public int? ColourCorrectionStrength { get; init; }
+
+    public const int DefaultColourCorrectionStrength = 100;
+
+    /// <summary>The correction strength in use, 0 to 100; a hand-edited value out of range is brought into it.</summary>
+    [JsonIgnore]
+    public int CorrectionStrength => Math.Clamp(ColourCorrectionStrength ?? DefaultColourCorrectionStrength, 0, 100);
 
     /// <summary>
     /// The key that turns full screen on and off, e.g. "Ctrl+Alt+End". Null is the default (Ctrl+Alt+Enter,
