@@ -97,14 +97,17 @@ sealed class FakeAgent : IAgentTransport, IDisposable
     }
 
     /// <summary>
-    /// Serves on <c>\\.\pipe\name</c>, one request per connection or several, until disposed. The pipe is listening
-    /// before this returns, and the next instance is made as soon as one is taken, so the client's short connect
-    /// timeout doesn't race the server on a busy machine.
+    /// Serves on <c>\\.\pipe\name</c>, one request per connection or several, until disposed. Several instances are
+    /// listening before this returns, each replaced when taken, so back-to-back connects (Find's owner check, then a
+    /// request) don't wait on a thread-pool continuation that a busy machine runs late, past the client's 500 ms.
     /// </summary>
     public void ServePipe(string name)
     {
-        var first = NewPipe(name);
-        _ = Task.Run(() => AcceptPipes(name, first));
+        for (int i = 0; i < 4; i++)
+        {
+            var listening = NewPipe(name);
+            _ = Task.Run(() => AcceptPipes(name, listening));
+        }
     }
 
     static NamedPipeServerStream NewPipe(string name) =>
