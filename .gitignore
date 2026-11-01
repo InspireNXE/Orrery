@@ -12,3 +12,6 @@ docs/audit/*/tooling/
 
 # Worktrees made for parallel Claude Code sessions
 .claude/worktrees/
+
+# Devolutions.IronRdp, put here by build/Get-IronRdp.ps1
+.nuget-local/
