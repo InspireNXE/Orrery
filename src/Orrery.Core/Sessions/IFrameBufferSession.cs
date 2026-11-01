@@ -83,10 +83,13 @@ public interface IKeysymInput
 
 /// <summary>
 /// A session that shares clipboard text with the remote side and leaves it to the view to talk to the local
-/// clipboard (VNC). RDP's clipboard runs inside IronRDP and doesn't use this.
+/// clipboard: VNC, and RDP on Linux and macOS. RDP on Windows talks to the local clipboard inside IronRDP instead.
 /// </summary>
 public interface IClipboardSession
 {
+    /// <summary>Whether this session exchanges clipboard text through this interface at all.</summary>
+    bool ExchangesClipboard => true;
+
     /// <summary>The remote clipboard changed. Raised on a background thread.</summary>
     event EventHandler<string>? RemoteClipboardChanged;
 

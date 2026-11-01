@@ -15,6 +15,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
+- Shared clipboard, which can be turned off per connection or folder: over RDP on Windows it carries text, images
+  and files; over RDP on Linux and macOS, and over VNC, it carries text
 
 ### Display
 
@@ -95,6 +97,13 @@ dotnet test Orrery.sln
 dotnet run --project src/Orrery.App
 ```
 
+The RDP clipboard on Linux and macOS needs a change to IronRDP's .NET binding that isn't released yet, so
+`nuget.config` takes `Devolutions.IronRdp` from a local folder, `W:\IronRDP\dependencies\nuget`, at the version in
+`Directory.Build.props` (`2026.10.29-orrery.1`). That package's Windows x64 native library is built from the change;
+its other platforms' libraries are those of the released 2026.10.29. To go back to the released package, remove the
+`ironrdp-local` source and its mapping from `nuget.config`, set `IronRdpVersion` back to `2026.10.29`, and run
+`dotnet restore Orrery.sln --force-evaluate` to update the lock files.
+
 ### Packages
 
 To build everything this machine can, run:
@@ -135,9 +144,11 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 ## Status
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
-the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, and VNC authentication. The
-Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the
-single-file executable as a false positive.
+the Linux and macOS builds (including the .deb, .rpm and AppImage), the ARM builds, VNC authentication, and the RDP
+clipboard on Linux and macOS. That clipboard also needs IronRDP's native library for Linux and macOS built from the
+same IronRDP change as the Windows one (see [Building](#building)); until then it stays off there and RDP works
+without it. The Windows executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus tools
+can flag the single-file executable as a false positive.
 
 ## Licence and credits
 

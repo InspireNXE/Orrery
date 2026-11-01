@@ -41,7 +41,7 @@ public sealed class RemoteFrameView : Panel
     readonly Dictionary<PhysicalKey, uint> _keysymsDown = [];
     readonly Action<bool, bool> _windowsKey;
 
-    // The clipboard text last exchanged with a VNC server, so a change isn't sent back where it came from.
+    // The clipboard text last exchanged with the server (VNC, or RDP off Windows), so a change isn't sent back where it came from.
     string? _lastClipboard;
 
     readonly TextBlock _status = new()
@@ -431,12 +431,12 @@ public sealed class RemoteFrameView : Panel
     }
 
     /// <summary>
-    /// VNC: hands the local clipboard to the server when the session gets the keyboard, if it changed since
+    /// VNC, and RDP off Windows: hands the local clipboard to the server when the session gets the keyboard, if it changed since
     /// the last exchange. There's no portable "clipboard changed" event, and this is when a paste can follow.
     /// </summary>
     async Task SendLocalClipboardAsync()
     {
-        if (Session is not IClipboardSession clipboardSession || Session.State != SessionState.Connected
+        if (Session is not IClipboardSession { ExchangesClipboard: true } clipboardSession || Session.State != SessionState.Connected
             || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
         {
             return;
