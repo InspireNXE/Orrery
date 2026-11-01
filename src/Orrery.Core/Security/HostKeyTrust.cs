@@ -16,12 +16,16 @@ public sealed record HostKeyPrompt(
 /// </summary>
 public sealed class HostKeyValidator(ICertificateTrustStore store, Func<HostKeyPrompt, Task<CertificateTrustDecision>> prompt)
 {
-    public async Task<bool> ValidateAsync(string host, int port, string keyType, string sha256Fingerprint)
+    public async Task<bool> ValidateAsync(string host, int port, string keyType, string sha256Fingerprint) =>
+        (await CheckAsync(host, port, keyType, sha256Fingerprint)).Trusted;
+
+    /// <summary>As <see cref="ValidateAsync"/>, and whether the host had a different key pinned.</summary>
+    public async Task<(bool Trusted, bool Changed)> CheckAsync(string host, int port, string keyType, string sha256Fingerprint)
     {
         var pinned = store.Get(host, port);
         if (pinned is not null && string.Equals(pinned.Sha256, sha256Fingerprint, StringComparison.Ordinal))
         {
-            return true;
+            return (true, false);
         }
 
         var decision = await prompt(new HostKeyPrompt(
@@ -33,6 +37,6 @@ public sealed class HostKeyValidator(ICertificateTrustStore store, Func<HostKeyP
             store.Pin(host, port, new PinnedCertificate(sha256Fingerprint, keyType, DateTimeOffset.UtcNow));
         }
 
-        return decision != CertificateTrustDecision.Reject;
+        return (decision != CertificateTrustDecision.Reject, pinned is not null);
     }
 }
