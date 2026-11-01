@@ -79,37 +79,10 @@ public sealed class SerialSession : ITerminalSession
     public ConnectionTarget Target { get; }
     public SessionState State { get; private set; } = SessionState.Connecting;
 
-    EventHandler<SessionStateChangedEventArgs>? _stateChanged;
-    SessionStateChangedEventArgs? _ended;
+    public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
 
-    /// <summary>
-    /// A handler added after the session ended still hears how, once: a port that doesn't exist fails to open at once,
-    /// often before the tab has added its handler.
-    /// </summary>
-    public event EventHandler<SessionStateChangedEventArgs>? StateChanged
-    {
-        add
-        {
-            SessionStateChangedEventArgs? ended;
-            lock (_lock)
-            {
-                _stateChanged += value;
-                ended = _ended;
-            }
-
-            if (ended is not null)
-            {
-                value?.Invoke(this, ended);
-            }
-        }
-        remove
-        {
-            lock (_lock)
-            {
-                _stateChanged -= value;
-            }
-        }
-    }
+    /// <summary>A port that doesn't exist fails to open at once, often before the tab has added its handler.</summary>
+    public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event Action<byte[]>? DataReceived;
 
     /// <summary>Opens the port in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
@@ -286,20 +259,14 @@ public sealed class SerialSession : ITerminalSession
     void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         var change = new SessionStateChangedEventArgs(state, message, error);
-        EventHandler<SessionStateChangedEventArgs>? handlers;
         lock (_lock)
         {
             if (State == state || State is SessionState.Disconnected or SessionState.Failed) return;
+            LastChange = change; // Before State, so whoever sees the new state can read why.
             State = state;
-            if (state is SessionState.Disconnected or SessionState.Failed)
-            {
-                _ended = change;
-            }
-
-            handlers = _stateChanged;
         }
 
-        handlers?.Invoke(this, change);
+        StateChanged?.Invoke(this, change);
     }
 
     /// <summary>A port of this computer, through System.IO.Ports.</summary>
