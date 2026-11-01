@@ -49,8 +49,9 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
-- Unlock the vault with Windows Hello instead of the master password, on a computer with a TPM. Touch ID on macOS is
-  written but needs a signed build. See [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
+- Unlock the vault with Windows Hello instead of the master password, when Windows shows its key is held in the TPM
+  (not over Remote Desktop). Touch ID on macOS is written but needs a signed build. See
+  [docs/design-biometric-unlock.md](docs/design-biometric-unlock.md)
 - Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
