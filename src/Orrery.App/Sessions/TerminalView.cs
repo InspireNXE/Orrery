@@ -583,6 +583,14 @@ public sealed class TerminalView : Control
         if (copyCombo) { e.Handled = true; _ = CopyAsync(); return; }
         if (pasteCombo) { e.Handled = true; _ = PasteAsync(); return; }
 
+        // Select all: Ctrl+Shift+A (Cmd+A on macOS). Plain Ctrl+A goes to the session, where shells and tmux use it.
+        if (mac ? mods == KeyModifiers.Meta && e.Key == Key.A : ctrl && shift && !alt && e.Key == Key.A)
+        {
+            e.Handled = true;
+            SelectAll();
+            return;
+        }
+
         // Text size: Ctrl+=, Ctrl+-, Ctrl+0 (Cmd on macOS), as in most terminals.
         if (mods == (mac ? KeyModifiers.Meta : KeyModifiers.Control) && TextSizeStep(e.Key) is { } step)
         {
@@ -899,6 +907,20 @@ public sealed class TerminalView : Control
         if (row == s.Row && column < s.Column) return false;
         if (row == e.Row && column > e.Column) return false;
         return true;
+    }
+
+    /// <summary>Selects everything in the scrollback and on screen, for copying.</summary>
+    public void SelectAll()
+    {
+        lock (_terminal.SyncRoot)
+        {
+            _selectionStart = (0, 0);
+            _selectionEnd = (_terminal.ScrollbackCount + _terminal.Rows - 1, _terminal.Columns - 1);
+        }
+
+        InvalidateVisual();
+        ScreenReader.Announce(this, $"All terminal text selected. {(OperatingSystem.IsMacOS() ? "Cmd+C" : "Ctrl+Shift+C")} copies it.",
+            "Orrery.Terminal.Selection", ScreenReader.MostRecent);
     }
 
     void ClearSelection()
