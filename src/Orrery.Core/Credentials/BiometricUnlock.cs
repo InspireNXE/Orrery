@@ -240,8 +240,9 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
                 record with { Nonce = Convert.ToBase64String(nonce), Ciphertext = Convert.ToBase64String(wrapped) }, JsonOptions));
             _offThisSession.TryRemove(RecordNameFor(fingerprint), out _);
 
-            // Anything saved for this vault before is replaced now.
-            await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true);
+            // Anything saved for this vault before is replaced now. A record found only by its path is left: it may be
+            // another vault's, and turning this on for one vault shouldn't take it away from another.
+            await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true, placeOnlyToo: false);
             await DeleteRetiredKeysAsync(keep: name);
             Logger.LogInformation("{Authenticator} unlock turned on for the vault", Name);
             return new(BiometricOutcome.Done);
@@ -255,9 +256,10 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
     }
 
     /// <summary>
-    /// Removes keys saved for this vault before its master password changed, or by the first test builds, and says
-    /// so when that leaves it off. Never prompts and never deletes the authenticator's key. Returns the message to
-    /// show, or null if nothing changed for the user.
+    /// Removes keys saved for this vault before a master password change made in this run, or by the first test
+    /// builds, and says so when that leaves it off. A record found only by the vault's path (another copy of Orrery
+    /// changed the password, or a different vault was here before) is reported the same way but left alone. Never
+    /// prompts and never deletes the authenticator's key. Returns the message to show, or null if there's nothing to say.
     /// </summary>
     public Task<string?> TurnOffIfStaleAsync(VaultFileStore vault)
     {
@@ -273,13 +275,19 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             return Task.FromResult<string?>(null);
         }
 
-        foreach (var record in stale)
+        // A record found only by the vault's path is left, key and all: it may be another vault's, or open a copy kept elsewhere.
+        var removed = stale.Where(r => !r.PlaceOnly).ToList();
+        foreach (var record in removed)
         {
             records.Delete(record.Name);
             Retire(record.KeyName);
         }
 
-        Logger.LogInformation("Removed {Count} stale {Authenticator} unlock record(s) for the vault", stale.Count, Name);
+        if (removed.Count > 0)
+        {
+            Logger.LogInformation("Removed {Count} stale {Authenticator} unlock record(s) for the vault", removed.Count, Name);
+        }
+
         if (on)
         {
             return Task.FromResult<string?>(null);
@@ -401,7 +409,8 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
 
     /// <summary>
     /// Turns it off for <paramref name="vault"/>: deletes the saved record and the authenticator's key, along with
-    /// any left from before a master password change or kept under the vault's old path. True if anything was on.
+    /// any left from before a master password change, by the first test builds, or last used at the vault's path (which
+    /// may be another vault's: the user turning it off is the only thing that removes those). True if anything was on.
     /// </summary>
     public async Task<bool> TurnOffAsync(VaultFileStore vault)
     {
@@ -416,7 +425,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             await DeleteKeyQuietlyAsync(KeyNameFor(fingerprint));
         }
 
-        any |= await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true);
+        any |= await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true, placeOnlyToo: true);
         await DeleteRetiredKeysAsync();
         if (any)
         {
@@ -426,7 +435,10 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         return any;
     }
 
-    /// <summary>Records for this vault other than the current one: an earlier key block, the vault's old path, or the old path-keyed format.</summary>
+    /// <summary>
+    /// Records for this vault other than the current one: an earlier key block this run saw, the old path-keyed
+    /// format, or (marked <see cref="Saved.PlaceOnly"/>) one last used at this vault's path.
+    /// </summary>
     List<Saved> Related(VaultFileStore vault, string? fingerprint)
     {
         var retired = vault.RetiredKeyFingerprints();
@@ -452,25 +464,31 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             }
 
             bool pathKeyed = record.Version == PathKeyedVersion;
-            bool mine = pathKeyed
+            bool thisFormat = record.Version == Version && record.Authenticator == authenticator.Id;
+            bool known = pathKeyed
                 ? name == RecordPrefix + place || record.Vault == fingerprint
-                : record.Version == Version && record.Authenticator == authenticator.Id
-                    && (record.Vault == fingerprint || retired.Contains(record.Vault) || record.Place == place);
-            if (mine)
+                : thisFormat && (record.Vault == fingerprint || retired.Contains(record.Vault));
+
+            // Only in the same place, with a key block this run never saw: perhaps this vault before another copy
+            // changed its password, perhaps a different vault that was here before (and may be restored). Only the
+            // user turning it off removes it.
+            bool placeOnly = !known && thisFormat && record.Place == place;
+            if (known || placeOnly)
             {
                 // Only touch the authenticator key the record's own name implies, whatever the record says.
                 var ownKey = pathKeyed ? KeyNamePrefix + name[RecordPrefix.Length..]
                     : record.Vault is not null && name == RecordNameFor(record.Vault) && name != current ? KeyNameFor(record.Vault) : null;
-                related.Add(new Saved(name, record.KeyName == ownKey ? ownKey : null, record.Vault, pathKeyed));
+                related.Add(new Saved(name, record.KeyName == ownKey ? ownKey : null, record.Vault, pathKeyed, placeOnly));
             }
         }
 
         return related;
     }
 
-    async Task<bool> RemoveRelatedAsync(VaultFileStore vault, string? fingerprint, bool deleteKeys)
+    /// <param name="placeOnlyToo">Also records found only by the vault's path: only when the user turns it off.</param>
+    async Task<bool> RemoveRelatedAsync(VaultFileStore vault, string? fingerprint, bool deleteKeys, bool placeOnlyToo)
     {
-        var related = Related(vault, fingerprint);
+        var related = Related(vault, fingerprint).Where(r => placeOnlyToo || !r.PlaceOnly).ToList();
         foreach (var record in related)
         {
             records.Delete(record.Name);
@@ -589,6 +607,13 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             return null;
         }
 
+        if (VersionOf(bytes) is { } version && version != Version)
+        {
+            // Another version's record (a newer build's, say): this build can't use it, and it isn't this build's to
+            // remove. It reads as off here.
+            return null;
+        }
+
         var record = Parse(bytes);
         if (record is { Format: Format, Version: Version, Nonce: not null, Ciphertext: not null }
             && record.Authenticator == authenticator.Id && record.KeyName == KeyNameFor(fingerprint) && record.Vault == fingerprint
@@ -621,6 +646,23 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             return JsonSerializer.Deserialize<Record>(bytes, JsonOptions) is { Format: Format } record ? record : null;
         }
         catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The version a record of this format claims, read without the rest of it, so a newer layout is still recognised.</summary>
+    static int? VersionOf(byte[] bytes)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(bytes);
+            var root = json.RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("format", out var format) && format.ValueKind == JsonValueKind.String && format.GetString() == Format
+                && root.TryGetProperty("version", out var version) && version.TryGetInt32(out int number) ? number : null;
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
             return null;
         }
@@ -724,7 +766,8 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path)))[..32].ToLowerInvariant();
     }
 
-    sealed record Saved(string Name, string? KeyName, string? Vault, bool PathKeyed);
+    /// <param name="PlaceOnly">Found only by the vault's path: reported, and only removed when the user turns it off.</param>
+    sealed record Saved(string Name, string? KeyName, string? Vault, bool PathKeyed, bool PlaceOnly);
 
     sealed record Record(
         string Format,
