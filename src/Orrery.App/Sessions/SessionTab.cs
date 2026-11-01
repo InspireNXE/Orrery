@@ -376,6 +376,7 @@ sealed class SessionTab
     {
         _ when Origin.Local => Dropped ? "The shell stopped" : "Couldn't start the shell",
         FailureKind.LoginFailed => "Login refused",
+        FailureKind.KeyFile => "Can't use the key file",
         FailureKind.HostKeyChanged => "Host key changed",
         FailureKind.HostKeyNotTrusted => "Host key not trusted",
         FailureKind.CertificateNotTrusted => "Certificate not trusted",

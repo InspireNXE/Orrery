@@ -4,6 +4,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
+using Orrery.App.Controls;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Sessions;
@@ -282,6 +283,118 @@ public class PropertiesPanelTests
         Assert.True(panel.TrySave());
         Assert.Equal(admin.Id, entry.Settings.CredentialId);
         Assert.Equal("one renamed", entry.Name);
+    }
+
+    static TextBox KeyFileBox(Window window) =>
+        window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "~/.ssh/id_ed25519");
+
+    [AvaloniaFact]
+    public async Task The_key_file_shows_what_a_folder_sets_and_a_connections_own_value_is_saved()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers", Settings = new InheritableSettings { KeyFile = "~/.ssh/team_key" } };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1100 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var box = KeyFileBox(window);
+        Assert.Equal("~/.ssh/team_key", box.Text);
+        Assert.False(box.IsEffectivelyEnabled); // Inherited.
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From Servers");
+
+        var inherit = InheritBoxFor((Control)box.Parent!);
+        inherit.IsChecked = false;
+        Assert.True(box.IsEffectivelyEnabled);
+        box.Text = "  /keys/box_key  ";
+        Assert.True(panel.TrySave());
+
+        Assert.Equal("/keys/box_key", entry.Settings.KeyFile);
+        Assert.Equal("/keys/box_key", SettingsResolver.Resolve(entry).KeyFile.Value);
+        Assert.Equal("~/.ssh/team_key", folder.Settings.KeyFile);
+    }
+
+    [AvaloniaFact]
+    public async Task Inheriting_the_key_file_stores_nothing_and_clearing_it_overrides_the_folder()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers", Settings = new InheritableSettings { KeyFile = "~/.ssh/team_key" } };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh, KeyFile = "/keys/own" } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1100 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+        var box = KeyFileBox(window);
+        Assert.Equal("/keys/own", box.Text);
+        Assert.True(box.IsEffectivelyEnabled);
+
+        box.Text = string.Empty;
+        Assert.True(panel.TrySave());
+        Assert.Equal(string.Empty, entry.Settings.KeyFile);
+        Assert.Null(SettingsResolver.Resolve(entry).KeyFile.Value);
+
+        InheritBoxFor((Control)box.Parent!).IsChecked = true;
+        Assert.Equal("~/.ssh/team_key", box.Text);
+        Assert.True(panel.TrySave());
+        Assert.Null(entry.Settings.KeyFile);
+        Assert.Equal("~/.ssh/team_key", SettingsResolver.Resolve(entry).KeyFile.Value);
+    }
+
+    [AvaloniaFact]
+    public async Task A_key_file_path_with_a_line_break_is_refused_with_a_message()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1100 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        InheritBoxFor((Control)KeyFileBox(window).Parent!).IsChecked = false;
+        KeyFileBox(window).Text = "/keys/a\nb";
+
+        Assert.False(panel.TrySave());
+        Assert.Null(entry.Settings.KeyFile);
+        Assert.Contains(window.GetVisualDescendants().OfType<Notice>(), n => n.IsEffectivelyVisible && n.Text!.Contains("key file path"));
+    }
+
+    [AvaloniaFact]
+    public async Task The_key_file_box_and_its_browse_button_are_named_for_a_screen_reader()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 1100 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Key file", AccessibilityAudit.Peer(KeyFileBox(window)).GetName());
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => AccessibilityAudit.Peer(b).GetName() == "Browse for a key file");
+        AccessibilityAudit.AssertAllNamed(window);
+    }
+
+    [Fact]
+    public void A_file_under_the_home_folder_is_written_with_a_tilde_and_forward_slashes()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        Assert.Equal("~/.ssh/id_ed25519", PropertiesPanel.WithHome(Path.Combine(home, ".ssh", "id_ed25519")));
+        Assert.Equal("~/keys/work/id", PropertiesPanel.WithHome(Path.Combine(home, "keys", "work", "id")));
+
+        // Beside the home folder, not under it.
+        var outside = Path.Combine(Path.GetDirectoryName(home.TrimEnd(Path.DirectorySeparatorChar))!, Path.GetFileName(home.TrimEnd(Path.DirectorySeparatorChar)) + "-other", "id");
+        Assert.Equal(outside, PropertiesPanel.WithHome(outside));
     }
 
     sealed class EmptyCredentialStore : ICredentialStore

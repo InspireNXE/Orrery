@@ -14,6 +14,9 @@ public enum FailureKind
     Offline,
     JumpHost,
     LoginFailed,
+
+    /// <summary>The SSH key file set for the connection is missing, unreadable, too big, not a key, or needs a passphrase.</summary>
+    KeyFile,
     HostKeyChanged,
     HostKeyNotTrusted,
     CertificateNotTrusted,
@@ -49,7 +52,7 @@ public sealed record ConnectionFailure(FailureKind Kind, string Summary, string?
     /// A refused login, or a host key or certificate turned down. Trying again by itself would only fail the same
     /// way, and repeated logins can lock an account, so these wait for the user.
     /// </summary>
-    public bool NeedsUser => Cause is FailureKind.LoginFailed or FailureKind.HostKeyChanged or FailureKind.HostKeyNotTrusted or FailureKind.CertificateNotTrusted;
+    public bool NeedsUser => Cause is FailureKind.LoginFailed or FailureKind.KeyFile or FailureKind.HostKeyChanged or FailureKind.HostKeyNotTrusted or FailureKind.CertificateNotTrusted;
 
     /// <summary>The network or the far end's address: worth trying again once things change.</summary>
     public bool IsNetwork => Cause is FailureKind.NameNotFound or FailureKind.Refused or FailureKind.TimedOut or FailureKind.Unreachable or FailureKind.Offline;
@@ -131,6 +134,9 @@ public sealed record ConnectionFailure(FailureKind Kind, string Summary, string?
             FailureKind.Unreachable => ($"There's no network route to {host}.", "Check your network connection, or your VPN if it's on a private network."),
             FailureKind.Offline => ("This computer isn't connected to a network.", "Check the Wi-Fi or network cable."),
             FailureKind.LoginFailed => ($"{host} didn't accept the login.", "Check the username and password, or the key, then reconnect."),
+            // The session's own message says which file and what's wrong with it, and never gives the folder.
+            FailureKind.KeyFile => (string.IsNullOrWhiteSpace(raw) ? "Orrery couldn't use the key file." : raw.Trim().TrimEnd('.') + ".",
+                "Check the key file in the connection's settings, then reconnect."),
             FailureKind.HostKeyChanged => ($"The host key of {host} has changed, and it wasn't trusted.",
                 "A reinstalled server gets a new key, but it can also mean someone is intercepting the connection. Check with whoever runs the server before you trust it."),
             FailureKind.HostKeyNotTrusted => ($"The host key of {host} wasn't trusted, so Orrery didn't connect.", "Reconnect to check the key again."),

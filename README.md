@@ -14,6 +14,11 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - RDP ([IronRDP](https://github.com/Devolutions/IronRDP)), SSH (SSH.NET), VNC (MarcusW.VncClient) and Telnet
 - Jump hosts, like `ssh -J`, for every protocol: RDP, VNC and Telnet go through an SSH tunnel
 - SSH port forwards (`L`, `R`, `D`)
+- SSH key file: a setting that points at a private key on this computer, with a Browse button, inherited from folders
+  like the other settings. Orrery tries a saved key credential first, then the key file, then your SSH agent's keys,
+  then the password. The file is read each time you connect and never copied. `~` means your home folder. If the key
+  has a passphrase, Orrery asks for it, and can save it as a credential. On Linux and macOS it warns when other users
+  can read the key file, but still uses it. The SFTP browser and jump hosts use it too
 - SFTP file browser beside the terminal: upload or drop files in, download, rename, delete, make folders
 - When a connection fails or drops, the tab says in a sentence what happened and what to try, with Reconnect
   (Enter), the technical details and a button to copy them
@@ -51,9 +56,11 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
 - Import mRemoteNG `confCons.xml` and Orrery `.json`, with MAC addresses (and on export)
 - Import your OpenSSH `~/.ssh/config`, with its `Include` files, defaults from `Host *` and `ProxyJump` chains turned
-  into jump hosts. Nothing in the config is run
+  into jump hosts. Nothing in the config is run. The first `IdentityFile` of each host becomes its key file; the key
+  itself is never opened by the import
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
-  (never in CSV)
+  (never in CSV). Key file paths go in the Orrery `.json`; mRemoteNG has nowhere to keep them, and the export says so
+- The credential editor's private key box is hidden until you press Show, and can still be pasted into
 
 ### Running it
 
@@ -99,7 +106,8 @@ Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
   host is up when host checks are on.
 - Session tabs say which connection they are, its state and which tab is current.
 - When a connection fails or drops, the screen reader hears what happened and the focus moves to Reconnect.
-- Password fields give screen readers a dot per character, never the password.
+- Password fields give screen readers a dot per character, never the password. The private key box in the credential
+  editor tells them only "Private key, 3 lines", never the key, whether or not it's showing on screen.
 - A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
   on while a screen reader is running. Turn it on or off in Settings, under Accessibility.
 - A screen reader can also read the whole terminal screen and the cursor's line and column.
@@ -188,7 +196,8 @@ needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as 
 
 Tested on Windows, where RDP resizing, the clipboard and the installer all work. Not yet checked on real machines:
 the Linux and macOS builds (including the .deb, .rpm and AppImage), local terminals on Linux and macOS, the ARM builds,
-VNC authentication, and how each protocol reports real network failures (an RDP server refusing a login, especially)
+VNC authentication, logging in to a real SSH server with a key file (plain and passphrase-protected, directly, in the
+file browser and through a jump host), and how each protocol reports real network failures (an RDP server refusing a login, especially)
 on the connection-lost screen. The Windows executables aren't code-signed, so SmartScreen may warn on first launch,
 and antivirus tools can flag the single-file executable as a false positive.
 

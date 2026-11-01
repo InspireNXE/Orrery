@@ -16,6 +16,7 @@ public static class OrreryImporter
 {
     internal const string SourcePrefix = "orrery:";
     const long MaxFileBytes = 64L * 1024 * 1024;
+    const int MaxKeyFilePathLength = 1024;
 
     public static ImportResult ImportFile(string path, string? password = null)
     {
@@ -217,6 +218,18 @@ public static class OrreryImporter
 
         copy.ImportSourceId = node.ImportSourceId ?? SourcePrefix + node.Id;
         copy.Settings = node.Settings?.Clone() ?? new InheritableSettings();
+
+        // Only a path, which isn't read until the connection is used; a value that can't be one is left out.
+        if (copy.Settings.KeyFile is { } keyFile)
+        {
+            keyFile = keyFile.Trim();
+            bool usable = keyFile.Length <= MaxKeyFilePathLength && !keyFile.Any(char.IsControl);
+            copy.Settings.KeyFile = usable ? keyFile : null;
+            if (!usable)
+            {
+                warnings.Add($"{copy.Name}: its key file isn't a usable path, so it was left out.");
+            }
+        }
 
         // Only a sealed export carries saved credentials; any other id would point at nothing on this computer.
         if (copy.Settings.CredentialId is { } credentialId && credentialId != InheritableSettings.NoCredential)

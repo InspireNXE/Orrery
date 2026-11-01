@@ -29,8 +29,15 @@ public class SecretLeakTests : IDisposable
     const string TypedPassword = "leak-typed-D1s9";
     const string ProxySecret = "leak-proxy-W3t6";
     const string ConfigKeyBody = "leakconfigkeyP8c2";
+    const string KeyFileBody = "leakkeyfilebodyM5q8";
+    const string KeyFilePassphrase = "leak-filephrase-T7y4";
+    const string WrongKeyFilePassphrase = "leak-wrongphrase-V2k9";
 
-    static readonly string[] Secrets = [MasterPassword, NewMasterPassword, WrongPassword, SavedPassword, KeyPassphrase, KeyBody, ExportPassword, TypedPassword, ProxySecret, ConfigKeyBody];
+    /// <summary>A folder name that must never appear: key files are named in the log and on screen without their folder.</summary>
+    const string KeyFolder = "keyfolder-Q9z2";
+
+    static readonly string[] Secrets = [MasterPassword, NewMasterPassword, WrongPassword, SavedPassword, KeyPassphrase, KeyBody, ExportPassword, TypedPassword, ProxySecret, ConfigKeyBody,
+        KeyFileBody, KeyFilePassphrase, WrongKeyFilePassphrase, KeyFolder];
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -91,6 +98,29 @@ public class SecretLeakTests : IDisposable
             await RunToEnd(SshSession.Start(new ConnectionTarget("127.0.0.1", closed, "admin", null), new SshLogin("admin", TypedPassword), hostKeys, 80, 24));
             await RunToEnd(SshSession.Start(new ConnectionTarget("db.internal", 22, "deploy", null), new SshLogin("deploy", null, key.Secret, KeyPassphrase),
                 hostKeys, 80, 24, jumps: [new SshHop(new ConnectionTarget("127.0.0.1", closed, "admin", null), new SshLogin("admin", TypedPassword))]));
+
+            // Key files, named in a folder that must not be quoted back: one that isn't a usable key but has a recognisable body,
+            // one encrypted and opened with the wrong passphrase, one opened with the right one (the server is closed, so it fails at
+            // the socket after reading the key), and a missing one. Directly, as a jump host, and in the file browser.
+            var keyFolder = Path.Combine(_root, KeyFolder);
+            Directory.CreateDirectory(keyFolder);
+            var oddKey = Path.Combine(keyFolder, "id_odd");
+            File.WriteAllText(oddKey, $"-----BEGIN RSA PRIVATE KEY-----\n{KeyFileBody}\n-----END RSA PRIVATE KEY-----\n");
+            var lockedKey = Path.Combine(keyFolder, "id_locked");
+            File.WriteAllText(lockedKey, EncryptedRsaPem(KeyFilePassphrase));
+            var target = new ConnectionTarget("127.0.0.1", closed, "admin", null);
+            await RunToEnd(SshSession.Start(target, new SshLogin("admin", null, KeyFile: oddKey, KeyFilePassphrase: KeyFilePassphrase), hostKeys, 80, 24));
+            await RunToEnd(SshSession.Start(target, new SshLogin("admin", null, KeyFile: lockedKey, KeyFilePassphrase: WrongKeyFilePassphrase), hostKeys, 80, 24));
+            await RunToEnd(SshSession.Start(target, new SshLogin("admin", null, KeyFile: lockedKey, KeyFilePassphrase: KeyFilePassphrase), hostKeys, 80, 24));
+            await RunToEnd(SshSession.Start(target, new SshLogin("admin", null, KeyFile: Path.Combine(keyFolder, "id_gone")), hostKeys, 80, 24));
+            await RunToEnd(SshSession.Start(new ConnectionTarget("db.internal", 22, "deploy", null), new SshLogin("deploy", TypedPassword), hostKeys, 80, 24,
+                jumps: [new SshHop(target, new SshLogin("admin", null, KeyFile: lockedKey, KeyFilePassphrase: WrongKeyFilePassphrase))]));
+            await RunToEnd(SftpSession.Start(target, new SshLogin("admin", null, KeyFile: oddKey, KeyFilePassphrase: KeyFilePassphrase), hostKeys));
+
+            // The log's own check on the key file's name, and the text a screen reader or Copy would give for one.
+            var keyFailure = ConnectionFailure.Classify(Assert.Throws<KeyFileException>(() => SshKeyFile.Load(oddKey, KeyFilePassphrase)), null, target);
+            lock (FailureDetails) FailureDetails.Add($"{keyFailure.Summary} {keyFailure.Advice} {keyFailure.Detail}");
+            Assert.Contains("id_odd", keyFailure.Summary);
         }
         finally
         {
@@ -102,6 +132,7 @@ public class SecretLeakTests : IDisposable
         Assert.Contains("Vault unlock failed", log);
         Assert.Contains("Backed up connections", log);
         Assert.Contains("Read SSH config", log);
+        Assert.Contains("id_odd", log); // The key file by name, which is all the log gets.
         Assert.Contains("127.0.0.1", log);
         string details;
         lock (FailureDetails) details = string.Join("\n", FailureDetails);
@@ -115,7 +146,7 @@ public class SecretLeakTests : IDisposable
     /// <summary>What the connection-lost screen showed and would copy for the failed sessions.</summary>
     static readonly List<string> FailureDetails = [];
 
-    static async Task RunToEnd(SshSession session)
+    static async Task RunToEnd(IConnectionSession session)
     {
         var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         session.StateChanged += (_, e) =>
@@ -131,6 +162,17 @@ public class SecretLeakTests : IDisposable
         if (session.State is SessionState.Failed or SessionState.Disconnected) ended.TrySetResult();
         await ended.Task.WaitAsync(TimeSpan.FromSeconds(30));
         await session.DisposeAsync();
+    }
+
+    /// <summary>A new throwaway RSA key in the traditional encrypted PEM format (AES-128-CBC, OpenSSL's MD5 key derivation).</summary>
+    static string EncryptedRsaPem(string passphrase)
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var iv = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
+        using var aes = System.Security.Cryptography.Aes.Create();
+        aes.Key = System.Security.Cryptography.MD5.HashData([.. Encoding.UTF8.GetBytes(passphrase), .. iv[..8]]);
+        var body = Convert.ToBase64String(aes.EncryptCbc(rsa.ExportRSAPrivateKey(), iv), Base64FormattingOptions.InsertLineBreaks).Replace("\r\n", "\n");
+        return $"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,{Convert.ToHexString(iv)}\n\n{body}\n-----END RSA PRIVATE KEY-----\n";
     }
 
     static int ClosedPort()
