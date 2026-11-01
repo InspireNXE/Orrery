@@ -19,6 +19,7 @@ public static class DataFolderFiles
         "connections.json.unreadable-*", // set aside at startup when connections.json can't be read
         AppSettingsStore.FileName,
         RecentConnections.FileName,
+        WorkspaceStore.FileName,
         "vault.frv",
         "credentials.json",
         "known-hosts.json",
