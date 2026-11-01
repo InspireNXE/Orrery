@@ -32,7 +32,8 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 
 - Saved in Windows Credential Manager, the macOS Keychain or the Linux Secret Service
 - Encrypted vault file (Argon2id, XChaCha20-Poly1305) when there's no system store, or if you prefer it
-- Import mRemoteNG `confCons.xml` and Orrery `.json`
+- Import mRemoteNG `confCons.xml`, Orrery `.json` and your OpenSSH `~/.ssh/config`, with its `Include` files, defaults
+  from `Host *` and `ProxyJump` chains turned into jump hosts. Nothing in the config is run
 - Export Orrery `.json`, mRemoteNG `confCons.xml` or CSV, with passwords encrypted under a password you set
   (never in CSV)
 

@@ -38,6 +38,7 @@ sealed class SettingsView : UserControl
     readonly Func<Task> _saveEverything;
     readonly Func<Task> _import;
     readonly Func<Task> _export;
+    readonly Func<Task>? _importSshConfig;
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
@@ -47,7 +48,9 @@ sealed class SettingsView : UserControl
 
     /// <param name="saveEverything">Writes pending edits to disk, so a copy of the data folder is complete.</param>
     /// <param name="import">Asks for an mRemoteNG file and imports it.</param>
-    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import, Func<Task> export)
+    /// <param name="importSshConfig">Imports the user's OpenSSH config; the button shows only when this is given.</param>
+    public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import, Func<Task> export,
+        Func<Task>? importSshConfig = null)
     {
         _location = location;
         _settingsStore = settingsStore;
@@ -55,6 +58,7 @@ sealed class SettingsView : UserControl
         _saveEverything = saveEverything;
         _import = import;
         _export = export;
+        _importSshConfig = importSshConfig;
         _settings = settingsStore.Load();
 
         var close = new Button { Content = StrokeIcon.Create(Icons.Close, 14), Width = 28, Height = 28 };
@@ -497,9 +501,19 @@ sealed class SettingsView : UserControl
         import.Click += async (_, _) => await _import();
         var export = new Button { Content = "Export…" };
         export.Click += async (_, _) => await _export();
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { import } };
+        if (_importSshConfig is { } importSshConfig)
+        {
+            var sshConfig = new Button { Content = "Import SSH config" };
+            sshConfig.Click += async (_, _) => await importSshConfig();
+            buttons.Children.Add(sshConfig);
+        }
+
+        buttons.Children.Add(export);
         return Section("Import and export",
-            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { import, export } },
-            Note("Import adds the connections from an mRemoteNG confCons.xml or an Orrery export. You can also drop the file onto the connections list."),
+            buttons,
+            Note("Import adds the connections from an mRemoteNG confCons.xml, an Orrery export or an OpenSSH config file. You can also drop the file onto the connections list. "
+                + "Import SSH config reads your ~/.ssh/config: each Host name becomes an SSH connection, with its jump hosts. Nothing in the file is run."),
             Note("Export saves every connection as an Orrery file, an mRemoteNG confCons.xml or a CSV. To export one folder, right-click it. "
                 + "Passwords and keys are left out unless you choose to include them, encrypted with a password you set. CSV never includes them."));
     }
