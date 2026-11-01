@@ -30,7 +30,7 @@ Runner: `packet-sonnet-low` (Sonnet, low effort).
    read loop has already reported its own outcome.
 4. Tests in `tests/Orrery.Protocols.Telnet.Tests/TelnetSessionTests.cs` with a loopback server, as the existing tests do:
    - a server sending `IAC SB 24` and then 1 MiB without `IAC SE` doesn't grow the parser beyond the cap (assert on
-     behaviour: the session stays responsive and later data after `IAC SE` prints, or the session fails cleanly);
+     behavior: the session stays responsive and later data after `IAC SE` prints, or the session fails cleanly);
    - a `DataReceived` handler that throws makes the session `Failed`, and `DisconnectAsync` and `DisposeAsync` complete
      without throwing.
 

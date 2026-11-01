@@ -23,7 +23,7 @@ when the server offers it.
 
 ## Changes
 1. Add `bool? AllowLegacySsh` to `ConnectionNode`, resolved by `SettingsResolver` with a default of false, and a toggle
-   in the inspector's SSH section labelled "Allow older, weaker algorithms", with a one-line hint ("Only for old devices
+   in the inspector's SSH section labeled "Allow older, weaker algorithms", with a one-line hint ("Only for old devices
    that can't connect otherwise"). Mirror `UseSshAgent` exactly, including inheritance and the JSON name.
 2. Pass it to `SshSession.Start`, and when it's false, remove from the `ConnectionInfo` dictionaries
    (`KeyExchangeAlgorithms`, `Encryptions`, `HmacAlgorithms`, `HostKeyAlgorithms`): `diffie-hellman-group1-sha1`,

@@ -47,7 +47,7 @@ Separately, `--moved-from <path>` (`src/Orrery.App/App.axaml.cs:84-85`) feeds `O
    it), and delete a listed folder only if it's empty afterwards. The old folder itself is removed only if it ends up
    empty. Leftover user files are reported back (return a count or list) so the UI can say "N files that weren't
    Orrery's were left in place."
-3. Replace the string containment check with one that works for roots and links: normalise both paths, resolve every
+3. Replace the string containment check with one that works for roots and links: normalize both paths, resolve every
    existing ancestor through `FileSystemInfo.ResolveLinkTarget(returnFinalTarget: true)` or
    `Path.GetFullPath` on the resolved target, and compare segment by segment. A root is a valid "folder" for the check.
    Refuse a move whose source or target is a drive or filesystem root outright.
@@ -55,7 +55,7 @@ Separately, `--moved-from <path>` (`src/Orrery.App/App.axaml.cs:84-85`) feeds `O
    `pending-cleanup.json`, written with `AtomicFile`). On restart, offer to delete only if that file exists and names
    the same path as `--moved-from`, then remove the file. Refuse a path that contains or is inside the current folder.
    Check how `SettingsView.cs:149-193` and `App.axaml.cs:92-121` hand the path over before choosing the file's shape.
-5. Update the `DeleteOldCopy` doc comment and the Move data confirmation text if the behaviour it describes changes.
+5. Update the `DeleteOldCopy` doc comment and the Move data confirmation text if the behavior it describes changes.
    Update design doc §2.7 to say what Move data copies and deletes.
 6. Tests in `tests/Orrery.Core.Tests/Storage/DataMoverTests.cs`, one per case:
    - user files (a `.docx` at the top, a `Photos\` folder) survive both copy and delete, and aren't copied;

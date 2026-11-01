@@ -34,13 +34,13 @@ Version 0.1.0. The protocols work, but several things still need testing on real
 - Display quality per connection or folder: Balanced, Best look or Fastest
 - RDP fits the window and follows it as it resizes, or keeps a fixed size
 - *Enlarge to match display scaling* for high-DPI screens
-- Interface colours in Settings: Standard, Clearer (easier to tell apart for most colour blindness) or Colour-blind (Okabe-Ito); the terminal has its own colour-blind friendly scheme
-- *Colour vision* in Settings (protanopia, deuteranopia or tritanopia) switches to the colour-blind colours, tunes the
-  terminal's to that kind, and corrects RDP and VNC desktops so colours you'd confuse look different, at a strength
+- Interface colors in Settings: Standard, Clearer (easier to tell apart for most color blindness) or Color-blind (Okabe-Ito); the terminal has its own color-blind friendly scheme
+- *Color vision* in Settings (protanopia, deuteranopia or tritanopia) switches to the color-blind colors, tunes the
+  terminal's to that kind, and corrects RDP and VNC desktops so colors you'd confuse look different, at a strength
   you choose. A connection or folder can turn the correction off, for design or photo work
-- Session states, host status, warnings and errors have a shape, an icon or a word as well as a colour
+- Session states, host status, warnings and errors have a shape, an icon or a word as well as a color
 
-### Organising
+### Organizing
 
 - Connection tree with folders, drag and drop, multi-select and a filter
 - Settings inherited from folders
@@ -118,7 +118,7 @@ Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
 - A terminal reads out new output a few lines at a time, once it pauses, but not the echo of what you type. This is
   on while a screen reader is running. Turn it on or off in Settings, under Accessibility.
 - A screen reader can also read the whole terminal screen and the cursor's line and column.
-- Colours that carry meaning are checked by the tests against simulated protanopia, deuteranopia and tritanopia
+- Colors that carry meaning are checked by the tests against simulated protanopia, deuteranopia and tritanopia
   (Machado et al. 2009) for difference (CIEDE2000) and against WCAG contrast.
 - Terminals and remote desktops keep every key, Tab included. Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the
   session for its tab, and leaves full screen first. Enter on the tab goes back in.
@@ -126,8 +126,8 @@ Orrery works with screen readers on Windows: Narrator, NVDA and JAWS.
 What doesn't work yet:
 
 - A remote desktop is a picture, so a screen reader can only tell you its name, "Remote desktop:" and the connection.
-- Remote desktop colour correction is daltonisation: it makes confusable colours differ, but can't show you colours
-  you can't see, and changes how pictures look. It's been checked by numbers, not yet by colour-blind users.
+- Remote desktop color correction is daltonization: it makes confusable colors differ, but can't show you colors
+  you can't see, and changes how pictures look. It's been checked by numbers, not yet by color-blind users.
 - Avalonia, the toolkit Orrery is built with, doesn't let screen readers move through the terminal by line or word.
   They get the screen as one block of text.
 - Tree rows don't report their level or "2 of 5", and password fields aren't marked as passwords, so a screen reader
@@ -187,7 +187,7 @@ lists what was built and what wasn't. On Windows you get everything except the A
 
 Packages are self-contained, so the target machine needs no .NET runtime. Output goes to `artifacts/`. On Windows and
 Linux the portable app is a single executable with its native libraries beside it; on macOS it is an `Orrery.app`
-bundle, not yet signed or notarised. On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine
+bundle, not yet signed or notarized. On Linux, run `chmod +x Orrery` after unzipping a portable zip, and the machine
 needs X11 (or XWayland), fontconfig and ICU; the .deb and .rpm declare these as dependencies. There's no Flatpak.
 [docs/packaging.md](docs/packaging.md) has the details, including Linux requirements, third-party notices and lock files.
 
@@ -212,11 +212,11 @@ file browser and through a jump host), how each protocol reports real network fa
 especially) on the connection-lost screen, and the Windows Hello and Touch ID prompts. The Windows executables aren't
 code-signed, so SmartScreen may warn on first launch, and antivirus tools can flag the single-file executable as a false positive.
 
-## Licence and credits
+## License and credits
 
 Orrery is MIT-licensed, © 2026 InspireNXE. See [LICENSE](LICENSE).
 
-It's built on open-source work, all under permissive licences (MIT, Apache 2.0, BSD, ISC, OFL):
+It's built on open-source work, all under permissive licenses (MIT, Apache 2.0, BSD, ISC, OFL):
 
 - [Avalonia](https://avaloniaui.net/) (UI), [SkiaSharp](https://github.com/mono/SkiaSharp) and
   [HarfBuzzSharp](https://github.com/mono/SkiaSharp) (drawing and text), and the [Inter](https://rsms.me/inter/) font
@@ -229,6 +229,6 @@ It's built on open-source work, all under permissive licences (MIT, Apache 2.0, 
   (FreeType is built into Skia.)
 
 Every package carries `THIRD-PARTY-NOTICES.txt`, generated from what that build ships, with each component's
-licence and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
+license and copyright notices. The AppImage also carries `APPIMAGE-RUNTIME-NOTICES.txt` for the AppImage runtime and
 the libraries linked into it, including libfuse (LGPL 2.1). mRemoteNG is GPL-licensed. Orrery reads and writes its
 `confCons.xml` files using code written from the file format alone, and contains none of mRemoteNG's code.

@@ -30,7 +30,7 @@ The user imports a `confCons.xml` that could have come from anyone. The verifier
   can't be caught.
 - **S-19.** The only limit is `MaxCharactersInDocument` (64M, `:136`). `ImportPreviewWindow`
   (`src/Orrery.App/Import/ImportPreviewWindow.cs:42-45, 87-102`) adds one wrapping `TextBlock` per skipped or warning
-  line to a non-virtualised `StackPanel`: 1.1 million lines blocked the UI about 66 s and used 10.8 GB. The credential
+  line to a non-virtualized `StackPanel`: 1.1 million lines blocked the UI about 66 s and used 10.8 GB. The credential
   loop (`MainWindow.axaml.cs:1545-1558`) awaits `SaveAsync` per credential; both stores complete synchronously, so it runs
   on the UI thread and rewrites the whole index or vault each time (3,000 took 27.5 s). Killing the app partway leaves
   credentials saved and connections not added.
