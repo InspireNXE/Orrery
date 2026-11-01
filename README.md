@@ -274,8 +274,8 @@ To use a package you built yourself, pass the folder
 holding it and its SHA-256: `./build/Get-IronRdp.ps1 -FromFolder <folder> -Sha256 <hash>`. Its content hash differs
 from the one in the lock files, so the packaging scripts' locked restores fail with it until
 `./build/Update-IronRdpLockHashes.ps1` updates that hash (it checks that nothing else in the lock files changed).
-GitHub Actions builds the package for all six platforms from the fork and commit named at the top of
-`.github/workflows/packages.yml`, and publishes it when asked to (see [docs/packaging.md](docs/packaging.md)).
+The published package is built for all six platforms and released by the IronRDP fork's own workflow (see
+[docs/packaging.md](docs/packaging.md)).
 
 To go back to the released package, remove the `ironrdp-local` source and its mapping from `nuget.config`, set
 `IronRdpVersion` back to `2026.10.29`, and run `dotnet restore Orrery.sln --force-evaluate` to update the lock files.
