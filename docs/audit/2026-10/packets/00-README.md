@@ -33,10 +33,10 @@ two packets split (noted as "part").
 
 ## Runner rule
 
-Runners are the agents in `.claude/agents/packet-*.md`, chosen by how much judgement the packet needs:
+Runners are the agents in `.claude/agents/packet-*.md`, chosen by how much judgment the packet needs:
 - **opus-high:** a subtle mistake reopens a hole or loses data. That's the memory-corruption fix (01), anything that
   sends or stores credentials (02, 12, 13), deleting files (03), and the trust stores' folder access (05).
-- **opus-medium:** Guided packets that need judgement across several files: threading in the SSH session (06), and import
+- **opus-medium:** Guided packets that need judgment across several files: threading in the SSH session (06), and import
   across Core, App and the credential store interface (10).
 - **sonnet-medium:** Mechanical packets that touch several files or need new tests (04, 07, 09, 11, 14, 15, 19).
 - **sonnet-low:** Mechanical packets that change a few lines in one place (08, 16, 17, 18).
@@ -86,7 +86,7 @@ running packet owns, stop the later one and requeue it after the earlier one is 
 1. Start the worker (above). Mark the packet "Running" in the table.
 2. **Guided packets** return a plan first. Check it against the packet's Changes and "Do not touch". If it stays inside
    them, reply to the same agent (SendMessage) with "Plan approved, go ahead." If it changes scope, a file format,
-   user-visible behaviour the packet didn't describe, or drops a test, stop and ask the owner, quoting the plan.
+   user-visible behavior the packet didn't describe, or drops a test, stop and ask the owner, quoting the plan.
 3. When the worker reports, read its diff (`git -C <worktree> show`) and check: the packet's Verify steps have evidence;
    each new test was shown failing first (or the report says why it couldn't be); nothing in "Do not touch" changed; no
    never-weaken test (see `.claude/audit-profile.md`) was loosened or deleted. Send problems back to the same agent.

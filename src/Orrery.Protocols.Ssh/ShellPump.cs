@@ -20,7 +20,7 @@ sealed class ShellPump
     readonly Stream _stream;
     readonly Action<byte[]> _received;
     readonly Action _closed;
-    readonly Action<string> _failed;
+    readonly Action<string, Exception?> _failed;
     readonly Channel<byte[]> _queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(QueueCapacity) { SingleReader = true });
     readonly CancellationTokenSource _stop = new();
     Task _reader = Task.CompletedTask, _writer = Task.CompletedTask;
@@ -28,8 +28,8 @@ sealed class ShellPump
 
     /// <param name="received">Output, on the reader's thread.</param>
     /// <param name="closed">The stream ended, after the last of its output.</param>
-    /// <param name="failed">Reading or writing failed, or the server stopped taking input.</param>
-    public ShellPump(Stream stream, Action<byte[]> received, Action closed, Action<string> failed)
+    /// <param name="failed">Reading or writing failed, or the server stopped taking input: a message, and what was thrown if anything.</param>
+    public ShellPump(Stream stream, Action<byte[]> received, Action closed, Action<string, Exception?> failed)
     {
         (_stream, _received, _closed, _failed) = (stream, received, closed, failed);
     }
@@ -53,7 +53,7 @@ sealed class ShellPump
 
         if (Interlocked.Exchange(ref _queueFull, 1) == 0)
         {
-            _failed("The server stopped accepting input.");
+            _failed("The server stopped accepting input.", null);
         }
     }
 
@@ -82,14 +82,14 @@ sealed class ShellPump
         }
         catch (Exception e) when (e is SshException or IOException)
         {
-            if (!_stop.IsCancellationRequested) _failed(e.Message);
+            if (!_stop.IsCancellationRequested) _failed(e.Message, e);
             return;
         }
         catch (Exception e)
         {
             // From a DataReceived handler. Report it, or the tab would look connected with no output coming.
             Log.For("Ssh").LogError(e, "SSH output stopped");
-            if (!_stop.IsCancellationRequested) _failed("The SSH session stopped because of an internal error.");
+            if (!_stop.IsCancellationRequested) _failed("The SSH session stopped because of an internal error.", null);
             return;
         }
 
@@ -117,7 +117,7 @@ sealed class ShellPump
         }
         catch (Exception e) when (e is ObjectDisposedException or SshException or IOException)
         {
-            if (!_stop.IsCancellationRequested) _failed(e.Message);
+            if (!_stop.IsCancellationRequested) _failed(e.Message, e);
         }
     }
 }

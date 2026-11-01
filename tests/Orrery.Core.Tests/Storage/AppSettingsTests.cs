@@ -53,6 +53,183 @@ public class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Color_settings_are_standard_unless_chosen()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.Equal(InterfaceColorScheme.Standard, store.Load().InterfaceColorScheme);
+        Assert.Null(store.Load().TerminalColors);
+
+        store.Save(new AppSettings { InterfaceColors = InterfaceColorScheme.Clearer, TerminalColors = TerminalColorScheme.ColorBlind });
+
+        Assert.Equal(InterfaceColorScheme.Clearer, store.Load().InterfaceColorScheme);
+        Assert.Equal(TerminalColorScheme.ColorBlind, store.Load().TerminalColors);
+        var json = File.ReadAllText(SettingsPath);
+        Assert.Contains("\"clearer\"", json);
+        Assert.Contains("\"colorBlind\"", json);
+    }
+
+    [Theory]
+    [InlineData("{ \"colourBlindColours\": true }", InterfaceColorScheme.ColorBlind)]
+    [InlineData("{ \"colourBlindColours\": false }", InterfaceColorScheme.Standard)]
+    [InlineData("{ }", InterfaceColorScheme.Standard)]
+    [InlineData("{ \"colourBlindColours\": true, \"interfaceColours\": \"clearer\" }", InterfaceColorScheme.Clearer)]
+    public void The_old_color_blind_setting_becomes_an_interface_color_choice(string json, InterfaceColorScheme expected)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+        File.WriteAllText(SettingsPath, json);
+        var store = new AppSettingsStore(SettingsPath);
+
+        var loaded = store.Load();
+        Assert.Equal(expected, loaded.InterfaceColorScheme);
+        Assert.Null(loaded.ColorBlindColors);
+
+        // Saving it back no longer writes the old key.
+        store.Save(loaded);
+        Assert.DoesNotContain("colourBlindColours", File.ReadAllText(SettingsPath), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(expected, store.Load().InterfaceColorScheme);
+    }
+
+    [Fact]
+    public void Saving_the_old_setting_writes_the_new_one()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        store.Save(new AppSettings { ColorBlindColors = true });
+
+        var json = File.ReadAllText(SettingsPath);
+        Assert.DoesNotContain("colourBlindColours", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(InterfaceColorScheme.ColorBlind, store.Load().InterfaceColors);
+    }
+
+    [Fact]
+    public void Color_vision_and_correction_strength_round_trip()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.Equal(ColorVision.None, store.Load().Vision);
+        Assert.Equal(AppSettings.DefaultColorCorrectionStrength, store.Load().CorrectionStrength);
+
+        store.Save(new AppSettings { ColorVision = ColorVision.Deuteranopia, ColorCorrectionStrength = 60, InterfaceColors = InterfaceColorScheme.Clearer });
+
+        var loaded = store.Load();
+        Assert.Equal(ColorVision.Deuteranopia, loaded.Vision);
+        Assert.Equal(60, loaded.CorrectionStrength);
+        Assert.Equal(InterfaceColorScheme.Clearer, loaded.InterfaceColorScheme); // The palette choice stays the user's.
+        var json = File.ReadAllText(SettingsPath);
+        Assert.Contains("\"colorVision\": \"deuteranopia\"", json);
+        Assert.Contains("\"colorCorrectionStrength\": 60", json);
+    }
+
+    [Theory]
+    [InlineData("{ \"colorCorrectionStrength\": 250 }", 100)]
+    [InlineData("{ \"colorCorrectionStrength\": -5 }", 0)]
+    [InlineData("{ }", 100)]
+    public void A_correction_strength_out_of_range_is_brought_into_it(string json, int expected)
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, json);
+
+        Assert.Equal(expected, new AppSettingsStore(SettingsPath).Load().CorrectionStrength);
+    }
+
+    [Fact]
+    public void Settings_from_before_color_vision_still_load()
+    {
+        // As the previous version wrote them, with the older on/off key too.
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, "{ \"schemaVersion\": 1, \"colourBlindColours\": true, \"terminalColours\": \"colourBlind\" }");
+
+        var loaded = new AppSettingsStore(SettingsPath).Load();
+
+        Assert.Equal(ColorVision.None, loaded.Vision);
+        Assert.Null(loaded.ColorVision);
+        Assert.Equal(InterfaceColorScheme.ColorBlind, loaded.InterfaceColorScheme);
+        Assert.Equal(TerminalColorScheme.ColorBlind, loaded.TerminalColors);
+    }
+
+    // Builds before the switch to American spelling wrote British keys and values.
+    const string BritishSettings = """
+        {
+          "schemaVersion": 1,
+          "terminalColours": "colourBlind",
+          "interfaceColours": "colourBlind",
+          "colourVision": "tritanopia",
+          "colourCorrectionStrength": 40
+        }
+        """;
+
+    [Fact]
+    public void Settings_with_british_keys_load_with_the_same_meaning()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, BritishSettings);
+
+        var loaded = new AppSettingsStore(SettingsPath).Load();
+
+        Assert.Equal(TerminalColorScheme.ColorBlind, loaded.TerminalColors);
+        Assert.Equal(InterfaceColorScheme.ColorBlind, loaded.InterfaceColors);
+        Assert.Equal(ColorVision.Tritanopia, loaded.ColorVision);
+        Assert.Equal(40, loaded.CorrectionStrength);
+    }
+
+    [Fact]
+    public void Settings_with_british_keys_are_saved_back_with_american_ones()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, BritishSettings);
+        var store = new AppSettingsStore(SettingsPath);
+
+        var before = store.Load();
+        store.Save(before);
+
+        Assert.Equal(before, store.Load());
+        var json = File.ReadAllText(SettingsPath);
+        Assert.DoesNotContain("colour", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"terminalColors\": \"colorBlind\"", json);
+        Assert.Contains("\"interfaceColors\": \"colorBlind\"", json);
+        Assert.Contains("\"colorVision\": \"tritanopia\"", json);
+        Assert.Contains("\"colorCorrectionStrength\": 40", json);
+    }
+
+    [Fact]
+    public void New_settings_are_written_with_american_keys_and_values()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        store.Save(new AppSettings
+        {
+            TerminalColors = TerminalColorScheme.ColorBlind,
+            InterfaceColors = InterfaceColorScheme.ColorBlind,
+            ColorVision = ColorVision.Protanopia,
+            ColorCorrectionStrength = 75,
+        });
+
+        var json = File.ReadAllText(SettingsPath);
+        Assert.DoesNotContain("colour", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"terminalColors\": \"colorBlind\"", json);
+        Assert.Contains("\"interfaceColors\": \"colorBlind\"", json);
+        Assert.Contains("\"colorVision\": \"protanopia\"", json);
+        Assert.Contains("\"colorCorrectionStrength\": 75", json);
+    }
+
+    [Theory]
+    [InlineData("""{ "interfaceColours": "colourBlind", "interfaceColors": "clearer" }""")]
+    [InlineData("""{ "interfaceColors": "clearer", "interfaceColours": "colourBlind" }""")]
+    public void An_american_key_wins_over_a_british_one(string json)
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, json);
+
+        Assert.Equal(InterfaceColorScheme.Clearer, new AppSettingsStore(SettingsPath).Load().InterfaceColors);
+    }
+
+    [Fact]
+    public void A_value_misspelled_some_other_way_still_gives_the_defaults()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(SettingsPath, """{ "autoLockMinutes": 5, "terminalColors": "colorBlindd" }""");
+
+        Assert.Equal(CredentialStores.DefaultAutoLock, new AppSettingsStore(SettingsPath).Load().AutoLockAfter);
+    }
+
+    [Fact]
     public void Zero_minutes_means_never_lock()
     {
         Assert.Null(new AppSettings { AutoLockMinutes = 0 }.AutoLockAfter);

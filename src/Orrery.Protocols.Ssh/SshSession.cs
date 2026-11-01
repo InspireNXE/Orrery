@@ -12,12 +12,17 @@ using Renci.SshNet.Common;
 namespace Orrery.Protocols.Ssh;
 
 /// <summary>
-/// How to log in: a password (also answers keyboard-interactive prompts) or a private key, after the SSH
-/// agent's keys when <see cref="UseAgent"/> is set. A null password means don't try one.
+/// How to log in, tried in this order: <see cref="PrivateKey"/> (the text of a saved key), the private key file at
+/// <see cref="KeyFile"/>, the SSH agent's keys when <see cref="UseAgent"/> is set, then <see cref="Password"/>
+/// (which also answers keyboard-interactive prompts). Whatever is null or off isn't tried; a null password means
+/// don't try one. The key file is read at connect time, each time, not when this is made.
 /// </summary>
-public sealed record SshLogin(string Username, string? Password, string? PrivateKey = null, string? Passphrase = null, bool UseAgent = false)
+/// <param name="KeyFile">A path to a private key on this computer; a leading ~ is this user's home folder.</param>
+/// <param name="KeyFilePassphrase">For an encrypted <paramref name="KeyFile"/>; the caller asks for it.</param>
+public sealed record SshLogin(string Username, string? Password, string? PrivateKey = null, string? Passphrase = null, bool UseAgent = false,
+    string? KeyFile = null, string? KeyFilePassphrase = null)
 {
-    // The generated one would print the password, key and passphrase.
+    // The generated one would print the password, key and passphrases, and the key file's path.
     public override string ToString() => $"SshLogin {{ Username = {Username}, UseAgent = {UseAgent} }}";
 }
 
@@ -106,7 +111,7 @@ public sealed class SshSession : ITerminalSession
                 }
                 catch (RouteException e)
                 {
-                    Fail(e.Message);
+                    Fail(e.Message, e);
                     return;
                 }
                 catch (OperationCanceledException)
@@ -120,17 +125,19 @@ public sealed class SshSession : ITerminalSession
                 return;
             }
 
+            WarnAboutKeyFile(login);
             OpenForwards(client);
 
             int columns, rows;
             lock (_lock) (columns, rows) = (_columns, _rows);
             var shell = client.CreateShellStream(TerminalType, (uint)columns, (uint)rows, 0, 0, 64 * 1024);
-            shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message);
+            shell.ErrorOccurred += (_, e) => Fail(e.Exception.Message, Recognize(e.Exception));
 
             // Output is read off the stream, not taken from its DataReceived event: the stream keeps everything
             // until it's read. The reader reports the end once the last output is out, which the stream's
             // Closed event (raised on another thread) can't promise.
-            var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected), Fail);
+            var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
+                (message, error) => Fail(message, error is null ? null : Recognize(error)));
             lock (_lock) (_shell, _pump) = (shell, pump);
             SetState(SessionState.Connected);
             pump.Start();
@@ -138,12 +145,12 @@ public sealed class SshSession : ITerminalSession
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Ssh").LogError(e, "SSH session to {Host} failed", Target.Host);
-            Fail(Describe(e, _allowLegacy));
+            Fail(Describe(e, _allowLegacy), Recognize(e));
         }
     }
 
     /// <summary>
-    /// Connects and logs in to the server, dialling <paramref name="host"/>:<paramref name="port"/> (a loopback
+    /// Connects and logs in to the server, dialing <paramref name="host"/>:<paramref name="port"/> (a loopback
     /// forward when it's behind a jump host). Null, with the session failed, when it couldn't.
     /// </summary>
     SshClient? ConnectClient(string host, int port, SshLogin login)
@@ -155,7 +162,7 @@ public sealed class SshSession : ITerminalSession
         {
             var client = new SshClient(ConnectionInfoFor(host, port, login, allowLegacy)) { KeepAliveInterval = KeepAlive };
             hostKey = HostKeyCheck.Attach(client, _hostKeys, target);
-            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy));
+            client.ErrorOccurred += (_, e) => Fail(Describe(e.Exception, allowLegacy), Recognize(e.Exception));
 
             lock (_lock)
             {
@@ -171,29 +178,43 @@ public sealed class SshSession : ITerminalSession
             hostKey.Connect(client);
             return client;
         }
-        catch (SshConnectionException) when (hostKey?.Rejected == true)
+        catch (SshConnectionException e) when (hostKey?.Rejected == true)
         {
-            Fail("The server's host key was not trusted.");
+            Fail("The server's host key was not trusted.", hostKey.Failure("The server's host key was not trusted.", e));
         }
         catch (SshAuthenticationException e)
         {
             // The server's own refusal sends the caller back to ask for a login; a jump host's is only reported.
             Log.For("Ssh").LogWarning("{Host}: login as {User} refused: {Reason}", target.Host, login.Username, e.Message);
             AuthenticationRejected = true;
-            Fail(Refusal(e, login));
+            Fail(Refusal(e, login), Recognize(e));
         }
         catch (Exception e) when (e is SshException or System.Net.Sockets.SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
         {
             Log.For("Ssh").LogError(e, "SSH connection to {Host} failed", target.Host);
-            Fail(Describe(e, allowLegacy));
+            Fail(Describe(e, allowLegacy), Recognize(e));
         }
 
         return null;
     }
 
     /// <summary>
+    /// Says, in the terminal and the log, that the login's key file can be read by other users (Linux and macOS).
+    /// The login goes ahead; OpenSSH would refuse such a file, Orrery only warns.
+    /// </summary>
+    void WarnAboutKeyFile(SshLogin login)
+    {
+        if (login.KeyFile is { Length: > 0 } file && SshKeyFile.PermissionWarning(file) is { } warning)
+        {
+            Log.For("Ssh").LogWarning("{Host}: {Warning}", Target.Host, warning);
+            Notice(warning, warning: true);
+        }
+    }
+
+    /// <summary>
     /// How to reach and log in to a server at <paramref name="host"/>:<paramref name="port"/>, which is a loopback
     /// forward when it's behind a jump host. SHA-1, CBC and 3DES only when <paramref name="allowLegacy"/> is set.
+    /// Reads the login's key file, so it throws <see cref="KeyFileException"/> when that can't be used.
     /// </summary>
     internal static ConnectionInfo ConnectionInfoFor(string host, int port, SshLogin login, bool allowLegacy)
     {
@@ -203,12 +224,24 @@ public sealed class SshSession : ITerminalSession
     }
 
     /// <summary>Why a login was turned down, by what was tried.</summary>
-    internal static string Refusal(SshAuthenticationException e, SshLogin login) => e is NoLoginMethodException ? e.Message : login switch
+    internal static string Refusal(SshAuthenticationException e, SshLogin login)
     {
-        { UseAgent: true, Password: null, PrivateKey: null } => "The server didn't accept any of the SSH agent's keys.",
-        { PrivateKey: not null } => "The server didn't accept the key.",
-        _ => "The username or password was rejected.",
-    };
+        if (e is NoLoginMethodException)
+        {
+            return e.Message;
+        }
+
+        bool key = login.PrivateKey is { Length: > 0 }, file = login.KeyFile is { Length: > 0 }, agent = login.UseAgent, password = login.Password is not null;
+        return (key, file, agent, password) switch
+        {
+            (false, false, false, _) => "The username or password was rejected.",
+            (false, false, true, false) => "The server didn't accept any of the SSH agent's keys.",
+            (true, false, false, false) => "The server didn't accept the key.",
+            (false, true, false, false) => "The server didn't accept the key file.",
+            (_, _, _, false) => "The server didn't accept any of the keys that were tried.",
+            _ => "The server didn't accept the key or the password.",
+        };
+    }
 
     /// <summary>Opens the connection's port forwards, saying in the terminal which opened and which couldn't.</summary>
     void OpenForwards(SshClient client)
@@ -241,11 +274,25 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
-    /// <summary>A line of Orrery's own in the terminal, set apart from the server's output by colour.</summary>
+    /// <summary>A line of Orrery's own in the terminal, set apart from the server's output by color.</summary>
     void Notice(string text, bool warning = false) =>
         DataReceived?.Invoke(Encoding.UTF8.GetBytes($"\x1b[{(warning ? "33" : "90")}m» {text}\x1b[0m\r\n"));
     // SSH.NET may report the same failure through ErrorOccurred and by throwing; whichever lands first is shown.
     internal static string Describe(Exception e, bool allowLegacy) => e is SshConnectionException connection ? SshAlgorithms.ExplainFailure(connection, allowLegacy) : e.Message;
+
+    /// <summary>
+    /// SSH.NET's failures in terms <see cref="ConnectionFailure.Classify"/> knows, with the original inside: a refused
+    /// login, its own timeout, and the server dropping or ending the connection. Socket errors already say what happened.
+    /// </summary>
+    internal static Exception Recognize(Exception e) => e switch
+    {
+        KeyFileException => new SessionFailureException(FailureKind.KeyFile, e.Message, e),
+        SshAuthenticationException => new SessionFailureException(FailureKind.LoginFailed, e.Message, e),
+        SshOperationTimeoutException => new TimeoutException(e.Message, e),
+        SshConnectionException { DisconnectReason: Renci.SshNet.Messages.Transport.DisconnectReason.ConnectionLost or Renci.SshNet.Messages.Transport.DisconnectReason.ByApplication }
+            => new SessionFailureException(FailureKind.ServerClosed, e.Message, e),
+        _ => e,
+    };
 
     /// <summary>Checks a private key (OpenSSH, PEM or PuTTY format) and its passphrase. Null when it's usable.</summary>
     public static string? ValidatePrivateKey(string key, string? passphrase)
@@ -266,21 +313,39 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
-    internal static AuthenticationMethod[] AuthenticationMethods(SshLogin login)
+    /// <summary>
+    /// The login methods in the order they're tried: one public-key method holding the saved key, then the key file,
+    /// then the agent's keys, and after it the password. SSH.NET tries methods, and the keys in one, in the order
+    /// given. Reads the key file now, so each (re)connect sees the file as it is.
+    /// </summary>
+    /// <param name="agentKeys">The agent's keys; the running agent's when null. A seam for tests.</param>
+    /// <exception cref="KeyFileException">The key file can't be used.</exception>
+    internal static AuthenticationMethod[] AuthenticationMethods(SshLogin login, Func<IPrivateKeySource[]>? agentKeys = null)
     {
         var methods = new List<AuthenticationMethod>();
-        if (login.UseAgent && AgentKeys() is { Length: > 0 } agentKeys)
-        {
-            methods.Add(new PrivateKeyAuthenticationMethod(login.Username, agentKeys));
-        }
-
+        var keys = new List<IPrivateKeySource>();
         if (login.PrivateKey is { Length: > 0 } key)
         {
             using var stream = new MemoryStream(Encoding.UTF8.GetBytes(key));
-            var keyFile = string.IsNullOrEmpty(login.Passphrase) ? new PrivateKeyFile(stream) : new PrivateKeyFile(stream, login.Passphrase);
-            methods.Add(new PrivateKeyAuthenticationMethod(login.Username, keyFile));
+            keys.Add(string.IsNullOrEmpty(login.Passphrase) ? new PrivateKeyFile(stream) : new PrivateKeyFile(stream, login.Passphrase));
         }
-        else if (login.Password is { } password)
+
+        if (login.KeyFile is { Length: > 0 } keyFile)
+        {
+            keys.Add(SshKeyFile.Load(keyFile, login.KeyFilePassphrase));
+        }
+
+        if (login.UseAgent)
+        {
+            keys.AddRange((agentKeys ?? AgentKeys)());
+        }
+
+        if (keys.Count > 0)
+        {
+            methods.Add(new PrivateKeyAuthenticationMethod(login.Username, [.. keys]));
+        }
+
+        if (login.Password is { } password)
         {
             var interactive = new KeyboardInteractiveAuthenticationMethod(login.Username);
             interactive.AuthenticationPrompt += (_, e) =>
@@ -403,13 +468,13 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
-    void Fail(string message)
+    void Fail(string message, Exception? error = null)
     {
         if (State is SessionState.Disconnected or SessionState.Failed) return;
-        SetState(SessionState.Failed, message);
+        SetState(SessionState.Failed, message, error);
     }
 
-    void SetState(SessionState state, string? message = null)
+    void SetState(SessionState state, string? message = null, Exception? error = null)
     {
         lock (_lock)
         {
@@ -417,9 +482,9 @@ public sealed class SshSession : ITerminalSession
             State = state;
         }
 
-        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message));
+        StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, message, error));
     }
 }
 
 /// <summary>Nothing to log in with: the agent had no keys (or went away) and there's no password or key.</summary>
-sealed class NoLoginMethodException() : SshAuthenticationException("The SSH agent has no keys, and there's no password to try.");
+sealed class NoLoginMethodException() : SshAuthenticationException("There's no key or password to try, and the SSH agent has no keys.");

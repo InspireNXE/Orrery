@@ -211,7 +211,7 @@ parser. Catch everything in the Telnet read loop and fail the session.
 Severity: Medium      Verdict: CONFIRMED
 Where: src/Orrery.Core/Terminal/TerminalEmulator.cs:1020-1022 (screens resized before scrollback), 1045, 1063-1070; failing
 sites 566-578, 375-380, 747-754, 697-720; triggers in src/Orrery.App/Sessions/TerminalView.cs:104-118, 170-187
-Failure: With scrollback present, the user maximises, goes full screen, collapses a pane or presses Ctrl+-, which
+Failure: With scrollback present, the user maximizes, goes full screen, collapses a pane or presses Ctrl+-, which
 grows rows and columns in one resize. Then `clear` and a line wider than the old width -> `IndexOutOfRange` or
 `ArgumentException`. On Telnet that leads to S-10's crash; on SSH the output is garbled. Ordinary hosts trigger it.
 Evidence: `ResizeScreen` inserts `_scrollback[^1]` into the screen without resizing it, and the scrollback resize at
@@ -316,7 +316,7 @@ used 10.8 GB (100,000 lines: 6.9 s and 1.15 GB). A file with thousands of distin
 the UI thread and rewrites and fsyncs the whole store per credential: 1,000 took 7.3 s, 3,000 took 27.5 s. Killing the app
 partway leaves credentials saved and connections not added.
 Evidence: The only limit is `MaxCharactersInDocument` (64M). The preview adds one wrapping `TextBlock` per line to a
-non-virtualised `StackPanel`. Both stores' `SaveAsync` complete synchronously, so the `await` loop stays on the UI thread.
+non-virtualized `StackPanel`. Both stores' `SaveAsync` complete synchronously, so the `await` loop stays on the UI thread.
 Measured with the real preview window under headless Skia and the real stores.
 Rule: design doc §4.9 ("Cap the file size")
 Fix direction: Cap nodes and report lines and show "and N more" in the preview. Save imported credentials in one batch
@@ -339,10 +339,10 @@ Severity: Low      Verdict: CONFIRMED
 Where: src/Orrery.Core/Terminal/TerminalEmulator.cs:101-157, 264-268, 1089-1110; src/Orrery.Core/Terminal/TerminalCell.cs:113-128;
 src/Orrery.App/Sessions/TerminalView.cs:688-698; src/Orrery.App/MainWindow.axaml.cs:1387-1411
 Failure: A host prints UTF-8 U+009B or U+009D sequences -> they land in cells and come out verbatim in "Save output"
-and Copy. `cat`-ing the saved file later in a terminal that honours C1 in UTF-8 runs them (clear, rewrite, retitle).
+and Copy. `cat`-ing the saved file later in a terminal that honors C1 in UTF-8 runs them (clear, rewrite, retitle).
 Evidence: In the ground state only `cp < 0x20` and 0x7F are controls; 0x80-0x9F print with width 1. Run: `AllText`
 returned U+009B and U+009D intact, written as `C2 9B`. Hidden (SGR 8) text and bidi controls are kept too, but that's
-ordinary terminal behaviour.
+ordinary terminal behavior.
 Rule: none
 Fix direction: Drop C1 code points at `Print`, through the existing width-0 early return.
 

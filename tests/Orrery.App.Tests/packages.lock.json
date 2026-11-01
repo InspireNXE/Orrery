@@ -402,6 +402,7 @@
           "Avalonia.Fonts.Inter": "[11.3.22, )",
           "Avalonia.Themes.Fluent": "[11.3.22, )",
           "Orrery.Core": "[0.1.0, )",
+          "Orrery.Protocols.Local": "[0.1.0, )",
           "Orrery.Protocols.Rdp": "[0.1.0, )",
           "Orrery.Protocols.Ssh": "[0.1.0, )",
           "Orrery.Protocols.Telnet": "[0.1.0, )",
@@ -417,6 +418,12 @@
           "BouncyCastle.Cryptography": "[2.7.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.2, )",
           "NSec.Cryptography": "[26.4.0, )"
+        }
+      },
+      "orrery.protocols.local": {
+        "type": "Project",
+        "dependencies": {
+          "Orrery.Core": "[0.1.0, )"
         }
       },
       "orrery.protocols.rdp": {

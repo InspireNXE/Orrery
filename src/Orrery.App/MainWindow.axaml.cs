@@ -17,6 +17,7 @@ using Orrery.App.Logging;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
+using Orrery.Core.Network;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.App.Settings;
@@ -26,6 +27,7 @@ using Orrery.Core.Security;
 using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 using Orrery.Protocols.Rdp;
 using Orrery.Protocols.Ssh;
 using Orrery.Protocols.Ssh.Agent;
@@ -86,9 +88,13 @@ public partial class MainWindow : Window
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
+    readonly HostStatusController _hostStatus;
+    readonly TextBlock _noticeText;
+    int _noticeVersion;
+    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
+    readonly NetworkWatch _network = new();
 
     bool _rebuilding;
     Point? _dragStart;
@@ -111,6 +117,7 @@ public partial class MainWindow : Window
         _location = location;
         _movedFrom = movedFrom;
         _settingsStore = AppSettingsStore.In(location);
+        Palette.Use(_settingsStore.Load().InterfaceColorScheme);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = $"Data: {location.DataDir}";
@@ -118,9 +125,9 @@ public partial class MainWindow : Window
         if (FolderAccess.IsOpenToOthers(location.DataDir))
         {
             // Said once, at start-up; it doesn't stop anything.
-            var accessText = this.FindControl<TextBlock>("DataAccessText")!;
+            var accessText = this.FindControl<Controls.Notice>("DataAccessText")!;
             accessText.Text = "Other people who use this computer can change the data folder";
-            accessText.Foreground = Dialogs.WarningBrush;
+            accessText.Message.FontSize = 11;
             accessText.IsVisible = true;
             ToolTip.SetTip(accessText, $"{location.DataDir}\n\nOrrery's saved hosts and trusted keys live here, so someone else could change them. "
                 + "Settings › Move data can move them to a folder only you can use.");
@@ -129,6 +136,8 @@ public partial class MainWindow : Window
         if (OperatingSystem.IsMacOS())
         {
             this.FindControl<TextBlock>("QuickConnectShortcut")!.Text = "⌘K";
+            this.FindControl<TextBlock>("EmptyStateLocal")!.Text = "Cmd+Shift+T opens a terminal on this computer.";
+            ToolTip.SetTip(this.FindControl<Button>("LocalTerminalButton")!, "Local terminal (Cmd+Shift+T)");
         }
 
         _treeView = this.FindControl<TreeView>("Tree")!;
@@ -168,6 +177,8 @@ public partial class MainWindow : Window
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
         _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
+        _wakeMenuItem = this.FindControl<MenuItem>("WakeMenuItem")!;
+        _noticeText = this.FindControl<TextBlock>("NoticeText")!;
         _addGuestMenuItem = this.FindControl<MenuItem>("AddGuestMenuItem")!;
         _moveOutOfHostMenuItem = this.FindControl<MenuItem>("MoveOutOfHostMenuItem")!;
         _duplicateMenuItem = this.FindControl<MenuItem>("DuplicateMenuItem")!;
@@ -176,12 +187,12 @@ public partial class MainWindow : Window
         _certificateValidator = new ServerCertificateValidator(
             new JsonCertificateTrustStore(location.FileIn("trusted-certificates.json")),
             prompt => Dispatcher.UIThread.InvokeAsync(
-                () => new CertificatePromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
+                () => AskAndRefocusAsync(new CertificatePromptWindow(prompt))));
 
         _hostKeyValidator = new HostKeyValidator(
             new JsonCertificateTrustStore(location.FileIn("known-hosts.json")),
             prompt => Dispatcher.UIThread.InvokeAsync(
-                () => new HostKeyPromptWindow(prompt).ShowDialog<CertificateTrustDecision>(this)));
+                () => AskAndRefocusAsync(new HostKeyPromptWindow(prompt))));
 
         _credentials = CredentialStores.For(location, _settingsStore.Load());
         StorageLog.LogInformation("Credentials are kept in {Store}", (_credentials as KeychainCredentialStore)?.BackendName ?? "the vault file");
@@ -239,6 +250,10 @@ public partial class MainWindow : Window
         _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
 
+        _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
+            () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
+        _hostStatus.Enabled = _settingsStore.Load().ChecksHostStatus;
+
         WireTree();
         WireTitleBar();
         WireFullScreen();
@@ -246,6 +261,9 @@ public partial class MainWindow : Window
         var layout = _settingsStore.Load();
         ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
         ShowInspector(layout.InspectorOpen ?? true, save: false);
+        _workspaceStore = WorkspaceStore.In(location);
+        _savedWorkspace = _workspaceStore.Load();
+        InitWorkspace();
         RebuildTree();
         UpdateVaultButton();
         UpdateSessionChrome();
@@ -271,12 +289,18 @@ public partial class MainWindow : Window
             {
                 await OfferMRemoteNgImportAsync();
             }
+
+            await OfferWorkspaceAsync();
         };
 
+        _network.Back += (_, _) => NetworkBack();
         Closing += (_, _) =>
         {
+            _network.Dispose();
             _properties.TrySave();
             SaveNow();
+            SaveWorkspace();
+            _hostStatus.Dispose();
             SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
             {
@@ -334,6 +358,14 @@ public partial class MainWindow : Window
         }
     }
 
+
+    /// <summary>Shows a trust prompt over the window, then gives the session the focus it held back while the prompt was up.</summary>
+    async Task<CertificateTrustDecision> AskAndRefocusAsync(Window prompt)
+    {
+        var decision = await prompt.ShowDialog<CertificateTrustDecision>(this);
+        Dispatcher.UIThread.Post(() => _currentTab?.FocusContent(), DispatcherPriority.Background);
+        return decision;
+    }
     // ---- Tree ----
 
     void WireTree()
@@ -397,6 +429,11 @@ public partial class MainWindow : Window
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
             _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
+            int wakeable = nodes.OfType<ConnectionEntry>().Count(e => !string.IsNullOrEmpty(e.MacAddress));
+            _wakeMenuItem.IsVisible = nodes.OfType<ConnectionEntry>().Any();
+            _wakeMenuItem.IsEnabled = wakeable > 0;
+            _wakeMenuItem.Header = wakeable > 1 ? $"Wake {wakeable}" : "Wake";
+            ToolTip.SetTip(_wakeMenuItem, wakeable == 0 ? "Set a MAC address in the connection's settings to wake it." : null);
             _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
             _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
             _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
@@ -512,7 +549,7 @@ public partial class MainWindow : Window
             }
         };
 
-        // The title bar is drawn by Orrery, so its empty parts move and maximise the window.
+        // The title bar is drawn by Orrery, so its empty parts move and maximize the window.
         var titleBar = this.FindControl<Border>("TitleBar")!;
         titleBar.PointerPressed += (_, e) =>
         {
@@ -534,7 +571,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Leaves room for the system's window buttons: on the right on Windows, on the left on macOS. Where the
     /// window keeps its own title bar (most Linux desktops), none is needed. Both side columns stay equal
-    /// so quick connect is centred on the window.
+    /// so quick connect is centerd on the window.
     /// </summary>
     void FitTitleBarToCaptionButtons()
     {
@@ -674,6 +711,24 @@ public partial class MainWindow : Window
                     EnterFullScreen();
                 }
             }
+            else if (Input.SessionEscape.Matches(e.Key, e.KeyModifiers) && _currentTab is { } tab
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true })
+            {
+                // Out of the session, which keeps every other key, to its tab: keyboard-only and screen reader users'
+                // way back to the rest of the window. Enter on the tab goes back in.
+                e.Handled = true;
+                if (_fullScreen)
+                {
+                    // Leaving full screen puts the focus back in the session once the layout settles; the tab
+                    // takes it after that.
+                    ExitFullScreen();
+                    Dispatcher.UIThread.Post(() => tab.Header.Focus(NavigationMethod.Tab), DispatcherPriority.Background);
+                }
+                else
+                {
+                    tab.Header.Focus(NavigationMethod.Tab);
+                }
+            }
         }, RoutingStrategies.Tunnel);
 
         _fullScreenHotZone.PointerEntered += (_, _) =>
@@ -715,6 +770,18 @@ public partial class MainWindow : Window
             else if (Input.TabShortcuts.Target(command, _currentTab is null ? 0 : _tabs.IndexOf(_currentTab), _tabs.Count) is { } index)
             {
                 SelectTab(_tabs[index]);
+            }
+        }, RoutingStrategies.Tunnel);
+
+        // A local terminal, caught on the way down too so a focused terminal doesn't take it as Ctrl+T.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (!e.Handled && !_dimmer.IsVisible
+                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true }
+                && Input.TabShortcuts.OpensLocalTerminal(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
+            {
+                e.Handled = true;
+                OpenLocalTerminal();
             }
         }, RoutingStrategies.Tunnel);
 
@@ -785,8 +852,8 @@ public partial class MainWindow : Window
         double left = _tabs[0].Header.Bounds.Left, right = _tabs[^1].Header.Bounds.Right;
         dx = Math.Clamp(dx, left - bounds.Left, right - bounds.Right);
 
-        // Judged by the leading edge, not the centre: a tab wider than its neighbour could never get its centre
-        // past the neighbour's middle at the end of the strip.
+        // Judged by the leading edge, not the center: a tab wider than its neighbor could never get its center
+        // past the neighbor's middle at the end of the strip.
         double edge = dx < 0 ? bounds.Left + dx : bounds.Right + dx;
         _tabDropIndex = Input.TabShortcuts.DropIndex([.. _tabs.Select(t => t.Header.Bounds.Center.X)], from, edge);
         double step = bounds.Width + _tabStrip.Spacing;
@@ -892,7 +959,7 @@ public partial class MainWindow : Window
         // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
         ExtendClientAreaToDecorationsHint = false;
         WindowState = WindowState.FullScreen;
-        Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
     }
 
     void ExitFullScreen()
@@ -920,7 +987,7 @@ public partial class MainWindow : Window
         UpdateSessionToolbar();
         if (_currentTab is { } tab)
         {
-            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
     }
 
@@ -998,7 +1065,11 @@ public partial class MainWindow : Window
         _rebuilding = true;
         try
         {
-            _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, ScheduleSave);
+            _treeView.ItemsSource = NodeViewModel.Build(_tree.Root, _filter.Text, () =>
+            {
+                ScheduleSave();
+                _hostStatus.Refresh();
+            });
             Select(selected);
         }
         finally
@@ -1008,6 +1079,7 @@ public partial class MainWindow : Window
 
         _treeEmptyState.IsVisible = _tree.Root.Children.Count == 0;
         UpdateTreeStatus();
+        _hostStatus.Refresh();
         if (SelectedNode != _properties.Node)
         {
             _ = _properties.ShowAsync(SelectedNode);
@@ -1091,6 +1163,59 @@ public partial class MainWindow : Window
         if (SingleSelectedNode is ConnectionEntry entry)
         {
             await ConnectAsync(entry, files: true);
+        }
+    }
+
+    async void OnWakeMenuClick(object? sender, RoutedEventArgs e) => await WakeSelectedAsync();
+
+    /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
+    async Task WakeSelectedAsync()
+    {
+        var problems = new List<string>();
+        var woken = new List<string>();
+        foreach (var entry in SelectedNodes().OfType<ConnectionEntry>().Where(en => !string.IsNullOrEmpty(en.MacAddress)))
+        {
+            if (WakeOnLan.PlanFor(entry, out var whyNot) is not { } plan)
+            {
+                problems.Add($"{entry.Name}: {whyNot}");
+                continue;
+            }
+
+            try
+            {
+                await WakeOnLan.SendAsync(plan.Mac, plan.Destination);
+                woken.Add(entry.Name);
+                WakeLog.LogInformation("Sent a wake-up packet for \"{Name}\" ({Mac}) to {Destination}", entry.Name, entry.MacAddress, plan.Destination);
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                problems.Add($"{entry.Name}: {ex.Message}");
+                WakeLog.LogWarning("Couldn't send a wake-up packet for \"{Name}\" to {Destination}: {Message}", entry.Name, plan.Destination, ex.Message);
+            }
+        }
+
+        if (woken.Count > 0)
+        {
+            ShowNotice(woken.Count == 1 ? $"Sent a wake-up packet to {woken[0]}" : $"Sent wake-up packets to {woken.Count} connections");
+        }
+
+        if (problems.Count > 0)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't send the wake-up packet", string.Join("\n", problems));
+        }
+    }
+
+    /// <summary>A line in the status bar for a few seconds.</summary>
+    async void ShowNotice(string text)
+    {
+        int version = ++_noticeVersion;
+        _noticeText.Text = text;
+        _noticeText.IsVisible = true;
+        Controls.ScreenReader.Announce(_noticeText, text, "Orrery.Notice", Controls.ScreenReader.MostRecent);
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        if (version == _noticeVersion)
+        {
+            _noticeText.IsVisible = false;
         }
     }
 
@@ -1268,7 +1393,7 @@ public partial class MainWindow : Window
         _dimmer.IsVisible = true;
         try
         {
-            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol)).ToList();
+            var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol, t.Origin.Label)).ToList();
             choice = await new QuickConnectWindow(_tree, open).ShowOver(this);
         }
         finally
@@ -1318,9 +1443,9 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <param name="skipAgent">Ask for a login even if an SSH agent is running: its keys were just refused.</param>
+    /// <param name="skipKeys">Ask for a password even if the connection has a key file or an SSH agent is running: those keys were just refused.</param>
     /// <param name="files">SSH: open a file browser (SFTP) instead of a terminal.</param>
-    async Task ConnectAsync(ConnectionEntry entry, bool skipAgent = false, bool files = false)
+    async Task ConnectAsync(ConnectionEntry entry, bool skipKeys = false, bool files = false)
     {
         if (_properties.Node == entry && !_properties.TrySave())
         {
@@ -1381,13 +1506,28 @@ public partial class MainWindow : Window
                 }
             }
 
-            // SSH with no saved credential: the agent's keys, if it has any, without asking for a password.
-            if (password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipAgent
-                && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
+            // SSH: the connection's key file, with its passphrase asked for now if it has one. Skipped after the
+            // server refused the keys, so the retry goes straight to asking for a password.
+            KeyFileLogin? keyFile = null;
+            if (protocol == Protocol.Ssh && !skipKeys && resolved.KeyFile.Value is { } keyPath)
             {
-                ConnectLog.LogInformation("\"{Name}\": logging in as {User} with the SSH agent's keys", entry.Name, username);
-                StartSshWithAgent(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
-                    whenRefused: () => ConnectAsync(entry, skipAgent: true, files), resolved.AllowLegacySsh.Value, route);
+                if (await PrepareKeyFileAsync(keyPath, entry.Name) is not { } prepared)
+                {
+                    ConnectLog.LogDebug("\"{Name}\": the key file passphrase prompt was canceled", entry.Name);
+                    return;
+                }
+
+                keyFile = prepared;
+            }
+
+            // SSH with no saved credential: the key file and the agent's keys, if there are any, without asking for a password.
+            bool useAgent = password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipKeys
+                && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync();
+            if (password is null && protocol == Protocol.Ssh && !skipKeys && !string.IsNullOrWhiteSpace(username) && (keyFile is not null || useAgent))
+            {
+                ConnectLog.LogInformation("\"{Name}\": logging in as {User} with {Keys}", entry.Name, username, KeysIn(keyFile, useAgent));
+                StartSshWithKeys(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
+                    whenRefused: () => ConnectAsync(entry, skipKeys: true, files), keyFile, useAgent, resolved.AllowLegacySsh.Value, route);
                 return;
             }
 
@@ -1397,7 +1537,7 @@ public partial class MainWindow : Window
                     .ShowDialog<ConnectPromptResult?>(this);
                 if (prompt is null)
                 {
-                    ConnectLog.LogDebug("\"{Name}\": the login prompt was cancelled", entry.Name);
+                    ConnectLog.LogDebug("\"{Name}\": the login prompt was canceled", entry.Name);
                     return;
                 }
 
@@ -1426,7 +1566,7 @@ public partial class MainWindow : Window
             // Checked when saved; a hand-edited file that doesn't parse just fits the window.
             DesktopResolution.TryParse(resolved.DesktopSize.Value, out var desktopSize, out _);
             await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize,
-                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value);
+                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value, keyFile);
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -1446,8 +1586,8 @@ public partial class MainWindow : Window
 
         if (choice.Protocol == Protocol.Ssh && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
         {
-            StartSshWithAgent(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
-                whenRefused: () => ConnectDirectAsync(choice, skipAgent: true));
+            StartSshWithKeys(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
+                whenRefused: () => ConnectDirectAsync(choice, skipAgent: true), keyFile: null, useAgent: true);
             return;
         }
 
@@ -1465,12 +1605,12 @@ public partial class MainWindow : Window
 
     Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
         bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null, bool? enlarge = null,
-        DisplayQuality quality = DisplayQuality.Balanced)
+        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null)
     {
         switch (origin.Protocol)
         {
             case Protocol.Ssh:
-                return StartSshAsync(origin, target, password, saved, allowLegacySsh, route);
+                return StartSshAsync(origin, target, password, saved, allowLegacySsh, route, keyFile);
             case Protocol.Vnc:
                 StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps, quality);
                 return Task.CompletedTask;
@@ -1489,7 +1629,7 @@ public partial class MainWindow : Window
         Open(origin, () =>
         {
             var session = VncSession.Start(target, password, shareClipboard, route: Tunnel(jumps), quality: quality);
-            return (new RemoteFrameView(session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops), session);
+            return (NewRemoteFrameView(origin, session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops, followsViewSize: true), session);
         });
         UpdateVaultButton();
     }
@@ -1505,9 +1645,47 @@ public partial class MainWindow : Window
             bool zoom = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
             var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
             var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality);
-            return (new RemoteFrameView(session, zoom) { FollowsViewSize = fixedSize is null }, session);
+            return (NewRemoteFrameView(origin, session, zoom, followsViewSize: fixedSize is null), session);
         });
         UpdateVaultButton();
+    }
+
+    /// <summary>A remote desktop view with the color correction from Settings, unless its connection turns that off.</summary>
+    RemoteFrameView NewRemoteFrameView(SessionOrigin origin, IFrameBufferSession session, bool zoom, bool followsViewSize)
+    {
+        var settings = _settingsStore.Load();
+        bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
+        return new RemoteFrameView(session, zoom)
+        {
+            FollowsViewSize = followsViewSize,
+            AllowsColorCorrection = allowed,
+            Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
+        };
+    }
+
+    void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
+
+    /// <summary>
+    /// A shell on this computer in a new tab, starting in the home folder: <paramref name="shellId"/>, or the one
+    /// chosen in settings. Duplicating or restarting the tab opens the same shell again.
+    /// </summary>
+    void OpenLocalTerminal(string? shellId = null)
+    {
+        var shell = LocalShells.Find(shellId ?? _settingsStore.Load().LocalShell);
+        var origin = new SessionOrigin(shell.Name, Protocol.Ssh, null, () =>
+        {
+            OpenLocalTerminal(shell.Id);
+            return Task.CompletedTask;
+        })
+        {
+            Local = true,
+            LocalShell = shell.Id,
+        };
+        Open(origin, () =>
+        {
+            var session = LocalTerminalSession.Start(shell, 80, 24);
+            return (NewTerminalView(session), session);
+        });
     }
 
     void StartTelnet(SessionOrigin origin, ConnectionTarget target, IReadOnlyList<SshHop>? jumps = null) => Open(origin, () =>
@@ -1547,14 +1725,16 @@ public partial class MainWindow : Window
     });
 
     /// <summary>
-    /// Logs in with the agent's keys alone. If the server refuses them all, the tab closes and
-    /// <paramref name="whenRefused"/> asks for a login the usual way.
+    /// Logs in with the key file, then the agent's keys, and no password. If the server refuses them all, the tab
+    /// closes and <paramref name="whenRefused"/> asks for a login the usual way.
     /// </summary>
-    void StartSshWithAgent(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, bool allowLegacySsh = false, SshRoute? route = null)
+    void StartSshWithKeys(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, KeyFileLogin? keyFile, bool useAgent,
+        bool allowLegacySsh = false, SshRoute? route = null)
     {
         Open(origin, () =>
         {
-            var (view, session, rejected) = NewSshView(origin, target, new SshLogin(target.Username!, null, UseAgent: true), allowLegacySsh, route);
+            var login = new SshLogin(target.Username!, null, UseAgent: useAgent, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
+            var (view, session, rejected) = NewSshView(origin, target, login, allowLegacySsh, route);
             session.StateChanged += (_, e) =>
             {
                 if (e.State == SessionState.Failed && rejected())
@@ -1571,7 +1751,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
-    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh, SshRoute? route)
+    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh, SshRoute? route,
+        KeyFileLogin? keyFile = null)
     {
         if (string.IsNullOrWhiteSpace(target.Username))
         {
@@ -1579,7 +1760,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var login = SshLoginFor(target.Username, password, saved);
+        var login = SshLoginFor(target.Username, password, saved, keyFile);
         Open(origin, () =>
         {
             var (view, session, _) = NewSshView(origin, target, login, allowLegacySsh, route);
@@ -1604,17 +1785,124 @@ public partial class MainWindow : Window
         return (NewTerminalView(shell), shell, () => shell.AuthenticationRejected);
     }
 
-    /// <summary>A saved SSH-key credential logs in with its key instead of the password.</summary>
-    static SshLogin SshLoginFor(string username, string? password, Credential? saved) =>
+    /// <summary>
+    /// A saved SSH-key credential logs in with its key instead of the password. The connection's key file, if it has
+    /// one, comes after that and before the password.
+    /// </summary>
+    static SshLogin SshLoginFor(string username, string? password, Credential? saved, KeyFileLogin? keyFile = null) =>
         saved?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase
-            ? new SshLogin(username, null, saved.Secret, saved.Passphrase)
-            : new SshLogin(username, password);
+            ? new SshLogin(username, null, saved.Secret, saved.Passphrase, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase)
+            : new SshLogin(username, password, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
+
+    /// <summary>A connection's key file and the passphrase it needs, if any, which is held only for this session.</summary>
+    sealed record KeyFileLogin(string Path, string? Passphrase)
+    {
+        public override string ToString() => "KeyFileLogin";
+    }
+
+    /// <summary>What the log says a login uses: the key file by its name only, and the agent.</summary>
+    static string KeysIn(KeyFileLogin? keyFile, bool useAgent) => (keyFile, useAgent) switch
+    {
+        ({ } file, true) => $"the key file {SshKeyFile.NameOf(file.Path)} and the SSH agent's keys",
+        ({ } file, false) => $"the key file {SshKeyFile.NameOf(file.Path)}",
+        _ => "the SSH agent's keys",
+    };
+
+    /// <summary>
+    /// Gets <paramref name="path"/> ready to log in with. Only an encrypted key needs anything: its passphrase, from
+    /// the credential store if one was saved there (and the store is open), else asked for until it opens the key.
+    /// A key file that is missing or unusable isn't dealt with here; the session says so on the connection-lost
+    /// screen. Null if the passphrase prompt was canceled.
+    /// </summary>
+    /// <param name="what">Which connection wants it, for the prompt.</param>
+    async Task<KeyFileLogin?> PrepareKeyFileAsync(string path, string what)
+    {
+        string? passphrase = null, toSave = null;
+        bool wrong = false, lookedForSaved = false;
+        while (true)
+        {
+            var problem = await Task.Run(() => SshKeyFile.Check(path, passphrase));
+            if (problem is not { Problem: KeyFileProblem.NeedsPassphrase or KeyFileProblem.WrongPassphrase })
+            {
+                if (toSave is not null && problem is null)
+                {
+                    await SavePassphraseAsync(path, toSave);
+                }
+
+                return new KeyFileLogin(path, passphrase);
+            }
+
+            wrong = problem.Problem == KeyFileProblem.WrongPassphrase;
+            if (!lookedForSaved && !wrong)
+            {
+                lookedForSaved = true;
+                if (await SavedPassphraseAsync(path) is { } saved)
+                {
+                    passphrase = saved;
+                    continue;
+                }
+            }
+
+            var answer = await new KeyPassphraseWindow(what, SshKeyFile.NameOf(path), wrong, offerSave: true).ShowDialog<KeyPassphraseResult?>(this);
+            if (answer is null)
+            {
+                return null;
+            }
+
+            passphrase = answer.Passphrase;
+            toSave = answer.Save && passphrase.Length > 0 ? passphrase : null;
+        }
+    }
+
+    /// <summary>The passphrase saved for this key file, when the credential store is open and has one. Never asks to unlock it.</summary>
+    async Task<string?> SavedPassphraseAsync(string path)
+    {
+        if (_credentials.IsLocked)
+        {
+            return null;
+        }
+
+        try
+        {
+            return (await _credentials.GetAsync(SshKeyFile.PassphraseCredentialId(path)))?.Secret;
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            ConnectLog.LogWarning("Couldn't look for a saved passphrase for {Key}: {Message}", SshKeyFile.NameOf(path), e.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Saves a key file's passphrase as a credential, found again by the file's path (see
+    /// <see cref="SshKeyFile.PassphraseCredentialId"/>), the way a typed password is saved from the login prompt.
+    /// </summary>
+    async Task SavePassphraseAsync(string path, string passphrase)
+    {
+        try
+        {
+            if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, this))
+            {
+                return;
+            }
+
+            var name = SshKeyFile.NameOf(path);
+            await _credentials.SaveAsync(new Credential(SshKeyFile.PassphraseCredentialId(path), $"Passphrase for {name}", CredentialKind.Password, null, null, passphrase,
+                Notes: "The passphrase of a key file, saved when connecting. Orrery finds it again by the file's path."));
+            ConnectLog.LogInformation("Saved the passphrase for the key file {Key} as a credential", name);
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the passphrase", e.Message);
+        }
+    }
 
     /// <summary>What an SSH session goes through and opens besides its shell.</summary>
     sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards);
 
     static readonly ILogger ConnectLog = Log.For("Connect");
     static readonly ILogger StorageLog = Log.For("Storage");
+    static readonly ILogger WakeLog = Log.For("Wake");
 
     /// <summary>A username as the log shows it, with its domain when there is one.</summary>
     static string Account(string? username, string? domain) =>
@@ -1622,7 +1910,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// The jump hosts on the way to <paramref name="entry"/>, each with its login: its saved credential, else the
-    /// SSH agent's keys, else asked for now. Null when the chain is broken or a prompt was cancelled.
+    /// SSH agent's keys, else asked for now. Null when the chain is broken or a prompt was canceled.
     /// </summary>
     async Task<List<SshHop>?> JumpHopsAsync(ConnectionEntry entry)
     {
@@ -1652,10 +1940,22 @@ public partial class MainWindow : Window
                 }
             }
 
-            SshLogin login;
-            if (saved is null && resolved.UseSshAgent.Value && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync())
+            KeyFileLogin? keyFile = null;
+            if (resolved.KeyFile.Value is { } keyPath)
             {
-                login = new SshLogin(username, null, UseAgent: true);
+                if (await PrepareKeyFileAsync(keyPath, $"Jump host {jump.Name}") is not { } prepared)
+                {
+                    return null;
+                }
+
+                keyFile = prepared;
+            }
+
+            SshLogin login;
+            bool useAgent = saved is null && resolved.UseSshAgent.Value && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync();
+            if (saved is null && !string.IsNullOrWhiteSpace(username) && (keyFile is not null || useAgent))
+            {
+                login = new SshLogin(username, null, UseAgent: useAgent, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
             }
             else
             {
@@ -1678,7 +1978,7 @@ public partial class MainWindow : Window
                     return null;
                 }
 
-                login = SshLoginFor(username, password, saved);
+                login = SshLoginFor(username, password, saved, keyFile);
             }
 
             hops.Add(new SshHop(new ConnectionTarget(jump.Host, resolved.Port.Value, username, null), login, resolved.AllowLegacySsh.Value));
@@ -1687,13 +1987,17 @@ public partial class MainWindow : Window
         return hops;
     }
 
-    /// <summary>A terminal at the saved text size; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
+    /// <summary>A terminal at the saved text size and colors; Ctrl+= and Ctrl+- in any terminal resize them all.</summary>
     TerminalView NewTerminalView(ITerminalSession session)
     {
+        var settings = _settingsStore.Load();
         var view = new TerminalView(session)
         {
             Margin = TerminalMargin,
-            TextSize = _settingsStore.Load().TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            TextSize = settings.TerminalFontSize ?? AppSettings.DefaultTerminalFontSize,
+            ColorVision = settings.Vision,
+            ColorScheme = settings.TerminalColors ?? TerminalColorScheme.Standard,
+            Announcements = Controls.ScreenReader.TerminalAnnouncements(settings),
         };
         view.TextSizeRequested += (_, step) => ChangeTerminalTextSize(step);
         return view;
@@ -1724,8 +2028,12 @@ public partial class MainWindow : Window
     void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
         var tab = NewTab(view, session, origin);
-        _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
-            session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
+        if (!origin.Local)
+        {
+            _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
+                session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
+        }
+
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
         _sessionHost.Children.Add(tab.Host);
@@ -1744,6 +2052,7 @@ public partial class MainWindow : Window
         SessionLogger.Attach(tab);
         tab.Selected += (_, _) => SelectTab(tab);
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
+        tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
         HistoryRecorder.Attach(tab, _tree, _history);
         tab.StateChanged += (_, _) =>
@@ -1764,20 +2073,59 @@ public partial class MainWindow : Window
 
     // ---- Reconnecting by itself ----
 
-    static readonly TimeSpan[] ReconnectDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(30)];
+    bool ShouldReconnect(SessionTab tab) => tab.CanRetryByItself && !tab.IsReconnecting && _tabs.Contains(tab);
 
-    bool ShouldReconnect(SessionTab tab) => tab.WasCutOff && !tab.IsReconnecting && _tabs.Contains(tab);
-
-    void BeginReconnect(SessionTab tab)
+    /// <param name="fresh">Count from the first try again, as when the network has just come back.</param>
+    void BeginReconnect(SessionTab tab, bool fresh = false)
     {
         // A try that got connected starts the count again.
-        int attempt = tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
-        if (attempt > ReconnectDelays.Length)
+        int attempt = fresh || tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
+        if (attempt > ReconnectSchedule.MaxAttempts)
+        {
+            tab.ShowGaveUp(ReconnectSchedule.MaxAttempts);
+            return;
+        }
+
+        var delay = fresh ? NetworkWatch.Settle : ReconnectSchedule.Delay(attempt);
+        tab.ShowReconnecting(attempt, ReconnectSchedule.MaxAttempts, delay, () => _ = RestartTabAsync(tab, attempt));
+    }
+
+    /// <summary>
+    /// The OS says the network is back: sessions counting down try now, and ones that gave up start again, unless
+    /// the user pressed Stop or the failure needs them.
+    /// </summary>
+    void NetworkBack()
+    {
+        foreach (var tab in _tabs.ToList())
+        {
+            if (!tab.RetrySoon(TimeSpan.FromSeconds(1)) && ShouldReconnect(tab))
+            {
+                BeginReconnect(tab, fresh: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reconnect, from the connection-lost screen or the toolbar. A session that can reopen itself does so in its
+    /// own tab with the same login; one whose login, host key or certificate was refused is opened afresh, so the
+    /// login is asked for and the key or certificate shown again.
+    /// </summary>
+    async Task ReconnectAsync(SessionTab tab)
+    {
+        if (!_tabs.Contains(tab))
         {
             return;
         }
 
-        tab.ShowReconnecting(attempt, ReconnectDelays.Length, ReconnectDelays[attempt - 1], () => _ = RestartTabAsync(tab, attempt));
+        tab.CancelReconnect();
+        if (tab.Origin.Restart is not null && tab.Failure is not { NeedsUser: true })
+        {
+            await RestartTabAsync(tab, 0);
+            return;
+        }
+
+        await CloseTabAsync(tab.Session);
+        await tab.Origin.Reconnect();
     }
 
     /// <summary>Puts a new session, opened the same way, in place of <paramref name="old"/>.</summary>
@@ -1821,7 +2169,7 @@ public partial class MainWindow : Window
         if (tab is not null)
         {
             tab.Header.BringIntoView();
-            Dispatcher.UIThread.Post(() => tab.View.Focus(), DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
     }
 
@@ -1865,12 +2213,17 @@ public partial class MainWindow : Window
         var state = session.State;
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
-        _sessionDetail.Text = $"{(tab.Origin.Files ? "SFTP" : ProtocolInfo.Label(tab.Origin.Protocol))} · " + state switch
+        _sessionDetail.Text = $"{tab.Origin.Label} · " + (session, state) switch
         {
-            SessionState.Connecting => "Connecting…",
-            SessionState.Disconnected => "Disconnected",
-            SessionState.Failed => "Couldn't connect",
-            _ when session is IFrameBufferSession frame && frame.Width > 0 => $"{frame.Width}×{frame.Height}",
+            (ILocalSession, SessionState.Connecting) => "Starting…",
+            (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
+            (ILocalSession, SessionState.Disconnected) => "Ended",
+            (ILocalSession, SessionState.Failed) => "Couldn't start",
+            (ILocalSession, _) => "Running",
+            (_, SessionState.Connecting) => "Connecting…",
+            (_, SessionState.Disconnected) => "Disconnected",
+            (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
+            (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
             _ => "Connected",
         } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
 
@@ -1907,7 +2260,7 @@ public partial class MainWindow : Window
 
         if (state is SessionState.Connecting or SessionState.Connected)
         {
-            var disconnect = new Button { Content = "Disconnect" };
+            var disconnect = new Button { Content = tab.Origin.Local ? "End" : "Disconnect" };
             disconnect.Classes.Add("danger");
             disconnect.Click += async (_, _) =>
             {
@@ -1918,13 +2271,9 @@ public partial class MainWindow : Window
         }
         else
         {
-            var reconnect = new Button { Content = "Reconnect" };
+            var reconnect = new Button { Content = tab.Origin.Local ? "Restart" : "Reconnect" };
             reconnect.Classes.Add("accent");
-            reconnect.Click += async (_, _) =>
-            {
-                await CloseTabAsync(session);
-                await tab.Origin.Reconnect();
-            };
+            reconnect.Click += async (_, _) => await ReconnectAsync(tab);
             _sessionActions.Children.Add(reconnect);
         }
     }
@@ -2040,7 +2389,7 @@ public partial class MainWindow : Window
         }
 
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
-        yield return MenuItemFor("Reconnect", async () =>
+        yield return MenuItemFor(tab.Origin.Local ? "Restart" : "Reconnect", async () =>
         {
             await CloseTabAsync(tab.Session);
             await tab.Origin.Reconnect();
@@ -2170,11 +2519,19 @@ public partial class MainWindow : Window
 
     // ---- Import and export ----
 
-    /// <summary>An mRemoteNG confCons.xml or an Orrery export.</summary>
+    /// <summary>An mRemoteNG confCons.xml, an Orrery export or an OpenSSH config.</summary>
     static string? DroppedImportFile(DragEventArgs e) =>
         e.DataTransfer.TryGetFile()?.TryGetLocalPath() is { } path && IsImportFile(path) ? path : null;
 
-    static bool IsImportFile(string path) => ConnectionExporter.FormatFor(path) is ExportFormat.MRemoteNg or ExportFormat.Orrery;
+    static bool IsImportFile(string path) => ConnectionExporter.FormatFor(path) switch
+    {
+        ExportFormat.MRemoteNg or ExportFormat.Orrery => true,
+        null => SshConfigImporter.LooksLikeConfig(path),
+        _ => false,
+    };
+
+    /// <summary>An SSH config has no extension of its own, so anything that isn't one of the other formats is read as one.</summary>
+    static bool IsSshConfig(string path) => ConnectionExporter.FormatFor(path) is null;
 
     /// <summary>First launch with an empty list on a machine that has mRemoteNG: offer to bring its connections over.</summary>
     async Task OfferMRemoteNgImportAsync()
@@ -2203,12 +2560,28 @@ public partial class MainWindow : Window
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG or Orrery connections") { Patterns = ["*.xml", "*.json"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
                 new Avalonia.Platform.Storage.FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
+                new Avalonia.Platform.Storage.FilePickerFileType("OpenSSH config") { Patterns = ["config", "*.conf", "*"] },
             ],
         });
 
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && IsImportFile(path))
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && (IsImportFile(path) || IsSshConfig(path)))
         {
             await ImportAsync(path);
+        }
+    }
+
+    /// <summary>Imports ~/.ssh/config, or says it isn't there.</summary>
+    async Task ImportDefaultSshConfigAsync()
+    {
+        var path = SshConfigImporter.DefaultPath;
+        if (File.Exists(path))
+        {
+            await ImportAsync(path);
+        }
+        else
+        {
+            await Dialogs.ShowMessageAsync(this, "No SSH config found",
+                $"Orrery looked for:\n{path}\n\nIf your config is somewhere else, use Import and choose the file.");
         }
     }
 
@@ -2217,12 +2590,14 @@ public partial class MainWindow : Window
         ImportResult? result = null;
         string? masterPassword = null, passwordError = null;
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
+        bool sshConfig = IsSshConfig(path);
         while (result is null)
         {
             try
             {
                 var password = masterPassword;
-                result = await Task.Run(() => orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
+                result = await Task.Run(() => sshConfig ? SshConfigImporter.ImportFile(path)
+                    : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
             }
             catch (MasterPasswordRequiredException e)
             {
@@ -2248,7 +2623,7 @@ public partial class MainWindow : Window
                 // The importer means to fail only as above; anything else is a bug, not a reason to exit.
                 Log.For("App").LogError(e, "Importing {Path} failed", path);
                 await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
-                    "Orrery couldn't read this file. It may be damaged, or not an mRemoteNG connections file or Orrery export.");
+                    "Orrery couldn't read this file. It may be damaged, or not a file Orrery can import.");
                 return;
             }
         }
@@ -2309,7 +2684,7 @@ public partial class MainWindow : Window
         try
         {
             var now = DateTimeOffset.Now;
-            var path = Path.Combine(_location.DataDir, "import", $"{report.From.ToLowerInvariant()}-{now:yyyyMMdd-HHmmss}.md");
+            var path = Path.Combine(_location.DataDir, "import", $"{report.From.ToLowerInvariant().Replace(' ', '-')}-{now:yyyyMMdd-HHmmss}.md");
             AtomicFile.WriteAllText(path, report.ToMarkdown(now));
             return path;
         }
@@ -2493,14 +2868,42 @@ public partial class MainWindow : Window
                 _properties.TrySave();
                 SaveNow();
                 return Task.CompletedTask;
-            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root));
+            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), ImportDefaultSshConfigAsync, VaultUnlockWindow.Biometric);
             view.CloseRequested += (_, _) => CloseSettings();
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {
                 _fullScreenShortcut = shortcut;
                 UpdateSessionToolbar();
             };
+            view.TerminalAnnouncementsChanged += (_, on) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.Announcements = on;
+                }
+            };
+            view.HostStatusChecksChanged += (_, on) => _hostStatus.Enabled = on;
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
+            view.TerminalColorsChanged += (_, scheme) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.ColorScheme = scheme;
+                }
+            };
+            view.ColorVisionChanged += (_, change) =>
+            {
+                foreach (var terminal in _tabs.Select(t => t.View).OfType<TerminalView>())
+                {
+                    terminal.ColorVision = change.Vision;
+                }
+
+                var correction = ColorCorrection.For(change.Vision, change.Strength);
+                foreach (var desktop in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
+                {
+                    desktop.Correction = correction;
+                }
+            };
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;
 
@@ -2522,7 +2925,7 @@ public partial class MainWindow : Window
         _settingsHost.Content = null;
         _settingsRailButton.Classes.Set("active", false);
         ShowSidePanel(_sidePanel.IsVisible, save: false);
-        _currentTab?.View.Focus();
+        _currentTab?.FocusContent();
     }
 
     /// <summary>
@@ -2540,8 +2943,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // The old copy's vault has the same key as the one in use, so biometric unlock opens it too.
+        var biometric = VaultUnlockWindow.Biometric;
+        var biometricNote = biometric is not null && _credentials is VaultFileStore vault && biometric.IsOn(vault)
+            ? $"\n\nUntil it's deleted, {biometric.Name} unlock opens the old copy's vault as well."
+            : string.Empty;
         if (!await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
-                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.", "Delete old copy"))
+                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.{biometricNote}", "Delete old copy"))
         {
             return;
         }

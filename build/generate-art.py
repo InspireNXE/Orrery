@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageFilter
 ACCENT = (0x5B, 0x9D, 0xFF)
 TEXT = (0xE6, 0xE8, 0xEC)
 PANEL = (0x14, 0x16, 0x1B)
-WIZARD_FIELD = (0x23, 0x45, 0x78)  # A deep shade of the accent, as Prober's setup uses its brand colour.
+WIZARD_FIELD = (0x23, 0x45, 0x78)  # A deep shade of the accent, as Prober's setup uses its brand color.
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -26,15 +26,15 @@ def draw_tile(size: int) -> Image.Image:
     ImageDraw.Draw(tile).rounded_rectangle([0, 0, size - 1, size - 1], radius=size * 0.22, fill=PANEL + (255,))
 
     def orbit(cx, cy, w, h, width, alpha):
-        # Drawn level, then turned 25 degrees anticlockwise about the centre, like RotateTransform -25.
+        # Drawn level, then turned 25 degrees counterclockwise about the center, like RotateTransform -25.
         layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         ImageDraw.Draw(layer).ellipse([*p(cx - w / 2, cy - h / 2), *p(cx + w / 2, cy + h / 2)],
                                       outline=ACCENT + (alpha,), width=round(width * unit))
         tile.alpha_composite(layer.rotate(25, resample=Image.BICUBIC, center=p(cx, cy)))
 
-    def dot(cx, cy, diameter, colour):
+    def dot(cx, cy, diameter, color):
         r = diameter / 2
-        ImageDraw.Draw(tile).ellipse([*p(cx - r, cy - r), *p(cx + r, cy + r)], fill=colour + (255,))
+        ImageDraw.Draw(tile).ellipse([*p(cx - r, cy - r), *p(cx + r, cy + r)], fill=color + (255,))
 
     orbit(12, 12, 20, 8.4, 1.4, 128)
     orbit(12, 12, 12.4, 5.2, 1.4, 255)

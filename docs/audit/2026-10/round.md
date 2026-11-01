@@ -13,7 +13,7 @@ Tag: `audit-2026-10` suggested, not created yet (waiting on the owner).
 | `dotnet build Orrery.sln` | 0 errors, 0 warnings |
 | `dotnet test Orrery.sln` | 250 passed, 0 failed (Core 166, App 65, VNC 8, SSH 6, Telnet 5) |
 | `dotnet list package --vulnerable --include-transitive` | No known vulnerable packages in any project (`vulnerable.txt`) |
-| `dotnet list package --deprecated` | Only `xunit` 2.9.3, marked Legacy in favour of xunit.v3 (test-only) |
+| `dotnet list package --deprecated` | Only `xunit` 2.9.3, marked Legacy in favor of xunit.v3 (test-only) |
 | `dotnet list package --outdated --include-transitive` | IronRDP 2026.10.29, SSH.NET 2026.0.0, MarcusW.VncClient 2.0.8 and NSec 26.4.0 are current. Behind: Avalonia 11.3.22 (12.1.4 out, a major version), SkiaSharp 2.88.9 and HarfBuzzSharp 8.3.1.1 (through Avalonia), BouncyCastle 2.6.2 (2.7.0), Tmds.DBus.Protocol 0.21.3 (0.95.2, through Avalonia on Linux), Newtonsoft.Json 13.0.3 (13.0.4). Full list in `outdated.txt` |
 | Secrets in history | gitleaks isn't installed (`winget install Gitleaks.Gitleaks`; not installed without asking). Stand-in: a pattern grep of `git log -p --all` for private keys, cloud and GitHub tokens and quoted passwords found only test values (`dummypw1`, `hunter22`). `history-secrets-grep.txt` |
 | Upstream advisories | Checked by the dependencies finder (boundary 11) |

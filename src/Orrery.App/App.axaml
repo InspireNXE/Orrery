@@ -15,13 +15,16 @@
     <SolidColorBrush x:Key="OrreryText" Color="#E6E8EC" />
     <SolidColorBrush x:Key="OrrerySoftText" Color="#C3C9D3" />
     <SolidColorBrush x:Key="OrreryMuted" Color="#9AA3B2" />
+    <!-- Colors that carry meaning. Palette.cs replaces these at start-up with brushes that follow the
+         color-blind setting, and adds OrreryStateUp, OrreryStateConnecting, OrreryStateDown, OrreryStateEnded,
+         OrrerySuccess and OrreryWarning. Use them as DynamicResource so they change with the setting. -->
     <SolidColorBrush x:Key="OrreryAccent" Color="#5B9DFF" />
     <SolidColorBrush x:Key="OrreryDanger" Color="#FF9AA2" />
     <SolidColorBrush x:Key="OrreryConnected" Color="#5FD38D" />
     <SolidColorBrush x:Key="OrreryFolder" Color="#E0B45A" />
     <FontFamily x:Key="OrreryMono">Cascadia Mono, Consolas, Menlo, monospace</FontFamily>
 
-    <!-- Fluent's control colours, moved onto the palette. -->
+    <!-- Fluent's control colors, moved onto the palette. -->
     <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
     <SolidColorBrush x:Key="ButtonBackground" Color="#181B21" />
     <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#20242C" />
@@ -112,7 +115,7 @@
     <Style Selector="Button.danger">
       <Setter Property="Background" Value="#2A1A1D" />
       <Setter Property="BorderBrush" Value="#4A2A2E" />
-      <Setter Property="Foreground" Value="{StaticResource OrreryDanger}" />
+      <Setter Property="Foreground" Value="{DynamicResource OrreryDanger}" />
     </Style>
     <Style Selector="Button.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="#3A2025" />
@@ -136,7 +139,7 @@
     </Style>
     <Style Selector="Button.icon.active">
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />
-      <Setter Property="Foreground" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="Foreground" Value="{DynamicResource OrreryAccent}" />
     </Style>
     <!-- Small square icon buttons beside the tabs and in the session toolbar. -->
     <Style Selector="Button.small">
@@ -282,7 +285,7 @@
     </Style>
     <Style Selector="ListBox.side ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
-      <Setter Property="BorderBrush" Value="{StaticResource OrreryAccent}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OrreryAccent}" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
     <Style Selector="ListBox.side ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">

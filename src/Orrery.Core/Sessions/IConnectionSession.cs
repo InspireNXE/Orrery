@@ -11,10 +11,12 @@ public enum SessionState
 /// <summary>Where a session connects to. Secrets are passed separately and never stored here.</summary>
 public sealed record ConnectionTarget(string Host, int Port, string? Username, string? Domain);
 
-public sealed class SessionStateChangedEventArgs(SessionState state, string? message) : EventArgs
+/// <param name="error">For a failure, what was thrown, so <see cref="ConnectionFailure.Classify"/> can tell what happened.</param>
+public sealed class SessionStateChangedEventArgs(SessionState state, string? message, Exception? error = null) : EventArgs
 {
     public SessionState State { get; } = state;
     public string? Message { get; } = message;
+    public Exception? Error { get; } = error;
 }
 
 /// <summary>A live connection to a remote machine, whatever the protocol.</summary>

@@ -20,6 +20,7 @@ public static class DataFolderFiles
         AppSettingsStore.FileName,
         RecentConnections.FileName,
         ConnectionHistory.FileName,
+        WorkspaceStore.FileName,
         "vault.frv",
         "credentials.json",
         "known-hosts.json",

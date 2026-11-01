@@ -25,7 +25,7 @@ sealed class SessionLogger
     SessionLogger(SessionTab tab)
     {
         _tab = tab;
-        Id = $"{(tab.Origin.Files ? "sftp" : tab.Origin.Protocol.ToString().ToLowerInvariant())}-{Random.Shared.Next(0x10000):x4}";
+        Id = $"{tab.Origin.Label.ToLowerInvariant()}-{Random.Shared.Next(0x10000):x4}";
     }
 
     public string Id { get; }
@@ -34,8 +34,15 @@ sealed class SessionLogger
     {
         var logger = new SessionLogger(tab);
         var target = tab.Session.Target;
-        Logger.LogInformation("[{Session}] Opening \"{Title}\" on {Host}:{Port}{Attempt}", logger.Id, tab.Origin.Title, target.Host, target.Port,
-            tab.ReconnectAttempt > 0 ? $" (reconnect attempt {tab.ReconnectAttempt})" : string.Empty);
+        if (tab.Origin.Local)
+        {
+            Logger.LogInformation("[{Session}] Opening a local terminal: \"{Title}\"", logger.Id, tab.Origin.Title);
+        }
+        else
+        {
+            Logger.LogInformation("[{Session}] Opening \"{Title}\" on {Host}:{Port}{Attempt}", logger.Id, tab.Origin.Title, target.Host, target.Port,
+                tab.ReconnectAttempt > 0 ? $" (reconnect attempt {tab.ReconnectAttempt})" : string.Empty);
+        }
         tab.StateChanged += (_, _) => logger.OnStateChanged();
         Open.Add(logger);
         return logger;
@@ -91,7 +98,14 @@ sealed class SessionLogger
         }
     }
 
-    string Reason() => string.IsNullOrWhiteSpace(_tab.LastMessage) ? string.Empty : ": " + _tab.LastMessage;
+    /// <summary>The session's message, and for a failure what kind it was taken for when that's known.</summary>
+    string Reason()
+    {
+        var reason = string.IsNullOrWhiteSpace(_tab.LastMessage) ? string.Empty : ": " + _tab.LastMessage;
+        return _tab.Session.State == SessionState.Failed && _tab.Failure is { Kind: not FailureKind.Other } failure
+            ? $"{reason} [{failure.Kind}{(failure.Hop is null ? string.Empty : $" {failure.Cause} at {failure.Hop}")}]"
+            : reason;
+    }
 
     /// <summary>"42 s", "12 min 5 s" or "3 h 20 min".</summary>
     internal static string Duration(TimeSpan span) => span switch

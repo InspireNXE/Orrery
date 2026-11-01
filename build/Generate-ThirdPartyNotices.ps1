@@ -5,13 +5,13 @@
 
 .DESCRIPTION
     Reads <PublishDir>/Orrery.deps.json for the packages and .NET runtime pack in the build, then for each one
-    copies the licence and notice files the package carries, unchanged. A package that only names its licence
-    (a SPDX expression such as MIT) gets that licence's standard text with the package's copyright line; standard
-    texts other than MIT live in build/licenses/standard/<SPDX id>.txt, copied unchanged from the licence's home. Texts
-    for packages that carry none, or that bundle something under another licence, live in build/licenses/<id>.txt
+    copies the license and notice files the package carries, unchanged. A package that only names its license
+    (a SPDX expression such as MIT) gets that license's standard text with the package's copyright line; standard
+    texts other than MIT live in build/licenses/standard/<SPDX id>.txt, copied unchanged from the license's home. Texts
+    for packages that carry none, or that bundle something under another license, live in build/licenses/<id>.txt
     with their source named. Identical texts are printed once, under every package that shares them.
 
-    Fails when a shipped package has no licence it can find, so nothing ships unacknowledged.
+    Fails when a shipped package has no license it can find, so nothing ships unacknowledged.
 
 .EXAMPLE
     ./build/Generate-ThirdPartyNotices.ps1 -PublishDir artifacts/installer-publish
@@ -66,7 +66,7 @@ foreach ($library in $deps.libraries.PSObject.Properties) {
 
     $nuspec = [xml](Get-Content (Get-ChildItem $dir -Filter '*.nuspec' | Select-Object -First 1).FullName -Raw)
     $meta = $nuspec.package.metadata
-    $expression = if ($meta.license.type -eq 'expression') { $meta.license.'#text' } elseif ($meta.license.type -eq 'file') { 'see licence text' } else { $null }
+    $expression = if ($meta.license.type -eq 'expression') { $meta.license.'#text' } elseif ($meta.license.type -eq 'file') { 'see license text' } else { $null }
     $copyright = [string]$meta.copyright
     $label = "$id $version"
     $found = $false
@@ -85,7 +85,7 @@ foreach ($library in $deps.libraries.PSObject.Properties) {
         $found = $true
     }
 
-    # Added to the package's own licence: a text it lacks, or something it bundles under another licence.
+    # Added to the package's own license: a text it lacks, or something it bundles under another license.
     $extra = Join-Path $extras "$id.txt"
     if (Test-Path $extra) {
         Add-Text (Get-Content $extra -Raw) $label
@@ -93,7 +93,7 @@ foreach ($library in $deps.libraries.PSObject.Properties) {
     }
 
     if (-not $found) {
-        throw "$label ships with no licence text and its licence ('$expression') has no standard text here. Add build/licenses/$id.txt, or build/licenses/standard/$expression.txt for a licence others will share."
+        throw "$label ships with no license text and its license ('$expression') has no standard text here. Add build/licenses/$id.txt, or build/licenses/standard/$expression.txt for a license others will share."
     }
 
     $listed.Add("- $label$(if ($expression) { " ($expression)" })")
@@ -104,8 +104,8 @@ $lines.Add('Orrery third-party notices')
 $lines.Add('==========================')
 $lines.Add('')
 $lines.Add('Orrery is self-contained: the .NET runtime and every library below ship beside it. This file is generated from the')
-$lines.Add('build by build/Generate-ThirdPartyNotices.ps1. Each licence or notice text is copied unchanged from its package;')
-$lines.Add('where a package only names its licence, the standard text follows its copyright line, and where a package carries')
+$lines.Add('build by build/Generate-ThirdPartyNotices.ps1. Each license or notice text is copied unchanged from its package;')
+$lines.Add('where a package only names its license, the standard text follows its copyright line, and where a package carries')
 $lines.Add('no text (or bundles something licensed separately), the section names where the text was copied from.')
 $lines.Add('')
 $lines.Add('Components')
@@ -121,4 +121,4 @@ foreach ($entry in $texts.GetEnumerator()) {
 }
 
 [System.IO.File]::WriteAllLines($OutputFile, $lines, [System.Text.UTF8Encoding]::new($false))
-Write-Host "Wrote ${OutputFile}: $($listed.Count) components, $($texts.Count) licence and notice texts."
+Write-Host "Wrote ${OutputFile}: $($listed.Count) components, $($texts.Count) license and notice texts."

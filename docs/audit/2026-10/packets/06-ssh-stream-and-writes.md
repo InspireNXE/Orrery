@@ -6,7 +6,7 @@ Runner: `packet-opus-medium` (Opus, medium effort). Threading changes inside a s
 ## Rules
 - Work in your worktree branch, based on `main`. Stage only files you changed, by explicit path; one commit.
 - SSH.NET 2026.0.0 is in the NuGet cache (`C:\Users\steven.downer\.nuget\packages\ssh.net\2026.0.0`). Read its XML docs
-  for `ShellStream`; don't rely on behaviour you haven't confirmed there or in a test.
+  for `ShellStream`; don't rely on behavior you haven't confirmed there or in a test.
 - Gate: `dotnet build Orrery.sln` with 0 errors and 0 warnings; `dotnet test tests/Orrery.Protocols.Ssh.Tests` and
   `dotnet test tests/Orrery.App.Tests` while working; `dotnet test Orrery.sln` green at the end. New regression tests
   must be shown failing before the fix.
@@ -42,7 +42,7 @@ Runner: `packet-opus-medium` (Opus, medium effort). Threading changes inside a s
    Writer exceptions go to `Fail` as `Send`'s do today. Make sure `DisposeAsync` stops the writer and reader.
 3. S-22: in `TerminalView.ShowState`, replace C0 controls (except none: the message is one line), DEL and C1
    (U+0080-U+009F) in `message` with a visible placeholder or a space, and cap it at a few hundred characters. Start the
-   status lines with `ESC[0m` so a host's SGR 8 can't hide them. Keep the existing colours.
+   status lines with `ESC[0m` so a host's SGR 8 can't hide them. Keep the existing colors.
 4. While in `SshSession.cs`, check whether the `SshLogin` record's generated `ToString` (which would print Password,
    PrivateKey and Passphrase) is used anywhere. If not, override it to omit the secrets, matching `Credential.ToString`.
 5. Tests:

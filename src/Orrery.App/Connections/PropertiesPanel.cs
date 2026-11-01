@@ -1,13 +1,16 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
+using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 
 namespace Orrery.App.Connections;
@@ -31,6 +34,7 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
+    readonly TextBox _keyFile = new() { FontFamily = Dialogs.MonoFont, Watermark = "~/.ssh/id_ed25519" };
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
@@ -39,10 +43,14 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, Watermark = "Fit the window" };
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _colorCorrection = new() { Name = "ColorCorrection", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow;
-    readonly TextBlock _error = new() { Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
+    readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
+    readonly Control _wakeSection;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow;
+    readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
     readonly Control _editorView;
     readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
@@ -82,28 +90,42 @@ sealed class PropertiesPanel : UserControl
         _credentialRow = new InheritRow("Saved credential", _credential, () => ShowInherited(r => _ = _credential.RefreshAsync(r.CredentialId.Value)));
         _usernameRow = new InheritRow("Username (when no saved credential)", _username, () => ShowInherited(r => _username.Text = r.Username.Value));
         _domainRow = new InheritRow("Domain", _domain, () => ShowInherited(r => _domain.Text = r.Domain.Value));
+        var browseKey = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0 };
+        browseKey.Click += async (_, _) => await BrowseKeyFileAsync();
+        AutomationProperties.SetName(browseKey, "Browse for a key file");
+        AutomationProperties.SetName(_keyFile, "Key file");
+        _keyFileRow = new InheritRow("Key file (SSH)", new DockPanel { Children = { Pane.Docked(browseKey, Dock.Right), _keyFile } },
+            () => ShowInherited(r => _keyFile.Text = r.KeyFile.Value));
+        _keyFileRow.Tip("SSH: a private key file on this computer, tried after a saved key credential and before the SSH agent and the password. "
+            + "Orrery reads it when you connect and never copies it. ~ means your home folder.");
+        AutomationProperties.SetHelpText(_keyFile, "A private key file on this computer, tried after a saved key credential and before the SSH agent and the password. ~ means your home folder.");
         _clipboardRow = new InheritRow("Share the clipboard", _clipboard, () => ShowInherited(r => _clipboard.IsChecked = r.ShareClipboard.Value), inline: true);
         _desktopSizeRow = new InheritRow("Remote desktop size", _desktopSize, () => ShowInherited(r => _desktopSize.Text = r.DesktopSize.Value));
-        ToolTip.SetTip(_desktopSizeRow.View, "RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
+        _desktopSizeRow.Tip("RDP: leave it empty to fit the window and follow it as it resizes, or enter a fixed size such as 1920x1080, which is scaled to fit.");
         _enlargeRow = new InheritRow("Enlarge to match display scaling", _enlarge, () => ShowInherited(r => _enlarge.IsChecked = r.Enlarge(_enlargeByDefault())), inline: true);
-        ToolTip.SetTip(_enlargeRow.View, "RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
+        _enlargeRow.Tip("RDP and VNC: when on, the remote desktop is enlarged on displays scaled to 125% or more. When off, it's shown pixel for pixel. Applies to new connections.");
         foreach (var (quality, label) in QualityLabels)
         {
             _quality.Items.Add(new ComboBoxItem { Content = label, Tag = quality });
         }
 
         _qualityRow = new InheritRow("Display quality", _quality, () => ShowInherited(r => SelectQuality(r.DisplayQuality.Value)));
-        ToolTip.SetTip(_qualityRow.View, "RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
+        _qualityRow.Tip("RDP: Best adds desktop composition, window contents while dragging and animations; Fastest drops wallpaper, "
             + "themes and font smoothing. VNC: Fastest asks for lower-quality JPEG, used when the server sends Tight. Applies to new connections.");
+        _colorCorrection.Items.Add(new ComboBoxItem { Content = "Use app setting", Tag = true });
+        _colorCorrection.Items.Add(new ComboBoxItem { Content = "Off", Tag = false });
+        _colorCorrectionRow = new InheritRow("Color correction", _colorCorrection, () => ShowInherited(r => SelectColorCorrection(r.ColorCorrection.Value)));
+        _colorCorrectionRow.Tip("RDP and VNC: Use app setting corrects the remote desktop's colors for the color vision chosen in Settings, if any. "
+            + "Off shows its colors unchanged, for design or photo work. Applies to new connections.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value), inline: true);
-        ToolTip.SetTip(_autoReconnectRow.View, "If an open session is cut off, Orrery tries again up to 5 times. It doesn't after you log off or press Disconnect.");
+        _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value), inline: true);
-        ToolTip.SetTip(_sshAgentRow.View, "SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
+        _sshAgentRow.Tip("SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value), inline: true);
-        ToolTip.SetTip(_sshLegacyRow.View, "SSH: also accept SHA-1, CBC and 3DES algorithms.");
+        _sshLegacyRow.Tip("SSH: also accept SHA-1, CBC and 3DES algorithms.");
         var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
         _jumpHostRow = new InheritRow("Jump host", _jumpHost, () => ShowInherited(r => SelectJumpHost(r.JumpHostId.Value)));
-        ToolTip.SetTip(_jumpHostRow.View, "Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
+        _jumpHostRow.Tip("Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
         _forwardsField = new StackPanel
         {
             Spacing = 4,
@@ -121,6 +143,21 @@ sealed class PropertiesPanel : UserControl
                 },
             },
         };
+
+        AutomationProperties.SetName(_forwards, "Port forwards");
+        AutomationProperties.SetHelpText(_forwards, "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy.");
+        AutomationProperties.SetName(_notes, "Notes");
+        _wakeSection = Pane.Section("Wake on LAN",
+            Dialogs.Field("MAC address", _mac),
+            Dialogs.Field("Broadcast address (optional)", _broadcast),
+            new TextBlock
+            {
+                Text = "Wake in the connection's right-click menu sends a wake-up packet to this address on UDP port 9. "
+                    + "Leave the broadcast address empty to use 255.255.255.255; if the machine doesn't wake, try your network's, such as 192.168.1.255.",
+                FontSize = 11,
+                Foreground = Dialogs.MutedBrush,
+                TextWrapping = TextWrapping.Wrap,
+            });
 
         _hostField = Dialogs.Field("Host", _host);
         _nameField = Dialogs.Field("Name", _name);
@@ -148,9 +185,10 @@ sealed class PropertiesPanel : UserControl
             {
                 Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Pair(_protocolRow.View, _portRow.View)),
-                Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View),
-                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
+                Pane.Section("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View),
+                Pane.Section("Options", _desktopSizeRow.View, _enlargeRow.View, _qualityRow.View, _colorCorrectionRow.View, _clipboardRow.View, _autoReconnectRow.View, _sshAgentRow.View, new StackPanel { Spacing = 2, Children = { _sshLegacyRow.View, legacyHint } }),
                 Pane.Section("SSH tunnels", _jumpHostRow.View, _forwardsField),
+                _wakeSection,
                 _notesField,
             },
         };
@@ -161,7 +199,7 @@ sealed class PropertiesPanel : UserControl
             Children = { _error, _connect, Pane.Pair(_save, revert) },
         });
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _notes, _forwards, _desktopSize })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast })
         {
             box.TextChanged += (_, _) => MarkDirty();
         }
@@ -182,7 +220,8 @@ sealed class PropertiesPanel : UserControl
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow })
+        _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
+        foreach (var row in new[] { _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow })
         {
             row.Inherit.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -250,6 +289,9 @@ sealed class PropertiesPanel : UserControl
             _domainRow.Load(own.Domain is null, Describe(inherited.Domain));
             _domain.Text = own.Domain ?? inherited.Domain.Value;
 
+            _keyFileRow.Load(own.KeyFile is null, Describe(inherited.KeyFile));
+            _keyFile.Text = own.KeyFile ?? inherited.KeyFile.Value;
+
             _clipboardRow.Load(own.ShareClipboard is null, Describe(inherited.ShareClipboard));
             _clipboard.IsChecked = own.ShareClipboard ?? inherited.ShareClipboard.Value;
 
@@ -268,6 +310,9 @@ sealed class PropertiesPanel : UserControl
             _qualityRow.Load(own.DisplayQuality is null, Describe(inherited.DisplayQuality));
             SelectQuality(own.DisplayQuality ?? inherited.DisplayQuality.Value);
 
+            _colorCorrectionRow.Load(own.ColorCorrection is null, Describe(inherited.ColorCorrection));
+            SelectColorCorrection(own.ColorCorrection ?? inherited.ColorCorrection.Value);
+
             _autoReconnectRow.Load(own.AutoReconnect is null, Describe(inherited.AutoReconnect));
             _autoReconnect.IsChecked = own.AutoReconnect ?? inherited.AutoReconnect.Value;
 
@@ -282,6 +327,10 @@ sealed class PropertiesPanel : UserControl
 
             _forwardsField.IsVisible = node is ConnectionEntry;
             _forwards.Text = PortForward.FormatAll((node as ConnectionEntry)?.PortForwards);
+
+            _wakeSection.IsVisible = node is ConnectionEntry;
+            _mac.Text = (node as ConnectionEntry)?.MacAddress;
+            _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
 
             Content = _editorView;
         }
@@ -388,6 +437,17 @@ sealed class PropertiesPanel : UserControl
             desktopSize = size is { } fixedSize ? $"{fixedSize.Width}x{fixedSize.Height}" : string.Empty;
         }
 
+        string? keyFile = null;
+        if (_keyFileRow.Inherit.IsChecked != true)
+        {
+            // Only a path, which can't be checked here: the file may be on another computer's disk, or not there yet.
+            keyFile = _keyFile.Text?.Trim() ?? string.Empty;
+            if (keyFile.Length > MaxKeyFilePathLength || keyFile.Any(char.IsControl))
+            {
+                return Fail("The key file path is too long or has characters a path can't have.");
+            }
+        }
+
         List<PortForward>? forwards = null;
         if (_node is ConnectionEntry)
         {
@@ -399,6 +459,28 @@ sealed class PropertiesPanel : UserControl
             forwards = parsed.Count > 0 ? parsed : null;
         }
 
+        string? mac = null, broadcast = null;
+        if (_node is ConnectionEntry)
+        {
+            if (!string.IsNullOrWhiteSpace(_mac.Text))
+            {
+                if (!MacAddress.TryNormalize(_mac.Text, out mac))
+                {
+                    return Fail("The MAC address needs six pairs of hex digits, such as 00:1A:2B:3C:4D:5E or 00-1A-2B-3C-4D-5E.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_broadcast.Text))
+            {
+                if (!WakeOnLan.TryParseBroadcast(_broadcast.Text, out var address))
+                {
+                    return Fail("The broadcast address must be an IPv4 address such as 192.168.1.255.");
+                }
+
+                broadcast = address.Equals(System.Net.IPAddress.Broadcast) ? null : address.ToString();
+            }
+        }
+
         // Empty text with Inherit unticked means "none", overriding the parent.
         _node.Settings = new InheritableSettings
         {
@@ -407,12 +489,14 @@ sealed class PropertiesPanel : UserControl
             CredentialId = _credentialRow.Inherit.IsChecked == true ? null : _credential.SelectedId ?? InheritableSettings.NoCredential,
             Username = _usernameRow.Inherit.IsChecked == true ? null : _username.Text?.Trim() ?? string.Empty,
             Domain = _domainRow.Inherit.IsChecked == true ? null : _domain.Text?.Trim() ?? string.Empty,
+            KeyFile = keyFile,
             ShareClipboard = _clipboardRow.Inherit.IsChecked == true ? null : _clipboard.IsChecked == true,
             UseSshAgent = _sshAgentRow.Inherit.IsChecked == true ? null : _sshAgent.IsChecked == true,
             AllowLegacySsh = _sshLegacyRow.Inherit.IsChecked == true ? null : _sshLegacy.IsChecked == true,
             DesktopSize = desktopSize,
             EnlargeRemoteDesktop = _enlargeRow.Inherit.IsChecked == true ? null : _enlarge.IsChecked == true,
             DisplayQuality = _qualityRow.Inherit.IsChecked == true ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?,
+            ColorCorrection = _colorCorrectionRow.Inherit.IsChecked == true ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inherit.IsChecked == true ? null : _autoReconnect.IsChecked == true,
             JumpHostId = _jumpHostRow.Inherit.IsChecked == true ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
         };
@@ -422,6 +506,8 @@ sealed class PropertiesPanel : UserControl
         {
             entry.Host = host;
             entry.PortForwards = forwards;
+            entry.MacAddress = mac;
+            entry.WakeBroadcast = broadcast;
         }
 
         _dirty = false;
@@ -429,6 +515,53 @@ sealed class PropertiesPanel : UserControl
         _title.Text = name;
         _tree.NotifyChanged();
         return true;
+    }
+
+    const int MaxKeyFilePathLength = 1024;
+
+    /// <summary>
+    /// Fills the key file box from the file picker. A file under the home folder is kept as ~/..., which also
+    /// works on another computer after an export and import.
+    /// </summary>
+    async Task BrowseKeyFileAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+        {
+            return;
+        }
+
+        var options = new FilePickerOpenOptions { Title = "Choose a private key file", AllowMultiple = false };
+        var ssh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
+        if (Directory.Exists(ssh))
+        {
+            options.SuggestedStartLocation = await storage.TryGetFolderFromPathAsync(ssh);
+        }
+
+        var files = await storage.OpenFilePickerAsync(options);
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        if (files[0].TryGetLocalPath() is not { } path)
+        {
+            Fail("That file isn't on this computer, so it can't be used as a key file.");
+            return;
+        }
+
+        _keyFile.Text = WithHome(path);
+    }
+
+    /// <summary>The path with the home folder written as ~, when it's under it.</summary>
+    internal static string WithHome(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (home.Length > 0 && path.StartsWith(home.TrimEnd('/', '\\') + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            return "~/" + path[(home.TrimEnd('/', '\\').Length + 1)..].Replace('\\', '/');
+        }
+
+        return path;
     }
 
     public void FocusName()
@@ -449,6 +582,9 @@ sealed class PropertiesPanel : UserControl
     {
         _error.Text = message;
         _error.IsVisible = true;
+
+        // Shown under the fields, away from the focus, so it's also read out.
+        ScreenReader.Announce(this, message, "Orrery.Properties", ScreenReader.MostRecent);
         return false;
     }
 
@@ -500,7 +636,7 @@ sealed class PropertiesPanel : UserControl
         _lastFailed.IsVisible = use.FailedSince is not null;
     }
 
-    /// <summary>The coloured square beside the name: the protocol for a connection, a folder otherwise.</summary>
+    /// <summary>The colored square beside the name: the protocol for a connection, a folder otherwise.</summary>
     void ShowTile(ConnectionNode node, Protocol protocol)
     {
         bool folder = node is not ConnectionEntry;
@@ -536,6 +672,9 @@ sealed class PropertiesPanel : UserControl
 
     void SelectQuality(DisplayQuality quality) =>
         _quality.SelectedItem = _quality.Items.OfType<ComboBoxItem>().First(i => (DisplayQuality)i.Tag! == quality);
+
+    void SelectColorCorrection(bool useAppSetting) =>
+        _colorCorrection.SelectedItem = _colorCorrection.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == useAppSetting);
 
     /// <summary>"Connect directly", then every saved SSH connection except <paramref name="node"/> itself.</summary>
     void FillJumpHosts(ConnectionNode node)
@@ -594,12 +733,18 @@ sealed class PropertiesPanel : UserControl
     /// </summary>
     sealed class InheritRow
     {
+        const string InheritTip = "On: use the value from the folder above. Off: set this one's own.";
+
         readonly TextBlock _hint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush };
         readonly Control _editor;
 
         public InheritRow(string label, Control editor, Action showInherited, bool inline = false)
         {
             _editor = editor;
+
+            // The label is beside the editor only on screen; a screen reader needs it on the editor and the chip.
+            AutomationProperties.SetName(editor, label);
+            AutomationProperties.SetName(Inherit, $"{label}: inherit");
             Inherit.IsCheckedChanged += (_, _) =>
             {
                 bool inheriting = Inherit.IsChecked == true;
@@ -610,7 +755,7 @@ sealed class PropertiesPanel : UserControl
                     showInherited();
                 }
             };
-            ToolTip.SetTip(Inherit, "On: use the value from the folder above. Off: set this one's own.");
+            ToolTip.SetTip(Inherit, InheritTip);
 
             var header = new DockPanel();
             if (inline)
@@ -643,6 +788,14 @@ sealed class PropertiesPanel : UserControl
             Inherit.IsChecked = inheriting;
             _hint.IsVisible = inheriting;
             _editor.IsEnabled = !inheriting;
+            AutomationProperties.SetHelpText(Inherit, $"{hint}. {InheritTip}");
+        }
+
+        /// <summary>Explains the setting: a tooltip over the row, and the editor's description for a screen reader.</summary>
+        public void Tip(string text)
+        {
+            ToolTip.SetTip(View, text);
+            AutomationProperties.SetHelpText(_editor, text);
         }
     }
 }

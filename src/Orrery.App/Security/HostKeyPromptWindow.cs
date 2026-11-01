@@ -43,30 +43,23 @@ sealed class HostKeyPromptWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.AddRange(changed ? [always, once, cancel] : [cancel, once, always]);
 
+        string heading = changed ? $"The host key for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}";
+        string explanation = changed
+            ? "This server presented a different key from the one you trusted before. That's expected after the server "
+              + "is reinstalled, but it can also mean someone is intercepting the connection. Don't continue unless you "
+              + "know why it changed."
+            : "This is the first connection to this server. Check the fingerprint with whoever manages it (on the server: "
+              + "ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub). Your password hasn't been sent yet.";
+        Dialogs.FocusAndSayOnOpen(this, primary, $"{heading}. {explanation}");
+
         Content = new StackPanel
         {
             Spacing = 14,
             Margin = new Thickness(24),
             Children =
             {
-                new TextBlock
-                {
-                    Text = changed ? $"The host key for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}",
-                    FontSize = 18,
-                    FontWeight = FontWeight.SemiBold,
-                    Foreground = changed ? Dialogs.DangerBrush : null,
-                    TextWrapping = TextWrapping.Wrap,
-                },
-                new TextBlock
-                {
-                    Text = changed
-                        ? "This server presented a different key from the one you trusted before. That's expected after the server "
-                          + "is reinstalled, but it can also mean someone is intercepting the connection. Don't continue unless you "
-                          + "know why it changed."
-                        : "This is the first connection to this server. Check the fingerprint with whoever manages it (on the server: "
-                          + "ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub). Your password hasn't been sent yet.",
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                Dialogs.TrustHeading(heading, changed),
+                new TextBlock { Text = explanation, TextWrapping = TextWrapping.Wrap },
                 new Border
                 {
                     Background = new SolidColorBrush(Color.Parse("#1B1E24")),

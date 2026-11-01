@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.Core.Security;
 
 namespace Orrery.App.Security;
@@ -12,10 +13,6 @@ namespace Orrery.App.Security;
 /// </summary>
 sealed class CertificatePromptWindow : Window
 {
-    static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#9AA3B2"));
-    static readonly IBrush WarningBrush = new SolidColorBrush(Color.Parse("#F3B672"));
-    static readonly IBrush DangerBrush = new SolidColorBrush(Color.Parse("#FF9AA2"));
-    static readonly FontFamily MonoFont = new("Cascadia Mono, Consolas, Menlo, monospace");
 
     public CertificatePromptWindow(CertificatePrompt prompt)
     {
@@ -26,35 +23,28 @@ sealed class CertificatePromptWindow : Window
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.Parse("#14161B"));
+        Background = Dialogs.PanelBrush;
 
         var body = new StackPanel { Spacing = 14, Margin = new Thickness(24) };
 
-        body.Children.Add(new TextBlock
-        {
-            Text = changed
-                ? $"The certificate for {prompt.Host} has changed"
-                : $"Verify the identity of {prompt.Host}",
-            FontSize = 18,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = changed ? DangerBrush : null,
-            TextWrapping = TextWrapping.Wrap,
-        });
+        string heading = changed ? $"The certificate for {prompt.Host} has changed" : $"Verify the identity of {prompt.Host}";
+        string explanation = changed
+            ? "This server presented a different certificate from the one you trusted before. That's expected after "
+              + "the server is rebuilt or its certificate is renewed, but it can also mean someone is intercepting "
+              + "the connection. Don't continue unless you know why it changed."
+            : "Orrery can't confirm this is the server you meant to reach. Check the fingerprint with whoever "
+              + "manages the server before you trust it. Your credentials haven't been sent yet.";
+        body.Children.Add(Dialogs.TrustHeading(heading, changed));
 
         body.Children.Add(new TextBlock
         {
-            Text = changed
-                ? "This server presented a different certificate from the one you trusted before. That's expected after "
-                  + "the server is rebuilt or its certificate is renewed, but it can also mean someone is intercepting "
-                  + "the connection. Don't continue unless you know why it changed."
-                : "Orrery can't confirm this is the server you meant to reach. Check the fingerprint with whoever "
-                  + "manages the server before you trust it. Your credentials haven't been sent yet.",
+            Text = explanation,
             TextWrapping = TextWrapping.Wrap,
         });
 
         foreach (var problem in prompt.Problems)
         {
-            body.Children.Add(new TextBlock { Text = "• " + problem, Foreground = WarningBrush, TextWrapping = TextWrapping.Wrap });
+            body.Children.Add(new Notice(NoticeKind.Warning, problem));
         }
 
         var details = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowSpacing = 6, ColumnSpacing = 16 };
@@ -86,6 +76,7 @@ sealed class CertificatePromptWindow : Window
         primary.Classes.Add("accent");
         primary.IsDefault = true;
         cancel.IsCancel = true;
+        Dialogs.FocusAndSayOnOpen(this, primary, $"{heading}. {explanation}");
 
         var buttons = new StackPanel
         {
@@ -112,13 +103,13 @@ sealed class CertificatePromptWindow : Window
         int row = grid.RowDefinitions.Count;
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
 
-        var labelBlock = new TextBlock { Text = label, Foreground = MutedBrush, FontSize = 12 };
+        var labelBlock = new TextBlock { Text = label, Foreground = Dialogs.MutedBrush, FontSize = 12 };
         var valueBlock = new SelectableTextBlock
         {
             Text = value,
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
-            FontFamily = mono ? MonoFont : FontFamily.Default,
+            FontFamily = mono ? Dialogs.MonoFont : FontFamily.Default,
         };
 
         Grid.SetRow(labelBlock, row);

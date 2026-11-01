@@ -51,6 +51,13 @@ public sealed class InheritableSettings
     /// <summary>SSH: log in with the running agent's keys (Pageant, OpenSSH agent) when there's no saved credential. On by default.</summary>
     public bool? UseSshAgent { get; set; }
 
+    /// <summary>
+    /// SSH: the path to a private key file on this computer, tried after a saved key credential and before the agent
+    /// and the password. A leading ~ is the home folder. Only the path is kept; the file is read when connecting and
+    /// never copied. Empty means none, overriding a folder's; null inherits.
+    /// </summary>
+    public string? KeyFile { get; set; }
+
     /// <summary>SSH: also accept SHA-1, CBC and 3DES algorithms, for old devices that offer nothing newer. Off by default.</summary>
     public bool? AllowLegacySsh { get; set; }
 
@@ -62,6 +69,17 @@ public sealed class InheritableSettings
 
     /// <summary>RDP, VNC: how the remote desktop trades looks for speed. Null inherits; balanced by default.</summary>
     public DisplayQuality? DisplayQuality { get; set; }
+
+    /// <summary>
+    /// RDP, VNC: correct the remote desktop's colors for the color vision chosen in Settings (true), or show them
+    /// unchanged (false), for design or photo work. Null inherits; with nothing set, the app setting applies.
+    /// </summary>
+    public bool? ColorCorrection { get; set; }
+
+    // The key builds before the switch to American spelling wrote, in connections.json and in exports. Read into
+    // ColorCorrection, which wins when a file has both, and never written. Private, so it isn't a setting of its own.
+    [JsonInclude, JsonPropertyName("colourCorrection")]
+    bool? BritishColorCorrection { get => null; set => ColorCorrection ??= value; }
 
     /// <summary>Try again by itself when an open session drops (not when it's logged off or closed). Null inherits; on by default.</summary>
     public bool? AutoReconnect { get; set; }
@@ -90,7 +108,7 @@ public sealed class InheritableSettings
     public static readonly IReadOnlySet<string> KeptByGuests = new HashSet<string>
     {
         nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
-        nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality),
+        nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColorCorrection),
     };
 
     /// <summary>
@@ -184,6 +202,12 @@ public sealed class ConnectionFolder : ConnectionNode
 public sealed class ConnectionEntry : ConnectionNode
 {
     public string Host { get; set; } = string.Empty;
+
+    /// <summary>The machine's MAC address as <c>00:1A:2B:3C:4D:5E</c>, for Wake-on-LAN. Null when not set. Written normalized by the properties pane and the importers.</summary>
+    public string? MacAddress { get; set; }
+
+    /// <summary>Where the Wake-on-LAN packet goes, as an IPv4 address such as 192.168.1.255. Null is 255.255.255.255.</summary>
+    public string? WakeBroadcast { get; set; }
 
     /// <summary>SSH: ports to forward while the session is open. Null when there are none.</summary>
     public List<PortForward>? PortForwards { get; set; }
