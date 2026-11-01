@@ -128,7 +128,16 @@ sealed class SettingsView : UserControl
             page.Children.AddRange(sections);
             host.Children.Add(page);
             _pages[name] = page;
-            _pageList.Items.Add(new ListBoxItem { Content = name, Tag = name });
+            // Text lines up with the title above: the list's 12, the accent's 2 and 18 make the header's 32.
+            _pageList.Items.Add(new ListBoxItem
+            {
+                Content = name,
+                Tag = name,
+                MinHeight = 34,
+                Padding = new Thickness(18, 0, 8, 0),
+                Margin = new Thickness(0, 0, 0, 2),
+                VerticalContentAlignment = VerticalAlignment.Center,
+            });
         }
 
         _pageScroll.Content = host;
