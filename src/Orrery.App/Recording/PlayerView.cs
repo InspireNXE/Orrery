@@ -82,6 +82,17 @@ sealed partial class PlayerView : DockPanel, IDisposable
     TimeSpan _duration;
     TimeSpan _position;
     DateTime _lastTick;
+
+    /// <summary>Opens this computer's speakers for recorded sound; tests swap it.</summary>
+    internal static Func<int, int, IAudioOutput?> OpenAudio = Orrery.Protocols.Rdp.RdpAudioOutput.TryOpen;
+
+    /// <summary>Sound further behind the playing position than this is left out: it was passed over, not played.</summary>
+    static readonly TimeSpan SoundLate = TimeSpan.FromMilliseconds(300);
+
+    IAudioOutput? _audio;
+    (int Rate, int Channels) _audioFormat;
+    bool _audible;
+    TimeSpan _advancingTo;
     bool _loaded;
     bool _playingNow;
     bool _settingTimeline;
@@ -303,6 +314,8 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
         _disposed = true;
         _timer.Stop();
+        _audio?.Dispose();
+        _audio = null;
         _cursor?.Dispose();
         _reader?.Dispose();
         _playing.Dispose();
@@ -596,6 +609,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
     public void Pause()
     {
+        _audio?.Clear();
         _playingNow = false;
         SetPlayLook(playing: false);
         _timer.Stop();
@@ -623,7 +637,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
             Pause();
         }
 
+        // Sound plays only at normal speed, as the screen moves on in real time.
+        _audible = speed == 1;
         AdvanceTo(to);
+        _audible = false;
     }
 
     void Seek(TimeSpan to)
@@ -632,6 +649,8 @@ sealed partial class PlayerView : DockPanel, IDisposable
         {
             return;
         }
+
+        _audio?.Clear();
 
         to = to < TimeSpan.Zero ? TimeSpan.Zero : to > _duration ? _duration : to;
         if (_kind == RecordingKind.Terminal)
@@ -651,6 +670,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
     void AdvanceTo(TimeSpan to)
     {
+        _advancingTo = to;
         bool changed = false;
         while (_next < _entries.Count && _entries[_next].Played <= to)
         {
@@ -819,7 +839,35 @@ sealed partial class PlayerView : DockPanel, IDisposable
         }
 
         var e = _cursor.Current;
+        if (e.Type == RecordingEventType.Audio)
+        {
+            if (_audible && entry.Played >= _advancingTo - SoundLate)
+            {
+                PlaySound(e.Payload);
+            }
+
+            return false;
+        }
+
         return _decoder.Apply(e) && e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change or RecordingEventType.Pointer;
+    }
+
+    void PlaySound(byte[] payload)
+    {
+        if (RecordingFile.ReadAudio(payload) is not var (rate, channels, pcm))
+        {
+            return;
+        }
+
+        // A format that couldn't be opened isn't tried again until it changes.
+        if (_audioFormat != (rate, channels))
+        {
+            _audio?.Dispose();
+            _audio = OpenAudio(rate, channels);
+            _audioFormat = (rate, channels);
+        }
+
+        _audio?.Write(pcm.Span);
     }
 
     void DrawScreen()

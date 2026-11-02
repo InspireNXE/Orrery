@@ -40,7 +40,7 @@ static class RdpConnector
     /// <returns>The connection, and whether drives are shared, so the session drives their file operations.</returns>
     public static async Task<(ConnectionResult Result, Framed<SslStream> Framed, bool DrivesShared)> ConnectAsync(
         Config config, ConnectionTarget target, (string Host, int Port) dial, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
-        RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token)
+        RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token, RdpAudioTap? audioTap = null)
     {
         var tcp = await OpenTcpAsync(dial.Host, dial.Port, token);
         var framed = new Framed<NetworkStream>(tcp.GetStream());
@@ -68,7 +68,8 @@ static class RdpConnector
         if (options.PlayAudio)
         {
             // Plays on the default output device and follows it when it changes, on a thread of its own.
-            Optional("Remote audio", connector.WithStaticChannelRdpSndNative);
+            // With a tap, a copy of the decoded sound is kept for a recording while one asks for it.
+            Optional("Remote audio", audioTap is null ? connector.WithStaticChannelRdpSndNative : () => connector.WithStaticChannelRdpSndNativeTapped(audioTap.Native));
         }
 
         bool drivesShared = options.Drives.Count > 0 && ShareDrives(connector, options.Drives);

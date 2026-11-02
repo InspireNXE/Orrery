@@ -301,7 +301,7 @@ public sealed class RecordingUiTests : IDisposable
 
         var routes = Mp4Route.All(system, ffmpeg);
 
-        Assert.Equal(["MP4, H.264", "MP4, AV1 (graphics card)", "MP4, H.265 (through ffmpeg)"], routes.Select(r => r.Label));
+        Assert.Equal(["MP4, H.264", "MP4, AV1 (graphics card)", "MP4, H.265 (through ffmpeg, no sound)"], routes.Select(r => r.Label));
         Assert.Empty(Mp4Route.All([], null));
     }
 

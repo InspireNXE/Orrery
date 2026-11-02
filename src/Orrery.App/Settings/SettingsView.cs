@@ -769,6 +769,17 @@ sealed class SettingsView : UserControl
             }
         };
 
+        // Sound is stored as it's played, about 11 MB a minute for CD-quality stereo; silence takes nothing.
+        var sound = new CheckBox { Content = "Record remote desktop sound (about 11 MB a minute while sound plays)", IsChecked = _settings.RecordsSound };
+        sound.IsCheckedChanged += (_, _) =>
+        {
+            if (!_loading)
+            {
+                _settings = _settings with { RecordingSound = sound.IsChecked == true };
+                TrySaveSettings();
+            }
+        };
+
         var names = new CheckBox { Content = "Put connection names in file names", IsChecked = _settings.PutsNamesInRecordingFiles };
         names.IsCheckedChanged += (_, _) =>
         {
@@ -842,6 +853,7 @@ sealed class SettingsView : UserControl
             Row("Use at most", total),
             Row("Stop a recording at", file),
             Row("Frames a second for remote desktops", rate),
+            sound,
             names,
             Note("Old recordings are deleted for good, the oldest first, when they pass these limits."),
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { show, open } },
