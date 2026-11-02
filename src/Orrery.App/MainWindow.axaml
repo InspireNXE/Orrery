@@ -192,6 +192,7 @@
                       <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
                       <MenuItem x:Name="BrowseFilesMenuItem" Header="Browse files (SFTP)" Click="OnBrowseFilesMenuClick" />
                       <MenuItem x:Name="WakeMenuItem" Header="Wake" Click="OnWakeMenuClick" />
+                      <MenuItem x:Name="ManagementMenuItem" Header="Open management page" Click="OnManagementMenuClick" />
                       <Separator />
                       <MenuItem Header="New connection" Click="OnNewConnectionClick" />
                       <MenuItem Header="New folder" Click="OnNewFolderClick" />

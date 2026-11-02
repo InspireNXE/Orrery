@@ -192,7 +192,7 @@ public static class ConnectionExporter
     {
         ConnectionNode copy = node switch
         {
-            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, PortForwards = entry.PortForwards?.ToList() },
+            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, ManagementUrl = entry.ManagementUrl, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Id = folder.Id, Expanded = folder.Expanded },
             _ => throw new NotSupportedException(node.GetType().Name),
         };
@@ -354,6 +354,7 @@ public static class ConnectionExporter
             Lost("Session recording", resolved.RecordSessions.Value);
             Lost("Port forwards", entry.PortForwards is { Count: > 0 });
             Lost("Wake-on-LAN broadcast addresses", entry.WakeBroadcast is not null);
+            Lost("Management URLs", entry.ManagementUrl is not null);
             Lost("Fixed desktop sizes", resolved.DesktopSize.Value is not null);
             // The path stays in an Orrery export, but mRemoteNG has no field for a key file to hold it.
             Lost("SSH key files", resolved.Protocol.Value == Protocol.Ssh && resolved.KeyFile.Value is not null);
