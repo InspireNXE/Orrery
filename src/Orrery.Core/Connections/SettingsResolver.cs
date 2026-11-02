@@ -34,7 +34,8 @@ public sealed record ResolvedSettings(
     /// <summary>The folders to share, as set (a leading ~ not yet expanded); empty for none.</summary>
     public required Resolved<IReadOnlyList<string>> SharedFolders { get; init; }
 
-    public required Resolved<bool> UseAllMonitors { get; init; }
+    /// <summary>The displays full screen fills: <see cref="InheritableSettings.ChosenDisplays"/> or <see cref="InheritableSettings.UseAllMonitors"/>, whichever node sets one first.</summary>
+    public required Resolved<FullScreenChoice> FullScreen { get; init; }
     public required Resolved<bool> AdminSession { get; init; }
     public required Resolved<bool> ViewOnly { get; init; }
     public required Resolved<DesktopScaling> Scaling { get; init; }
@@ -85,6 +86,15 @@ public static class SettingsResolver
             ? new Resolved<IReadOnlyList<string>>(sharedSource.Settings.SharedFolders!.ToList(), sharedSource)
             : new Resolved<IReadOnlyList<string>>([], null);
 
+        // The two settings are one choice: the nearest node with either decides, so a folder's chosen displays don't
+        // outlast a connection's "every display".
+        var fullScreen = Chain(node, includeSelf, nameof(InheritableSettings.UseAllMonitors))
+            .FirstOrDefault(n => n.Settings.ChosenDisplays is not null || n.Settings.UseAllMonitors is not null) is { } screenSource
+            ? new Resolved<FullScreenChoice>(screenSource.Settings.ChosenDisplays is { } chosen
+                ? new FullScreenChoice(FullScreenOn.ChosenDisplays, chosen.ToList())
+                : screenSource.Settings.UseAllMonitors == true ? FullScreenChoice.EveryDisplay : FullScreenChoice.ThisDisplay, screenSource)
+            : new Resolved<FullScreenChoice>(FullScreenChoice.ThisDisplay, null);
+
         return new ResolvedSettings(
             protocol,
             port,
@@ -111,7 +121,7 @@ public static class SettingsResolver
             RemoteAudio = Value(nameof(InheritableSettings.RemoteAudio), s => s.RemoteAudio, Connections.RemoteAudio.PlayHere),
             ShareAllDrives = Flag(nameof(InheritableSettings.ShareAllDrives), s => s.ShareAllDrives, false),
             SharedFolders = shared,
-            UseAllMonitors = Flag(nameof(InheritableSettings.UseAllMonitors), s => s.UseAllMonitors, false),
+            FullScreen = fullScreen,
             AdminSession = Flag(nameof(InheritableSettings.AdminSession), s => s.AdminSession, false),
             ViewOnly = Flag(nameof(InheritableSettings.ViewOnly), s => s.ViewOnly, false),
             Scaling = Value(nameof(InheritableSettings.Scaling), s => s.Scaling, DesktopScaling.Fit),

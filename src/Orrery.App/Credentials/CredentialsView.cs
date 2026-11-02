@@ -26,7 +26,10 @@ sealed class CredentialsView
     readonly ICredentialStore _store;
     readonly Func<Task<bool>> _unlock;
     readonly ListBox _list = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
+    // Nothing shows until the store has been unlocked or not: the two notes sat on top of each other meanwhile.
     readonly TextBlock _listEmpty = Pane.EmptyText("No saved credentials yet. Add one with the + button.", side: true);
+    readonly TextBlock _lockedText = Pane.EmptyText(string.Empty, side: true);
+    readonly Button _unlockButton = new() { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(14, 0) };
     readonly Control _locked;
     readonly ContentControl _editorHost = new();
     readonly Control _form, _empty = Pane.EmptyText("Select a credential to edit it.");
@@ -96,17 +99,10 @@ sealed class CredentialsView
             StartNew();
         };
 
-        var unlockButton = new Button { Content = "Unlock", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(14, 0) };
-        unlockButton.Classes.Add("accent");
-        unlockButton.Click += async (_, _) => await ShowAsync();
-        _locked = new StackPanel
-        {
-            Children =
-            {
-                Pane.EmptyText("The vault is locked. Unlock it to see your saved credentials.", side: true),
-                unlockButton,
-            },
-        };
+        _unlockButton.Classes.Add("accent");
+        _unlockButton.Click += async (_, _) => await ShowAsync();
+        _listEmpty.IsVisible = false;
+        _locked = new StackPanel { IsVisible = false, Children = { _lockedText, _unlockButton } };
 
         List = new DockPanel
         {
@@ -218,6 +214,10 @@ sealed class CredentialsView
         _list.ItemsSource = null;
         _list.IsVisible = _listEmpty.IsVisible = false;
         _locked.IsVisible = true;
+        _lockedText.Text = _store.Exists
+            ? "The vault is locked. Unlock it to see your saved credentials."
+            : "Saved credentials are kept in a vault with a master password. Create it to save one.";
+        _unlockButton.Content = _store.Exists ? "Unlock" : "Create vault";
         _editorHost.Content = _empty;
     }
 

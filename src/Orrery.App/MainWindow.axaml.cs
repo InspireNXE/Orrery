@@ -81,7 +81,6 @@ public partial class MainWindow : Window
     bool _fullScreen;
     WindowState _stateBeforeFullScreen;
     (PixelPoint Position, WindowState State)? _positionBeforeFullScreen;
-    (bool Side, bool Inspector) _panesBeforeFullScreen;
 
     // The offer to reopen last time's sessions, set aside while a session is full screen.
     bool _restoreOfferBeforeFullScreen;
@@ -245,6 +244,12 @@ public partial class MainWindow : Window
         _tree.Removed += (_, e) => _history.Forget(e.Ids);
         _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
+        _properties.SessionSettingsApplied += (_, _) => UpdateSessionToolbar();
+        _properties.ReconnectRequested += async (_, tab) =>
+        {
+            await CloseTabAsync(tab.Session);
+            await tab.Origin.Reconnect();
+        };
         _propertiesHost.Child = _properties;
 
         _credentialsView = new CredentialsView(_credentials, async () =>
@@ -272,9 +277,7 @@ public partial class MainWindow : Window
         WireTitleBar();
         WireFullScreen();
         WireTabStrip();
-        var layout = _settingsStore.Load();
-        ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
-        ShowInspector(layout.InspectorOpen ?? true, save: false);
+        WirePanes();
         _workspaceStore = WorkspaceStore.In(location);
         _savedWorkspace = _workspaceStore.Load();
         InitWorkspace();
@@ -644,7 +647,7 @@ public partial class MainWindow : Window
 
         if (side == _side && _sidePanel.IsVisible && !leavingSettings)
         {
-            ShowSidePanel(false);
+            ClickActiveRailItem();
             return;
         }
 
@@ -655,13 +658,13 @@ public partial class MainWindow : Window
             view.IsVisible = name == side;
         }
 
-        ShowSidePanel(true);
+        RevealSidePanel();
 
         _propertiesHost.Child = side == "credentials" ? _credentialsView.Editor : _properties;
         switch (side)
         {
             case "credentials":
-                ShowInspector(true);
+                RevealInspector();
                 await _credentialsView.ShowAsync();
                 break;
             case "recent":
@@ -670,57 +673,6 @@ public partial class MainWindow : Window
             default:
                 await _properties.ShowAsync(SelectedNode);
                 break;
-        }
-    }
-
-    // ---- Panes ----
-
-    void OnToggleSidePanelClick(object? sender, RoutedEventArgs e) => ShowSidePanel(!_sidePanel.IsVisible);
-
-    void OnToggleInspectorClick(object? sender, RoutedEventArgs e) => ShowInspector(!_propertiesHost.IsVisible);
-
-    /// <summary>Shows or hides the side panel (Ctrl+B); the rail stays, and its button for the panel lights up.</summary>
-    void ShowSidePanel(bool open, bool save = true)
-    {
-        _sidePanel.IsVisible = open;
-        foreach (var (name, (button, _)) in _sides)
-        {
-            button.Classes.Set("active", open && name == _side && !_settingsHost.IsVisible);
-        }
-
-        ToolTip.SetTip(_sidePanelToggle, open ? "Hide the side panel (Ctrl+B)" : "Show the side panel (Ctrl+B)");
-        if (save)
-        {
-            SaveLayout();
-        }
-    }
-
-    /// <summary>Shows or hides the right-hand pane (Ctrl+Alt+B): connection settings or the credential editor.</summary>
-    void ShowInspector(bool open, bool save = true)
-    {
-        if (!open)
-        {
-            _properties.TrySave();
-        }
-
-        _propertiesHost.IsVisible = open;
-        ToolTip.SetTip(_inspectorToggle, open ? "Hide the settings pane (Ctrl+Alt+B)" : "Show the settings pane (Ctrl+Alt+B)");
-        if (save)
-        {
-            SaveLayout();
-        }
-    }
-
-    /// <summary>Remembers which panes are open for the next start.</summary>
-    void SaveLayout()
-    {
-        try
-        {
-            _settingsStore.Save(_settingsStore.Load() with { SidePanelOpen = _sidePanel.IsVisible, InspectorOpen = _propertiesHost.IsVisible });
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            Log.For("App").LogWarning("Couldn't save the layout: {Message}", e.Message);
         }
     }
 
@@ -958,14 +910,29 @@ public partial class MainWindow : Window
     };
 
     /// <summary>
-    /// The current session fills the screen the window is on, or <paramref name="screen"/>; everything else hides
+    /// The current session fills the screen the window is on, or <paramref name="screen"/>, or for a remote desktop the
+    /// displays its connection chooses (<paramref name="choice"/> instead, for this time only); everything else hides
     /// until the full-screen shortcut.
     /// </summary>
-    void EnterFullScreen(Avalonia.Platform.Screen? screen = null)
+    void EnterFullScreen(Avalonia.Platform.Screen? screen = null, FullScreenChoice? choice = null)
     {
         if (_fullScreen || _currentTab is not { } tab)
         {
             return;
+        }
+
+        IReadOnlyList<Avalonia.Platform.Screen>? spread = null;
+        if (screen is null && tab.View is RemoteFrameView desktopView)
+        {
+            var chosen = ChosenScreens(tab, choice, desktopView);
+            if (chosen.Count == 1)
+            {
+                screen = chosen[0];
+            }
+            else if (chosen.Count > 1)
+            {
+                spread = chosen;
+            }
         }
 
         // Full screen covers the screen the window is on, so the window goes there first, and comes back after.
@@ -983,7 +950,6 @@ public partial class MainWindow : Window
         }
 
         _fullScreen = true;
-        _panesBeforeFullScreen = (_sidePanel.IsVisible, _propertiesHost.IsVisible);
         _restoreOfferBeforeFullScreen = _restoreBar is { IsVisible: true };
         if (_restoreBar is not null)
         {
@@ -992,13 +958,14 @@ public partial class MainWindow : Window
 
         _stateBeforeFullScreen = WindowState;
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = false;
-        _sidePanel.IsVisible = _propertiesHost.IsVisible = _sessionToolbar.IsVisible = false;
+        HidePanesForFullScreen();
+        _sessionToolbar.IsVisible = false;
         _fullScreenHotZone.IsVisible = true;
 
         // Avalonia keeps a title bar strip at the top of a full-screen window that draws into its client
         // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
         ExtendClientAreaToDecorationsHint = false;
-        if (!TrySpanDisplays(tab))
+        if (spread is null || !TrySpanDisplays(tab, spread))
         {
             WindowState = WindowState.FullScreen;
         }
@@ -1007,39 +974,63 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// For a remote desktop set to use every display: the window covers all of them and the server is asked for a
-    /// monitor for each. Windows only (see <see cref="SpanningWindow"/>); elsewhere, with one display, or with displays
-    /// that can't make one desktop, full screen is the one display, and false is returned.
+    /// The displays a remote desktop's full screen fills: its connection's choice, or <paramref name="choice"/>. Several
+    /// only on Windows (see <see cref="SpanningWindow"/>); elsewhere the first of them. Empty for the display the window
+    /// is on. Says on the desktop when chosen displays aren't connected, or several can't be used here.
     /// </summary>
-    bool TrySpanDisplays(SessionTab tab)
+    IReadOnlyList<Avalonia.Platform.Screen> ChosenScreens(SessionTab tab, FullScreenChoice? choice, RemoteFrameView desktop)
     {
-        if (tab.View is not RemoteFrameView { Session: IMultiMonitorSession, FollowsViewSize: true } desktop
-            || tab.Origin.EntryId is not { } id || _tree.Find(id) is not { } node || !SettingsResolver.Resolve(node).UseAllMonitors.Value)
+        choice ??= tab.Origin.EntryId is { } id && _tree.Find(id) is { } node ? SettingsResolver.Resolve(node).FullScreen.Value : FullScreenChoice.ThisDisplay;
+        var screens = Screens.All;
+        var picked = choice.Pick(screens.Select(AreaOf).ToList(), screens.Select(s => DisplayPicker.Of(s).Name).ToList(), out int missing)
+            .Select(i => screens[i]).ToList();
+        if (choice.On == FullScreenOn.ChosenDisplays && missing > 0)
         {
-            return false;
+            desktop.ShowNotice(picked.Count == 0
+                ? "None of the displays chosen for full screen is connected, so it's on this display."
+                : missing == 1 ? "A display chosen for full screen isn't connected, so it's left out." : $"{missing} displays chosen for full screen aren't connected, so they're left out.");
         }
 
         // Wayland gives a window no say in where it goes or which displays it covers, and macOS gives each display its
-        // own full-screen space, so only Windows can put one window over all of them.
-        if (!OperatingSystem.IsWindows())
+        // own full-screen space, so only Windows can put one window over several.
+        if (picked.Count > 1 && !OperatingSystem.IsWindows())
         {
-            if (Screens.All.Count > 1)
-            {
-                desktop.ShowNotice("Full screen is on this display only. Spreading a remote desktop over every display works on Windows only.");
-            }
+            desktop.ShowNotice("Full screen is on one display. Spreading a remote desktop over several works on Windows only.");
+            return [picked[0]];
+        }
 
+        return picked;
+    }
+
+    /// <summary>
+    /// This computer's displays for an .rdp file's selectedmonitors, in the order Windows lists them, which is how
+    /// mstsc numbers them; null elsewhere, where the numbers mean nothing.
+    /// </summary>
+    IReadOnlyList<ChosenDisplay>? DisplaysForRdpFiles() => OperatingSystem.IsWindows()
+        ? Screens.All.Select(s => ChosenDisplay.Of(AreaOf(s), DisplayPicker.Of(s).Name)).ToList()
+        : null;
+
+    static ScreenArea AreaOf(Avalonia.Platform.Screen screen) => new(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height, screen.IsPrimary);
+
+    /// <summary>
+    /// Puts the window over <paramref name="screens"/>, with a monitor of the remote desktop for each where the server
+    /// takes a layout (RDP); VNC's picture is fitted over them. Displays between chosen ones are cut out of the window,
+    /// and the remote monitors, moved together, are each drawn on their display. False, with the reason on the
+    /// desktop, when they can't make one desktop; full screen is then the one display.
+    /// </summary>
+    bool TrySpanDisplays(SessionTab tab, IReadOnlyList<Avalonia.Platform.Screen> screens)
+    {
+        if (!OperatingSystem.IsWindows() || tab.View is not RemoteFrameView desktop
+            || (desktop.Session is IMultiMonitorSession && !desktop.FollowsViewSize))
+        {
             return false;
         }
 
-        var screens = Screens.All.Select(s => new ScreenArea(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height, s.IsPrimary)).ToList();
-        if (MonitorLayout.Arrange(screens, out var covered, out var whyNot) is not { } monitors)
+        var areas = screens.Select(AreaOf).ToList();
+        if (MonitorLayout.Arrange(areas, out var covered, out bool moved, out var whyNot) is not { } monitors)
         {
-            if (screens.Count > 1)
-            {
-                ConnectLog.LogInformation("Full screen for {Title} is on one display: {Reason}", tab.Origin.Title, whyNot);
-                desktop.ShowNotice($"Full screen is on this display only. {whyNot}");
-            }
-
+            ConnectLog.LogInformation("Full screen for {Title} is on one display: {Reason}", tab.Origin.Title, whyNot);
+            desktop.ShowNotice($"Full screen is on this display only. {whyNot}");
             return false;
         }
 
@@ -1049,16 +1040,37 @@ public partial class MainWindow : Window
 
         // Windows hides the taskbar for a window that fills one display, not for one across several, so this stays on top.
         Topmost = true;
-        SpanningWindow.Cover(this, covered);
+        void Place()
+        {
+            SpanningWindow.Cover(this, covered);
+            SpanningWindow.Limit(this, covered, areas);
+        }
+
+        Place();
         Dispatcher.UIThread.Post(() =>
         {
             if (_spanned is not null && OperatingSystem.IsWindows())
             {
-                SpanningWindow.Cover(this, covered);
+                Place();
             }
         }, DispatcherPriority.Background);
-        desktop.SpannedMonitors = monitors;
-        ConnectLog.LogInformation("Spreading {Title} over {Count} displays, {Width}x{Height} in all", tab.Origin.Title, monitors.Count, covered.Width, covered.Height);
+
+        if (desktop.Session is IMultiMonitorSession)
+        {
+            desktop.SpannedMonitors = monitors;
+        }
+
+        if (moved)
+        {
+            int left = monitors.Min(m => m.Left), top = monitors.Min(m => m.Top);
+            var layout = new PixelSize(monitors.Max(m => m.Left + m.Width) - left, monitors.Max(m => m.Top + m.Height) - top);
+            desktop.ShowPieces(areas.Select((a, i) => new RemoteFrameView.Piece(
+                new PixelRect(a.X - covered.X, a.Y - covered.Y, a.Width, a.Height),
+                new PixelRect(monitors[i].Left - left, monitors[i].Top - top, monitors[i].Width, monitors[i].Height))).ToList(), layout);
+        }
+
+        ConnectLog.LogInformation("Spreading {Title} over {Count} displays, {Width}x{Height} in all{Moved}", tab.Origin.Title, monitors.Count, covered.Width, covered.Height,
+            moved ? ", moved together on the remote desktop" : string.Empty);
         return true;
     }
 
@@ -1074,6 +1086,11 @@ public partial class MainWindow : Window
         {
             _spanned = null;
             spanned.View.SpannedMonitors = null;
+            spanned.View.ShowPieces(null, default);
+            if (OperatingSystem.IsWindows())
+            {
+                SpanningWindow.Limit(this, default, null);
+            }
             Topmost = spanned.Topmost;
             SystemDecorations = spanned.Decorations;
             Position = spanned.Position;
@@ -1083,8 +1100,7 @@ public partial class MainWindow : Window
 
         _fullScreenHotZone.IsVisible = _fullScreenBar.IsVisible = false;
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
-        _sidePanel.IsVisible = _panesBeforeFullScreen.Side;
-        _propertiesHost.IsVisible = _panesBeforeFullScreen.Inspector;
+        ApplyPanes();
 
         // Still offered unless it was withdrawn meanwhile (ReopenWorkspaceAsync, ForgetOpenTabs).
         if (_restoreOfferBeforeFullScreen && _restoreBar is not null)
@@ -1490,12 +1506,12 @@ public partial class MainWindow : Window
         else if (e.Key == Key.B && e.KeyModifiers == modifier)
         {
             e.Handled = true;
-            ShowSidePanel(!_sidePanel.IsVisible);
+            ToggleSidePanel();
         }
         else if (e.Key == Key.B && e.KeyModifiers == (modifier | KeyModifiers.Alt))
         {
             e.Handled = true;
-            ShowInspector(!_propertiesHost.IsVisible);
+            ToggleInspector();
         }
     }
 
@@ -1536,8 +1552,8 @@ public partial class MainWindow : Window
                 OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
             }
 
-            ShowSidePanel(true);
-            ShowInspector(true);
+            RevealSidePanel();
+            RevealInspector();
             foreach (var folder in toEdit.Ancestors())
             {
                 folder.Expanded = true;
@@ -2331,6 +2347,19 @@ public partial class MainWindow : Window
         tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
         HistoryRecorder.Attach(tab, _tree, _history);
+
+        // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
+        if (view is RemoteFrameView desktop)
+        {
+            desktop.DesktopResized += (_, _) =>
+            {
+                if (tab == _currentTab)
+                {
+                    _sessionDetail.Text = DescribeSession(tab);
+                }
+            };
+        }
+
         tab.StateChanged += (_, _) =>
         {
             UpdateTreeStatus();
@@ -2448,6 +2477,13 @@ public partial class MainWindow : Window
             each.IsSelected = each == tab;
         }
 
+        // A pane opened over the sessions to pick this one has done its job; Auto collapses for it.
+        if (tab is not null)
+        {
+            CloseFloatingPanes();
+        }
+
+        ApplyPanes();
         UpdateSessionToolbar();
         if (tab is not null)
         {
@@ -2482,11 +2518,27 @@ public partial class MainWindow : Window
         await session.DisposeAsync();
     }
 
+    /// <summary>"RDP · 1920×1080", "SSH · Connecting…": the session's kind and how it is, for the bar under the tabs.</summary>
+    static string DescribeSession(SessionTab tab) => $"{tab.Origin.Label} · " + (tab.Session, tab.Session.State) switch
+    {
+        (ILocalSession, SessionState.Connecting) => "Starting…",
+        (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
+        (ILocalSession, SessionState.Disconnected) => "Ended",
+        (ILocalSession, SessionState.Failed) => "Couldn't start",
+        (ILocalSession, _) => "Running",
+        (_, SessionState.Connecting) => "Connecting…",
+        (_, SessionState.Disconnected) => "Disconnected",
+        (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
+        (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
+        _ => "Connected",
+    } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+
     /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
     void UpdateSessionToolbar()
     {
         _sessionToolbar.IsVisible = _currentTab is not null && !_fullScreen;
         _sessionActions.Children.Clear();
+        _properties?.ShowSession(_currentTab);
         if (_currentTab is not { } tab)
         {
             return;
@@ -2496,19 +2548,7 @@ public partial class MainWindow : Window
         var state = session.State;
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
-        _sessionDetail.Text = $"{tab.Origin.Label} · " + (session, state) switch
-        {
-            (ILocalSession, SessionState.Connecting) => "Starting…",
-            (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
-            (ILocalSession, SessionState.Disconnected) => "Ended",
-            (ILocalSession, SessionState.Failed) => "Couldn't start",
-            (ILocalSession, _) => "Running",
-            (_, SessionState.Connecting) => "Connecting…",
-            (_, SessionState.Disconnected) => "Disconnected",
-            (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
-            (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
-            _ => "Connected",
-        } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+        _sessionDetail.Text = DescribeSession(tab);
 
         if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
         {
@@ -2649,6 +2689,16 @@ public partial class MainWindow : Window
         {
             var current = Screens.ScreenFromWindow(this);
             var on = MenuItemFor("Full screen on", null, enabled: tab.Session.State == SessionState.Connected);
+            if (tab.View is RemoteFrameView && OperatingSystem.IsWindows())
+            {
+                on.Items.Add(MenuItemFor("Every display", () =>
+                {
+                    SelectTab(tab);
+                    EnterFullScreen(choice: FullScreenChoice.EveryDisplay);
+                }));
+                on.Items.Add(new Separator());
+            }
+
             foreach (var (screen, i) in Screens.All.Select((s, i) => (s, i)))
             {
                 var label = $"Display {i + 1}  ({screen.Bounds.Width}×{screen.Bounds.Height})"
@@ -2847,7 +2897,8 @@ public partial class MainWindow : Window
         ConnectionEntry file;
         try
         {
-            var result = await Task.Run(() => RdpFileImporter.ImportFile(path));
+            var displays = DisplaysForRdpFiles();
+            var result = await Task.Run(() => RdpFileImporter.ImportFile(path, displays));
             file = result.Root.Children.OfType<ConnectionEntry>().Single();
             foreach (var warning in result.Report.Warnings.Concat(result.Report.NotYetSupported))
             {
@@ -2934,12 +2985,13 @@ public partial class MainWindow : Window
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
         bool rdpFile = RdpFileImporter.IsRdpFile(path);
         bool sshConfig = IsSshConfig(path);
+        var displays = DisplaysForRdpFiles();
         while (result is null)
         {
             try
             {
                 var password = masterPassword;
-                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path)
+                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
                     : sshConfig ? SshConfigImporter.ImportFile(path)
                     : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
             }
@@ -3252,6 +3304,7 @@ public partial class MainWindow : Window
                 }
             };
             view.RememberRecentConnectionsChanged += (_, on) => RememberRecentConnections(on);
+            view.PaneModesChanged += (_, modes) => FollowPaneModes(modes.Side, modes.Inspector);
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             view.TerminalColorsChanged += (_, scheme) =>
             {
@@ -3293,7 +3346,7 @@ public partial class MainWindow : Window
         _settingsHost.IsVisible = false;
         _settingsHost.Content = null;
         _settingsRailButton.Classes.Set("active", false);
-        ShowSidePanel(_sidePanel.IsVisible, save: false);
+        ApplyPanes();
         _currentTab?.FocusContent();
     }
 
