@@ -32,9 +32,72 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 > This is version 0.1.0. The protocols work, but a fair amount hasn't been tried on real machines yet; see
 > [Status](#status).
 
-**Contents:** [Features](#features) · [Accessibility](#accessibility) · [Keyboard shortcuts](#keyboard-shortcuts) ·
+**Contents:** [Platform support](#platform-support) · [Features](#features) · [Accessibility](#accessibility) · [Keyboard shortcuts](#keyboard-shortcuts) ·
 [Where your data lives](#where-your-data-lives) · [Building](#building) · [Status](#status) ·
 [License and credits](#license-and-credits)
+
+## Platform support
+
+<table>
+<tr><td>✅ Works</td><td>🧪 Built, not yet tried on a real machine</td><td>🔸 Partly, see the note</td><td>🗓️ Planned</td><td>➖ Not possible there</td></tr>
+</table>
+
+Windows is where Orrery is built and used day to day. The macOS and Linux builds are complete and pass the same
+tests, but haven't been run on a real Mac or Linux machine yet, so most of their column is 🧪 for now.
+
+| | Windows | macOS | Linux (Wayland) |
+| --- | :---: | :---: | :---: |
+| **Connections** | | | |
+| RDP | ✅ | 🧪 | 🧪 |
+| SSH, with SFTP, port forwards and SOCKS | ✅ | 🧪 | 🧪 |
+| SSH key files and agent keys | 🧪 | 🧪 | 🧪 |
+| VNC | ✅ | 🧪 | 🧪 |
+| Telnet | ✅ | 🧪 | 🧪 |
+| Serial consoles | 🧪 | 🧪 | 🧪 |
+| Local terminal | ✅ PowerShell, cmd, WSL | 🧪 login shell | 🧪 login shell |
+| Web pages, in your browser | ✅ | 🧪 | 🧪 |
+| Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
+| Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
+| **Remote desktops** | | | |
+| Fit the window and follow resizes | ✅ | 🧪 | 🧪 |
+| Clipboard | ✅ text, images, files | 🔸 text | 🔸 text |
+| Sound | ✅ | 🧪 | 🧪 |
+| Mute a tab | ✅ | 🧪 | 🧪 |
+| Shared drives and folders | 🧪 every drive or any folders | 🔸 one folder | 🔸 one folder |
+| Full screen over several displays | 🧪 | ➖ one display [^spaces] | ➖ one display [^wayland] |
+| System keys (Windows key, Alt+Tab) sent to the session | ✅ | 🔸 Send keys menu | 🔸 Send keys menu |
+| Touch and pen, console session, broker redirection | 🧪 | 🧪 | 🧪 |
+| **Recording** | | | |
+| Record terminals and remote desktops, with sound | ✅ | 🧪 | 🧪 |
+| Play back, with speed, skip idle and Find | ✅ | 🧪 | 🧪 |
+| Export `.cast` and `.avi` | 🧪 | 🧪 | 🧪 |
+| Export MP4 | 🧪 built in, with sound | 🔸 through ffmpeg, no sound | 🔸 through ffmpeg, no sound |
+| MP4 without ffmpeg | ✅ | 🗓️ AVFoundation | ➖ |
+| Sound in an ffmpeg export | 🗓️ | 🗓️ | 🗓️ |
+| Record the remote pointer's shape | 🗓️ | 🗓️ | 🗓️ |
+| **Credentials** | | | |
+| System secret store | ✅ Credential Manager | 🧪 Keychain | 🧪 Secret Service |
+| Encrypted vault file | ✅ | 🧪 | 🧪 |
+| Unlock with biometrics | 🧪 Windows Hello | 🔸 Touch ID, needs a signed build | ➖ |
+| **Organizing and import** | | | |
+| Tree, folders, inheritance, host status | ✅ | 🧪 | 🧪 |
+| Host groups (guests under their host) | ✅ | 🧪 | 🧪 |
+| A collapsed host showing its guests' sessions | 🗓️ | 🗓️ | 🗓️ |
+| Import mRemoteNG, `.rdp` and `~/.ssh/config`; export | ✅ | 🧪 | 🧪 |
+| **Accessibility** | | | |
+| Screen readers | ✅ Narrator, NVDA, JAWS | 🧪 VoiceOver | ➖ [^orca] |
+| Color-blind colors and desktop correction | ✅ | 🧪 | 🧪 |
+| **Packages** | | | |
+| Installer | ✅ | 🔸 app bundle, not signed | 🧪 .deb, .rpm, AppImage |
+| Portable | ✅ | 🧪 | 🧪 |
+| arm64 | 🧪 | 🧪 Apple Silicon | 🧪 |
+
+[^spaces]: macOS gives each display its own full-screen space.
+[^wayland]: Wayland doesn't let a window place itself or span displays. X11 sessions aren't supported.
+[^orca]: Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
+
+Further out, and not started: actions in quick connect, browser access through a tray agent, and scripted connect.
+See the [roadmap](docs/roadmap.md).
 
 ## Features
 
@@ -182,12 +245,13 @@ HDR isn't possible over RDP or VNC.
 
 - A connection's *Record sessions* setting (inherited like the others, so a folder can record everything in it),
   *Record every session* in Settings, or a tab's menu, records a session: what a terminal printed, never what's typed, or what a remote desktop showed, at
-  up to 10 frames a second, with an RDP session's sound. A red dot on the tab and a *REC* pill in the session toolbar show it's recording; the pill changes
+  up to 60 frames a second (a ceiling: a frame is taken only when the screen changed), with an RDP session's sound. A red dot on the tab and a *REC* pill in the session toolbar show it's recording; the pill changes
   the frame rate and sound for that recording, or stops it. A reconnect carries on in the same file.
 - Recordings are encrypted, sealed to a key kept with your saved credentials, so recording never asks for the vault
   but playing does. They go in `recordings/` in the data folder, and old ones are deleted by age and total size.
-- The *Recordings* panel on the left lists them, newest first. Orrery plays them itself: speed, Skip idle, 10-second
-  skips, markers for drops and reconnects, volume for recorded sound, and Find for terminals.
+- The *Recordings* panel on the left lists them, newest first. Orrery plays them itself: ½× to 8× speed, with
+  sound kept at its pitch up to 4×, Skip idle, 10-second skips, markers for drops and reconnects, volume for recorded
+  sound, and Find for terminals.
 - Export makes an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi` for remote desktops, or MP4 (H.264,
   H.265 or AV1, picked when you export). On Windows MP4 uses Windows' own encoders, whichever the PC has; elsewhere,
   or for a codec Windows lacks, it goes through an ffmpeg you've installed and chosen in Settings (without sound).
@@ -420,7 +484,7 @@ what works differently there, and what hasn't been tried on a real machine yet.
 ### Every platform
 
 RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
-`2026.10.29-orrery.3` or later, sound without shared drives `orrery.4`, the graphics pipeline and display scaling `orrery.6`, and recording sound `orrery.7`. With a package built on one machine,
+`2026.10.29-orrery.3` or later, sound without shared drives `orrery.4`, the graphics pipeline and display scaling `orrery.6`, recording sound `orrery.7`, and muting a tab `orrery.8`. With a package built on one machine,
 whose libraries for the other platforms are older, Orrery connects there without them and logs which it left out. IronRDP is built without Opus, which needs
 CMake to build, so the server sends sound as PCM, ADPCM or G.711 instead (or AAC, on Windows only).
 
@@ -434,11 +498,11 @@ Not yet checked on real machines:
 - RDP touch and pen input
 - Following an RD Connection Broker's redirection and sending its routing token back (tested against made-up
   redirections, not a real farm)
-- RDP sound, shared drives and folders, and the console session
+- RDP shared drives and folders, and the console session
 - A serial console on real hardware (tested against a stand-in port)
 - The SSH keep-alive interval and a folder's SOCKS proxy against a real server
 - Remote Desktop files saved by Remote Desktop Connection itself (tested against files written to match its format)
-- Session recording with real sessions, and its AVI and MP4 exports in other players (tested with stand-in sessions)
+- Session recording's AVI and MP4 exports in other players
 
 ### Windows
 
