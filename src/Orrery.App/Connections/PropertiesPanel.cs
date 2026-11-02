@@ -420,6 +420,13 @@ sealed class PropertiesPanel : UserControl
     public void ShowSession(SessionTab? tab)
     {
         _liveTab = tab;
+
+        // A tab comes to the front as it opens, before anything can be changed, so this is what it started with.
+        if (tab is { FixedAtStart: null, View: RemoteFrameView, Origin: { Files: false, EntryId: { } id } } && _tree.Find(id) is ConnectionEntry started)
+        {
+            tab.FixedAtStart = SessionSettingsView.FixedSettingsNow(started, tab.Origin.Protocol, _enlargeByDefault());
+        }
+
         if (_node is not null && Content == _root)
         {
             UpdateTabs();
@@ -440,7 +447,8 @@ sealed class PropertiesPanel : UserControl
         else if (_sessionFor is not { } shown || shown.Tab != _liveTab || shown.Node != _node)
         {
             var open = _liveTab!;
-            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, (RemoteFrameView)open.View, _enlargeByDefault);
+            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, (RemoteFrameView)open.View, _enlargeByDefault,
+                open.FixedAtStart ?? SessionSettingsView.FixedSettingsNow((ConnectionEntry)_node!, open.Origin.Protocol, _enlargeByDefault()));
             view.Applied += (_, _) =>
             {
                 ShowSessionBadge();
