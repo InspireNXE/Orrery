@@ -54,6 +54,33 @@ public class FullScreenDisplaysTests
     }
 
     [AvaloniaFact]
+    public void The_displays_are_drawn_to_scale_where_they_sit_and_centered()
+    {
+        // A 1080p display on top of a 1440p main one, as Windows' Display settings would show them.
+        LocalDisplay[] stacked =
+        [
+            new(new ScreenArea(0, 0, 2560, 1440, true), "AW3225QF"),
+            new(new ScreenArea(320, -1080, 1920, 1080, false), "27GL850"),
+        ];
+        var picker = new DisplayPicker(() => stacked, several: true);
+        var window = new Window { Content = picker, Width = 400, Height = 400 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var toggles = Toggles(window);
+        var main = toggles[0].Bounds;
+        var above = toggles[1].Bounds;
+        Assert.Equal(2560 / 1440.0, (main.Width + 2) / (main.Height + 2), 1);
+        Assert.Equal(1920 / 2560.0, (above.Width + 2) / (main.Width + 2), 1);
+        Assert.InRange(main.Y - above.Bottom, 1, 3); // On top of it, a 2 px gap between.
+        Assert.Equal(main.Center.X, above.Center.X, 0); // Centered over it.
+
+        var map = toggles[0].GetVisualParent()!.Bounds;
+        Assert.True(Math.Abs(map.Width / 2 - main.Center.X) < 1, $"map {map}, main {main}, above {above}");
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void A_chosen_display_that_isnt_connected_is_kept_and_said()
     {
         var (picker, window) = Picker();
