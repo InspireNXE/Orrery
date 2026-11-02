@@ -1,4 +1,5 @@
 using System.Text;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -145,6 +146,9 @@ public sealed class RecordingUiTests : IDisposable
         player.Show();
         await WaitFor(() => player.GetVisualDescendants().OfType<TerminalView>().Any());
         Assert.Contains(path, service.InUse);
+        Assert.Equal("web-01 — recording", player.Title);
+        Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "SSH");
+        Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("1 min 1 s") == true);
 
         // Skip idle is on: the minute's gap plays as 2 seconds, so 61 seconds play as 5.
         var timeline = player.GetVisualDescendants().OfType<Slider>().Single();
@@ -164,7 +168,9 @@ public sealed class RecordingUiTests : IDisposable
 
         var find = player.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "Find in output");
         find.Text = "needle";
-        player.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Find"))
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "1 found");
+        player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "Next match")
             .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         terminal = player.GetVisualDescendants().OfType<TerminalView>().Single();
