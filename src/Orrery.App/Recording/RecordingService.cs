@@ -98,7 +98,8 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
             }
             else
             {
-                recorder = new ScreenRecorder(RecordingWriter.Create(path, RecordingKind.Screen, publicKey), info, settings.RecordingFramesPerSecond, settings.RecordingFileBytes);
+                recorder = new ScreenRecorder(RecordingWriter.Create(path, RecordingKind.Screen, publicKey), info, settings.RecordingFramesPerSecond, settings.RecordingFileBytes,
+                    recordSound: settings.RecordsSound);
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

@@ -22,7 +22,7 @@ credential stores (§3) of [design-storage-vault-import.md](design-storage-vault
 **Non-goals**
 - Recording what the user types. Terminal recordings hold what the remote side sent back, never keystrokes, so a
   password typed at a prompt that doesn't echo it isn't recorded.
-- Sound, the clipboard and file transfers.
+- The clipboard and file transfers. Sound is recorded only for RDP, which plays it through IronRDP (§2.2).
 - Bundling a video encoder. Screen recordings export to Motion-JPEG `.avi` with nothing extra; to MP4 through Windows'
   own encoders on Windows; and through an ffmpeg the user has installed anywhere (§3.4). Bundling ffmpeg would mean
   meeting its license for each build (GPL with x264 and x265), the H.264 and H.265 patent pools, and 80–130 MB a
@@ -73,6 +73,13 @@ same, on its own thread and at its own pace:
   recorded.
 - **Several monitors.** A session spread over several displays has one frame buffer covering them; it's recorded as
   one picture, as the view has it.
+- **Sound (RDP).** IronRDP decodes the server's sound and plays it itself, so Orrery never sees it; the fork (branch
+  `orrery/audio-tap`) gives each connection an *audio tap* shared by the static channel and the two dynamic ones.
+  While a recording is attached the tap keeps a copy of each decoded block as 16-bit PCM, at most 10 seconds of it,
+  dropping the oldest if it isn't taken. The recorder takes it every 40 ms and writes an audio event (sample rate,
+  channels, PCM) stamped with when it was taken; all-zero blocks are left out. Stored as played, CD-quality stereo is
+  about 11 MB a minute while sound plays. *Record remote desktop sound* in Settings turns it off (on by default). VNC
+  has no sound.
 
 **Size.** An idle desktop costs next to nothing. Typing in a 1920×1080 desktop is a few kilobytes a frame. Video
 playing inside the session is the worst case: the change frames are then nearly whole frames, roughly 1 to 3 MB
@@ -131,7 +138,7 @@ chunk…                            XChaCha20-Poly1305 over up to 64 KB of the r
   without being closed" rather than as complete.
 - **Inside a chunk.** Events, run together across chunks as one stream: a type byte, the time in milliseconds
   (32 bits), the payload's length (32 bits) and the payload. Info, output, resize, marker and end for a terminal; info,
-  resize, key frame, change frame, pointer, marker and end for a screen. The end event is the last one in a closed file.
+  resize, key frame, change frame, pointer, audio, marker and end for a screen. The end event is the last one in a closed file.
 - **Header contents.** Nothing about the host or user: the connection's name and protocol are inside the encrypted
   part. The header says only what's needed to open it.
 
@@ -170,6 +177,7 @@ readable by anyone who has the file, then writes it where the user chooses:
   Orrery (RIFF, `hdrl`, `movi` and an `idx1` index). Plain AVI is limited in size, so a long export is split into
   parts of 1 GB (`name (part 2).avi`) rather than written as OpenDML. Frames are written at the recording's frame
   rate, with an empty chunk for a frame that repeats the last (players hold the picture), and the pointer drawn in.
+  A recording with sound gets a second stream of 16-bit PCM (`auds`, `01wb` chunks after each frame).
 - **Screen recordings, through Windows:** MP4 with H.264 (default), H.265 or AV1, each listed only if Windows has an
   encoder for it (`MFTEnumEx`): H.264 everywhere but the N editions, H.265 with a graphics card or the HEVC extension,
   AV1 with a recent graphics card, marked "(graphics card)". Media Foundation's sink writer takes NV12 pictures that
@@ -177,12 +185,18 @@ readable by anyone who has the file, then writes it where the user chooses:
   size is rounded up to even sides, or to 16-pixel blocks for a graphics card's encoder, padded with black. The
   graphics card is used only for a codec Windows has no software encoder for: with it on for H.264, the sink writer
   hung in `Finalize` on the PC this was built on. The calls are raw COM by vtable slot, from the Windows SDK headers,
-  as the Windows Hello code does.
+  as the Windows Hello code does. Sound goes in as AAC at 192 kbit/s (the sink writer's AAC encoder, given PCM).
 - **Screen recordings, through ffmpeg:** when Settings › Recordings names an ffmpeg executable, export also offers MP4
   with any of H.264, H.265 or AV1 that Windows can't make, each listed only if that ffmpeg has an encoder for it
   (`ffmpeg -encoders`, read once). This is how macOS and Linux make MP4. Orrery starts ffmpeg by its full path with arguments as a list (no shell), pipes raw RGB frames to its standard
   input, and writes nothing to disk unencrypted except ffmpeg's output file. ffmpeg is never searched for on `PATH`,
-  downloaded or bundled: the user picks the file, and Settings shows its version line.
+  downloaded or bundled: the user picks the file, and Settings shows its version line. It gets no sound: that would
+  need a second pipe, and the choice says "no sound".
+
+**Sound in exports.** The sound track is 44.1 or 48 kHz as recorded (other rates are resampled to 48 kHz), mono or
+stereo (more channels mixed down to two). Blocks are laid end to end on the export's clock; one stamped up to 120 ms
+past where the track has got to follows on (the recorder's timing), and a longer gap is silence. Skip idle shortens
+only stretches with neither pictures nor sound.
 
 Export runs in the background with progress and *Cancel*; a canceled export deletes its partial file.
 
@@ -205,6 +219,7 @@ under a new *Recording* group, for every protocol.
 - *Record every session* (off by default): the *Record sessions* setting of Defaults for all connections, shown here
   too, so every connection records unless it or its folder turns it off. Quick connections follow it as well; a local
   shell and a file browser don't.
+- *Record remote desktop sound* (on by default), with its size: about 11 MB a minute while sound plays.
 - *Put connection names in file names* (on by default).
 - *ffmpeg for MP4 export* (*ffmpeg (optional)* on Windows): none by default; *Choose…* picks the executable (§3.4).
 - *Show recordings* (opens the side panel, §5.3), *Open the recordings folder*, and the space recordings use now.
@@ -268,7 +283,8 @@ Playing, in a window titled with the connection's name:
   type, says how many matches there are, and Enter, Shift+Enter and the arrows beside it go to the next or previous
   one, playing the recording up to it.
 - **Screen:** the frame, scaled to the window, with the same controls. Seeking decodes from the key frame before the
-  point.
+  point. Recorded sound plays on the default output device at 1× (not at other speeds, while seeking or paused),
+  through the IronRDP fork's `AudioOutput`.
 - A recording that ended without being closed plays to where it stops, with "This recording ended without being
   closed, probably because Orrery stopped" at the end.
 - A recording that fails its check partway plays to the last good chunk and says the rest couldn't be read.
@@ -291,7 +307,7 @@ Playing, in a window titled with the connection's name:
 ## 7. Later
 
 - MP4 export without ffmpeg on macOS, through AVFoundation's `AVAssetWriter`. It needs a Mac to build and test on.
-- Recording sound.
+- Sound at speeds other than 1×, and through the ffmpeg export.
 - Recording the remote pointer's shape.
 
 ---

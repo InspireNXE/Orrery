@@ -39,6 +39,9 @@ public enum RecordingEventType : byte
 
     /// <summary>The recording was closed; the last event.</summary>
     End = 8,
+
+    /// <summary>Sound the session played: sample rate (32 bits), channels (16 bits), then 16-bit PCM (<see cref="RecordingFile.AudioPayload"/>).</summary>
+    Audio = 9,
 }
 
 /// <summary>What a recording is of, kept inside its encrypted part.</summary>
@@ -143,6 +146,38 @@ public static class RecordingFile
     /// <summary>The two numbers of a resize or pointer event, or null if it doesn't hold two.</summary>
     public static (int First, int Second)? ReadPair(byte[] payload) =>
         payload.Length == 8 ? (BinaryPrimitives.ReadInt32LittleEndian(payload), BinaryPrimitives.ReadInt32LittleEndian(payload.AsSpan(4))) : null;
+
+    /// <summary>An <see cref="RecordingEventType.Audio"/> event's payload.</summary>
+    public static byte[] AudioPayload(int sampleRate, int channels, ReadOnlySpan<byte> pcm)
+    {
+        var payload = new byte[6 + pcm.Length];
+        BinaryPrimitives.WriteInt32LittleEndian(payload, sampleRate);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(4), (ushort)channels);
+        pcm.CopyTo(payload.AsSpan(6));
+        return payload;
+    }
+
+    /// <summary>
+    /// The sound of an <see cref="RecordingEventType.Audio"/> event, or null if it doesn't hold whole 16-bit frames at a
+    /// rate and channel count that can be played.
+    /// </summary>
+    public static (int SampleRate, int Channels, ReadOnlyMemory<byte> Pcm)? ReadAudio(byte[] payload)
+    {
+        if (payload.Length < 6)
+        {
+            return null;
+        }
+
+        int rate = BinaryPrimitives.ReadInt32LittleEndian(payload);
+        int channels = BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(4));
+        int frame = channels * 2;
+        if (rate is < 4_000 or > 192_000 || channels is < 1 or > 8 || (payload.Length - 6) % frame != 0)
+        {
+            return null;
+        }
+
+        return (rate, channels, payload.AsMemory(6));
+    }
 
     public static byte[] InfoPayload(RecordingInfo info) => JsonSerializer.SerializeToUtf8Bytes(info, JsonOptions);
 

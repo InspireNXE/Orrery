@@ -26,6 +26,11 @@ public static unsafe class MediaFoundation
     internal static readonly Guid VideoEncoderCategory = new("f79eac7d-e545-4387-bdee-d647d7bde42a");
     internal static readonly Guid MajorVideo = new("73646976-0000-0010-8000-00aa00389b71");
     internal static readonly Guid Nv12Subtype = FourCc("NV12");
+    internal static readonly Guid MajorAudio = new("73647561-0000-0010-8000-00aa00389b71");
+
+    // DEFINE_MEDIATYPE_GUID with WAVE_FORMAT_PCM (1) and WAVE_FORMAT_MPEG_HEAAC (0x1610), from mfapi.h and mmreg.h.
+    internal static readonly Guid PcmSubtype = new("00000001-0000-0010-8000-00aa00389b71");
+    internal static readonly Guid AacSubtype = new("00001610-0000-0010-8000-00aa00389b71");
 
     // In order of preference.
     static readonly (string Name, Guid Subtype)[] Known =
@@ -109,11 +114,13 @@ public static unsafe class MediaFoundation
         bool done = false;
         try
         {
-            using var writer = new MediaFoundationVideoWriter(output, codec, width, height, framesPerSecond);
+            var sound = SoundFormat.Of(reader, cancel);
+            using var writer = new MediaFoundationVideoWriter(output, codec, width, height, framesPerSecond, sound);
             int index = 0;
-            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, cancel))
+            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, cancel, sound))
             {
                 writer.Write(frame.Rgb, frame.Changed);
+                writer.WriteSound(frame.Sound);
                 if (++index % 25 == 0)
                 {
                     progress?.Invoke(frame.Time);
@@ -243,6 +250,14 @@ public sealed unsafe class MediaFoundationVideoWriter : IDisposable
     static readonly Guid EnableHardwareTransforms = new("a634a91c-822b-41b9-a494-4de4643612b0");
     static readonly Guid ContainerType = new("150ff23f-4abc-478b-ac4f-e1916fba1cca");
     static readonly Guid ContainerMpeg4 = new("dc6cd05d-b9d0-40ef-bd35-fa622c1ab28a");
+    static readonly Guid AudioChannels = new("37e48bf5-645e-4c5b-89de-ada9e29b696a");
+    static readonly Guid AudioSamplesPerSecond = new("5faeeae7-0290-4c31-9e8a-c534f68d9dba");
+    static readonly Guid AudioBytesPerSecond = new("1aab75c8-cfef-451c-ab95-ac034b8e1731");
+    static readonly Guid AudioBlockAlignment = new("322de230-9eeb-43bd-ab7a-ff412251541d");
+    static readonly Guid AudioBitsPerSample = new("f2deb57f-40fa-4764-aa33-ed4f2d1ff669");
+
+    /// <summary>AAC at 192 kbit/s (24,000 bytes a second), the highest rate the Windows AAC encoder takes.</summary>
+    const uint AacBytesPerSecond = 24_000;
 
     const uint Progressive = 2, Bt709Matrix = 1, Range16To235 = 2, Bt709Primaries = 2, Bt709Transfer = 5;
 
@@ -251,12 +266,14 @@ public sealed unsafe class MediaFoundationVideoWriter : IDisposable
     bool _comInitialized;
     readonly string _codecName;
     IntPtr _writer;
-    uint _stream;
-    long _frames;
+    uint _stream, _soundStream;
+    long _frames, _soundFrames;
+    readonly SoundFormat? _sound;
     bool _started, _finished;
 
     /// <param name="width">Even, as NV12 needs: see <see cref="Nv12.EvenSize"/>.</param>
-    public MediaFoundationVideoWriter(string path, SystemCodec codec, int width, int height, int framesPerSecond)
+    /// <param name="sound">With a format, an AAC sound track too, written with <see cref="WriteSound"/>.</param>
+    public MediaFoundationVideoWriter(string path, SystemCodec codec, int width, int height, int framesPerSecond, SoundFormat? sound = null)
     {
         if ((width | height) % 2 != 0 || width <= 0 || height <= 0 || framesPerSecond <= 0)
         {
@@ -267,6 +284,7 @@ public sealed unsafe class MediaFoundationVideoWriter : IDisposable
         _height = height;
         _framesPerSecond = framesPerSecond;
         _codecName = codec.Name;
+        _sound = sound;
         _nv12 = new byte[Nv12.Size(width, height)];
 
         // S_OK or S_FALSE join the apartment and must be undone; a thread already in the single-threaded one works too.
@@ -321,12 +339,18 @@ public sealed unsafe class MediaFoundationVideoWriter : IDisposable
                 Describe(input, MediaFoundation.Nv12Subtype);
                 MediaFoundation.SetUInt32(input, DefaultStride, (uint)_width);
                 MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr, IntPtr, int>)MediaFoundation.Method(_writer, 4))(_writer, _stream, input, 0));
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, int>)MediaFoundation.Method(_writer, 5))(_writer));
             }
             catch (Exception e) when (IsNative(e))
             {
                 throw Failed($"set up its {codec.Name} encoder for a {_width}×{_height} video", e);
             }
+
+            if (_sound is not null)
+            {
+                AddSoundStream(_sound);
+            }
+
+            Native("start writing the MP4 file", ((delegate* unmanaged[Stdcall]<IntPtr, int>)MediaFoundation.Method(_writer, 5))(_writer));
         }
         finally
         {
@@ -334,6 +358,44 @@ public sealed unsafe class MediaFoundationVideoWriter : IDisposable
             MediaFoundation.Release(output);
             MediaFoundation.Release(input);
         }
+    }
+
+    void AddSoundStream(SoundFormat sound)
+    {
+        IntPtr output = 0, input = 0;
+        try
+        {
+            MediaFoundation.Check(MediaFoundation.MFCreateMediaType(&output));
+            DescribeSound(output, MediaFoundation.AacSubtype, sound);
+            MediaFoundation.SetUInt32(output, AudioBytesPerSecond, AacBytesPerSecond);
+            uint stream;
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, uint*, int>)MediaFoundation.Method(_writer, 3))(_writer, output, &stream));
+            _soundStream = stream;
+
+            MediaFoundation.Check(MediaFoundation.MFCreateMediaType(&input));
+            DescribeSound(input, MediaFoundation.PcmSubtype, sound);
+            MediaFoundation.SetUInt32(input, AudioBlockAlignment, (uint)sound.BlockAlign);
+            MediaFoundation.SetUInt32(input, AudioBytesPerSecond, (uint)sound.BytesPerSecond);
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr, IntPtr, int>)MediaFoundation.Method(_writer, 4))(_writer, _soundStream, input, 0));
+        }
+        catch (Exception e) when (IsNative(e))
+        {
+            throw Failed($"set up its AAC encoder for {sound.SampleRate / 1000.0:0.#} kHz sound", e);
+        }
+        finally
+        {
+            MediaFoundation.Release(output);
+            MediaFoundation.Release(input);
+        }
+    }
+
+    static void DescribeSound(IntPtr type, Guid subtype, SoundFormat sound)
+    {
+        MediaFoundation.SetGuid(type, MajorType, MediaFoundation.MajorAudio);
+        MediaFoundation.SetGuid(type, Subtype, subtype);
+        MediaFoundation.SetUInt32(type, AudioBitsPerSample, 16);
+        MediaFoundation.SetUInt32(type, AudioSamplesPerSecond, (uint)sound.SampleRate);
+        MediaFoundation.SetUInt32(type, AudioChannels, (uint)sound.Channels);
     }
 
     void Describe(IntPtr type, Guid subtype)
@@ -359,33 +421,61 @@ public sealed unsafe class MediaFoundationVideoWriter : IDisposable
             Nv12.FromRgb(rgb, _width, _height, _nv12);
         }
 
+        try
+        {
+            WriteSample(_stream, _nv12, _frames * TimeSpan.TicksPerSecond / _framesPerSecond, TimeSpan.TicksPerSecond / _framesPerSecond);
+        }
+        catch (Exception e) when (IsNative(e))
+        {
+            throw Failed("encode the video", e);
+        }
+
+        _frames++;
+    }
+
+    /// <summary>Adds sound after the picture it goes with: 16-bit PCM in the writer's <see cref="SoundFormat"/>.</summary>
+    public void WriteSound(ReadOnlySpan<byte> pcm)
+    {
+        ObjectDisposedException.ThrowIf(_writer == 0 || _finished, this);
+        if (_sound is null || pcm.Length < _sound.BlockAlign)
+        {
+            return;
+        }
+
+        long frames = pcm.Length / _sound.BlockAlign;
+        try
+        {
+            WriteSample(_soundStream, pcm[..(int)(frames * _sound.BlockAlign)], _soundFrames * TimeSpan.TicksPerSecond / _sound.SampleRate,
+                frames * TimeSpan.TicksPerSecond / _sound.SampleRate);
+        }
+        catch (Exception e) when (IsNative(e))
+        {
+            throw Failed("encode the sound", e);
+        }
+
+        _soundFrames += frames;
+    }
+
+    void WriteSample(uint stream, ReadOnlySpan<byte> bytes, long time, long duration)
+    {
         IntPtr buffer = 0, sample = 0;
         try
         {
-            try
-            {
-                MediaFoundation.Check(MediaFoundation.MFCreateMemoryBuffer((uint)_nv12.Length, &buffer));
-                byte* data;
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, byte**, uint*, uint*, int>)MediaFoundation.Method(buffer, 3))(buffer, &data, null, null));
-                _nv12.CopyTo(new Span<byte>(data, _nv12.Length));
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, int>)MediaFoundation.Method(buffer, 4))(buffer));
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, uint, int>)MediaFoundation.Method(buffer, 6))(buffer, (uint)_nv12.Length));
+            MediaFoundation.Check(MediaFoundation.MFCreateMemoryBuffer((uint)bytes.Length, &buffer));
+            byte* data;
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, byte**, uint*, uint*, int>)MediaFoundation.Method(buffer, 3))(buffer, &data, null, null));
+            bytes.CopyTo(new Span<byte>(data, bytes.Length));
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, int>)MediaFoundation.Method(buffer, 4))(buffer));
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, uint, int>)MediaFoundation.Method(buffer, 6))(buffer, (uint)bytes.Length));
 
-                // IMFSample: SetSampleTime 36, SetSampleDuration 38, AddBuffer 42; times in 100 ns units.
-                MediaFoundation.Check(MediaFoundation.MFCreateSample(&sample));
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)MediaFoundation.Method(sample, 42))(sample, buffer));
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, long, int>)MediaFoundation.Method(sample, 36))(sample, _frames * TimeSpan.TicksPerSecond / _framesPerSecond));
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, long, int>)MediaFoundation.Method(sample, 38))(sample, TimeSpan.TicksPerSecond / _framesPerSecond));
+            // IMFSample: SetSampleTime 36, SetSampleDuration 38, AddBuffer 42; times in 100 ns units.
+            MediaFoundation.Check(MediaFoundation.MFCreateSample(&sample));
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)MediaFoundation.Method(sample, 42))(sample, buffer));
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, long, int>)MediaFoundation.Method(sample, 36))(sample, time));
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, long, int>)MediaFoundation.Method(sample, 38))(sample, duration));
 
-                // IMFSinkWriter.WriteSample, slot 6.
-                MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr, int>)MediaFoundation.Method(_writer, 6))(_writer, _stream, sample));
-            }
-            catch (Exception e) when (IsNative(e))
-            {
-                throw Failed("encode the video", e);
-            }
-
-            _frames++;
+            // IMFSinkWriter.WriteSample, slot 6.
+            MediaFoundation.Check(((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr, int>)MediaFoundation.Method(_writer, 6))(_writer, stream, sample));
         }
         finally
         {
