@@ -113,6 +113,12 @@
       <Setter Property="Padding" Value="11,5.5" />
     </Style>
 
+    <!-- Avalonia's window buttons light up light gray whatever the theme, which hid their white glyphs; minimize and
+         maximize take the app's hover color instead. Close keeps its red. -->
+    <Style Selector="CaptionButtons /template/ Button:not(#PART_CloseButton)">
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+    </Style>
+
     <!-- Small bordered buttons, as in the mockup's session toolbar. -->
     <Style Selector="Button">
       <Setter Property="FontSize" Value="12" />
