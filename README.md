@@ -120,6 +120,16 @@ host you type in.
   is a plain TCP connect by default, which some networks treat as a port scan. Settings can switch it to ping or turn
   it off. Firewalls often block ping, so a host that's up can show as down, and where this computer isn't allowed to
   ping, hosts show the dashed ring. A serial port isn't checked, and a web page is checked at its host and port.
+- The properties pane lists each setting on one line with its value. A blue dot marks the ones set on that
+  connection or folder; the rest are muted and come from above. Click a row to change it, which sets it there, or
+  pick "Use that instead" to go back to the inherited value. The footer counts what's set there.
+- While a remote desktop is open for the connection shown, the pane has a This session tab. Scaling, View only and
+  Color correction change the open tab at once and last until it closes; Keep for next time saves a change on the
+  connection. Settings fixed when the session started are listed under Need a reconnect, with a Reconnect button.
+- The side panel and the properties pane each have a layout, in Settings > General: Expanded docks it beside the
+  sessions; Collapsed leaves a strip and opens it over them; Auto docks it while no session is showing and collapses
+  it while one is; Hidden leaves no strip, and the window's edge or its shortcut brings it back. A pane opened over a
+  session doesn't resize the remote desktop.
 - The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
   hover), and when the last attempt failed, if that was more recent.
 
@@ -235,8 +245,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
-| Ctrl+B | Show or hide the side panel |
-| Ctrl+Alt+B | Show or hide the properties pane |
+| Ctrl+B | Show or hide the side panel (or open it over the sessions, when it isn't docked) |
+| Ctrl+Alt+B | Show or hide the properties pane (or open it over the sessions, when it isn't docked) |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (you can change this in Settings) |
 | Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back in |
 | Ctrl+Alt+End (Ctrl+Cmd+End on macOS) | In a remote desktop: send Ctrl+Alt+Del |
