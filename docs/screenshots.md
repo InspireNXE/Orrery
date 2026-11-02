@@ -21,6 +21,7 @@ platform with real Skia rendering, so the pictures show the app's actual layout,
 - It runs as a portable copy, so credentials go to a vault file in that temp folder. It never opens the system
   keychain, your Orrery data folders, or Windows Hello.
 - The sessions are fakes. The SSH tab shows text the tool writes into the terminal, and nothing connects anywhere.
+  The recording shots record that fake session into the temp folder and play it back.
 - The real host check is turned off. A fake one says which demo hosts are up or down, so no host is probed.
 - The status bar's data folder line is replaced with a made-up path.
 
@@ -43,6 +44,8 @@ The tool is in `Orrery.sln`, so it keeps building, but it isn't a test project a
 | `connection-lost.png` | The connection-lost screen for a login the server refused |
 | `quick-connect.png` | Quick connect with "web" typed in |
 | `settings-appearance.png` | Settings › Appearance with a color vision chosen |
+| `recording.png` | An SSH tab being recorded, with the red dot and the REC pill |
+| `recording-playback.png` | The Recordings panel and player, paused partway through that recording |
 | `interface-colors.png` | The connection tree in Standard and Clearer interface colors |
 | `social-preview.png` | GitHub's social preview, 1280×640. Upload it under the repository's Settings › General › Social preview |
 

@@ -69,4 +69,20 @@ static class DemoShell
          10:42:15 up 2 days,  3:01,  1 user,  load average: 0.08, 0.05, 0.01
         {Prompt}
         """;
+
+    /// <summary>What web-01 prints while it's recorded, a step at a time: a cleared screen, then a deploy.</summary>
+    public static readonly string[] Recorded =
+    [
+        "clear\n\e[H\e[2J" + Prompt,
+        "cd /srv/www && ./deploy.sh v2.4.2\n",
+        $"Fetching v2.4.2 ... {Green}done{Reset}\nInstalling dependencies ... {Green}done{Reset} (212 packages)\n",
+        $"Building assets ... {Green}done{Reset} (14.2s)\n",
+        $"Linking {Cyan}current{Reset} -> releases/2026-10-31-1043\nReloading nginx ... {Green}done{Reset}\n",
+        $"{Green}Deployed v2.4.2{Reset} in 21s\n" + Prompt,
+        "curl -s localhost/health\n{\"status\":\"ok\",\"version\":\"2.4.2\"}\n" + Prompt,
+        "tail -n 3 /var/log/nginx/access.log\n"
+            + "10.20.8.15 [10:43:02] \"GET /health\" 200 52\n"
+            + "10.20.4.7  [10:43:05] \"GET /\" 200 6127\n"
+            + "10.20.4.7  [10:43:05] \"GET /static/app.css\" 200 18744\n" + Prompt,
+    ];
 }
