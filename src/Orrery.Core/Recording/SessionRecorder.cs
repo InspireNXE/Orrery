@@ -274,6 +274,9 @@ public sealed class ScreenRecorder : SessionRecorder
 {
     static readonly TimeSpan KeyFrameEvery = TimeSpan.FromSeconds(30);
 
+    /// <summary>How often sound is taken from the session; it's stamped with the time it's taken.</summary>
+    static readonly TimeSpan SoundEvery = TimeSpan.FromMilliseconds(40);
+
     readonly DamageList _damage = new();
     readonly object _damageLock = new();
     readonly TimeSpan _interval;
@@ -287,14 +290,29 @@ public sealed class ScreenRecorder : SessionRecorder
     byte[] _rowRgb = [];
     int _width, _height;
     (int X, int Y)? _lastPointer;
+    readonly bool _recordSound;
+    readonly object _soundLock = new();
+    IAudioTap? _tap;
 
-    public ScreenRecorder(RecordingWriter writer, RecordingInfo info, int framesPerSecond, long maxBytes, Func<TimeSpan>? clock = null)
+    public ScreenRecorder(RecordingWriter writer, RecordingInfo info, int framesPerSecond, long maxBytes, Func<TimeSpan>? clock = null, bool recordSound = false)
         : base(writer, info, maxBytes, clock)
     {
         _interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(framesPerSecond, 1, 30));
-        Stopped += (_, _) => _stop.Cancel();
+        _recordSound = recordSound;
+        Stopped += (_, _) =>
+        {
+            _stop.Cancel();
+            SetTap(null);
+        };
         _ = Task.Run(LoopAsync);
+        if (recordSound)
+        {
+            _ = Task.Run(SoundLoopAsync);
+        }
     }
+
+    /// <summary>Sound left out because the disk was behind.</summary>
+    public int DroppedSound { get; private set; }
 
     /// <summary>Where the pointer is on the remote desktop, read with each frame; the view supplies it.</summary>
     public Func<(int X, int Y)?>? Pointer { get; set; }
@@ -314,6 +332,21 @@ public sealed class ScreenRecorder : SessionRecorder
 
             screen.FrameUpdated += OnFrame;
         }
+
+        if (_recordSound && session is IAudioSession { AudioTap: { } tap })
+        {
+            SetTap(tap);
+        }
+    }
+
+    void SetTap(IAudioTap? tap)
+    {
+        lock (_soundLock)
+        {
+            _tap?.SetEnabled(false);
+            _tap = tap;
+            _tap?.SetEnabled(true);
+        }
     }
 
     protected override void OnDetach(IConnectionSession session)
@@ -327,6 +360,47 @@ public sealed class ScreenRecorder : SessionRecorder
         {
             _screen = null;
             _damage.Clear();
+        }
+
+        SetTap(null);
+    }
+
+    async Task SoundLoopAsync()
+    {
+        using var timer = new PeriodicTimer(SoundEvery);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+            {
+                CaptureSound();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>Records the sound the session has played since the last call. Called by the loop, and by tests.</summary>
+    internal void CaptureSound()
+    {
+        lock (_soundLock)
+        {
+            while (_tap?.TryTake() is { } chunk)
+            {
+                // Silence takes room and plays the same as nothing.
+                if (chunk.Pcm.AsSpan().IndexOfAnyExcept((byte)0) < 0)
+                {
+                    continue;
+                }
+
+                if (Backlog > MaxBacklog)
+                {
+                    DroppedSound++;
+                    continue;
+                }
+
+                Enqueue(RecordingEventType.Audio, RecordingFile.AudioPayload(chunk.SampleRate, chunk.Channels, chunk.Pcm));
+            }
         }
     }
 

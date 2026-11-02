@@ -3,8 +3,16 @@ using System.Text.RegularExpressions;
 
 namespace Orrery.Core.Recording;
 
-/// <summary>A picture of a screen recording at one moment, for export: RGB, with the pointer drawn in.</summary>
-public sealed record ExportFrame(TimeSpan Time, int Width, int Height, byte[] Rgb, bool Changed);
+/// <summary>
+/// A picture of a screen recording at one moment, for export: RGB, with the pointer drawn in; and the sound track laid
+/// since the frame before (<see cref="SoundTrack"/>), to be written after it. The sound runs from where the last
+/// frame's ended, so it may lag the picture by up to a frame while it's being read; its timing comes from its own length.
+/// </summary>
+public sealed record ExportFrame(TimeSpan Time, int Width, int Height, byte[] Rgb, bool Changed)
+{
+    /// <summary>PCM in the export's <see cref="SoundFormat"/>; empty without sound.</summary>
+    public byte[] Sound { get; init; } = [];
+}
 
 /// <summary>
 /// Steps through a screen recording at a steady frame rate (design §3.4), the way a video file needs it, rather than
@@ -17,9 +25,11 @@ public static class ScreenExport
 
     /// <param name="width">The video's size: every frame is drawn at it, a screen of another size centered on black.</param>
     /// <remarks>Each frame's pixels are the same buffer, drawn again for the next one: use them before moving on.</remarks>
+    /// <param name="sound">The sound track's format, from <see cref="SoundFormat.Of"/>; null leaves sound out.</param>
     public static IEnumerable<ExportFrame> Frames(RecordingReader reader, int framesPerSecond, int width, int height, bool skipIdle,
-        CancellationToken cancel = default)
+        CancellationToken cancel = default, SoundFormat? sound = null)
     {
+        var track = sound is null ? null : new SoundTrack(sound);
         var decoder = new ScreenDecoder();
         var step = TimeSpan.FromSeconds(1.0 / Math.Max(1, framesPerSecond));
         var output = new byte[width * height * 3];
@@ -48,9 +58,15 @@ public static class ScreenExport
                     Render(decoder, output, width, height);
                 }
 
-                yield return new ExportFrame(next, width, height, output, changed);
+                yield return new ExportFrame(next, width, height, output, changed) { Sound = track?.Take() ?? [] };
                 changed = false;
                 next += step;
+            }
+
+            if (e.Type == RecordingEventType.Audio)
+            {
+                track?.Add(at, e.Payload);
+                continue;
             }
 
             if (decoder.Apply(e) && e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change or RecordingEventType.Pointer)
@@ -63,7 +79,7 @@ public static class ScreenExport
         if (any)
         {
             Render(decoder, output, width, height);
-            yield return new ExportFrame(next, width, height, output, true);
+            yield return new ExportFrame(next, width, height, output, true) { Sound = track?.Take() ?? [] };
         }
     }
 
