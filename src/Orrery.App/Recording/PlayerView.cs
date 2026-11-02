@@ -76,6 +76,14 @@ sealed partial class PlayerView : DockPanel, IDisposable
     readonly ComboBox _speed = new() { MinWidth = 76, VerticalAlignment = VerticalAlignment.Center };
     readonly CheckBox _skipIdle = new() { Content = "Skip idle", IsChecked = true, VerticalAlignment = VerticalAlignment.Center };
 
+    // Sound: a speaker that mutes, and how loud. Kept for the next recording played while Orrery runs.
+    static double s_volume = 0.8;
+    static bool s_muted;
+    readonly StrokeIcon _speakerIcon = StrokeIcon.Create(Icons.Volume, 16);
+    readonly Button _speaker = new() { Width = 30, Height = 30, VerticalAlignment = VerticalAlignment.Center };
+    readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Width = 92, VerticalAlignment = VerticalAlignment.Center, Classes = { "volume" } };
+    readonly StackPanel _sound = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+
     RecordingKind _kind;
     RecordingEnding _ending;
     RecordingInfo? _info;
@@ -250,7 +258,24 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
         // The time on the left, the buttons in the middle and how it plays on the right, as in most players.
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, Children = { back, _playButton, forward } };
-        var how = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Children = { _skipIdle, _speed } };
+        _speaker.Classes.Add("icon");
+        _speaker.Content = _speakerIcon;
+        _speaker.Click += (_, _) => ToggleMute();
+        _volume.Value = s_volume * 100;
+        AutomationProperties.SetName(_volume, "Volume");
+        _volume.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty)
+            {
+                s_volume = _volume.Value / 100;
+                s_muted = s_volume == 0;
+                ShowVolume();
+            }
+        };
+        _sound.Children.Add(_speaker);
+        _sound.Children.Add(_volume);
+        ShowVolume();
+        var how = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Children = { _sound, _skipIdle, _speed } };
         Grid.SetColumn(buttons, 1);
         Grid.SetColumn(how, 2);
         var transport = new Grid
@@ -387,6 +412,9 @@ sealed partial class PlayerView : DockPanel, IDisposable
             case Key.Home:
                 Seek(TimeSpan.Zero);
                 break;
+            case Key.M when _sound.IsVisible:
+                ToggleMute();
+                break;
             case Key.End:
                 Seek(_duration);
                 break;
@@ -426,6 +454,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
         ShowWhat();
         PlaceTicks();
         _findBar.IsVisible = _kind == RecordingKind.Terminal;
+        _sound.IsVisible = _entries.Any(e => e.Type == RecordingEventType.Audio);
         _banner.Text = _ending switch
         {
             RecordingEnding.Unclosed => "This recording ended without being closed, probably because Orrery stopped while recording.",
@@ -867,7 +896,52 @@ sealed partial class PlayerView : DockPanel, IDisposable
             _audioFormat = (rate, channels);
         }
 
-        _audio?.Write(pcm.Span);
+        _audio?.Write(Louder(pcm.Span, s_muted ? 0 : s_volume));
+    }
+
+    /// <summary>16-bit samples scaled to the volume; at full volume they're played as recorded.</summary>
+    internal static ReadOnlySpan<byte> Louder(ReadOnlySpan<byte> pcm, double volume)
+    {
+        if (volume >= 1)
+        {
+            return pcm;
+        }
+
+        // Volume sliders feel even when they follow a curve rather than a straight line.
+        double gain = volume * volume;
+        var scaled = new byte[pcm.Length & ~1];
+        for (int i = 0; i + 1 < pcm.Length; i += 2)
+        {
+            short sample = (short)(pcm[i] | (pcm[i + 1] << 8));
+            short quieter = (short)Math.Round(sample * gain);
+            scaled[i] = (byte)quieter;
+            scaled[i + 1] = (byte)(quieter >> 8);
+        }
+
+        return scaled;
+    }
+
+    void ToggleMute()
+    {
+        if (s_muted && s_volume == 0)
+        {
+            _volume.Value = 50; // unmuting at nothing would still be silent
+            return;
+        }
+
+        s_muted = !s_muted;
+        ShowVolume();
+    }
+
+    void ShowVolume()
+    {
+        double shown = s_muted ? 0 : s_volume;
+        _speakerIcon.Data = Geometry.Parse(shown == 0 ? Icons.Muted : shown < 0.5 ? Icons.VolumeLow : Icons.Volume);
+        var tip = s_muted ? "Unmute" : "Mute";
+        ToolTip.SetTip(_speaker, $"{tip} (M)");
+        AutomationProperties.SetName(_speaker, tip);
+        ToolTip.SetTip(_volume, $"Volume {Math.Round(shown * 100)}%");
+        _volume.Opacity = s_muted ? 0.5 : 1;
     }
 
     void DrawScreen()

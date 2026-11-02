@@ -18,6 +18,12 @@ public interface IAudioTap
 
     /// <summary>The oldest sound kept, or null.</summary>
     AudioChunk? TryTake();
+
+    /// <summary>Whether the session's sound is silenced here (a tab's mute button); a recording still gets it.</summary>
+    bool Muted { get; set; }
+
+    /// <summary>How long ago the session last played sound anyone could hear, muted or not; null if it never has.</summary>
+    TimeSpan? SoundAge { get; }
 }
 
 /// <summary>Interleaved 16-bit little-endian PCM.</summary>
