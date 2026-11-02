@@ -23,7 +23,7 @@ namespace Orrery.App.Sessions;
 /// Shows an <see cref="IFrameBufferSession"/> (RDP today, VNC later) and forwards keyboard and pointer
 /// input to it. Frame updates arrive on a background thread and are coalesced into one copy per UI frame.
 /// </summary>
-public sealed class RemoteFrameView : Panel
+public sealed partial class RemoteFrameView : Panel
 {
     static readonly IBrush SurfaceBrush = new SolidColorBrush(Color.Parse("#0B0D10"));
 
@@ -174,6 +174,10 @@ public sealed class RemoteFrameView : Panel
             Child = new DockPanel { Children = { Pane.Docked(closeBanner, Dock.Right), _bannerNotice } },
         };
         Children.Add(_banner);
+        if (session is IClipboardSession { ExchangesFiles: true } fileSession)
+        {
+            ShareFilesAndImages(fileSession);
+        }
 
         // Window drags fire many size changes; ask the server once the size settles.
         _resizeTimer = new DispatcherTimer { Interval = ResizeSettleDelay };
@@ -914,10 +918,25 @@ public sealed class RemoteFrameView : Panel
 
         try
         {
-            if (await clipboard.TryGetTextAsync() is { Length: > 0 } text && text != _lastClipboard)
+            // Files first: a file manager puts their names on the clipboard as text too.
+            if (clipboardSession.ExchangesFiles && await SendLocalFilesAsync(clipboard, clipboardSession))
             {
-                _lastClipboard = text;
-                clipboardSession.SendClipboard(text);
+                return;
+            }
+
+            if (await clipboard.TryGetTextAsync() is { Length: > 0 } text)
+            {
+                if (text != _lastClipboard)
+                {
+                    _lastClipboard = text;
+                    _lastImage = null;
+                    _lastFiles = null;
+                    clipboardSession.SendClipboard(text);
+                }
+            }
+            else if (clipboardSession.ExchangesFiles)
+            {
+                await SendLocalImageAsync(clipboard, clipboardSession);
             }
         }
         catch (Exception e) when (e is COMException or InvalidOperationException)

@@ -112,6 +112,18 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     /// <summary>Whether clipboard text goes through <see cref="SendClipboard"/> and <see cref="RemoteClipboardChanged"/>.</summary>
     public bool ExchangesClipboard => _textClipboard is not null;
 
+    /// <summary>Whether images and files go through this interface too: the same, as the callback clipboard carries both.</summary>
+    public bool ExchangesFiles => _textClipboard is not null;
+
+    /// <inheritdoc/>
+    public event EventHandler<byte[]>? RemoteClipboardImageChanged;
+
+    /// <inheritdoc/>
+    public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged;
+
+    /// <inheritdoc/>
+    public event EventHandler<ClipboardTransfer>? ClipboardTransferChanged;
+
     /// <summary>
     /// Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.
     /// Call on the UI thread: on Windows the shared clipboard is created here, and pasting files from the
@@ -141,7 +153,8 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                     session._textClipboard = CallbackCliprdr.WithLimits(
                         MaxQueuedClipboardEvents,
                         (uint)RdpClipboardBridge.MaxDataBytes,
-                        (uint)(RdpClipboardBridge.MaxDataBytes * RdpClipboardBridge.MaxPendingRequests));
+                        (uint)RdpClipboardBridge.MaxDataBytes * 2);
+                    session._textClipboard.EnableFileTransfer();
                 }
             }
             catch (EntryPointNotFoundException)
@@ -190,6 +203,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 _bridge = new RdpClipboardBridge(new CallbackChannel(this, _textClipboard), () => State == SessionState.Connected);
                 _bridge.RemoteTextChanged += (_, text) => RemoteClipboardChanged?.Invoke(this, text);
                 _bridge.TextRefused += (_, reason) => ClipboardRefused?.Invoke(this, reason);
+                _bridge.RemoteImageChanged += (_, image) => RemoteClipboardImageChanged?.Invoke(this, image);
+                _bridge.RemoteFilesChanged += (_, paths) => RemoteClipboardFilesChanged?.Invoke(this, paths);
+                _bridge.TransferChanged += (_, transfer) => ClipboardTransferChanged?.Invoke(this, transfer);
             }
 
             SetState(SessionState.Connected);
@@ -442,6 +458,12 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
     public void SendClipboard(string text) => _bridge?.SetLocalText(text);
 
+    public void SendClipboardImage(ClipboardImage image) => _bridge?.SetLocalImage(image);
+
+    public void SendClipboardFiles(IReadOnlyList<string> paths) => _bridge?.SetLocalFiles(paths);
+
+    public void CancelClipboardTransfer() => _bridge?.CancelDownload();
+
     /// <summary>IronRDP's callback clipboard, answered under the stage lock. Event data is copied out and capped here.</summary>
     sealed class CallbackChannel(RdpSession session, CallbackCliprdr clipboard) : IRdpClipboardChannel
     {
@@ -453,31 +475,84 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 null => null,
                 ClipboardEventType.Ready => new(RdpClipboardEventKind.Ready),
                 ClipboardEventType.FormatListRequested => new(RdpClipboardEventKind.FormatListRequested),
-                ClipboardEventType.RemoteFormatList => new(RdpClipboardEventKind.RemoteFormatList, Formats: ReadFormats(next.RemoteFormats)),
+                ClipboardEventType.RemoteFormatList => ReadFormats(next.RemoteFormats),
                 ClipboardEventType.FormatDataRequested => new(RdpClipboardEventKind.FormatDataRequested, Format: next.RequestedFormat?.Value ?? 0),
                 ClipboardEventType.FormatDataResponse => new(RdpClipboardEventKind.FormatDataResponse, Format: next.ResponseFormat?.Value ?? 0, Data: ReadData(next.FormatData)),
+                ClipboardEventType.RemoteFileList => new(RdpClipboardEventKind.RemoteFileList, Format: next.ResponseFormat?.Value ?? 0)
+                {
+                    Files = ReadFiles(next.RemoteFiles),
+                    LockId = next.HasRemoteFilesLockId() ? next.RemoteFilesLockId() : null,
+                },
+                ClipboardEventType.FileContentsRequested when next.FileContentsRequest is { } request => new(RdpClipboardEventKind.FileContentsRequested)
+                {
+                    FileRequest = new(request.StreamId(), request.Index(), request.IsSizeRequest(), (long)Math.Min(request.Position(), long.MaxValue),
+                        (int)Math.Min(request.RequestedSize(), int.MaxValue), request.HasDataId() ? request.DataId() : null),
+                },
+                ClipboardEventType.FileContentsResponse when next.FileContentsResponse is { } response => ReadFileContents(response),
+                ClipboardEventType.Lock => new(RdpClipboardEventKind.Lock) { LockId = next.LockId() },
+                ClipboardEventType.Unlock => new(RdpClipboardEventKind.Unlock) { LockId = next.LockId() },
                 _ => new(RdpClipboardEventKind.Other),
             };
         }
 
-        static uint[] ReadFormats(ClipboardFormatIterator? formats)
+        public bool FileTransfer => clipboard.FileTransferNegotiated;
+
+        static RdpClipboardEvent ReadFormats(ClipboardFormatIterator? formats)
         {
-            if (formats is null)
+            int count = formats is null ? 0 : (int)Math.Min(formats.Len(), MaxRemoteFormats);
+            var ids = new uint[count];
+            var names = new string?[count];
+            for (int i = 0; i < count; i++)
+            {
+                if (formats!.Get((nuint)i) is { } format)
+                {
+                    ids[i] = format.Id.Value;
+                    names[i] = format.HasName() ? format.Name : null;
+                }
+            }
+
+            return new(RdpClipboardEventKind.RemoteFormatList, Formats: ids) { Names = names };
+        }
+
+        static RdpRemoteFile[] ReadFiles(FileDescriptorList? list)
+        {
+            if (list is null)
             {
                 return [];
             }
 
-            int count = (int)Math.Min(formats.Len(), MaxRemoteFormats);
-            var ids = new uint[count];
-            for (int i = 0; i < count; i++)
+            using (list)
             {
-                ids[i] = formats.Get((nuint)i)?.Id.Value ?? 0;
-            }
+                // One past the limit, so the bridge sees there were too many.
+                int count = (int)Math.Min(list.Len(), (nuint)RdpClipboardFiles.MaxEntries + 1);
+                var files = new RdpRemoteFile[count];
+                for (int i = 0; i < count; i++)
+                {
+                    using var file = list.Get((nuint)i)!;
+                    files[i] = new(file.GetName(), file.GetRelativePath(),
+                        file.HasSize() ? (long)Math.Min(file.GetSize(), long.MaxValue) : null, file.IsDirectory());
+                }
 
-            return ids;
+                return files;
+            }
         }
 
-        byte[]? ReadData(FormatDataResponse? response)
+        static RdpClipboardEvent ReadFileContents(FfiFileContentsResponse response)
+        {
+            using (response)
+            {
+                byte[]? data = null;
+                if (!response.IsError())
+                {
+                    using var bytes = response.Data();
+                    data = ToBytes(bytes);
+                }
+
+                return new(RdpClipboardEventKind.FileContentsResponse, Data: data) { StreamId = response.StreamId() };
+            }
+        }
+
+        static byte[]? ReadData(FormatDataResponse? response)
         {
             if (response is null)
             {
@@ -486,14 +561,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
             using (response)
             {
-                if (response.IsError())
+                // IronRDP passes data over its limit as an error, so this is only a second check.
+                if (response.IsError() || response.DataSize() > (nuint)RdpClipboardBridge.MaxDataBytes)
                 {
-                    return null;
-                }
-
-                if (response.DataSize() > (nuint)RdpClipboardBridge.MaxDataBytes)
-                {
-                    session._bridge?.RefuseRemote((long)response.DataSize());
                     return null;
                 }
 
@@ -502,16 +572,54 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             }
         }
 
-        public Task AnnounceFormatsAsync(IReadOnlyList<uint> formats, CancellationToken token)
+        public Task AnnounceFormatsAsync(IReadOnlyList<RdpClipboardFormat> formats, CancellationToken token)
         {
             var list = ClipboardFormatIterator.New();
             foreach (var format in formats)
             {
-                list.Push(ClipboardFormat.New(ClipboardFormatId.New(format)));
+                var id = ClipboardFormatId.New(format.Id);
+                list.Push(format.Name is { } name ? ClipboardFormat.NewNamed(id, name) : ClipboardFormat.New(id));
             }
 
             return session.SubmitClipboardAsync(() => session._activeStage!.InitiateClipboardCopy(list), token);
         }
+
+        public async Task OfferFilesAsync(IReadOnlyList<LocalClipboardFile> files, CancellationToken token)
+        {
+            using var list = FileDescriptorList.New();
+            foreach (var file in files)
+            {
+                using var descriptor = FileDescriptor.New(file.Name, file.RelativePath, (ulong)file.Size, file.Directory, (ulong)file.LastWriteUtc.ToFileTimeUtc());
+                list.Push(descriptor);
+            }
+
+            using var message = ClipboardMessage.NewInitiateFileCopy(list);
+            await SubmitMessageAsync(message, token);
+        }
+
+        public async Task RequestFileContentsAsync(uint streamId, int index, bool sizeRequest, long position, int length, uint? lockId, CancellationToken token)
+        {
+            using var message = ClipboardMessage.NewFileContentsRequest(streamId, index, sizeRequest, (ulong)position, (uint)length, lockId is not null, lockId ?? 0);
+            await SubmitMessageAsync(message, token);
+        }
+
+        public async Task SendFileContentsAsync(uint streamId, byte[]? data, CancellationToken token)
+        {
+            using var message = data is null ? ClipboardMessage.NewFileContentsError(streamId) : ClipboardMessage.NewFileContentsData(streamId, data);
+            await SubmitMessageAsync(message, token);
+        }
+
+        public async Task SendFileSizeAsync(uint streamId, long size, CancellationToken token)
+        {
+            using var message = ClipboardMessage.NewFileContentsSize(streamId, (ulong)size);
+            await SubmitMessageAsync(message, token);
+        }
+
+        public Task DriveTimeoutsAsync(CancellationToken token) =>
+            session.SubmitClipboardAsync(() => session._activeStage!.DriveClipboardTimeouts(), token);
+
+        Task SubmitMessageAsync(ClipboardMessage message, CancellationToken token) =>
+            session.SubmitClipboardAsync(() => session._activeStage!.SubmitClipboardMessage(message), token);
 
         public Task RequestDataAsync(uint format, CancellationToken token) =>
             session.SubmitClipboardAsync(() => session._activeStage!.InitiateClipboardPaste(ClipboardFormatId.New(format)), token);
@@ -1119,6 +1227,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         _clipboard = null;
         _textClipboard?.Dispose();
         _textClipboard = null;
+        _bridge?.DeleteDownloads();
 
         _cts.Dispose();
         _writeLock.Dispose();
