@@ -12,8 +12,8 @@ namespace Orrery.App.Sessions;
 /// <summary>
 /// The settings pane's "This session" tab, for an open remote desktop. What the view can change while it runs (scaling,
 /// view only, color correction) changes the open tab at once and lasts until it closes; each change can be kept for
-/// next time, which saves it on the connection. The rest were fixed when the session started, so they're listed as
-/// saved, with a button to reconnect with them.
+/// next time, which saves it on the connection. The rest were fixed when the session started; once any of those is
+/// saved differently, a card lists the changes with a button to reconnect with them.
 /// </summary>
 sealed class SessionSettingsView : UserControl
 {
@@ -33,13 +33,19 @@ sealed class SessionSettingsView : UserControl
     readonly List<LiveItem> _items = [];
     readonly TextBlock _changes = new() { FontSize = 12, Foreground = SoftBrush };
     readonly Control _footer;
+    readonly Protocol _protocol;
+    readonly Func<bool> _enlargeByDefault;
+    readonly IReadOnlyList<(string Label, string Value)> _startedWith;
+    readonly StackPanel _fixedRows = new() { Spacing = 2 };
+    readonly Border _reconnectGroup;
 
     /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, for a connection that doesn't set its own.</param>
-    public SessionSettingsView(ConnectionTree tree, ConnectionEntry entry, Protocol protocol, RemoteFrameView view, Func<bool> enlargeByDefault)
+    /// <param name="startedWith">The fixed settings as they were when the session started (<see cref="FixedSettingsNow"/>).</param>
+    public SessionSettingsView(ConnectionTree tree, ConnectionEntry entry, Protocol protocol, RemoteFrameView view, Func<bool> enlargeByDefault,
+        IReadOnlyList<(string Label, string Value)> startedWith)
     {
         _tree = tree;
         _entry = entry;
-        var saved = SettingsResolver.Resolve(entry);
 
         _items.Add(LiveItem.Choice("Scaling", ScalingLabels, () => view.Scaling, value => view.Scaling = value,
             () => SettingsResolver.Resolve(_entry).Scaling.Value, value => _entry.Settings.Scaling = value));
@@ -57,25 +63,15 @@ sealed class SessionSettingsView : UserControl
             item.Kept += (_, _) => Keep(item);
         }
 
+        _protocol = protocol;
+        _enlargeByDefault = enlargeByDefault;
+        _startedWith = startedWith;
         var reconnect = new Button { Content = "Reconnect", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Foreground = ChangedBrush };
         reconnect.Click += (_, _) => ReconnectRequested?.Invoke(this, EventArgs.Empty);
-        var fixedRows = new StackPanel { Spacing = 2 };
-        foreach (var (label, value) in FixedSettings(saved, protocol, enlargeByDefault()))
-        {
-            fixedRows.Children.Add(new DockPanel
-            {
-                Margin = new Thickness(0, 4),
-                Children =
-                {
-                    Pane.Docked(new TextBlock { Text = value, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 180 }, Dock.Right),
-                    new TextBlock { Text = label, FontSize = 12, Foreground = SoftBrush, TextTrimming = TextTrimming.CharacterEllipsis },
-                },
-            });
-        }
 
         var heading = new TextBlock { Text = "Need a reconnect", FontSize = 13, FontWeight = FontWeight.SemiBold };
         AutomationProperties.SetHeadingLevel(heading, 2);
-        var group = new Border
+        _reconnectGroup = new Border
         {
             Background = GroupBrush,
             BorderBrush = Pane.LineBrush,
@@ -89,8 +85,8 @@ sealed class SessionSettingsView : UserControl
                 Children =
                 {
                     heading,
-                    Note("Fixed when the session started. Change them in Saved settings, then reconnect; reconnecting also drops this session's changes."),
-                    fixedRows,
+                    Note("These saved settings changed after the session started, and take effect when it reconnects. Reconnecting also drops this session's changes."),
+                    _fixedRows,
                     reconnect,
                 },
             },
@@ -120,11 +116,64 @@ sealed class SessionSettingsView : UserControl
             body.Children.Add(item.View);
         }
 
-        body.Children.Add(group);
+        body.Children.Add(_reconnectGroup);
         _footer = Pane.Footer(new StackPanel { Spacing = 10, Children = { _changes, Pane.Pair(keepAll, undoAll) } });
         Content = new DockPanel { Children = { Pane.Docked(_footer, Dock.Bottom), new ScrollViewer { Content = body } } };
         Refresh();
+        ShowReconnectChanges();
+
+        // Saved settings can change while this is open; follow them only while it's shown, so a dropped view isn't kept alive.
+        AttachedToVisualTree += (_, _) =>
+        {
+            _tree.Changed += OnTreeChanged;
+            ShowReconnectChanges();
+        };
+        DetachedFromVisualTree += (_, _) => _tree.Changed -= OnTreeChanged;
     }
+
+    void OnTreeChanged(object? sender, EventArgs e) => ShowReconnectChanges();
+
+    /// <summary>
+    /// Lists the settings a running session can't take up whose saved value is no longer the one it started with, and
+    /// hides the reconnect card when there are none.
+    /// </summary>
+    void ShowReconnectChanges()
+    {
+        var now = FixedSettings(SettingsResolver.Resolve(_entry), _protocol, _enlargeByDefault()).ToList();
+        _fixedRows.Children.Clear();
+        foreach (var (label, value) in now)
+        {
+            var then = _startedWith.FirstOrDefault(s => s.Label == label).Value;
+            if (then is null || then == value)
+            {
+                continue;
+            }
+
+            _fixedRows.Children.Add(new StackPanel
+            {
+                Margin = new Thickness(0, 4),
+                Spacing = 1,
+                Children =
+                {
+                    new DockPanel
+                    {
+                        Children =
+                        {
+                            Pane.Docked(new TextBlock { Text = value, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 180 }, Dock.Right),
+                            new TextBlock { Text = label, FontSize = 12, Foreground = SoftBrush, TextTrimming = TextTrimming.CharacterEllipsis },
+                        },
+                    },
+                    new TextBlock { Text = $"This session: {then}", FontSize = 11, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis },
+                },
+            });
+        }
+
+        _reconnectGroup.IsVisible = _fixedRows.Children.Count > 0;
+    }
+
+    /// <summary>What the settings fixed at the start were for <paramref name="entry"/> right now, to compare with later.</summary>
+    internal static IReadOnlyList<(string Label, string Value)> FixedSettingsNow(ConnectionEntry entry, Protocol protocol, bool enlargeByDefault) =>
+        FixedSettings(SettingsResolver.Resolve(entry), protocol, enlargeByDefault).ToList();
 
     /// <summary>Raised just before a change is saved on the connection.</summary>
     public event EventHandler? Keeping;

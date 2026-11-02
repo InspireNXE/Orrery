@@ -279,6 +279,12 @@ sealed class SessionTab
     /// <summary>Set when the user disconnected or closed it, so its ending isn't treated as a drop.</summary>
     public bool EndedByUser { get; set; }
 
+    /// <summary>
+    /// The settings a running remote desktop can't take up, as they were saved when it opened, so the settings pane
+    /// asks for a reconnect only once one of them is saved differently.
+    /// </summary>
+    public IReadOnlyList<(string Label, string Value)>? FixedAtStart { get; set; }
+
     /// <summary>Why it last failed, from the session.</summary>
     public string? LastMessage { get; private set; }
 
