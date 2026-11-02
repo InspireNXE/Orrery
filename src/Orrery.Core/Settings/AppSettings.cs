@@ -257,6 +257,9 @@ public sealed record AppSettings
     /// <summary>Put the connection's name in a recording's file name. Null is on.</summary>
     public bool? RecordingNamesInFiles { get; init; }
 
+    /// <summary>Record the sound of remote desktops that play it here (RDP). Null is on.</summary>
+    public bool? RecordingSound { get; init; }
+
     /// <summary>The ffmpeg executable MP4 export runs, as the user chose it. Null offers only the built-in AVI export.</summary>
     public string? FfmpegPath { get; init; }
 
@@ -287,6 +290,9 @@ public sealed record AppSettings
         <= 7 => 5,
         _ => 10,
     };
+
+    [JsonIgnore]
+    public bool RecordsSound => RecordingSound ?? true;
 
     [JsonIgnore]
     public bool PutsNamesInRecordingFiles => RecordingNamesInFiles ?? true;

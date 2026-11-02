@@ -180,15 +180,15 @@ HDR isn't possible over RDP or VNC.
 
 - A connection's *Record sessions* setting (inherited like the others, so a folder can record everything in it),
   *Record every session* in Settings, or a tab's menu, records a session: what a terminal printed, never what's typed, or what a remote desktop showed, at
-  up to 10 frames a second. A red dot on the tab shows it's recording, and a reconnect carries on in the same file.
+  up to 10 frames a second, with an RDP session's sound. A red dot on the tab shows it's recording, and a reconnect carries on in the same file.
 - Recordings are encrypted, sealed to a key kept with your saved credentials, so recording never asks for the vault
   but playing does. They go in `recordings/` in the data folder, and old ones are deleted by age and total size.
 - The *Recordings* panel on the left lists them, newest first. Orrery plays them itself: speed, Skip idle, 10-second
   skips, markers for drops and reconnects, and Find for terminals.
 - Export makes an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi` for remote desktops, or MP4 (H.264,
   H.265 or AV1, picked when you export). On Windows MP4 uses Windows' own encoders, whichever the PC has; elsewhere,
-  or for a codec Windows lacks, it goes through an ffmpeg you've installed and chosen in Settings. Orrery never
-  downloads or bundles ffmpeg.
+  or for a codec Windows lacks, it goes through an ffmpeg you've installed and chosen in Settings (without sound).
+  Orrery never downloads or bundles ffmpeg.
   See [the design notes](docs/design-session-recording.md).
 
 ### Your workspace
@@ -417,7 +417,7 @@ what works differently there, and what hasn't been tried on a real machine yet.
 ### Every platform
 
 RDP sound, shared drives, the console session, spreading over displays and the routing token need IronRDP
-`2026.10.29-orrery.3` or later, sound without shared drives `orrery.4`, and the graphics pipeline and display scaling `orrery.6`. With a package built on one machine,
+`2026.10.29-orrery.3` or later, sound without shared drives `orrery.4`, the graphics pipeline and display scaling `orrery.6`, and recording sound `orrery.7`. With a package built on one machine,
 whose libraries for the other platforms are older, Orrery connects there without them and logs which it left out. IronRDP is built without Opus, which needs
 CMake to build, so the server sends sound as PCM, ADPCM or G.711 instead (or AAC, on Windows only).
 

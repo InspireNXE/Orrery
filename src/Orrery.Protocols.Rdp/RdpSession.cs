@@ -36,7 +36,7 @@ namespace Orrery.Protocols.Rdp;
 /// that image's size in place (<see cref="FollowGraphicsReset"/>); one without it restarts the session's activation.
 /// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession
+public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
@@ -75,6 +75,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
     readonly ServerCertificateValidator _certificateValidator;
     readonly ISessionRoute? _route;
     readonly RdpOptions _options;
+    readonly RdpAudioTap? _audioTap;
 
     // The display's scaling in percent, when the server is told it, and the one it was last told.
     readonly bool _followsDisplayScale;
@@ -87,11 +88,14 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
         _certificateValidator = certificateValidator;
         _route = route;
         _options = options;
+        _audioTap = options.PlayAudio ? new RdpAudioTap() : null;
         _followsDisplayScale = desktopScale is not null;
         _desktopScale = _sentScale = desktopScale ?? 100;
     }
 
     public ConnectionTarget Target { get; }
+
+    public IAudioTap? AudioTap => _audioTap;
     public SessionState State { get; private set; } = SessionState.Connecting;
     public int Width { get; private set; }
     public int Height { get; private set; }
@@ -241,7 +245,7 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
             var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
             try
             {
-                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token);
+                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token, _audioTap);
             }
             catch (ServerRedirectedException e)
             {
@@ -1107,6 +1111,8 @@ public sealed class RdpSession : IFrameBufferSession, IClipboardSession, ITouchI
             _pens?.Dispose();
             _pens = null;
         }
+
+        _audioTap?.Dispose();
 
         // The loop has ended, so nothing is waiting on the clipboard any more.
         _clipboard?.Dispose();

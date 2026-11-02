@@ -24,7 +24,7 @@ static class RecordingExport
     const int JpegQuality = 85;
 
     public const string Warning = "The exported copy isn't encrypted: anyone who has the file can watch it. "
-        + "Everything the session showed is in it.";
+        + "Everything the session showed is in it, and any sound it played.";
 
     public static async Task ExportAsync(Window owner, RecordingService service, string path, byte[] privateKey, string suggestedName)
     {
@@ -146,6 +146,7 @@ static class RecordingExport
                 return "This recording has no picture in it.";
             }
 
+            var sound = SoundFormat.Of(reader, progress.Token);
             Stream? stream = null;
             AviWriter? avi = null;
             void NextPart()
@@ -156,14 +157,14 @@ static class RecordingExport
                     : Path.Combine(Path.GetDirectoryName(output)!, $"{Path.GetFileNameWithoutExtension(output)} (part {parts.Count + 1}){Path.GetExtension(output)}");
                 parts.Add(name);
                 stream = new FileStream(name, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
-                avi = new AviWriter(stream, width, height, framesPerSecond);
+                avi = new AviWriter(stream, width, height, framesPerSecond, sound);
             }
 
             NextPart();
             var rgba = new byte[width * height * 4];
             byte[]? lastJpeg = null;
             int index = 0;
-            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token))
+            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound))
             {
                 if (avi!.IsFull)
                 {
@@ -180,6 +181,8 @@ static class RecordingExport
                 {
                     avi.AddFrame([], repeat: true);
                 }
+
+                avi.AddSound(frame.Sound);
 
                 if (++index % 25 == 0)
                 {
@@ -347,7 +350,7 @@ static class RecordingExport
 /// <summary>One way to make an MP4: a codec, through Windows' own encoder or an ffmpeg.</summary>
 sealed record Mp4Route(string Name, SystemCodec? System, FfmpegCodec? Ffmpeg)
 {
-    public string Label => $"MP4, {Name}{(System is { HardwareOnly: true } ? " (graphics card)" : Ffmpeg is not null ? " (through ffmpeg)" : "")}";
+    public string Label => $"MP4, {Name}{(System is { HardwareOnly: true } ? " (graphics card)" : Ffmpeg is not null ? " (through ffmpeg, no sound)" : "")}";
 
     /// <summary>Windows' codecs, then any more the ffmpeg has; Windows' encoder wins when both have one.</summary>
     public static IReadOnlyList<Mp4Route> All(IReadOnlyList<SystemCodec> system, FfmpegInfo? ffmpeg)
