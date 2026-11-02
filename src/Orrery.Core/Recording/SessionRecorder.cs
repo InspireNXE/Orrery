@@ -64,6 +64,12 @@ public abstract class SessionRecorder : IDisposable
 
     protected TimeSpan Now => _clock();
 
+    /// <summary>How long it has been recording, for the session toolbar.</summary>
+    public TimeSpan Elapsed => _clock();
+
+    /// <summary>Bytes in the file so far, for the session toolbar; 0 once it's closed.</summary>
+    public long BytesWritten => _writer.Length;
+
     /// <summary>Bytes queued for the disk.</summary>
     protected long Backlog => Interlocked.Read(ref _backlog);
 
@@ -279,8 +285,9 @@ public sealed class ScreenRecorder : SessionRecorder
 
     readonly DamageList _damage = new();
     readonly object _damageLock = new();
-    readonly TimeSpan _interval;
     readonly CancellationTokenSource _stop = new();
+    readonly PeriodicTimer _frameTimer;
+    int _framesPerSecond;
     IFrameBufferSession? _screen;
     bool _needsKeyFrame = true;
     TimeSpan _lastKeyFrame;
@@ -290,14 +297,16 @@ public sealed class ScreenRecorder : SessionRecorder
     byte[] _rowRgb = [];
     int _width, _height;
     (int X, int Y)? _lastPointer;
-    readonly bool _recordSound;
+    bool _recordSound;
     readonly object _soundLock = new();
     IAudioTap? _tap;
+    IAudioSession? _audioSession;
 
     public ScreenRecorder(RecordingWriter writer, RecordingInfo info, int framesPerSecond, long maxBytes, Func<TimeSpan>? clock = null, bool recordSound = false)
         : base(writer, info, maxBytes, clock)
     {
-        _interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(framesPerSecond, 1, 30));
+        _framesPerSecond = Math.Clamp(framesPerSecond, 1, 30);
+        _frameTimer = new PeriodicTimer(TimeSpan.FromSeconds(1.0 / _framesPerSecond));
         _recordSound = recordSound;
         Stopped += (_, _) =>
         {
@@ -305,9 +314,68 @@ public sealed class ScreenRecorder : SessionRecorder
             SetTap(null);
         };
         _ = Task.Run(LoopAsync);
-        if (recordSound)
+
+        // Sound can be turned on partway through, so the loop runs either way; without a tap it does nothing.
+        _ = Task.Run(SoundLoopAsync);
+    }
+
+    /// <summary>How many frames a second are taken, 1 to 30; changing it takes effect at the next frame.</summary>
+    public int FramesPerSecond
+    {
+        get => _framesPerSecond;
+        set
         {
-            _ = Task.Run(SoundLoopAsync);
+            _framesPerSecond = Math.Clamp(value, 1, 30);
+            try
+            {
+                _frameTimer.Period = TimeSpan.FromSeconds(1.0 / _framesPerSecond);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Stopped: there are no more frames to time.
+            }
+        }
+    }
+
+    /// <summary>Whether the session it's recording can give it sound (a remote desktop playing sound here).</summary>
+    public bool CanRecordSound
+    {
+        get
+        {
+            lock (_soundLock)
+            {
+                return _audioSession?.AudioTap is not null;
+            }
+        }
+    }
+
+    /// <summary>Whether sound is recorded; it can be turned on or off while recording, and is marked on the timeline.</summary>
+    public bool RecordsSound
+    {
+        get
+        {
+            lock (_soundLock)
+            {
+                return _recordSound;
+            }
+        }
+        set
+        {
+            lock (_soundLock)
+            {
+                if (_recordSound == value)
+                {
+                    return;
+                }
+
+                _recordSound = value;
+                SetTap(value ? _audioSession?.AudioTap : null);
+            }
+
+            if (IsRecording)
+            {
+                Marker(value ? "Sound on" : "Sound off");
+            }
         }
     }
 
@@ -333,9 +401,13 @@ public sealed class ScreenRecorder : SessionRecorder
             screen.FrameUpdated += OnFrame;
         }
 
-        if (_recordSound && session is IAudioSession { AudioTap: { } tap })
+        lock (_soundLock)
         {
-            SetTap(tap);
+            _audioSession = session as IAudioSession;
+            if (_recordSound && _audioSession?.AudioTap is { } tap)
+            {
+                SetTap(tap);
+            }
         }
     }
 
@@ -362,7 +434,11 @@ public sealed class ScreenRecorder : SessionRecorder
             _damage.Clear();
         }
 
-        SetTap(null);
+        lock (_soundLock)
+        {
+            _audioSession = null;
+            SetTap(null);
+        }
     }
 
     async Task SoundLoopAsync()
@@ -419,7 +495,7 @@ public sealed class ScreenRecorder : SessionRecorder
 
     async Task LoopAsync()
     {
-        using var timer = new PeriodicTimer(_interval);
+        using var timer = _frameTimer;
         try
         {
             while (await timer.WaitForNextTickAsync(_stop.Token))

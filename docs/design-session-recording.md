@@ -254,6 +254,11 @@ The first time recording is turned on (in a connection, or from a tab), a one-ti
 
 - The tab header shows a red dot before the name, with "Recording" for screen readers and in its tooltip.
 - The tab menu shows *Stop recording* (or *Start recording*).
+- The session toolbar shows a red *REC 1:23* pill. Its panel says how long the recording has run and how big it is,
+  and changes it for this recording only: frames a second (1, 2, 5 or 10; a screen recording's timer takes the new
+  rate at its next frame) and, for a remote desktop that plays sound here, *Record sound*, turned on or off with a
+  "Sound on" or "Sound off" marker on the timeline. *Stop recording* and *Show recordings* are under them. While a
+  connected session isn't recording, a round button in the same place starts one.
 - A recording that stopped by itself (size limit, disk full, the key couldn't be made) says why once, in the tab's
   notice bar, and the dot goes.
 
@@ -288,7 +293,9 @@ Playing:
   one, playing the recording up to it.
 - **Screen:** the frame, scaled to fit, with the same controls. Seeking decodes from the key frame before the
   point. Recorded sound plays on the default output device at 1× (not at other speeds, while seeking or paused),
-  through the IronRDP fork's `AudioOutput`.
+  through the IronRDP fork's `AudioOutput`. A recording with sound has a speaker (mute, also M) and a volume slider
+  beside *Skip idle*; the volume scales the samples on a square curve, and is kept for the next recording played
+  while Orrery runs.
 - A recording that ended without being closed plays to where it stops, with "This recording ended without being
   closed, probably because Orrery stopped" at the end.
 - A recording that fails its check partway plays to the last good chunk and says the rest couldn't be read.
