@@ -1,6 +1,6 @@
 # Orrery design: recording sessions and playing them back
 
-Status: **Draft**, 2026-11-01
+Status: **Built**, 2026-11-01. Not yet tried with real sessions in the app; see §8.3
 Scope: the "Session recording and replay" item in [roadmap.md](roadmap.md). Builds on the data folder (§2.4) and the
 credential stores (§3) of [design-storage-vault-import.md](design-storage-vault-import.md).
 
@@ -37,15 +37,15 @@ credential stores (§3) of [design-storage-vault-import.md](design-storage-vault
 ### 2.1 Terminal sessions
 
 The terminal view already receives every byte the session sends back (`ITerminalSession.DataReceived`). The recorder
-listens to the same event and writes what arrives, with the time since the recording started, in
-[asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) form:
+listens to the same event and writes what arrives, with the time since the recording started, as events of its own
+(§3.2) that map one to one onto [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/), which export writes:
 
-- A header with the terminal's size, the start time and the connection's name (not its host, §4.4).
-- An `"o"` event for each piece of output, decoded as UTF-8. Bytes that aren't valid UTF-8 are kept as they are
-  inside the encrypted file (§3.2), so the player feeds the emulator exactly what the session did.
-- An `"r"` event each time the terminal is resized.
-- A `"m"` (marker) event when the session disconnects, reconnects or ends, so the player can show where.
-- Never an `"i"` (input) event.
+- An info event with the connection's name, protocol and start time (inside the encryption, §4.4).
+- An output event (asciicast `"o"`) for each piece of output, as the bytes arrived. Bytes that aren't valid UTF-8 are
+  kept as they are, so the player feeds the emulator exactly what the session did; export decodes them.
+- A resize event (`"r"`) each time the terminal's grid changes.
+- A marker event (`"m"`) when the session drops or disconnects, and when a reconnect carries on in the same file.
+- Never an input event (`"i"`).
 
 Orrery's notices in the terminal (the grey `»` lines, such as Serial's) are output like any other and are recorded too.
 
@@ -112,8 +112,8 @@ Every recording is encrypted, whatever kind it is. One file format holds both:
 
 ```
 "ORREC" 0x01                      magic and version
-header length (u32), header JSON  not secret: format, kind ("terminal" or "screen"), started, ended*, chunk size,
-                                  the wrapped file key (below). *Written at close; absent after a crash
+header length (u32), header JSON  not secret: format, version, kind ("terminal" or "screen"), the recordings key's
+                                  id, the sealed file key and the nonce prefix (below)
 chunk…                            XChaCha20-Poly1305 over up to 64 KB of the recording's events
 ```
 
@@ -127,8 +127,9 @@ chunk…                            XChaCha20-Poly1305 over up to 64 KB of the r
   associated data is the header plus the chunk's number and whether it's the last. So chunks can't be reordered,
   dropped from the middle or moved between files without the player noticing, and a file cut short reads as "ended
   without being closed" rather than as complete.
-- **Inside a chunk.** For a terminal: asciicast v2 lines. For a screen: frames as length, type (key frame, change
-  frame, resize, pointer, marker), time and payload.
+- **Inside a chunk.** Events, run together across chunks as one stream: a type byte, the time in milliseconds
+  (32 bits), the payload's length (32 bits) and the payload. Info, output, resize, marker and end for a terminal; info,
+  resize, key frame, change frame, pointer, marker and end for a screen. The end event is the last one in a closed file.
 - **Header contents.** Nothing about the host or user: the connection's name and protocol are inside the encrypted
   part. The header says only what's needed to open it.
 
@@ -138,13 +139,15 @@ One X25519 key pair per data folder, made the first time anything is recorded:
 
 - **Public key:** in `settings.json` (`recordings.publicKey`). Not secret: knowing it only lets someone make a file
   Orrery would open, which the chunk check doesn't stop and doesn't need to (§6).
-- **Private key:** in the credential store this data folder uses, as a hidden entry. In the vault it's an entry in the
-  vault's contents, never shown in the credential list, carried through master password changes (which re-wrap the
-  vault's data key, not its contents) and through Move data with the vault. In the OS keychain it's the item
-  `orrery:recordings-key`.
+- **Private key:** in the credential store this data folder uses, as a credential with a reserved id
+  (`RecordingKeys.CredentialId`) that stores leave out of their list, so it's never shown, picked or exported. In the
+  vault it's carried through master password changes (which re-wrap the vault's data key, not its contents) and
+  through Move data with the vault. In the OS keychain it's an item like any saved credential's.
 - **Playing** needs the private key, so it needs the store open: with the vault, that's the usual unlock window
   (with Windows Hello, if on).
 - **Switching the credential store** (vault file to keychain or back) moves the private key with the credentials.
+- **Settings lost.** If `settings.json` loses the public key, the next recording works it out again from the private
+  key, which needs the store open once. A new pair is only made when there's no private key at all.
 - **Lost key.** If the private key is gone (the keychain item deleted, a vault replaced by a new one), recordings made
   before can't be played. Orrery says so, makes a new pair the next time it records, and leaves the old files for the
   user to delete. They aren't deleted for being unreadable.
@@ -162,8 +165,9 @@ readable by anyone who has the file, then writes it where the user chooses:
   turns into a GIF.
 - **Screen recordings, built in:** Motion-JPEG in an AVI file (`.avi`), which VLC and Windows Media Player play.
   Frames are encoded as JPEG (quality 85) with SkiaSharp, which Avalonia already ships; the AVI container is written by
-  Orrery (RIFF, `hdrl`, `movi` and an `idx1` index; OpenDML for files past 1 GB). Frames are written at the
-  recording's frame rate, repeating the last frame through idle stretches, with the pointer drawn in.
+  Orrery (RIFF, `hdrl`, `movi` and an `idx1` index). Plain AVI is limited in size, so a long export is split into
+  parts of 1 GB (`name (part 2).avi`) rather than written as OpenDML. Frames are written at the recording's frame
+  rate, with an empty chunk for a frame that repeats the last (players hold the picture), and the pointer drawn in.
 - **Screen recordings, through ffmpeg:** when Settings › Recordings names an ffmpeg executable, export also offers MP4
   with H.264 (default), H.265 or AV1, each listed only if that ffmpeg has an encoder for it (`ffmpeg -encoders`, read
   once). Orrery starts ffmpeg by its full path with arguments as a list (no shell), pipes raw RGB frames to its standard
@@ -225,8 +229,9 @@ The first time recording is turned on (in a connection, or from a tab), a one-ti
 
 ### 5.3 The player
 
-*View › Recordings* opens a window listing recordings (newest first) with the connection's name, protocol, start
-time, length and size, read from the header and the first chunk after the store is opened. From the list: *Play*,
+*Show recordings…* in Settings › Sessions › Recordings, or *Show recordings* in a recorded tab's menu (which shows
+only that connection's at first), opens a window listing recordings (newest first) with the connection's name,
+protocol, start time and size, read from the header and the first event after the store is opened. From the list: *Play*,
 *Export…*, *Show in folder*, *Delete*.
 
 Playing:
@@ -260,7 +265,7 @@ Playing:
 - MP4 export without ffmpeg, through the platform's own encoder (Media Foundation on Windows, AVFoundation on macOS).
 - Recording sound.
 - Recording the remote pointer's shape.
-- A *Recordings* entry in the tab's context menu that opens the player at this connection's recordings.
+- Each recording's length in the list, which needs reading the whole file.
 
 ---
 
@@ -303,6 +308,11 @@ at most 1,000 rectangles a frame.
 
 ### 8.2 Phases
 
-1. The file format, keys, terminal recording, retention and the terminal player.
-2. Screen recording and the screen player.
-3. Settings polish, the README and the roadmap.
+All built together, 2026-11-01.
+
+### 8.3 What needs a person
+
+The tests use fake sessions. Still to check in the running app: recording a real SSH, Telnet, local and serial session
+and an RDP and VNC desktop; a reconnect carrying on in the same file; the tab's dot; the first-time note; the player
+on a long recording (seeking, speed, Find); the vault unlock the first recording asks for; an AVI export in VLC and
+Windows Media Player; an MP4 export through an installed ffmpeg; and Move data with recordings in the folder.
