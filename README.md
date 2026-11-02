@@ -175,6 +175,18 @@ host you type in.
 
 HDR isn't possible over RDP or VNC.
 
+### Recording sessions
+
+- A connection's *Record sessions* setting (inherited like the others, so a folder can record everything in it), or
+  a tab's menu, records a session: what a terminal printed, never what's typed, or what a remote desktop showed, at
+  up to 10 frames a second. A red dot on the tab shows it's recording, and a reconnect carries on in the same file.
+- Recordings are encrypted, sealed to a key kept with your saved credentials, so recording never asks for the vault
+  but playing does. They go in `recordings/` in the data folder, and old ones are deleted by age and total size.
+- Orrery plays them itself: speed, Skip idle, markers for drops and reconnects, and Find for terminals.
+- Export makes an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi` for remote desktops, or MP4 (H.264,
+  H.265 or AV1) through an ffmpeg you've installed and chosen in Settings. Orrery never downloads or bundles ffmpeg.
+  See [the design notes](docs/design-session-recording.md).
+
 ### Your workspace
 
 - Install it, or run it portable with its data wherever you choose.
@@ -281,6 +293,8 @@ its data. An installed copy uses the usual folder for each system.
 
 When each connection last connected or failed is kept in `history.json`, by connection, so it survives renames and
 moves. It stays on this computer: exports don't carry it, and deleting a connection deletes its entry.
+
+Session recordings, when you make any, are in `recordings/` in the data folder, encrypted. Move data takes them along.
 
 <details>
 <summary>Logs</summary>
@@ -417,6 +431,7 @@ Not yet checked on real machines:
 - A serial console on real hardware (tested against a stand-in port)
 - The SSH keep-alive interval and a folder's SOCKS proxy against a real server
 - Remote Desktop files saved by Remote Desktop Connection itself (tested against files written to match its format)
+- Session recording with real sessions, and its AVI and MP4 exports in other players (tested with stand-in sessions)
 
 ### Windows
 

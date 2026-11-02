@@ -129,8 +129,8 @@ public static class PointerArrow
         "       XX",
     ];
 
-    /// <summary>Draws it into RGB pixels with its tip at (<paramref name="x"/>, <paramref name="y"/>).</summary>
-    public static void Draw(Span<byte> rgb, int width, int height, int x, int y)
+    /// <summary>Draws it with its tip at (<paramref name="x"/>, <paramref name="y"/>), into RGB pixels or, with 4 bytes a pixel, RGBA.</summary>
+    public static void Draw(Span<byte> rgb, int width, int height, int x, int y, int bytesPerPixel = 3)
     {
         for (int row = 0; row < Shape.Length; row++)
         {
@@ -150,7 +150,7 @@ public static class PointerArrow
                 }
 
                 byte value = line[column] == 'X' ? (byte)0 : (byte)255;
-                var pixel = rgb.Slice((py * width + px) * 3, 3);
+                var pixel = rgb.Slice((py * width + px) * bytesPerPixel, 3);
                 pixel.Fill(value);
             }
         }

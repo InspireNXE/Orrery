@@ -62,7 +62,7 @@ public class SettingsViewTests : IDisposable
             shown.AddRange(Headings(allWindow));
         }
 
-        Assert.Equal(15, shown.Count);
+        Assert.Equal(16, shown.Count);
         Assert.Equal(shown.Count, shown.Distinct().Count());
         allWindow.Close();
     }
@@ -157,8 +157,8 @@ public class SettingsViewTests : IDisposable
         Assert.Contains("Portable", texts);
         Assert.Contains(texts, t => t?.Contains("InspireNXE") == true);
 
-        // Portable copies have no store choice, so the only combo box of times is the auto-lock one (the shell's has names).
-        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => c.Items.OfType<ComboBoxItem>().All(i => i.Tag is int));
+        var autoLock = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(),
+            c => Avalonia.Automation.AutomationProperties.GetName(c) == "Lock the vault when unused for");
         Assert.Equal(30, (int)((ComboBoxItem)autoLock.SelectedItem!).Tag!);
 
         autoLock.SelectedItem = autoLock.Items.OfType<ComboBoxItem>().Single(i => (int)i.Tag! == 0);

@@ -735,9 +735,13 @@ public sealed class RemoteFrameView : Panel
 
         if (RemotePoint(e) is var (x, y))
         {
+            LastRemotePointer = (x, y);
             Session.SendPointerMove(x, y);
         }
     }
+
+    /// <summary>Where the pointer last was on the remote desktop, in its pixels, for a recording; null before it's moved there.</summary>
+    public (int X, int Y)? LastRemotePointer { get; private set; }
 
     void OnWheel(object? sender, PointerWheelEventArgs e)
     {

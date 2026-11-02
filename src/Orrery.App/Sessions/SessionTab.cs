@@ -98,13 +98,15 @@ sealed class SessionTab
                         Spacing = 8,
                         Margin = new Thickness(12, 0, 6, 0),
                         VerticalAlignment = VerticalAlignment.Center,
-                        Children = { _state, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { title, protocol } }, close },
+                        Children = { _state, _recordingDot, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { title, protocol } }, close },
                     },
                 },
             },
         };
         Header.Classes.Add("tab");
-        Header.Label = $"{origin.Title}, {(origin.Local ? "local terminal" : protocol.Text)}";
+        _label = $"{origin.Title}, {(origin.Local ? "local terminal" : protocol.Text)}";
+        Header.Label = _label;
+        ToolTip.SetTip(_recordingDot, "Recording");
         Avalonia.Automation.AutomationProperties.SetHelpText(Header, Address);
         Header.Click += (_, _) => Selected?.Invoke(this, EventArgs.Empty);
 
@@ -158,6 +160,71 @@ sealed class SessionTab
     }
 
     readonly HashSet<SessionStateChangedEventArgs> _applied = new(ReferenceEqualityComparer.Instance);
+
+    // ---- Recording (docs/design-session-recording.md §5.2) ----
+
+    readonly Avalonia.Controls.Shapes.Ellipse _recordingDot = new()
+    {
+        Width = 8,
+        Height = 8,
+        Fill = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)),
+        VerticalAlignment = VerticalAlignment.Center,
+        IsVisible = false,
+    };
+
+    readonly string _label;
+    Orrery.Core.Recording.SessionRecorder? _recorder;
+
+    /// <summary>The recording this tab is making, if any. It's handed on to the tab that replaces this one on a reconnect.</summary>
+    public Orrery.Core.Recording.SessionRecorder? Recorder
+    {
+        get => _recorder;
+        set
+        {
+            if (_recorder == value)
+            {
+                return;
+            }
+
+            if (_recorder is not null)
+            {
+                _recorder.Stopped -= OnRecordingStopped;
+            }
+
+            _recorder = value;
+            if (value is not null)
+            {
+                value.Stopped += OnRecordingStopped;
+            }
+
+            ShowRecording();
+        }
+    }
+
+    public bool IsRecording => _recorder is { IsRecording: true };
+
+    /// <summary>The recording stopped by itself, with why (the size limit, the disk). Raised on the UI thread.</summary>
+    public event EventHandler<string>? RecordingStoppedByItself;
+
+    void OnRecordingStopped(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
+    {
+        if (sender != _recorder)
+        {
+            return;
+        }
+
+        ShowRecording();
+        if (_recorder?.StopReason is { } reason)
+        {
+            RecordingStoppedByItself?.Invoke(this, reason);
+        }
+    });
+
+    void ShowRecording()
+    {
+        _recordingDot.IsVisible = IsRecording;
+        Header.Label = IsRecording ? $"{_label}, recording" : _label;
+    }
 
     void Apply(SessionStateChangedEventArgs e)
     {

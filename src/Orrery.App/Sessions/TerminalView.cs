@@ -380,6 +380,9 @@ public sealed class TerminalView : Control
         FitToSize(e.NewSize);
     }
 
+    /// <summary>The grid's size in device-independent pixels at the current text size, for the player to scale.</summary>
+    public Size GridPixelSize => new(_terminal.Columns * _cellWidth, _terminal.Rows * _cellHeight);
+
     /// <summary>The grid changed size to fit the view, as the session is about to be told. The recorder listens.</summary>
     public event EventHandler? GridResized;
 
