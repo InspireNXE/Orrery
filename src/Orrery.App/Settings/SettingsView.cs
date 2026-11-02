@@ -757,8 +757,8 @@ sealed class SettingsView : UserControl
             _settings.RecordingTotalGB ?? AppSettings.DefaultRecordingTotalGB, (s, v) => s with { RecordingTotalGB = v }, "Use at most");
         var file = Choice([(1, "1 GB"), (4, "4 GB"), (16, "16 GB")],
             _settings.RecordingFileGB ?? AppSettings.DefaultRecordingFileGB, (s, v) => s with { RecordingFileGB = v }, "Stop a recording at");
-        var rate = Choice([(1, "1"), (2, "2"), (5, "5"), (10, "10")],
-            _settings.RecordingFramesPerSecond, (s, v) => s with { RecordingFrameRate = v }, "Frames a second for remote desktops");
+        var rate = Choice(AppSettings.RecordingFrameRates.Select(r => (r, $"{r}")).ToArray(),
+            _settings.RecordingFramesPerSecond, (s, v) => s with { RecordingFrameRate = v }, "Frames a second for remote desktops, at most");
 
         AutomationProperties.SetName(_recordAll, "Record every session");
         _recordAll.IsCheckedChanged += (_, _) =>
@@ -852,7 +852,7 @@ sealed class SettingsView : UserControl
             Row("Keep recordings for", keep),
             Row("Use at most", total),
             Row("Stop a recording at", file),
-            Row("Frames a second for remote desktops", rate),
+            Row("Frames a second for remote desktops, at most", rate),
             sound,
             names,
             Note("Old recordings are deleted for good, the oldest first, when they pass these limits."),

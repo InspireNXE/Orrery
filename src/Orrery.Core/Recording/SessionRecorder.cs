@@ -305,7 +305,7 @@ public sealed class ScreenRecorder : SessionRecorder
     public ScreenRecorder(RecordingWriter writer, RecordingInfo info, int framesPerSecond, long maxBytes, Func<TimeSpan>? clock = null, bool recordSound = false)
         : base(writer, info, maxBytes, clock)
     {
-        _framesPerSecond = Math.Clamp(framesPerSecond, 1, 30);
+        _framesPerSecond = Math.Clamp(framesPerSecond, 1, MaxFramesPerSecond);
         _frameTimer = new PeriodicTimer(TimeSpan.FromSeconds(1.0 / _framesPerSecond));
         _recordSound = recordSound;
         Stopped += (_, _) =>
@@ -319,13 +319,16 @@ public sealed class ScreenRecorder : SessionRecorder
         _ = Task.Run(SoundLoopAsync);
     }
 
-    /// <summary>How many frames a second are taken, 1 to 30; changing it takes effect at the next frame.</summary>
+    /// <summary>The most frames a second a screen recording takes.</summary>
+    public const int MaxFramesPerSecond = 60;
+
+    /// <summary>How many frames a second are taken, 1 to <see cref="MaxFramesPerSecond"/>; changing it takes effect at the next frame.</summary>
     public int FramesPerSecond
     {
         get => _framesPerSecond;
         set
         {
-            _framesPerSecond = Math.Clamp(value, 1, 30);
+            _framesPerSecond = Math.Clamp(value, 1, MaxFramesPerSecond);
             try
             {
                 _frameTimer.Period = TimeSpan.FromSeconds(1.0 / _framesPerSecond);

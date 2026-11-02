@@ -143,7 +143,7 @@ public sealed class SoundTests : IDisposable
         recorder.FramesPerSecond = 10;
         Assert.Equal(10, recorder.FramesPerSecond);
         recorder.FramesPerSecond = 99;
-        Assert.Equal(30, recorder.FramesPerSecond);
+        Assert.Equal(ScreenRecorder.MaxFramesPerSecond, recorder.FramesPerSecond);
         recorder.Stop();
         await recorder.Completion;
         recorder.FramesPerSecond = 5; // after stopping, still fine

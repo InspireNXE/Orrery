@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.App.Sessions;
 using Orrery.Core.Recording;
+using Orrery.Core.Settings;
 
 namespace Orrery.App.Recording;
 
@@ -18,7 +19,9 @@ namespace Orrery.App.Recording;
 /// </summary>
 static class RecordingControl
 {
-    internal static readonly int[] FrameRates = [1, 2, 5, 10];
+    internal static IReadOnlyList<int> FrameRates => AppSettings.RecordingFrameRates;
+
+    const string FrameRateNote = "The most frames a second this recording takes. It takes one only when the screen changes, so a remote desktop that sends fewer gives fewer.";
 
     /// <summary>The control for <paramref name="tab"/>, or null when there's nothing it can record.</summary>
     public static Control? For(SessionTab tab, Action start, Action stop, Action showRecordings)
@@ -85,7 +88,7 @@ static class RecordingControl
             foreach (var (rate, i) in FrameRates.Select((r, i) => (r, i)))
             {
                 var button = new Button { Content = $"{rate}", Classes = { "segment" } };
-                AutomationProperties.SetName(button, $"{rate} frames a second");
+                AutomationProperties.SetName(button, $"At most {rate} frames a second");
                 Grid.SetColumn(button, i);
                 button.Click += (_, _) =>
                 {
@@ -100,7 +103,8 @@ static class RecordingControl
                 rates.Children.Add(button);
             }
 
-            panel.Children.Add(Labeled("Frames a second", new Border
+            ToolTip.SetTip(rates, FrameRateNote);
+            panel.Children.Add(Labeled("Frames a second, at most", new Border
             {
                 Background = new SolidColorBrush(Color.Parse("#0E1116")),
                 CornerRadius = new CornerRadius(8),
