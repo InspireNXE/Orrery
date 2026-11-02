@@ -95,4 +95,10 @@ static class Icons
     public const string FolderPlus = "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M12 10v6 M9 13h6";
     public const string Rename = "M4 20h4L19 9l-4-4L4 16z M14 6l4 4";
     public const string Trash = "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13";
+    public const string Play = "M8 5.5v13a.5.5 0 0 0 .77.42l10-6.5a.5.5 0 0 0 0-.84l-10-6.5A.5.5 0 0 0 8 5.5z";
+    public const string Pause = "M8 5v14 M16 5v14";
+    public const string SkipBack = "M3 12a9 9 0 1 1 2.6 6.4 M3 5v7h7";
+    public const string SkipForward = "M21 12a9 9 0 1 0-2.6 6.4 M21 5v7h-7";
+    public const string Previous = "M6 15l6-6 6 6";
+    public const string Next = "M6 9l6 6 6-6";
 }

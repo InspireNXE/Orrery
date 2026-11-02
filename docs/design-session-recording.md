@@ -234,11 +234,18 @@ only that connection's at first), opens a window listing recordings (newest firs
 protocol, start time and size, read from the header and the first event after the store is opened. From the list: *Play*,
 *Export…*, *Show in folder*, *Delete*.
 
-Playing:
-- **Terminal:** a read-only terminal view fed by a `TerminalEmulator`, play and pause, speed (½×, 1×, 2×, 4×, 8×), a
-  timeline with the markers, and *Skip idle* (gaps over 2 seconds play as 2 seconds; on by default). Seeking replays
-  the output from the start into a fresh emulator without drawing, which is fast for text. *Find* searches the
-  recording's text and jumps to each match. *Export…* (§3.4).
+Playing, in a window titled with the connection's name:
+- **Header:** the protocol's badge, the connection's name, and "Recorded <date and time> · <length> · <size>" under
+  them. On the right, *Find* for a terminal recording and *Export…* (§3.4). A cut-short or damaged recording gets a
+  warning under the header.
+- **Transport:** the timeline across the window, with a tick for each marker (such as a reconnect) that shows what it
+  is on hover and jumps there on a click. Under it: 10 seconds back, play and pause, 10 seconds forward, the time
+  as "1:30 / 4:20", and on the right *Skip idle* (gaps over 2 seconds play as 2 seconds; on by default) and speed
+  (½×, 1×, 2×, 4×, 8×). Keys: Space plays and pauses, Left and Right skip 10 seconds, Home and End go to the ends.
+- **Terminal:** a read-only terminal view fed by a `TerminalEmulator`. Seeking replays the output from the start into
+  a fresh emulator without drawing, which is fast for text. *Find* (Ctrl+F) searches the recording's text as you
+  type, says how many matches there are, and Enter, Shift+Enter and the arrows beside it go to the next or previous
+  one, playing the recording up to it.
 - **Screen:** the frame, scaled to the window, with the same controls. Seeking decodes from the key frame before the
   point.
 - A recording that ended without being closed plays to where it stops, with "This recording ended without being
@@ -279,7 +286,7 @@ Playing:
   and never slows the session).
 - `Orrery.Core/Recording/ScreenFrames.cs`: damage merging, XOR, Brotli, and decoding.
 - `Orrery.Core/Recording/RecordingRetention.cs`: the age and size limits.
-- `Orrery.App/Recording/RecordingsWindow.cs` and `PlayerView.cs`: the list and the player.
+- `Orrery.App/Recording/RecordingsWindow.cs` and `PlayerWindow.cs`: the list and the player.
 - `Orrery.Core/Recording/AviWriter.cs` (the container) and `Orrery.App/Recording/RecordingExport.cs` (`.cast`, JPEG
   frames through SkiaSharp, and ffmpeg).
 - Changes to `TerminalView`, `RemoteFrameView` (start and stop the recorder), `SessionTabHeader` (the dot),
