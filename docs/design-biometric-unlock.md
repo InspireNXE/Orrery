@@ -1,6 +1,6 @@
 # Orrery design: unlocking the vault with Windows Hello or Touch ID
 
-Status: **Draft**, 2026-10-31 (revised after the security review the same day)
+Status: **Built**, 2026-10-31 (revised after the security review the same day). Windows Hello and Touch ID still need the manual checks in §6.3
 Scope: opening `vault.frv` with Windows Hello or Touch ID instead of typing the master password. Builds on §3 of
 [design-storage-vault-import.md](design-storage-vault-import.md).
 
