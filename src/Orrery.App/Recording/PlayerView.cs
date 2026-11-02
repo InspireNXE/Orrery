@@ -97,8 +97,13 @@ sealed partial class PlayerView : DockPanel, IDisposable
     /// <summary>Sound further behind the playing position than this is left out: it was passed over, not played.</summary>
     static readonly TimeSpan SoundLate = TimeSpan.FromMilliseconds(300);
 
+    /// <summary>Sound plays up to this speed, faster or slower at the same pitch; beyond it, it's too quick to follow.</summary>
+    const double MostAudibleSpeed = 4;
+
     IAudioOutput? _audio;
     (int Rate, int Channels) _audioFormat;
+    SoundStretch? _stretch;
+    double _playSpeed = 1;
     bool _audible;
     TimeSpan _advancingTo;
     bool _loaded;
@@ -639,6 +644,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
     public void Pause()
     {
         _audio?.Clear();
+        _stretch = null;
         _playingNow = false;
         SetPlayLook(playing: false);
         _timer.Stop();
@@ -666,8 +672,9 @@ sealed partial class PlayerView : DockPanel, IDisposable
             Pause();
         }
 
-        // Sound plays only at normal speed, as the screen moves on in real time.
-        _audible = speed == 1;
+        // Sound keeps up with the screen, stretched to the speed.
+        _audible = speed <= MostAudibleSpeed;
+        _playSpeed = speed;
         AdvanceTo(to);
         _audible = false;
     }
@@ -680,6 +687,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
         }
 
         _audio?.Clear();
+        _stretch = null;
 
         to = to < TimeSpan.Zero ? TimeSpan.Zero : to > _duration ? _duration : to;
         if (_kind == RecordingKind.Terminal)
@@ -910,7 +918,22 @@ sealed partial class PlayerView : DockPanel, IDisposable
             _audioFormat = (rate, channels);
         }
 
-        _audio?.Write(Louder(pcm.Span, s_muted ? 0 : s_volume));
+        var sound = pcm.Span;
+        if (_playSpeed == 1)
+        {
+            _stretch = null;
+        }
+        else
+        {
+            if (_stretch is null || _stretch.Speed != _playSpeed || _stretch.SampleRate != rate || _stretch.Channels != channels)
+            {
+                _stretch = new SoundStretch(rate, channels, _playSpeed);
+            }
+
+            sound = _stretch.Stretch(sound);
+        }
+
+        _audio?.Write(Louder(sound, s_muted ? 0 : s_volume));
     }
 
     /// <summary>16-bit samples scaled to the volume; at full volume they're played as recorded.</summary>

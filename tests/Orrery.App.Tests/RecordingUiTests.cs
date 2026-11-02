@@ -326,6 +326,55 @@ public sealed class RecordingUiTests : IDisposable
         window.Close();
     }
 
+    [AvaloniaTheory]
+    [InlineData(2, 0.35, 0.55)] // twice as fast: about half as much sound, at the same pitch
+    [InlineData(8, 0, 0)] // too fast to follow: none
+    public async Task Sound_plays_stretched_to_the_speed(int speedSetting, double least, double most)
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "sound.orrec");
+        var tone = new byte[4410 * 2 * 2];
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(16, 8));
+            writer.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(new byte[16 * 8 * 3], 16, 8));
+            for (int i = 0; i < 20; i++)
+            {
+                writer.Append(RecordingEventType.Audio, TimeSpan.FromMilliseconds(100 * i), RecordingFile.AudioPayload(44100, 2, tone));
+            }
+
+            writer.Complete(TimeSpan.FromSeconds(2));
+        }
+
+        var output = new HeardOutput();
+        var open = PlayerView.OpenAudio;
+        PlayerView.OpenAudio = (_, _) => output;
+        try
+        {
+            var service = new RecordingService(_location, _settings, _credentials);
+            var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
+            var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+            var window = new Window { Content = player, Width = 1000, Height = 720 };
+            window.Show();
+            var speed = player.GetVisualDescendants().OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "Playback speed");
+            speed.SelectedItem = speed.Items.OfType<ComboBoxItem>().Single(i => (double)i.Tag! == speedSetting);
+            var play = player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) is "Play" or "Pause");
+            await WaitFor(() => AutomationProperties.GetName(play) == "Pause"); // playing
+            await WaitFor(() => AutomationProperties.GetName(play) == "Play"); // played to the end
+            lock (output.Heard)
+            {
+                Assert.InRange(output.Heard.Count, least * 20 * tone.Length, most * 20 * tone.Length);
+            }
+
+            player.Dispose();
+            window.Close();
+        }
+        finally
+        {
+            PlayerView.OpenAudio = open;
+        }
+    }
+
     sealed class HeardOutput : IAudioOutput
     {
         public List<byte> Heard { get; } = [];
