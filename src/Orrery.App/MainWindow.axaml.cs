@@ -2347,6 +2347,19 @@ public partial class MainWindow : Window
         tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
         HistoryRecorder.Attach(tab, _tree, _history);
+
+        // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
+        if (view is RemoteFrameView desktop)
+        {
+            desktop.DesktopResized += (_, _) =>
+            {
+                if (tab == _currentTab)
+                {
+                    _sessionDetail.Text = DescribeSession(tab);
+                }
+            };
+        }
+
         tab.StateChanged += (_, _) =>
         {
             UpdateTreeStatus();
@@ -2505,6 +2518,21 @@ public partial class MainWindow : Window
         await session.DisposeAsync();
     }
 
+    /// <summary>"RDP · 1920×1080", "SSH · Connecting…": the session's kind and how it is, for the bar under the tabs.</summary>
+    static string DescribeSession(SessionTab tab) => $"{tab.Origin.Label} · " + (tab.Session, tab.Session.State) switch
+    {
+        (ILocalSession, SessionState.Connecting) => "Starting…",
+        (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
+        (ILocalSession, SessionState.Disconnected) => "Ended",
+        (ILocalSession, SessionState.Failed) => "Couldn't start",
+        (ILocalSession, _) => "Running",
+        (_, SessionState.Connecting) => "Connecting…",
+        (_, SessionState.Disconnected) => "Disconnected",
+        (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
+        (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
+        _ => "Connected",
+    } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+
     /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
     void UpdateSessionToolbar()
     {
@@ -2520,19 +2548,7 @@ public partial class MainWindow : Window
         var state = session.State;
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
-        _sessionDetail.Text = $"{tab.Origin.Label} · " + (session, state) switch
-        {
-            (ILocalSession, SessionState.Connecting) => "Starting…",
-            (ILocalSession { ExitCode: { } code }, SessionState.Disconnected) => $"Exited with code {code}",
-            (ILocalSession, SessionState.Disconnected) => "Ended",
-            (ILocalSession, SessionState.Failed) => "Couldn't start",
-            (ILocalSession, _) => "Running",
-            (_, SessionState.Connecting) => "Connecting…",
-            (_, SessionState.Disconnected) => "Disconnected",
-            (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
-            (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
-            _ => "Connected",
-        } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+        _sessionDetail.Text = DescribeSession(tab);
 
         if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
         {

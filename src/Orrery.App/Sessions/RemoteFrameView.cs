@@ -475,6 +475,9 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Ask the server to match the view's size as it changes. Off for a fixed desktop size, which is scaled to fit instead.</summary>
     public bool FollowsViewSize { get; init; } = true;
 
+    /// <summary>Raised when the remote desktop comes in at a new size, such as after the view is resized.</summary>
+    public event EventHandler? DesktopResized;
+
     IReadOnlyList<RemoteMonitor>? _spannedMonitors;
 
     /// <summary>One remote monitor and the display it's shown on, when the two don't sit alike.</summary>
@@ -624,6 +627,7 @@ public sealed class RemoteFrameView : Panel
                 SizeImage();
                 ShowPiecesOrWhole();
                 dirty = new FrameRect(0, 0, width, height);
+                DesktopResized?.Invoke(this, EventArgs.Empty);
             }
 
             // The session's lock is taken before the bitmap's, never inside it. Waiting for a lock on this thread lets
