@@ -59,6 +59,8 @@ sealed class PropertiesPanel : UserControl
     readonly Control _forwardsField;
     readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
     readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
+    readonly TextBox _managementUrl = new() { FontFamily = Dialogs.MonoFont, Watermark = "https://10.20.0.1:8443" };
+    readonly Control _managementUrlField;
     readonly Control _wakeSection;
 
     readonly ComboBox _remoteAudio = Choices("RemoteAudio", (RemoteAudio.PlayHere, "Play on this computer"), (RemoteAudio.DoNotPlay, "Don't play"));
@@ -266,6 +268,9 @@ sealed class PropertiesPanel : UserControl
         AutomationProperties.SetName(_host, "Host");
         _hostField = new StackPanel { Spacing = 4, Children = { _hostLabel, new DockPanel { Children = { Pane.Docked(_choosePort, Dock.Right), _host } } } };
         _nameField = Dialogs.Field("Name", _name);
+        _managementUrlField = Dialogs.Field("Management URL (optional)", _managementUrl);
+        ToolTip.SetTip(_managementUrl, "A web page for managing this machine, such as a firewall's or a server's out-of-band console. "
+            + "Open management page in the connection's right-click menu opens it in the browser. Set here only; folders don't pass it on.");
         _notesField = Pane.Section("Notes", _notes);
 
         _save = new Button { Content = "Save", Margin = new Thickness(8, 0, 0, 0) };
@@ -288,7 +293,7 @@ sealed class PropertiesPanel : UserControl
             Margin = new Thickness(16, 4, 16, 16),
             Children =
             {
-                Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View)),
+                Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View), _managementUrlField),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View)),
                 (_displaySection = Pane.RowSection("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
@@ -335,7 +340,7 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
             // TextChanged comes later, after the panel has finished filling the fields, so it took filling them for
             // an edit; the text itself is watched instead.
@@ -623,6 +628,7 @@ sealed class PropertiesPanel : UserControl
 
             _mac.Text = (node as ConnectionEntry)?.MacAddress;
             _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
+            _managementUrl.Text = (node as ConnectionEntry)?.ManagementUrl;
             ShowSections(own.Protocol ?? inherited.Protocol.Value);
 
             Content = _root;
@@ -810,9 +816,14 @@ sealed class PropertiesPanel : UserControl
             forwards = parsed.Count > 0 ? parsed : null;
         }
 
-        string? mac = null, broadcast = null;
+        string? mac = null, broadcast = null, managementUrl = null;
         if (_node is ConnectionEntry)
         {
+            if (!string.IsNullOrWhiteSpace(_managementUrl.Text) && !ManagementUrl.TryNormalize(_managementUrl.Text, out managementUrl))
+            {
+                return Fail("The management URL needs to be a web address, such as https://10.20.0.1:8443.");
+            }
+
             if (!string.IsNullOrWhiteSpace(_mac.Text))
             {
                 if (!MacAddress.TryNormalize(_mac.Text, out mac))
@@ -880,6 +891,7 @@ sealed class PropertiesPanel : UserControl
             entry.PortForwards = forwards;
             entry.MacAddress = mac;
             entry.WakeBroadcast = broadcast;
+            entry.ManagementUrl = managementUrl;
         }
 
         _dirty = false;
@@ -925,6 +937,7 @@ sealed class PropertiesPanel : UserControl
         _forwardsField.IsVisible = _node is ConnectionEntry && protocol == Protocol.Ssh;
         _tunnelSection.IsVisible = _jumpHostRow.View.IsVisible || _forwardsField.IsVisible;
         _wakeSection.IsVisible = _node is ConnectionEntry && network;
+        _managementUrlField.IsVisible = _node is ConnectionEntry;
 
         // A serial port is named where a host would be; a web page's host can have a path after it.
         _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";

@@ -214,6 +214,19 @@ public static class OrreryImporter
                     warnings.Add($"{copy.Name}: its wake-up broadcast address isn't valid, so it was left out.");
                 }
             }
+
+            // Opened by the browser, so only an http or https address is kept.
+            if (!string.IsNullOrWhiteSpace(fromEntry.ManagementUrl))
+            {
+                if (ManagementUrl.TryNormalize(fromEntry.ManagementUrl, out var url))
+                {
+                    toEntry.ManagementUrl = url;
+                }
+                else
+                {
+                    warnings.Add($"{copy.Name}: its management URL isn't an http or https address, so it was left out.");
+                }
+            }
         }
 
         copy.ImportSourceId = node.ImportSourceId ?? SourcePrefix + node.Id;

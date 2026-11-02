@@ -104,7 +104,7 @@ public partial class MainWindow : Window
     readonly HostStatusController _hostStatus;
     readonly TextBlock _noticeText;
     int _noticeVersion;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
+    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _managementMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
     SessionTab? _currentTab;
     readonly NetworkWatch _network = new();
@@ -194,6 +194,7 @@ public partial class MainWindow : Window
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
         _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
         _wakeMenuItem = this.FindControl<MenuItem>("WakeMenuItem")!;
+        _managementMenuItem = this.FindControl<MenuItem>("ManagementMenuItem")!;
         _noticeText = this.FindControl<TextBlock>("NoticeText")!;
         _addGuestMenuItem = this.FindControl<MenuItem>("AddGuestMenuItem")!;
         _moveOutOfHostMenuItem = this.FindControl<MenuItem>("MoveOutOfHostMenuItem")!;
@@ -471,6 +472,10 @@ public partial class MainWindow : Window
             _wakeMenuItem.IsEnabled = wakeable > 0;
             _wakeMenuItem.Header = wakeable > 1 ? $"Wake {wakeable}" : "Wake";
             ToolTip.SetTip(_wakeMenuItem, wakeable == 0 ? "Set a MAC address in the connection's settings to wake it." : null);
+
+            // Only on the connection that has one: it's never inherited, so a folder or several rows have none to open.
+            _managementMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { ManagementUrl: { Length: > 0 } };
+            ToolTip.SetTip(_managementMenuItem, (SingleSelectedNode as ConnectionEntry)?.ManagementUrl);
             _addGuestMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: null };
             _moveOutOfHostMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry { GuestOf: not null };
             _duplicateMenuItem.IsEnabled = SingleSelectedNode is not null;
@@ -1335,6 +1340,37 @@ public partial class MainWindow : Window
     }
 
     async void OnWakeMenuClick(object? sender, RoutedEventArgs e) => await WakeSelectedAsync();
+
+    async void OnManagementMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (SingleSelectedNode is ConnectionEntry entry)
+        {
+            await OpenManagementPageAsync(entry);
+        }
+    }
+
+    /// <summary>Opens a connection's management page in the browser, if it's an http or https address.</summary>
+    async Task OpenManagementPageAsync(ConnectionEntry entry)
+    {
+        if (!ManagementUrl.TryNormalize(entry.ManagementUrl, out var text) || !Uri.TryCreate(text, UriKind.Absolute, out var url))
+        {
+            await Dialogs.ShowMessageAsync(this, $"Can't open \"{entry.Name}\"'s management page",
+                "Its management URL isn't a web address. Set one such as https://10.20.0.1:8443 in the connection's settings.");
+            return;
+        }
+
+        // Only the scheme, host and port: a page's path or query can carry tokens.
+        ConnectLog.LogInformation("Opening the management page of \"{Name}\" in the browser: {Site}", entry.Name, url.GetLeftPart(UriPartial.Authority));
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
+        {
+            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\"'s management page: {Message}", entry.Name, e.Message);
+            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", e.Message);
+        }
+    }
 
     /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
     async Task WakeSelectedAsync()
