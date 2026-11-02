@@ -4,9 +4,9 @@
     "net10.0": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "BouncyCastle.Cryptography": {
         "type": "Transitive",
@@ -51,9 +51,9 @@
     "net10.0/linux-arm64": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -64,9 +64,9 @@
     "net10.0/linux-x64": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -77,9 +77,9 @@
     "net10.0/osx-arm64": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -90,9 +90,9 @@
     "net10.0/osx-x64": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -103,9 +103,9 @@
     "net10.0/win-arm64": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -116,9 +116,9 @@
     "net10.0/win-x64": {
       "Devolutions.IronRdp": {
         "type": "Direct",
-        "requested": "[2026.10.29-orrery.6, )",
-        "resolved": "2026.10.29-orrery.6",
-        "contentHash": "ai+8/qRFrrpNsus8orV4w+ujpEnTkQsijIcnh0L38HrLMomKQxv4oXvAnvX9BW4en6Cxy6jn3P9tsbEmdVzM3g=="
+        "requested": "[2026.10.29-orrery.7, )",
+        "resolved": "2026.10.29-orrery.7",
+        "contentHash": "3pV8JtZvZpkPfpEl3EKfIdwt5xpdls3/ZV7hFfO0AjeGQrTA0S3KZI/WxTNJpxsTIex+t59xD6hGaq+wM9oOEg=="
       },
       "libsodium": {
         "type": "Transitive",
