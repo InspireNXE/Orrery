@@ -102,6 +102,12 @@
       <Setter Property="FontFamily" Value="{StaticResource OrreryMono}" />
     </Style>
 
+    <!-- A submenu's arrow, smaller than Fluent's 8 by 16 so it sits with 13 px text. The template sets its size, which
+         a style can't change, so it's scaled. -->
+    <Style Selector="MenuItem /template/ Path#PART_ChevronPath">
+      <Setter Property="RenderTransform" Value="scale(0.625)" />
+    </Style>
+
     <!-- Small bordered buttons, as in the mockup's session toolbar. -->
     <Style Selector="Button">
       <Setter Property="FontSize" Value="12" />
