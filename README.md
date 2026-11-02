@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/InspireNXE/Orrery/actions/workflows/packages.yml"><img alt="Package build status" src="https://github.com/InspireNXE/Orrery/actions/workflows/packages.yml/badge.svg?branch=main"></a>
   <img alt="Version 0.1.0" src="https://img.shields.io/badge/version-0.1.0-5b6cff">
   <img alt="Windows, Linux and macOS" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-555">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512bd4">
