@@ -309,15 +309,45 @@ public sealed class RemoteFrameView : Panel
             }
 
             _correction = value;
-            if (AllowsColorCorrection && Session.State == SessionState.Connected)
+            if (AllowsColorCorrection)
             {
-                OnFrameUpdated(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Session.Width, Session.Height), resized: false));
+                Redraw();
             }
         }
     }
 
-    /// <summary>The connection's "Color correction" choice: off shows the remote colors unchanged whatever Settings says.</summary>
-    public bool AllowsColorCorrection { get; init; } = true;
+    bool _allowsCorrection = true;
+
+    /// <summary>
+    /// The connection's "Color correction" choice: off shows the remote colors unchanged whatever Settings says. The
+    /// session's settings can change it while the desktop shows.
+    /// </summary>
+    public bool AllowsColorCorrection
+    {
+        get => _allowsCorrection;
+        set
+        {
+            if (value == _allowsCorrection)
+            {
+                return;
+            }
+
+            _allowsCorrection = value;
+            if (_correction is not null)
+            {
+                Redraw();
+            }
+        }
+    }
+
+    /// <summary>Draws the whole desktop again, for a change in how its colors are corrected.</summary>
+    void Redraw()
+    {
+        if (Session.State == SessionState.Connected)
+        {
+            OnFrameUpdated(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Session.Width, Session.Height), resized: false));
+        }
+    }
 
     /// <summary>The correction frames are drawn with: none where the connection turns it off.</summary>
     internal ColorCorrection? ActiveCorrection => AllowsColorCorrection ? _correction : null;
