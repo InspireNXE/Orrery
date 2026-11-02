@@ -293,8 +293,9 @@ Playing:
   type, says how many matches there are, and Enter, Shift+Enter and the arrows beside it go to the next or previous
   one, playing the recording up to it.
 - **Screen:** the frame, scaled to fit, with the same controls. Seeking decodes from the key frame before the
-  point. Recorded sound plays on the default output device at 1× (not at other speeds, while seeking or paused),
-  through the IronRDP fork's `AudioOutput`. A recording with sound has a speaker (mute, also M) and a volume slider
+  point. Recorded sound plays on the default output device from ½× to 4×, at the same pitch (`SoundStretch`, which
+  overlaps short pieces of the sound, each lined up with the last), not at 8×, while seeking or paused, through the
+  IronRDP fork's `AudioOutput`. A recording with sound has a speaker (mute, also M) and a volume slider
   beside *Skip idle*; the volume scales the samples on a square curve, and is kept for the next recording played
   while Orrery runs.
 - A recording that ended without being closed plays to where it stops, with "This recording ended without being
@@ -319,7 +320,7 @@ Playing:
 ## 7. Later
 
 - MP4 export without ffmpeg on macOS, through AVFoundation's `AVAssetWriter`. It needs a Mac to build and test on.
-- Sound at speeds other than 1×, and through the ffmpeg export.
+- Sound through the ffmpeg export.
 - Recording the remote pointer's shape.
 
 ---
