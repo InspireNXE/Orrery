@@ -59,8 +59,9 @@ same, on its own thread and at its own pace:
 - **Frame rate.** At most 5 frames a second by default (1, 2, 5, 10, 15, 30 or 60 in Settings). The rate is a ceiling, not a promise: a frame is taken only when the screen changed, so a desktop that sends 15 a second records 15 even at 60. Windows sends about 30 unless its server is set for 60. Orrery doesn't measure the rate a desktop sends, and RDP and VNC don't report one. Damage that arrives between two frames is merged into one rectangle per
   area (a short list, not a single union, so a clock in one corner and a window in another don't make a full-screen
   frame). When nothing changed, nothing is written.
-- **Key frames.** A whole frame at the start, after every resize, and every 30 seconds, so the player can jump about
-  without decoding from the start.
+- **Key frames.** A whole frame at the start, after every resize, every 30 seconds, and once the changes since the
+  last one are 4 times its size, so the player can jump about without decoding from the start. The last rule keeps a
+  seek short however high the frame rate, for at most about a quarter more file.
 - **Change frames.** Each damaged rectangle, as the difference from the last recorded pixels there (XOR), which is
   mostly zeros and compresses far better than the pixels themselves.
 - **Pixels.** RGB, 3 bytes a pixel: the alpha byte is always opaque and isn't kept.

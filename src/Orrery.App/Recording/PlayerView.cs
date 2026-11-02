@@ -689,7 +689,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
                 NewTerminal();
             }
         }
-        else if (to < _position || _cursor is null || to - _position > TimeSpan.FromSeconds(30))
+        else if (to < _position || _cursor is null || KeyFrameBetween(_next, to))
         {
             StartScreenFrom(to);
         }
@@ -858,6 +858,20 @@ sealed partial class PlayerView : DockPanel, IDisposable
                 break;
             }
         }
+    }
+
+    /// <summary>A key frame from entry <paramref name="from"/> up to <paramref name="to"/>: starting there is quicker than playing on.</summary>
+    bool KeyFrameBetween(int from, TimeSpan to)
+    {
+        for (int i = from; i < _entries.Count && _entries[i].Played <= to; i++)
+        {
+            if (_entries[i].Type == RecordingEventType.KeyFrame)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     bool PlayScreen(Entry entry)
