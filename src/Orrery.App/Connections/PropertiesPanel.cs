@@ -333,7 +333,15 @@ sealed class PropertiesPanel : UserControl
 
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
-            box.TextChanged += (_, _) => MarkDirty();
+            // TextChanged comes later, after the panel has finished filling the fields, so it took filling them for
+            // an edit; the text itself is watched instead.
+            box.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == TextBox.TextProperty)
+                {
+                    MarkDirty();
+                }
+            };
         }
 
         _protocol.SelectionChanged += (_, _) =>
