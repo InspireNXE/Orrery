@@ -267,7 +267,7 @@ public sealed class ConnectionTree
     {
         ConnectionNode copy = node switch
         {
-            ConnectionEntry entry => new ConnectionEntry { Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, PortForwards = entry.PortForwards?.ToList() },
+            ConnectionEntry entry => new ConnectionEntry { Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, ManagementUrl = entry.ManagementUrl, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Expanded = folder.Expanded },
             _ => throw new NotSupportedException(node.GetType().Name),
         };

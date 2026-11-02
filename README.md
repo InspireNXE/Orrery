@@ -105,6 +105,7 @@ host you type in.
   when the network comes back. It never retries a refused login or an untrusted host key or certificate, since those
   need you.
 - Give a connection a MAC address and you can wake its machine from the right-click menu (Wake-on-LAN).
+- Give a connection a management URL, such as a firewall's admin page or a server's out-of-band console, and *Open management page* in its right-click menu opens it in the browser. It belongs to that connection only; folders don't pass one on.
 
 <p align="center">
   <img src="docs/images/connection-lost.png" width="720"
