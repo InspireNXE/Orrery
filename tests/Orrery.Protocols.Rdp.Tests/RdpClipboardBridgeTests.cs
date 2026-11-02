@@ -28,9 +28,41 @@ public class RdpClipboardBridgeTests
             return null;
         }
 
-        public Task AnnounceFormatsAsync(IReadOnlyList<uint> formats, CancellationToken token)
+        public ConcurrentQueue<string?[]> AnnouncedNames { get; } = new();
+        public ConcurrentQueue<IReadOnlyList<LocalClipboardFile>> Offered { get; } = new();
+        public ConcurrentQueue<(uint StreamId, int Index, bool Size, long Position, int Length, uint? LockId)> FileRequests { get; } = new();
+        public ConcurrentQueue<(uint StreamId, byte[]? Data, long? Size)> FileAnswers { get; } = new();
+
+        public bool FileTransfer { get; set; }
+
+        public Task AnnounceFormatsAsync(IReadOnlyList<RdpClipboardFormat> formats, CancellationToken token)
         {
-            Announced.Enqueue([.. formats]);
+            Announced.Enqueue([.. formats.Select(f => f.Id)]);
+            AnnouncedNames.Enqueue([.. formats.Select(f => f.Name)]);
+            return Task.CompletedTask;
+        }
+
+        public Task OfferFilesAsync(IReadOnlyList<LocalClipboardFile> files, CancellationToken token)
+        {
+            Offered.Enqueue(files);
+            return Task.CompletedTask;
+        }
+
+        public Task RequestFileContentsAsync(uint streamId, int index, bool sizeRequest, long position, int length, uint? lockId, CancellationToken token)
+        {
+            FileRequests.Enqueue((streamId, index, sizeRequest, position, length, lockId));
+            return Task.CompletedTask;
+        }
+
+        public Task SendFileContentsAsync(uint streamId, byte[]? data, CancellationToken token)
+        {
+            FileAnswers.Enqueue((streamId, data, null));
+            return Task.CompletedTask;
+        }
+
+        public Task SendFileSizeAsync(uint streamId, long size, CancellationToken token)
+        {
+            FileAnswers.Enqueue((streamId, null, size));
             return Task.CompletedTask;
         }
 
@@ -133,14 +165,14 @@ public class RdpClipboardBridgeTests
     }
 
     [Fact]
-    public async Task Asks_for_unicode_text_first_then_ansi_text_and_nothing_else()
+    public async Task Asks_for_unicode_text_first_then_ansi_text_then_an_image()
     {
         await Handle(RdpClipboardEventKind.RemoteFormatList, [CfText, CfUnicodeText, 0xC004]);
         await Handle(RdpClipboardEventKind.RemoteFormatList, [CfText]);
         await Handle(RdpClipboardEventKind.RemoteFormatList, [8, 0xC004]);
         await Handle(RdpClipboardEventKind.RemoteFormatList, []);
 
-        Assert.Equal([CfUnicodeText, CfText], _channel.Requested.ToArray());
+        Assert.Equal([CfUnicodeText, CfText, CfDib], _channel.Requested.ToArray());
     }
 
     [Fact]
@@ -240,7 +272,7 @@ public class RdpClipboardBridgeTests
     {
         Assert.Null(Decode(CfUnicodeText, [0x00, 0x00]));
         Assert.Null(Decode(CfText, []));
-        Assert.Null(Decode(CfUnicodeText, new byte[MaxDataBytes + 2]));
+        Assert.Null(Decode(CfUnicodeText, new byte[MaxTextBytes + 2]));
         Assert.Null(Decode(CfText, Enumerable.Repeat((byte)'x', MaxTextLength + 1).ToArray()));
         Assert.Equal(MaxTextLength, Decode(CfUnicodeText, Utf16(new string('x', MaxTextLength)))!.Length);
     }
@@ -262,7 +294,7 @@ public class RdpClipboardBridgeTests
     {
         var refused = new List<string>();
         _bridge.TextRefused += (_, reason) => refused.Add(reason);
-        await ReceiveAsync(CfUnicodeText, new byte[MaxDataBytes + 2]);
+        await ReceiveAsync(CfUnicodeText, new byte[MaxTextBytes + 2]);
 
         Assert.Empty(_remoteText);
         Assert.Contains("from the remote desktop wasn't copied here", Assert.Single(refused));

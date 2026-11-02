@@ -60,7 +60,7 @@ tests, but haven't been run on a real Mac or Linux machine yet, so most of their
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
 | **Remote desktops** | | | |
 | Fit the window and follow resizes | ✅ | 🧪 | 🧪 |
-| Clipboard | ✅ text, images, files | 🔸 text | 🔸 text |
+| Clipboard | ✅ text, images, files | 🧪 text, images, files [^files] | 🧪 text, images, files [^files] |
 | Sound | ✅ | 🧪 | 🧪 |
 | Mute a tab | ✅ | 🧪 | 🧪 |
 | Shared drives and folders | 🧪 every drive or any folders | 🔸 one folder | 🔸 one folder |
@@ -95,6 +95,8 @@ tests, but haven't been run on a real Mac or Linux machine yet, so most of their
 [^spaces]: macOS gives each display its own full-screen space.
 [^wayland]: Wayland doesn't let a window place itself or span displays. X11 sessions aren't supported.
 [^orca]: Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
+[^files]: Files copied on the remote desktop are downloaded as soon as they're copied (up to 1 GB), into a private
+    folder that lasts until the session ends, since the local clipboard can only hold files that exist.
 
 Further out, and not started: actions in quick connect, browser access through a tray agent, and scripted connect.
 See the [roadmap](docs/roadmap.md).
@@ -162,8 +164,10 @@ host you type in.
   users can read the key.
 - The SFTP browser sits beside the terminal. You can upload or drop files in, download, rename, delete and make
   folders.
-- The clipboard is shared unless you turn it off for a connection or folder. Over RDP on Windows it carries text,
-  images and files. Over RDP on Linux and macOS, and over VNC, it carries text.
+- The clipboard is shared unless you turn it off for a connection or folder. Over RDP it carries text, images and
+  files; over VNC, text. On Linux and macOS, files copied on the remote desktop are downloaded as soon as they're
+  copied, up to 1 GB, with the progress and a Cancel button at the foot of the desktop. Not yet tried on a real Mac
+  or Linux machine.
 - When a connection fails or drops, the tab says in plain words what happened and what to try. Enter reconnects, and
   the technical details are a click away, with a button to copy them.
 - After a drop, Orrery reconnects on its own, waiting a little longer each time (up to a minute), and right away
@@ -477,8 +481,9 @@ how.
 
 ## Status and platforms
 
-On Windows, RDP resizing, the clipboard and the installer all work. That includes the text-only RDP clipboard that
-Linux and macOS use, tested against a Windows Server 2019 machine. Everything else below is what each system needs,
+On Windows, RDP resizing, the clipboard and the installer all work. That includes the RDP clipboard Linux and macOS
+use, tested for text against a Windows Server 2019 machine; its images and files haven't been tried against a real
+server yet. Everything else below is what each system needs,
 what works differently there, and what hasn't been tried on a real machine yet.
 
 ### Every platform
@@ -526,7 +531,8 @@ Not yet checked on real machines:
 - **Shared drives:** one folder: your home folder when sharing every drive, else the first folder you chose.
 - **Full screen** is on one display: macOS gives each display its own full-screen space. A connection can choose
   which one; Orrery says so when it's set to use several.
-- **RDP clipboard:** text only.
+- **RDP clipboard:** text, images and files. Files copied on the remote desktop are downloaded when they're
+  copied, up to 1 GB, rather than when pasted.
 - **Not yet checked:** any of it on a real Mac, including local terminals, the RDP clipboard, Touch ID (which needs a
   signed build) and VoiceOver.
 
@@ -546,7 +552,8 @@ under XWayland, but it has no X11-specific code and doesn't rely on X11 behavior
 - **Shared drives:** one folder: your home folder when sharing every drive, else the first folder you chose.
 - **Full screen** is on one display: Wayland doesn't let a window place itself or span several displays, so it's the
   display the window is on. Orrery says so when the connection is set to use several.
-- **RDP clipboard:** text only.
+- **RDP clipboard:** text, images and files. Files copied on the remote desktop are downloaded when they're
+  copied, up to 1 GB, rather than when pasted.
 - **Screen readers:** Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
 - **Not yet checked:** any of it on a real machine: the .deb, .rpm and AppImage, the arm64 builds, local terminals,
   the RDP clipboard, sound, a serial device and the Secret Service.

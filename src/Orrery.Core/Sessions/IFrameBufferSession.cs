@@ -114,4 +114,35 @@ public interface IClipboardSession
 
     /// <summary>Clipboard text wasn't shared, with a sentence saying why, for the user. Raised on a background thread.</summary>
     event EventHandler<string>? ClipboardRefused { add { } remove { } }
+
+    /// <summary>Whether images and files are shared too, through the members below.</summary>
+    bool ExchangesFiles => false;
+
+    /// <summary>The remote side copied an image, encoded as PNG or BMP. Raised on a background thread.</summary>
+    event EventHandler<byte[]>? RemoteClipboardImageChanged { add { } remove { } }
+
+    /// <summary>
+    /// The remote side copied files, now downloaded: the paths of the copied items in a private folder that lasts
+    /// until the session ends or the next files are copied. Raised on a background thread.
+    /// </summary>
+    event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged { add { } remove { } }
+
+    /// <summary>How a download of copied files is going: raised as it starts, as it goes and once as it ends. Raised on a background thread.</summary>
+    event EventHandler<ClipboardTransfer>? ClipboardTransferChanged { add { } remove { } }
+
+    /// <summary>Puts <paramref name="image"/> on the remote clipboard.</summary>
+    void SendClipboardImage(ClipboardImage image) { }
+
+    /// <summary>Puts the files and folders at <paramref name="paths"/> on the remote clipboard; the remote reads them when it pastes.</summary>
+    void SendClipboardFiles(IReadOnlyList<string> paths) { }
+
+    /// <summary>Stops the download of copied files, if one is going.</summary>
+    void CancelClipboardTransfer() { }
 }
+
+/// <summary>A clipboard image: <paramref name="Bgra"/> holds its pixels top row first, 4 bytes each, alpha not premultiplied.</summary>
+/// <param name="Png">The same image as PNG, for a remote side that takes it.</param>
+public sealed record ClipboardImage(int Width, int Height, byte[] Bgra, byte[] Png);
+
+/// <summary>A download of copied files: <paramref name="Done"/> of <paramref name="Total"/> bytes, finished once <paramref name="Ended"/>.</summary>
+public sealed record ClipboardTransfer(int Files, long Done, long Total, bool Ended);
