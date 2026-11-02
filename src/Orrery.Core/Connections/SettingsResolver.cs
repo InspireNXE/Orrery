@@ -49,6 +49,7 @@ public sealed record ResolvedSettings(
     public required Resolved<SerialParity> Parity { get; init; }
     public required Resolved<SerialStopBits> StopBits { get; init; }
     public required Resolved<SerialFlowControl> FlowControl { get; init; }
+    public required Resolved<bool> RecordSessions { get; init; }
 }
 
 public static class SettingsResolver
@@ -132,6 +133,7 @@ public static class SettingsResolver
             Parity = Value(nameof(InheritableSettings.Parity), s => s.Parity, SerialParity.None),
             StopBits = Value(nameof(InheritableSettings.StopBits), s => s.StopBits, SerialStopBits.One),
             FlowControl = Value(nameof(InheritableSettings.FlowControl), s => s.FlowControl, SerialFlowControl.None),
+            RecordSessions = Flag(nameof(InheritableSettings.RecordSessions), s => s.RecordSessions, false),
         };
     }
 

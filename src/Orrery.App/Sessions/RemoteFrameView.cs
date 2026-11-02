@@ -369,36 +369,8 @@ public sealed class RemoteFrameView : Panel
     /// Copies <paramref name="region"/>, clipped to the frame, out of the session into <paramref name="scratch"/>
     /// (grown as needed), its rows packed one after the other. Returns the region copied.
     /// </summary>
-    static FrameRect CopyOut(IFrameBufferSession session, FrameRect region, int width, int height, ref byte[]? scratch)
-    {
-        int x = Math.Clamp(region.X, 0, width), y = Math.Clamp(region.Y, 0, height);
-        var clipped = new FrameRect(x, y, Math.Clamp(region.Right, x, width) - x, Math.Clamp(region.Bottom, y, height) - y);
-        if (clipped.IsEmpty)
-        {
-            return clipped;
-        }
-
-        int rowBytes = clipped.Width * BytesPerPixel, size = rowBytes * clipped.Height;
-        if (scratch is null || scratch.Length < size)
-        {
-            scratch = new byte[size];
-        }
-
-        var pinned = GCHandle.Alloc(scratch, GCHandleType.Pinned);
-        try
-        {
-            // CopyRegion writes each pixel at its place in a whole frame of the given stride, so the frame's origin
-            // goes where the region's first pixel lands at the start of the buffer.
-            var origin = pinned.AddrOfPinnedObject() - ((nint)y * rowBytes + (nint)x * BytesPerPixel);
-            session.CopyRegion(clipped, origin, rowBytes);
-        }
-        finally
-        {
-            pinned.Free();
-        }
-
-        return clipped;
-    }
+    static FrameRect CopyOut(IFrameBufferSession session, FrameRect region, int width, int height, ref byte[]? scratch) =>
+        FrameCopy.CopyOut(session, region, width, height, ref scratch);
 
     /// <summary>Copies what <see cref="CopyOut"/> took into a bitmap's pixels and corrects just that part.</summary>
     static void Blit(byte[]? scratch, FrameRect region, ColorCorrection? correction, IntPtr pixels, int rowBytes, int width, int height)

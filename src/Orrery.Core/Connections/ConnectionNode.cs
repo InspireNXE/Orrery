@@ -160,6 +160,12 @@ public sealed class InheritableSettings
     public bool? AutoReconnect { get; set; }
 
     /// <summary>
+    /// Record each session of this connection, from when it first connects (docs/design-session-recording.md).
+    /// Null inherits; off by default.
+    /// </summary>
+    public bool? RecordSessions { get; set; }
+
+    /// <summary>
     /// A saved SSH connection to go through first (ssh -J); RDP, VNC and Telnet reach the machine through an SSH
     /// tunnel from it. <see cref="NoJumpHost"/> for none; null to inherit.
     /// </summary>
@@ -239,7 +245,7 @@ public sealed class InheritableSettings
     /// </summary>
     public static readonly IReadOnlySet<string> PassedToGuests = new HashSet<string>
     {
-        nameof(JumpHostId), nameof(ShareClipboard), nameof(AutoReconnect),
+        nameof(JumpHostId), nameof(ShareClipboard), nameof(AutoReconnect), nameof(RecordSessions),
     };
 
     /// <summary>Settings a guest never takes from its host, only from its folders: its login, protocol and display.</summary>
@@ -260,7 +266,7 @@ public sealed class InheritableSettings
     {
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
-        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl),
+        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(RecordSessions),
     };
 
     /// <summary>Whether this sets anything Orrery 0.1 can't keep: a setting added since, or a protocol added since.</summary>

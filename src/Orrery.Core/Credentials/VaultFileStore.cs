@@ -417,7 +417,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         lock (_lock)
         {
             return Task.FromResult<IReadOnlyList<CredentialSummary>>(
-                Unlocked().Select(c => c.Summary).OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList());
+                Unlocked().Where(c => !Credential.ReservedIds.Contains(c.Id)).Select(c => c.Summary).OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList());
         }
     }
 

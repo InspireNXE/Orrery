@@ -351,6 +351,7 @@ public static class ConnectionExporter
         {
             var resolved = SettingsResolver.Resolve(entry);
             Lost("Jump hosts", resolved.JumpHostId.Value is not null);
+            Lost("Session recording", resolved.RecordSessions.Value);
             Lost("Port forwards", entry.PortForwards is { Count: > 0 });
             Lost("Wake-on-LAN broadcast addresses", entry.WakeBroadcast is not null);
             Lost("Fixed desktop sizes", resolved.DesktopSize.Value is not null);
