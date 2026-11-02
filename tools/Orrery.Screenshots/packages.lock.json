@@ -130,8 +130,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp": {
         "type": "Transitive",
@@ -440,7 +440,7 @@
       "orrery.protocols.rdp": {
         "type": "Project",
         "dependencies": {
-          "Devolutions.IronRdp": "[2026.10.29-orrery.8, )",
+          "Devolutions.IronRdp": "[2026.10.29-orrery.9, )",
           "Orrery.Core": "[0.1.0, )"
         }
       },
@@ -488,8 +488,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp.NativeAssets.Linux": {
         "type": "Transitive",
@@ -634,8 +634,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp.NativeAssets.Linux": {
         "type": "Transitive",
@@ -780,8 +780,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp.NativeAssets.Linux": {
         "type": "Transitive",
@@ -926,8 +926,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp.NativeAssets.Linux": {
         "type": "Transitive",
@@ -1072,8 +1072,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp.NativeAssets.Linux": {
         "type": "Transitive",
@@ -1218,8 +1218,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.8",
-        "contentHash": "rmXqM7/UJ12FkrFUoFYewD1FFlf3fQPAz2/CgfYC0wcKMJqtz/GrSlv2l27kSvtC4YCSceeZzWUeP8pCD+8CcQ=="
+        "resolved": "2026.10.29-orrery.9",
+        "contentHash": "zg9yAJwhfcrYC92fGeaMCwbgt41/JGq/JSivpo2ZgQp5xuVdk0RpPNv5UDoXfwlgG1vmez9WmHUS08wAsr59YQ=="
       },
       "HarfBuzzSharp.NativeAssets.Linux": {
         "type": "Transitive",
