@@ -373,6 +373,12 @@ public sealed class ConnectionEntry : ConnectionNode
     /// <summary>Where the Wake-on-LAN packet goes, as an IPv4 address such as 192.168.1.255. Null is 255.255.255.255.</summary>
     public string? WakeBroadcast { get; set; }
 
+    /// <summary>
+    /// The machine's management page, such as <c>https://10.20.0.1:8443</c>, opened from the right-click menu. Set on
+    /// the connection itself, never inherited. Null when not set. Written normalized by the properties pane and the importers.
+    /// </summary>
+    public string? ManagementUrl { get; set; }
+
     /// <summary>SSH: ports to forward while the session is open. Null when there are none.</summary>
     public List<PortForward>? PortForwards { get; set; }
 
