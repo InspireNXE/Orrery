@@ -36,7 +36,7 @@ public class WakePropertiesTests
         Dispatcher.UIThread.RunJobs();
         var boxes = window.GetVisualDescendants().OfType<TextBox>().ToList();
         return (panel, window, entry, boxes.Single(t => t.Watermark == "00:1A:2B:3C:4D:5E"), boxes.Single(t => t.Watermark == "255.255.255.255"),
-            window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Foreground == Dialogs.DangerBrush));
+            window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Foreground == Dialogs.DangerBrush && t.GetVisualAncestors().OfType<Orrery.App.Controls.Notice>().Any()));
     }
 
     [AvaloniaFact]

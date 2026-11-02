@@ -218,6 +218,30 @@
     <Style Selector="Button.setting:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
+    <!-- The settings pane's tabs: Saved settings and This session, side by side in a dark strip. -->
+    <Style Selector="Button.segment">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+    </Style>
+    <Style Selector="Button.segment:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#191D24" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="Button.segment.selected">
+      <Setter Property="Background" Value="#222833" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.segment.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#222833" />
+    </Style>
     <!-- A text-only action, such as "Use that instead". -->
     <Style Selector="Button.link">
       <Setter Property="Background" Value="Transparent" />

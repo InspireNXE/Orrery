@@ -244,6 +244,12 @@ public partial class MainWindow : Window
         _tree.Removed += (_, e) => _history.Forget(e.Ids);
         _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
+        _properties.SessionSettingsApplied += (_, _) => UpdateSessionToolbar();
+        _properties.ReconnectRequested += async (_, tab) =>
+        {
+            await CloseTabAsync(tab.Session);
+            await tab.Origin.Reconnect();
+        };
         _propertiesHost.Child = _properties;
 
         _credentialsView = new CredentialsView(_credentials, async () =>
@@ -2439,6 +2445,7 @@ public partial class MainWindow : Window
     {
         _sessionToolbar.IsVisible = _currentTab is not null && !_fullScreen;
         _sessionActions.Children.Clear();
+        _properties?.ShowSession(_currentTab);
         if (_currentTab is not { } tab)
         {
             return;

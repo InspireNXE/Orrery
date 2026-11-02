@@ -11,6 +11,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
+using Orrery.App.Sessions;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Network;
@@ -65,7 +66,7 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _useAllMonitors = Switch("UseAllMonitors");
     readonly ToggleSwitch _adminSession = Switch("AdminSession");
     readonly ToggleSwitch _viewOnly = Switch("ViewOnly");
-    readonly ComboBox _scaling = Choices("Scaling", (DesktopScaling.Fit, "Fit the tab"), (DesktopScaling.ShrinkToFit, "Shrink to fit"), (DesktopScaling.ActualSize, "Actual size"));
+    readonly ComboBox _scaling = Choices("Scaling", SessionSettingsView.ScalingLabels);
     readonly TextBox _keepAlive = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultKeepAliveSeconds.ToString(CultureInfo.InvariantCulture) };
     readonly TextBox _socksProxy = new() { FontFamily = Dialogs.MonoFont, Watermark = "None" };
     readonly TextBox _baudRate = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultBaudRate.ToString(CultureInfo.InvariantCulture) };
@@ -84,7 +85,18 @@ sealed class PropertiesPanel : UserControl
     readonly Button _connect, _save;
     readonly List<InheritRow> _rows = [];
     readonly TextBlock _setHere = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly Control _editorView;
+    readonly Control _editorView, _root;
+    readonly ContentControl _body = new();
+    readonly Control _tabStrip;
+    readonly Button _savedTab = new() { Content = "Saved settings", Classes = { "segment" } };
+    readonly Button _sessionTab = new() { Classes = { "segment" } };
+    readonly Ellipse _sessionDot = new() { Width = 7, Height = 7, Fill = Palette.StateUp, VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _sessionCount = new() { FontSize = 10, FontWeight = FontWeight.Bold, Foreground = new SolidColorBrush(Color.Parse("#F0B455")) };
+    readonly Border _sessionBadge;
+    SessionTab? _liveTab;
+    SessionSettingsView? _sessionView;
+    (SessionTab Tab, ConnectionNode Node)? _sessionFor;
+    bool _showingSession;
     readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
     readonly Func<bool> _enlargeByDefault;
     readonly ConnectionHistory? _history;
@@ -256,10 +268,9 @@ sealed class PropertiesPanel : UserControl
         var editor = new StackPanel
         {
             Spacing = 20,
-            Margin = new Thickness(16),
+            Margin = new Thickness(16, 4, 16, 16),
             Children =
             {
-                Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed),
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View)),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View)),
@@ -279,6 +290,33 @@ sealed class PropertiesPanel : UserControl
             Spacing = 8,
             Children = { _error, _connect, new DockPanel { Children = { Pane.Docked(_save, Dock.Right), Pane.Docked(revert, Dock.Right), _setHere } } },
         });
+
+        _sessionBadge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 1), Background = new SolidColorBrush(Color.Parse("#4A3812")), Child = _sessionCount, VerticalAlignment = VerticalAlignment.Center };
+        _sessionTab.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, Children = { new TextBlock { Text = "This session", VerticalAlignment = VerticalAlignment.Center }, _sessionDot, _sessionBadge } };
+        _savedTab.Click += (_, _) => ShowTab(session: false);
+        _sessionTab.Click += (_, _) => ShowTab(session: true);
+        Grid.SetColumn(_sessionTab, 1);
+        _tabStrip = new Border
+        {
+            Background = new SolidColorBrush(Color.Parse("#0E1116")),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(3),
+            IsVisible = false,
+            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 3, Children = { _savedTab, _sessionTab } },
+        };
+        _root = new DockPanel
+        {
+            Children =
+            {
+                Pane.Docked(new StackPanel
+                {
+                    Spacing = 14,
+                    Margin = new Thickness(16, 16, 16, 12),
+                    Children = { Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed), _tabStrip },
+                }, Dock.Top),
+                _body,
+            },
+        };
 
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
@@ -342,6 +380,84 @@ sealed class PropertiesPanel : UserControl
     public event EventHandler<ConnectionEntry>? ConnectRequested;
 
     public ConnectionNode? Node => _node;
+
+    /// <summary>Raised when the open session's settings change it, so the session toolbar can say so.</summary>
+    public event EventHandler? SessionSettingsApplied;
+
+    /// <summary>Raised by the "This session" tab's Reconnect.</summary>
+    public event EventHandler<SessionTab>? ReconnectRequested;
+
+    /// <summary>
+    /// The session tab in front, if any. While it's a remote desktop connected to the connection shown, the pane gets a
+    /// "This session" tab beside the saved settings.
+    /// </summary>
+    public void ShowSession(SessionTab? tab)
+    {
+        _liveTab = tab;
+        if (_node is not null && Content == _root)
+        {
+            UpdateTabs();
+        }
+    }
+
+    void UpdateTabs()
+    {
+        bool live = _liveTab is { View: RemoteFrameView, Session.State: SessionState.Connected } tab
+            && _node is ConnectionEntry entry && tab.Origin.EntryId == entry.Id && !tab.Origin.Files;
+        _tabStrip.IsVisible = live;
+        if (!live)
+        {
+            _sessionView = null;
+            _sessionFor = null;
+            _showingSession = false;
+        }
+        else if (_sessionFor is not { } shown || shown.Tab != _liveTab || shown.Node != _node)
+        {
+            var open = _liveTab!;
+            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, (RemoteFrameView)open.View, _enlargeByDefault);
+            view.Applied += (_, _) =>
+            {
+                ShowSessionBadge();
+                SessionSettingsApplied?.Invoke(this, EventArgs.Empty);
+            };
+            // Edits not applied yet on the saved tab go in first, so applying them later doesn't undo what's kept.
+            view.Keeping += (_, _) => TrySave();
+            view.Kept += async (_, _) =>
+            {
+                // The saved tab shows what was kept.
+                if (_node is not null)
+                {
+                    bool showing = _showingSession;
+                    await ShowAsync(_node);
+                    ShowTab(showing);
+                }
+            };
+            view.ReconnectRequested += (_, _) => ReconnectRequested?.Invoke(this, open);
+            _sessionView = view;
+            _sessionFor = (open, _node!);
+        }
+
+        ShowTab(_showingSession && live);
+    }
+
+    void ShowTab(bool session)
+    {
+        _showingSession = session && _sessionView is not null;
+        _body.Content = _showingSession ? _sessionView : _editorView;
+        _savedTab.Classes.Set("selected", !_showingSession);
+        _sessionTab.Classes.Set("selected", _showingSession);
+        ShowSessionBadge();
+    }
+
+    /// <summary>A green dot for the connected session, or how many of its settings differ from the saved ones.</summary>
+    void ShowSessionBadge()
+    {
+        int changes = _sessionView?.Changes ?? 0;
+        _sessionDot.IsVisible = changes == 0;
+        _sessionBadge.IsVisible = changes > 0;
+        _sessionCount.Text = changes.ToString(CultureInfo.InvariantCulture);
+        AutomationProperties.SetName(_sessionTab, changes switch { 0 => "This session", 1 => "This session, 1 change", _ => $"This session, {changes} changes" });
+    }
 
     public async Task ShowAsync(ConnectionNode? node)
     {
@@ -470,8 +586,9 @@ sealed class PropertiesPanel : UserControl
             _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
             ShowSections(own.Protocol ?? inherited.Protocol.Value);
 
-            Content = _editorView;
+            Content = _root;
             CountSetHere();
+            UpdateTabs();
         }
         finally
         {
@@ -497,7 +614,7 @@ sealed class PropertiesPanel : UserControl
     /// </summary>
     public async Task CredentialsChangedAsync(ConnectionNode changed)
     {
-        if (_node is null || Content != _editorView)
+        if (_node is null || Content != _root)
         {
             return;
         }
@@ -986,7 +1103,7 @@ sealed class PropertiesPanel : UserControl
     void SelectProtocol(Protocol protocol) =>
         _protocol.SelectedItem = _protocol.Items.OfType<ComboBoxItem>().First(i => (Protocol)i.Tag! == protocol);
 
-    static readonly (DisplayQuality Quality, string Label)[] QualityLabels =
+    internal static readonly (DisplayQuality Quality, string Label)[] QualityLabels =
     [
         (DisplayQuality.Balanced, "Balanced"),
         (DisplayQuality.Best, "Best look"),
