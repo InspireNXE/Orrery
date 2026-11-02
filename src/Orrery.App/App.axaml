@@ -76,6 +76,21 @@
     <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="#9AA3B2" />
     <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#181B21" />
     <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#2F3540" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="#232833" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="#1E222B" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="#C3C9D3" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="#E6E8EC" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundDisabled" Color="#5B6372" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForeground" Color="#8A93A3" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPointerOver" Color="#9AA3B2" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPressed" Color="#9AA3B2" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundDisabled" Color="#4A5160" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="#8A93A3" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="#C3C9D3" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPressed" Color="#C3C9D3" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="#C3C9D3" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronDisabled" Color="#4A5160" />
     <SolidColorBrush x:Key="ToolTipBackground" Color="#20242C" />
     <SolidColorBrush x:Key="ToolTipBorderBrush" Color="#2F3540" />
   </Application.Resources>
@@ -108,9 +123,25 @@
       <Setter Property="RenderTransform" Value="scale(0.625)" />
     </Style>
 
+    <!-- Menus and flyouts (context menus, the session toolbar's More menu): the panel's surface with rounded corners,
+         rows inset from its edge that light up as rounded pills, and quieter shortcuts and separators. -->
+    <Style Selector=":is(ContextMenu), MenuFlyoutPresenter">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="MinWidth" Value="200" />
+    </Style>
     <!-- Fluent pads a menu row 4 px above and 7 below, which sets the text and arrow high; the same height, evenly. -->
     <Style Selector="MenuItem">
-      <Setter Property="Padding" Value="11,5.5" />
+      <Setter Property="Padding" Value="10,6.5" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="MenuItem /template/ TextBlock#PART_InputGestureText">
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector=":is(ContextMenu) Separator, MenuFlyoutPresenter Separator">
+      <Setter Property="Background" Value="#2A2F38" />
+      <Setter Property="Margin" Value="6,4" />
     </Style>
 
     <!-- Avalonia's window buttons light up light gray whatever the theme, which hid their white glyphs; minimize and
