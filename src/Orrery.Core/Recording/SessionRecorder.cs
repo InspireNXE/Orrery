@@ -280,6 +280,12 @@ public sealed class ScreenRecorder : SessionRecorder
 {
     static readonly TimeSpan KeyFrameEvery = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// A key frame also comes once the changes since the last one are this many times its size, so a seek replays
+    /// little however fast the screen changes, and key frames add at most about a quarter to the file.
+    /// </summary>
+    internal const int KeyFrameAfterChanges = 4;
+
     /// <summary>How often sound is taken from the session; it's stamped with the time it's taken.</summary>
     static readonly TimeSpan SoundEvery = TimeSpan.FromMilliseconds(40);
 
@@ -291,6 +297,7 @@ public sealed class ScreenRecorder : SessionRecorder
     IFrameBufferSession? _screen;
     bool _needsKeyFrame = true;
     TimeSpan _lastKeyFrame;
+    long _changedSinceKeyFrame, _lastKeyFrameBytes;
     byte[] _rgb = [];
     byte[]? _scratch;
     byte[] _xor = [];
@@ -530,7 +537,8 @@ public sealed class ScreenRecorder : SessionRecorder
                 return;
             }
 
-            keyFrame = _needsKeyFrame || Now - _lastKeyFrame >= KeyFrameEvery && !_damage.IsEmpty;
+            keyFrame = _needsKeyFrame
+                || !_damage.IsEmpty && (Now - _lastKeyFrame >= KeyFrameEvery || _changedSinceKeyFrame >= _lastKeyFrameBytes * KeyFrameAfterChanges);
             rects = _damage.Rectangles.ToArray();
             _damage.Clear();
             _needsKeyFrame = false;
@@ -573,8 +581,11 @@ public sealed class ScreenRecorder : SessionRecorder
         if (keyFrame)
         {
             Copy(screen, new FrameRect(0, 0, width, height), xorInto: null, 0);
-            Enqueue(RecordingEventType.KeyFrame, ScreenFrames.EncodeKeyFrame(_rgb, width, height));
+            var frame = ScreenFrames.EncodeKeyFrame(_rgb, width, height);
+            Enqueue(RecordingEventType.KeyFrame, frame);
             _lastKeyFrame = Now;
+            _lastKeyFrameBytes = frame.Length;
+            _changedSinceKeyFrame = 0;
         }
         else if (rects.Length > 0)
         {
@@ -604,7 +615,9 @@ public sealed class ScreenRecorder : SessionRecorder
                     offset = Copy(screen, c, _xor, offset);
                 }
 
-                Enqueue(RecordingEventType.Change, ScreenFrames.EncodeChange(clipped, _xor.AsSpan(0, offset)));
+                var change = ScreenFrames.EncodeChange(clipped, _xor.AsSpan(0, offset));
+                Enqueue(RecordingEventType.Change, change);
+                _changedSinceKeyFrame += change.Length;
             }
         }
 

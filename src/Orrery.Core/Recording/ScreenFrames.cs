@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Numerics;
 using Orrery.Core.Sessions;
 
 namespace Orrery.Core.Recording;
@@ -260,17 +261,28 @@ public sealed class ScreenDecoder
             for (int row = 0; row < r.Height; row++)
             {
                 var target = _rgb.AsSpan(((r.Y + row) * Width + r.X) * 3, rowBytes);
-                var xor = _scratch.AsSpan(offset, rowBytes);
-                for (int i = 0; i < rowBytes; i++)
-                {
-                    target[i] ^= xor[i];
-                }
+                Xor(target, _scratch.AsSpan(offset, rowBytes));
 
                 offset += rowBytes;
             }
         }
 
         return true;
+    }
+
+    /// <summary>XORs <paramref name="xor"/> into <paramref name="target"/>, a vector at a time: seeking replays a lot of these.</summary>
+    static void Xor(Span<byte> target, ReadOnlySpan<byte> xor)
+    {
+        int i = 0;
+        for (int step = Vector<byte>.Count; i <= target.Length - step; i += step)
+        {
+            (new Vector<byte>(target[i..]) ^ new Vector<byte>(xor[i..])).CopyTo(target[i..]);
+        }
+
+        for (; i < target.Length; i++)
+        {
+            target[i] ^= xor[i];
+        }
     }
 
     /// <summary>The picture as opaque RGBA, for a bitmap or an encoder.</summary>

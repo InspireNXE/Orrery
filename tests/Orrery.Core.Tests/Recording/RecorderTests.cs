@@ -206,6 +206,40 @@ public sealed class RecorderTests : IDisposable
     }
 
     [Fact]
+    public async Task A_screen_that_changes_a_lot_gets_a_key_frame_once_the_changes_outweigh_the_last_one()
+    {
+        var screen = new FakeScreen(32, 32);
+        var recorder = new ScreenRecorder(NewWriter(RecordingKind.Screen), Info, 1, long.MaxValue, () => _now);
+        recorder.Attach(screen);
+        recorder.CaptureFrame();
+        for (int i = 0; i < 40; i++)
+        {
+            screen.Paint(new FrameRect(0, 0, 32, 32), (byte)(i * 37), (byte)(i * 11), (byte)i);
+            recorder.CaptureFrame(); // all in the same second, so only the amount of change makes key frames
+        }
+
+        recorder.Stop();
+        await recorder.Completion;
+
+        var frames = Read(recorder.Path, out _).Where(e => e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change).ToList();
+        Assert.True(frames.Count(e => e.Type == RecordingEventType.KeyFrame) > 1);
+        // A change comes only while the changes since the last key frame are under the limit, so the file stays small.
+        long keyFrame = 0, changes = 0;
+        foreach (var e in frames)
+        {
+            if (e.Type == RecordingEventType.KeyFrame)
+            {
+                keyFrame = e.Payload.Length;
+                changes = 0;
+                continue;
+            }
+
+            Assert.True(changes < keyFrame * ScreenRecorder.KeyFrameAfterChanges);
+            changes += e.Payload.Length;
+        }
+    }
+
+    [Fact]
     public async Task A_resize_and_the_pointer_are_recorded()
     {
         var screen = new FakeScreen(32, 32);
