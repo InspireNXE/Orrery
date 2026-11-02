@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -35,6 +36,27 @@ public class PaneModeTests : IDisposable
         Assert.Equal(PaneMode.Hidden, new AppSettings { InspectorOpen = false }.Inspector);
         Assert.Equal(PaneMode.Expanded, new AppSettings().SidePanel);
         Assert.Equal(PaneMode.Auto, new AppSettings { SidePanelOpen = false, SidePanelMode = PaneMode.Auto }.SidePanel);
+    }
+
+    [AvaloniaFact]
+    public void The_collapsed_panes_leave_the_same_room_beside_their_buttons()
+    {
+        var window = Open(new AppSettings { SidePanelMode = PaneMode.Collapsed, InspectorMode = PaneMode.Collapsed });
+        try
+        {
+            var rail = window.FindControl<Control>("Rail")!;
+            var strip = window.FindControl<Control>("InspectorStrip")!;
+            var button = window.FindControl<Control>("InspectorStripButton")!;
+            Assert.True(rail.IsVisible && strip.IsVisible);
+            Assert.Equal(rail.Bounds.Width, strip.Bounds.Width);
+            var railButton = window.FindControl<Control>("RecentRailButton")!;
+            // Mirror images: the rail's border is on its right, the strip's on its left, each with the same gap to its button.
+            Assert.Equal(rail.Bounds.Width - railButton.TranslatePoint(default, rail)!.Value.X - railButton.Bounds.Width, button.TranslatePoint(default, strip)!.Value.X, 0);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
