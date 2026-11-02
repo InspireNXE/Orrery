@@ -98,7 +98,7 @@ sealed class SessionTab
                         Spacing = 8,
                         Margin = new Thickness(12, 0, 6, 0),
                         VerticalAlignment = VerticalAlignment.Center,
-                        Children = { _state, _recordingDot, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { title, protocol } }, close },
+                        Children = { _state, _recordingDot, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { title, protocol } }, _soundButton, close },
                     },
                 },
             },
@@ -155,11 +155,75 @@ sealed class SessionTab
         }
 
         _countdown.Tick += (_, _) => CountDown();
+        WireSound();
         Host = new Grid { Children = { view, BuildScreen() } };
         ShowState();
     }
 
     readonly HashSet<SessionStateChangedEventArgs> _applied = new(ReferenceEqualityComparer.Instance);
+
+    // ---- Sound: the speaker on a tab that's playing sound, which mutes it, as in a browser ----
+
+    /// <summary>Sound heard this recently counts as playing, so the speaker doesn't blink between sounds.</summary>
+    static readonly TimeSpan PlayingFor = TimeSpan.FromSeconds(2);
+
+    readonly StrokeIcon _soundIcon = StrokeIcon.Create(Icons.Volume, 13);
+    readonly Button _soundButton = new() { VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+    readonly DispatcherTimer _soundCheck = new() { Interval = TimeSpan.FromMilliseconds(500) };
+
+    IAudioTap? SoundTap => Session is IAudioSession { AudioTap: { } tap } ? tap : null;
+
+    /// <summary>Whether the session can play sound here, so it can be muted (a remote desktop with Remote audio on).</summary>
+    public bool CanMute => SoundTap is not null;
+
+    /// <summary>Whether this tab's sound is silenced. A recording still gets it.</summary>
+    public bool IsMuted
+    {
+        get => SoundTap?.Muted ?? false;
+        set
+        {
+            if (SoundTap is { } tap)
+            {
+                tap.Muted = value;
+                ShowSound();
+            }
+        }
+    }
+
+    /// <summary>Whether it played sound in the last moment, muted or not.</summary>
+    public bool IsPlayingSound => SoundTap?.SoundAge is { } age && age < PlayingFor;
+
+    void WireSound()
+    {
+        _soundButton.Content = _soundIcon;
+        _soundButton.Classes.Add("icon");
+        _soundButton.Classes.Add("tabclose");
+        _soundButton.Click += (_, e) =>
+        {
+            e.Handled = true;
+            IsMuted = !IsMuted;
+        };
+        if (!CanMute)
+        {
+            return;
+        }
+
+        _soundCheck.Tick += (_, _) => ShowSound();
+        Header.AttachedToVisualTree += (_, _) => _soundCheck.Start();
+        Header.DetachedFromVisualTree += (_, _) => _soundCheck.Stop();
+    }
+
+    /// <summary>A speaker while it plays sound, a crossed-out one while muted, nothing otherwise.</summary>
+    internal void ShowSound()
+    {
+        bool muted = IsMuted;
+        _soundButton.IsVisible = muted || IsPlayingSound;
+        _soundIcon.Data = Geometry.Parse(muted ? Icons.Muted : Icons.Volume);
+        _soundIcon.Foreground = muted ? Dialogs.MutedBrush : null;
+        var tip = muted ? $"Unmute {Origin.Title}" : $"Mute {Origin.Title}";
+        ToolTip.SetTip(_soundButton, muted ? "Unmute this tab" : "Mute this tab");
+        Avalonia.Automation.AutomationProperties.SetName(_soundButton, tip);
+    }
 
     // ---- Recording (docs/design-session-recording.md §5.2) ----
 
@@ -206,6 +270,9 @@ sealed class SessionTab
 
     public bool IsRecording => _recorder is { IsRecording: true };
 
+    /// <summary>A recording started or stopped, for the session toolbar. Raised on the UI thread.</summary>
+    public event EventHandler? RecordingChanged;
+
     /// <summary>The recording stopped by itself, with why (the size limit, the disk). Raised on the UI thread.</summary>
     public event EventHandler<string>? RecordingStoppedByItself;
 
@@ -227,6 +294,7 @@ sealed class SessionTab
     {
         _recordingDot.IsVisible = IsRecording;
         Header.Label = IsRecording ? $"{_label}, recording" : _label;
+        RecordingChanged?.Invoke(this, EventArgs.Empty);
     }
 
     void Apply(SessionStateChangedEventArgs e)

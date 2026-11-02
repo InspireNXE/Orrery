@@ -77,6 +77,8 @@ host you type in.
 - A remote desktop's sound plays here unless you turn it off, and then the server isn't asked to send any.
   Windows servers only send sound to a client that has the drive-sharing channel, so Orrery opens it, with no drive
   in it, when none are shared.
+- A tab playing sound shows a speaker, as in a browser: click it, or *Mute tab* in the tab's menu, to silence that
+  tab alone. A recording still gets the sound.
 - A remote desktop comes through the graphics pipeline (RDPGFX) when the server offers it, as it does to Windows' own
   client, though without H.264, which blurred text. Resizing it, which full screen does too, then keeps the session running, sound
   included. A server without it sends bitmaps, and each resize restarts the session's display.
@@ -180,11 +182,12 @@ HDR isn't possible over RDP or VNC.
 
 - A connection's *Record sessions* setting (inherited like the others, so a folder can record everything in it),
   *Record every session* in Settings, or a tab's menu, records a session: what a terminal printed, never what's typed, or what a remote desktop showed, at
-  up to 10 frames a second, with an RDP session's sound. A red dot on the tab shows it's recording, and a reconnect carries on in the same file.
+  up to 10 frames a second, with an RDP session's sound. A red dot on the tab and a *REC* pill in the session toolbar show it's recording; the pill changes
+  the frame rate and sound for that recording, or stops it. A reconnect carries on in the same file.
 - Recordings are encrypted, sealed to a key kept with your saved credentials, so recording never asks for the vault
   but playing does. They go in `recordings/` in the data folder, and old ones are deleted by age and total size.
 - The *Recordings* panel on the left lists them, newest first. Orrery plays them itself: speed, Skip idle, 10-second
-  skips, markers for drops and reconnects, and Find for terminals.
+  skips, markers for drops and reconnects, volume for recorded sound, and Find for terminals.
 - Export makes an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi` for remote desktops, or MP4 (H.264,
   H.265 or AV1, picked when you export). On Windows MP4 uses Windows' own encoders, whichever the PC has; elsewhere,
   or for a codec Windows lacks, it goes through an ffmpeg you've installed and chosen in Settings (without sound).

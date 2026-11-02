@@ -40,6 +40,35 @@ public sealed class RdpAudioTap : IAudioTap, IDisposable
         }
     }
 
+    public bool Muted
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _tap?.IsMuted() ?? false;
+            }
+        }
+        set
+        {
+            lock (_lock)
+            {
+                _tap?.SetMuted(value);
+            }
+        }
+    }
+
+    public TimeSpan? SoundAge
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _tap?.GetSoundAgeMicros() is { } micros and not ulong.MaxValue ? TimeSpan.FromMicroseconds(micros) : null;
+            }
+        }
+    }
+
     public void Dispose()
     {
         lock (_lock)

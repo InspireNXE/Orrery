@@ -51,6 +51,113 @@ public sealed class RecordingUiTests : IDisposable
     static SessionTab NewTab(Terminal session) =>
         new(session, new TerminalView(session), new SessionOrigin("web-01", Protocol.Ssh, null, () => Task.CompletedTask));
 
+    sealed class Tap : IAudioTap
+    {
+        public void SetEnabled(bool enabled) => Enabled = enabled;
+        public bool Enabled { get; private set; }
+        public AudioChunk? TryTake() => null;
+        public bool Muted { get; set; }
+        public TimeSpan? SoundAge { get; set; }
+    }
+
+    /// <summary>A remote desktop that plays sound here.</summary>
+    sealed class SoundDesktop : IFrameBufferSession, IAudioSession
+    {
+        public Tap Tap { get; } = new();
+        public IAudioTap? AudioTap => Tap;
+        public ConnectionTarget Target { get; } = new("desk.example", 3389, "user", null);
+        public SessionState State => SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated { add { } remove { } }
+        public int Width => 64;
+        public int Height => 48;
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
+        public void SendKey(ushort scancode, bool pressed) { }
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+        public void RequestResize(int width, int height) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [AvaloniaFact]
+    public void A_tab_playing_sound_shows_a_speaker_that_mutes_it_and_stays_while_muted()
+    {
+        var session = new SoundDesktop();
+        var tab = new SessionTab(session, new RemoteFrameView(session), new SessionOrigin("desk", Protocol.Rdp, null, () => Task.CompletedTask));
+        var window = new Window { Content = tab.Header };
+        window.Show();
+        Button Speaker() => tab.Header.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b)?.Contains("mute", StringComparison.OrdinalIgnoreCase) == true);
+
+        Assert.True(tab.CanMute);
+        tab.ShowSound();
+        Assert.False(Speaker().IsVisible); // silent: no speaker
+
+        session.Tap.SoundAge = TimeSpan.FromMilliseconds(200);
+        tab.ShowSound();
+        Assert.True(Speaker().IsVisible);
+        Assert.Equal("Mute desk", AutomationProperties.GetName(Speaker()));
+
+        Speaker().RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(session.Tap.Muted);
+        Assert.True(tab.IsMuted);
+
+        session.Tap.SoundAge = TimeSpan.FromMinutes(1);
+        tab.ShowSound();
+        Assert.True(Speaker().IsVisible); // muted and quiet: still there, to unmute
+        Assert.Equal("Unmute desk", AutomationProperties.GetName(Speaker()));
+
+        tab.IsMuted = false;
+        Assert.False(session.Tap.Muted);
+        Assert.False(Speaker().IsVisible);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_toolbar_offers_to_record_and_while_recording_a_pill_changes_the_frame_rate_and_sound()
+    {
+        var session = new SoundDesktop();
+        var tab = new SessionTab(session, new RemoteFrameView(session), new SessionOrigin("desk", Protocol.Rdp, null, () => Task.CompletedTask));
+        bool started = false;
+        var record = Assert.IsType<Button>(RecordingControl.For(tab, () => started = true, () => { }, () => { }));
+        Assert.Equal("Start recording", AutomationProperties.GetName(record));
+        record.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(started);
+
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var recorder = new ScreenRecorder(RecordingWriter.Create(Path.Combine(_root, "desk.orrec"), RecordingKind.Screen, publicKey),
+            new RecordingInfo("desk", "RDP", DateTimeOffset.Now), 2, long.MaxValue, recordSound: false);
+        recorder.Attach(session);
+        tab.Recorder = recorder;
+        bool stopped = false;
+        var pill = Assert.IsType<Button>(RecordingControl.For(tab, () => { }, () => stopped = true, () => { }));
+        Assert.Equal("Recording", AutomationProperties.GetName(pill));
+        var window = new Window { Content = pill, Width = 600, Height = 500 };
+        window.Show();
+        pill.Flyout!.ShowAt(pill);
+        Dispatcher.UIThread.RunJobs();
+        var panel = (Control)((Flyout)pill.Flyout).Content!;
+
+        panel.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "10 frames a second")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(10, recorder.FramesPerSecond);
+
+        var sound = panel.GetVisualDescendants().OfType<ToggleSwitch>().Single(t => AutomationProperties.GetName(t) == "Record sound");
+        Assert.False(sound.IsChecked);
+        sound.IsChecked = true;
+        Assert.True(recorder.RecordsSound);
+        Assert.True(session.Tap.Enabled);
+
+        panel.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Stop recording"))
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(stopped);
+        recorder.Stop();
+        await recorder.Completion;
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task A_recording_tab_shows_a_dot_and_says_so_until_it_stops()
     {
@@ -153,7 +260,7 @@ public sealed class RecordingUiTests : IDisposable
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("1 min 1 s") == true);
 
         // Skip idle is on: the minute's gap plays as 2 seconds, so 61 seconds play as 5.
-        var timeline = player.GetVisualDescendants().OfType<Slider>().Single();
+        var timeline = player.GetVisualDescendants().OfType<Slider>().Single(s => AutomationProperties.GetName(s) == "Position");
         Assert.InRange(timeline.Maximum, 4.9, 5.1);
         timeline.Value = timeline.Maximum;
         Dispatcher.UIThread.RunJobs();
@@ -208,6 +315,86 @@ public sealed class RecordingUiTests : IDisposable
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.Contains("ended without being closed") == true);
         player.Dispose();
         window.Close();
+    }
+
+    sealed class HeardOutput : IAudioOutput
+    {
+        public List<byte> Heard { get; } = [];
+        public int Write(ReadOnlySpan<byte> pcm)
+        {
+            lock (Heard)
+            {
+                Heard.AddRange(pcm.ToArray());
+            }
+
+            return pcm.Length;
+        }
+
+        public TimeSpan Buffered => TimeSpan.Zero;
+        public void Clear() { }
+        public void SetPaused(bool paused) { }
+        public void Dispose() { }
+    }
+
+    [AvaloniaFact]
+    public async Task A_screen_recording_with_sound_plays_it_and_shows_a_volume_control()
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "sound.orrec");
+        var pixels = new byte[16 * 8 * 3];
+        var tone = new byte[4410 * 2 * 2];
+        for (int i = 0; i < tone.Length; i += 2)
+        {
+            tone[i + 1] = 0x20; // 8192, loud enough to hear the volume take effect
+        }
+
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(16, 8));
+            writer.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(pixels, 16, 8));
+            for (int i = 0; i < 10; i++)
+            {
+                writer.Append(RecordingEventType.Audio, TimeSpan.FromMilliseconds(100 * i), RecordingFile.AudioPayload(44100, 2, tone));
+            }
+
+            writer.Complete(TimeSpan.FromSeconds(1));
+        }
+
+        var output = new HeardOutput();
+        var open = PlayerView.OpenAudio;
+        PlayerView.OpenAudio = (_, _) => output;
+        try
+        {
+            var service = new RecordingService(_location, _settings, _credentials);
+            var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
+            var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+            var window = new Window { Content = player, Width = 1000, Height = 720 };
+            window.Show();
+            var volume = player.GetVisualDescendants().OfType<Slider>().Single(s => AutomationProperties.GetName(s) == "Volume");
+            await WaitFor(() => volume.IsEffectivelyVisible);
+            volume.Value = 100;
+            await WaitFor(() => { lock (output.Heard) return output.Heard.Count > 0; });
+            lock (output.Heard)
+            {
+                Assert.Equal(0x20, output.Heard[1]); // played as recorded at full volume
+            }
+
+            player.Dispose();
+            window.Close();
+        }
+        finally
+        {
+            PlayerView.OpenAudio = open;
+        }
+    }
+
+    [Fact]
+    public void The_volume_scales_samples_on_a_curve_and_full_volume_leaves_them_alone()
+    {
+        byte[] pcm = [0x00, 0x40, 0x00, 0xC0]; // 16384 and -16384
+        Assert.Equal(pcm, PlayerView.Louder(pcm, 1).ToArray());
+        Assert.Equal(new byte[] { 0x00, 0x10, 0x00, 0xF0 }, PlayerView.Louder(pcm, 0.5).ToArray()); // a quarter as loud
+        Assert.All(PlayerView.Louder(pcm, 0).ToArray(), b => Assert.Equal(0, b));
     }
 
     [AvaloniaFact]

@@ -15,6 +15,10 @@ sealed class FakeTap : IAudioTap
     public void SetEnabled(bool enabled) => Enabled = enabled;
 
     public AudioChunk? TryTake() => Enabled && Chunks.Count > 0 ? Chunks.Dequeue() : null;
+
+    public bool Muted { get; set; }
+
+    public TimeSpan? SoundAge { get; set; }
 }
 
 /// <summary>A session that only plays sound, which is all the recorder's sound needs.</summary>
@@ -102,6 +106,47 @@ public sealed class SoundTests : IDisposable
         recorder.Stop();
         await recorder.Completion;
         Assert.DoesNotContain(Read(recorder.Path), e => e.Type == RecordingEventType.Audio);
+    }
+
+    [Fact]
+    public async Task Sound_can_be_turned_on_and_off_while_recording_and_each_change_is_marked()
+    {
+        var session = new FakeSoundSession();
+        var recorder = NewRecorder(recordSound: false);
+        recorder.Attach(session);
+        Assert.True(recorder.CanRecordSound);
+        Assert.False(session.Tap.Enabled);
+
+        recorder.RecordsSound = true;
+        Assert.True(session.Tap.Enabled);
+        session.Tap.Chunks.Enqueue(new AudioChunk(48_000, 2, Tone(960, 2)));
+        _now = TimeSpan.FromSeconds(1);
+        recorder.CaptureSound();
+
+        _now = TimeSpan.FromSeconds(2);
+        recorder.RecordsSound = false;
+        Assert.False(session.Tap.Enabled);
+        recorder.Stop();
+        await recorder.Completion;
+
+        var events = Read(recorder.Path);
+        Assert.Single(events, e => e.Type == RecordingEventType.Audio);
+        Assert.Equal(["Sound on", "Sound off"], events.Where(e => e.Type == RecordingEventType.Marker).Select(e => Encoding.UTF8.GetString(e.Payload)));
+    }
+
+    [Fact]
+    public async Task A_session_without_sound_has_none_to_record_and_the_frame_rate_can_change()
+    {
+        var recorder = NewRecorder(recordSound: true);
+        Assert.False(recorder.CanRecordSound); // nothing attached yet
+        Assert.Equal(1, recorder.FramesPerSecond);
+        recorder.FramesPerSecond = 10;
+        Assert.Equal(10, recorder.FramesPerSecond);
+        recorder.FramesPerSecond = 99;
+        Assert.Equal(30, recorder.FramesPerSecond);
+        recorder.Stop();
+        await recorder.Completion;
+        recorder.FramesPerSecond = 5; // after stopping, still fine
     }
 
     [Fact]
