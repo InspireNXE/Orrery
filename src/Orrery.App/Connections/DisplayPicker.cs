@@ -120,6 +120,11 @@ sealed class DisplayPicker : UserControl
             {
                 Padding = new Thickness(0),
                 MinHeight = 0,
+                MinWidth = 0,
+
+                // A button keeps to its content's size unless told to fill; each fills the display it stands for.
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
                 CornerRadius = new CornerRadius(5),
                 BorderThickness = new Thickness(1.5),
                 HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -281,12 +286,15 @@ sealed class DisplayPicker : UserControl
         protected override Size ArrangeOverride(Size finalSize)
         {
             var (scale, left, top, height) = Fit(finalSize.Width);
+
+            // Centered, as Windows' own Display settings draws them.
+            double inset = Children.Count == 0 ? 0 : (finalSize.Width - (Children.Max(c => ((ScreenArea)c.Tag!).Right) - left) * scale) / 2;
             foreach (var child in Children)
             {
                 var area = (ScreenArea)child.Tag!;
 
                 // A 2 px gap shows where one display ends and the next begins.
-                child.Arrange(new Rect((area.X - left) * scale + 1, (area.Y - top) * scale + 1, Math.Max(0, area.Width * scale - 2), Math.Max(0, area.Height * scale - 2)));
+                child.Arrange(new Rect(inset + (area.X - left) * scale + 1, (area.Y - top) * scale + 1, Math.Max(0, area.Width * scale - 2), Math.Max(0, area.Height * scale - 2)));
             }
 
             return new Size(finalSize.Width, height);
