@@ -56,7 +56,7 @@ Orrery's notices in the terminal (the grey `»` lines, such as Serial's) are out
 The view gets `FrameUpdated` with a damaged rectangle, and copies pixels out with `CopyRegion`. The recorder does the
 same, on its own thread and at its own pace:
 
-- **Frame rate.** At most 5 frames a second by default (1, 2, 5 or 10 in Settings). Damage that arrives between two frames is merged into one rectangle per
+- **Frame rate.** At most 5 frames a second by default (1, 2, 5, 10, 15, 30 or 60 in Settings). The rate is a ceiling, not a promise: a frame is taken only when the screen changed, so a desktop that sends 15 a second records 15 even at 60. Windows sends about 30 unless its server is set for 60. Orrery doesn't measure the rate a desktop sends, and RDP and VNC don't report one. Damage that arrives between two frames is merged into one rectangle per
   area (a short list, not a single union, so a clock in one corner and a window in another don't make a full-screen
   frame). When nothing changed, nothing is written.
 - **Key frames.** A whole frame at the start, after every resize, and every 30 seconds, so the player can jump about
@@ -215,7 +215,7 @@ under a new *Recording* group, for every protocol.
 - *Use at most*: 1, 5 (default), 20 or 50 GB for all recordings together.
 - *Stop a recording at*: 1 (default), 4 or 16 GB. A recording that reaches it stops, says so on the tab, and the
   session carries on.
-- *Frames per second for remote desktops*: 1, 2, 5 (default) or 10.
+- *Frames a second for remote desktops, at most*: 1, 2, 5 (default), 10, 15, 30 or 60.
 - *Record every session* (off by default): the *Record sessions* setting of Defaults for all connections, shown here
   too, so every connection records unless it or its folder turns it off. Quick connections follow it as well; a local
   shell and a file browser don't.
@@ -255,7 +255,7 @@ The first time recording is turned on (in a connection, or from a tab), a one-ti
 - The tab header shows a red dot before the name, with "Recording" for screen readers and in its tooltip.
 - The tab menu shows *Stop recording* (or *Start recording*).
 - The session toolbar shows a red *REC 1:23* pill. Its panel says how long the recording has run and how big it is,
-  and changes it for this recording only: frames a second (1, 2, 5 or 10; a screen recording's timer takes the new
+  and changes it for this recording only: frames a second at most (1, 2, 5, 10, 15, 30 or 60; a screen recording's timer takes the new
   rate at its next frame) and, for a remote desktop that plays sound here, *Record sound*, turned on or off with a
   "Sound on" or "Sound off" marker on the timeline. *Stop recording* and *Show recordings* are under them. While a
   connected session isn't recording, a round button in the same place starts one.

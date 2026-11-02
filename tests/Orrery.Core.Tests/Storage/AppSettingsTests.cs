@@ -287,6 +287,23 @@ public class AppSettingsTests : IDisposable
         Assert.Equal(CredentialStoreKind.VaultFile, CredentialStores.KindFor(installed, new AppSettings { CredentialStore = CredentialStoreKind.VaultFile }));
     }
 
+    [Theory]
+    [InlineData(null, 5)]
+    [InlineData(0, 1)]
+    [InlineData(3, 2)]
+    [InlineData(10, 10)]
+    [InlineData(12, 10)]
+    [InlineData(13, 15)]
+    [InlineData(22, 15)]
+    [InlineData(23, 30)]
+    [InlineData(44, 30)]
+    [InlineData(45, 60)]
+    [InlineData(240, 60)]
+    public void A_hand_edited_frame_rate_is_brought_to_the_nearest_one_on_offer(int? stored, int used)
+    {
+        Assert.Equal(used, new AppSettings { RecordingFrameRate = stored }.RecordingFramesPerSecond);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

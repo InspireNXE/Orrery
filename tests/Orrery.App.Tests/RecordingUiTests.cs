@@ -149,7 +149,7 @@ public sealed class RecordingUiTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         var panel = (Control)((Flyout)pill.Flyout).Content!;
 
-        panel.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "10 frames a second")
+        panel.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "At most 10 frames a second")
             .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(10, recorder.FramesPerSecond);
 

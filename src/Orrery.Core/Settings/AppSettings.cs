@@ -249,10 +249,19 @@ public sealed record AppSettings
 
     public const int DefaultRecordingFileGB = 1;
 
-    /// <summary>Frames a second for remote desktop recordings: 1, 2, 5 or 10. Null is <see cref="DefaultRecordingFrameRate"/>.</summary>
+    /// <summary>
+    /// The most frames a second a remote desktop recording takes: one of <see cref="RecordingFrameRates"/>. A frame is
+    /// taken only when the screen changed, so a desktop that sends fewer gets fewer. Null is <see cref="DefaultRecordingFrameRate"/>.
+    /// </summary>
     public int? RecordingFrameRate { get; init; }
 
     public const int DefaultRecordingFrameRate = 5;
+
+    /// <summary>
+    /// The frame rates on offer. Windows sends at most about 30 frames a second unless its server is set for 60, so 60
+    /// helps only there; elsewhere the recording simply has as many frames as the desktop sends.
+    /// </summary>
+    public static readonly IReadOnlyList<int> RecordingFrameRates = [1, 2, 5, 10, 15, 30, 60];
 
     /// <summary>Put the connection's name in a recording's file name. Null is on.</summary>
     public bool? RecordingNamesInFiles { get; init; }
@@ -283,13 +292,14 @@ public sealed record AppSettings
 
     /// <summary>The frame rate in use; a hand-edited value is brought to the nearest allowed one.</summary>
     [JsonIgnore]
-    public int RecordingFramesPerSecond => (RecordingFrameRate ?? DefaultRecordingFrameRate) switch
+    public int RecordingFramesPerSecond
     {
-        <= 1 => 1,
-        <= 3 => 2,
-        <= 7 => 5,
-        _ => 10,
-    };
+        get
+        {
+            int wanted = RecordingFrameRate ?? DefaultRecordingFrameRate;
+            return RecordingFrameRates.MinBy(rate => (Math.Abs(rate - wanted), -rate));
+        }
+    }
 
     [JsonIgnore]
     public bool RecordsSound => RecordingSound ?? true;
