@@ -380,9 +380,39 @@ public sealed class TerminalView : Control
         FitToSize(e.NewSize);
     }
 
+    /// <summary>The grid's size in device-independent pixels at the current text size, for the player to scale.</summary>
+    public Size GridPixelSize => new(_terminal.Columns * _cellWidth, _terminal.Rows * _cellHeight);
+
+    /// <summary>The grid changed size to fit the view, as the session is about to be told. The recorder listens.</summary>
+    public event EventHandler? GridResized;
+
+    (int Columns, int Rows)? _fixedGrid;
+
+    /// <summary>
+    /// For playing a recording: the grid stays this size, as the recording had it, whatever the view's size. Null fits
+    /// the grid to the view again.
+    /// </summary>
+    public (int Columns, int Rows)? FixedGrid
+    {
+        get => _fixedGrid;
+        set
+        {
+            _fixedGrid = value;
+            if (value is var (columns, rows))
+            {
+                _terminal.Resize(Math.Max(2, columns), Math.Max(1, rows));
+                InvalidateVisual();
+            }
+            else
+            {
+                FitToSize(Bounds.Size);
+            }
+        }
+    }
+
     void FitToSize(Size size)
     {
-        if (size.Width <= 0 || size.Height <= 0)
+        if (size.Width <= 0 || size.Height <= 0 || _fixedGrid is not null)
         {
             return;
         }
@@ -398,6 +428,7 @@ public sealed class TerminalView : Control
         _resizeTimer.Stop();
         _resizeTimer.Start();
         _announcer.Reset(Snapshot());
+        GridResized?.Invoke(this, EventArgs.Empty);
     }
 
     // ---- Drawing ----

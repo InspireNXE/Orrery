@@ -32,12 +32,13 @@ public class SecretLeakTests : IDisposable
     const string KeyFileBody = "leakkeyfilebodyM5q8";
     const string KeyFilePassphrase = "leak-filephrase-T7y4";
     const string WrongKeyFilePassphrase = "leak-wrongphrase-V2k9";
+    const string RecordedOutput = "leak-recorded-N4f6";
 
     /// <summary>A folder name that must never appear: key files are named in the log and on screen without their folder.</summary>
     const string KeyFolder = "keyfolder-Q9z2";
 
     static readonly string[] Secrets = [MasterPassword, NewMasterPassword, WrongPassword, SavedPassword, KeyPassphrase, KeyBody, ExportPassword, TypedPassword, ProxySecret, ConfigKeyBody,
-        KeyFileBody, KeyFilePassphrase, WrongKeyFilePassphrase, KeyFolder];
+        KeyFileBody, KeyFilePassphrase, WrongKeyFilePassphrase, KeyFolder, RecordedOutput];
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
@@ -79,6 +80,28 @@ public class SecretLeakTests : IDisposable
                 Assert.Equal(BiometricOutcome.TurnedOff, (await biometric.UnlockAsync(vault)).Outcome);
                 dataKeys.Add((await vault.DataKeyForAsync(NewMasterPassword)).DataKey);
             }
+
+            // A terminal recording made, closed and played back: its output, the recordings key and the file's key stay out.
+            var keychain = new KeychainCredentialStore(location.FileIn("credentials.json"), new MemorySecrets());
+            var recordingPublic = await Orrery.Core.Recording.RecordingKeys.EnsureAsync(keychain);
+            var recordingPrivate = (await Orrery.Core.Recording.RecordingKeys.PrivateKeyAsync(keychain))!;
+            dataKeys.Add(recordingPrivate);
+            Directory.CreateDirectory(location.FileIn("recordings"));
+            var recordingPath = location.FileIn(Path.Combine("recordings", "leak.orrec"));
+            var terminal = new RecordedTerminal();
+            var recorder = new Orrery.Core.Recording.TerminalRecorder(
+                Orrery.Core.Recording.RecordingWriter.Create(recordingPath, Orrery.Core.Recording.RecordingKind.Terminal, recordingPublic),
+                new Orrery.Core.Recording.RecordingInfo("web", "SSH", DateTimeOffset.Now), 80, 24, long.MaxValue);
+            recorder.Attach(terminal);
+            terminal.Output($"secret: {RecordedOutput}\r\n");
+            recorder.Stop();
+            await recorder.Completion;
+            using (var reader = Orrery.Core.Recording.RecordingReader.Open(recordingPath, recordingPrivate))
+            {
+                Assert.Contains(reader.Events(), e => Encoding.UTF8.GetString(e.Payload).Contains(RecordedOutput));
+            }
+
+            Assert.DoesNotContain(RecordedOutput, File.ReadAllText(recordingPath));
 
             // Connections saved, backed up and loaded.
             var tree = ConnectionTree.Empty();
@@ -149,6 +172,7 @@ public class SecretLeakTests : IDisposable
         Assert.Contains("127.0.0.1", log);
         Assert.Contains("Vault unlocked with Test Hello", log);
         Assert.Contains("Test Hello unlock turned off", log);
+        Assert.Contains("Recording stopped: leak.orrec", log);
         string details;
         lock (FailureDetails) details = string.Join("\n", FailureDetails);
         foreach (var secret in Secrets)
@@ -159,12 +183,25 @@ public class SecretLeakTests : IDisposable
 
         // The authenticator's secrets, and the vault's data keys before and after the password change.
         Assert.NotEmpty(hello.Secrets);
-        Assert.Equal(2, dataKeys.Count);
+        Assert.Equal(3, dataKeys.Count);
         foreach (var secret in hello.Secrets.Concat(dataKeys))
         {
             Assert.DoesNotContain(Convert.ToBase64String(secret), log);
             Assert.DoesNotContain(Convert.ToHexString(secret), log, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    sealed class RecordedTerminal : ITerminalSession
+    {
+        public ConnectionTarget Target { get; } = new("web.example", 22, "admin", null);
+        public SessionState State => SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public event Action<byte[]>? DataReceived;
+        public void Output(string text) => DataReceived?.Invoke(Encoding.UTF8.GetBytes(text));
+        public void Send(ReadOnlySpan<byte> data) { }
+        public void Resize(int columns, int rows) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     /// <summary>What the connection-lost screen showed and would copy for the failed sessions.</summary>

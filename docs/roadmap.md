@@ -4,18 +4,7 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 ## Next feature pass
 
-### Session recording and replay
-
-Record sessions, optionally, to replay later for audits or for "what did I do on that box".
-
-- SSH and Telnet as text, in [asciinema](https://docs.asciinema.org/manual/asciicast/v2/) format: searchable and
-  small. The terminal already sees every byte, so recording is a tee of `DataReceived` with timestamps.
-- RDP and VNC as video, encoded from the frame buffer the view already has, at a low frame rate with frames
-  skipped when nothing changed.
-- Turned on per connection (an inheritable setting) or per session from the tab menu, with a visible indicator
-  while recording.
-- Stored under the data folder (`recordings/`), optionally encrypted with the vault's key, with a retention limit.
-- A player for both kinds in Orrery itself, so recordings don't need other software.
+Nothing yet. Session recording and replay is built: see [design-session-recording.md](design-session-recording.md).
 
 ## Parked for future releases
 

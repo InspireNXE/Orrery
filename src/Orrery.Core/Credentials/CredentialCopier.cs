@@ -11,11 +11,12 @@ public static class CredentialCopier
     public static async Task<IReadOnlyList<Guid>> CopyAllAsync(ICredentialStore from, ICredentialStore to)
     {
         var copied = new List<Guid>();
-        foreach (var summary in await from.ListAsync())
+        var ids = (await from.ListAsync()).Select(s => s.Id).Concat(Credential.ReservedIds).ToList();
+        foreach (var id in ids)
         {
-            if (await from.GetAsync(summary.Id) is not { } credential)
+            if (await from.GetAsync(id) is not { } credential)
             {
-                // Listed but its secret is gone (removed outside Orrery): nothing to carry over.
+                // Listed but its secret is gone (removed outside Orrery), or a reserved one this store never had: nothing to carry over.
                 continue;
             }
 

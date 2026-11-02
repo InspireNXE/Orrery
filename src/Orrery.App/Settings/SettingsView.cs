@@ -120,7 +120,7 @@ sealed class SettingsView : UserControl
         {
             ("General", [StartupSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
-            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
+            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection(), RecordingSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
             ("About", [LogsSection(), AboutSection()]),
         };
@@ -197,6 +197,23 @@ sealed class SettingsView : UserControl
 
     /// <summary>The close button or Esc.</summary>
     public event EventHandler? CloseRequested;
+
+    /// <summary>The user asked to see the recordings.</summary>
+    public event EventHandler? ShowRecordingsRequested;
+
+    /// <summary>Raised when Record every session is turned on or off; it's kept in the defaults for all connections.</summary>
+    public event EventHandler<bool>? RecordAllSessionsChanged;
+
+    readonly CheckBox _recordAll = new() { Content = "Record every session" };
+
+    /// <summary>Shows whether the defaults for all connections record sessions, without raising <see cref="RecordAllSessionsChanged"/>.</summary>
+    public void ShowRecordAllSessions(bool on)
+    {
+        bool loading = _loading;
+        _loading = true;
+        _recordAll.IsChecked = on;
+        _loading = loading;
+    }
 
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
@@ -692,6 +709,13 @@ sealed class SettingsView : UserControl
     {
         try
         {
+            // The recordings key and note are saved by recording itself, perhaps while this page is open: keep what's on disk.
+            var saved = _settingsStore.Load();
+            _settings = _settings with
+            {
+                RecordingPublicKey = saved.RecordingPublicKey ?? _settings.RecordingPublicKey,
+                RecordingNoteShown = saved.RecordingNoteShown ?? _settings.RecordingNoteShown,
+            };
             _settingsStore.Save(_settings);
             return true;
         }
@@ -700,6 +724,143 @@ sealed class SettingsView : UserControl
             _ = Dialogs.ShowMessageAsync(Owner, "Couldn't save settings", e.Message);
             return false;
         }
+    }
+
+    // ---- Recordings (docs/design-session-recording.md §4.2) ----
+
+    Control RecordingSection()
+    {
+        ComboBox Choice<T>(IEnumerable<(T Value, string Label)> choices, T current, Func<AppSettings, T, AppSettings> apply, string name)
+        {
+            var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+            AutomationProperties.SetName(box, name);
+            foreach (var (value, label) in choices)
+            {
+                box.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+            }
+
+            box.SelectedItem = box.Items.OfType<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, current)) ?? box.Items[0];
+            box.SelectionChanged += (_, _) =>
+            {
+                if (!_loading && box.SelectedItem is ComboBoxItem { Tag: T chosen })
+                {
+                    _settings = apply(_settings, chosen);
+                    TrySaveSettings();
+                }
+            };
+            return box;
+        }
+
+        var keep = Choice([(7, "7 days"), (30, "30 days"), (90, "90 days"), (365, "A year"), (0, "Until I delete them")],
+            _settings.RecordingKeepDays ?? AppSettings.DefaultRecordingKeepDays, (s, v) => s with { RecordingKeepDays = v }, "Keep recordings for");
+        var total = Choice([(1, "1 GB"), (5, "5 GB"), (20, "20 GB"), (50, "50 GB")],
+            _settings.RecordingTotalGB ?? AppSettings.DefaultRecordingTotalGB, (s, v) => s with { RecordingTotalGB = v }, "Use at most");
+        var file = Choice([(1, "1 GB"), (4, "4 GB"), (16, "16 GB")],
+            _settings.RecordingFileGB ?? AppSettings.DefaultRecordingFileGB, (s, v) => s with { RecordingFileGB = v }, "Stop a recording at");
+        var rate = Choice([(1, "1"), (2, "2"), (5, "5"), (10, "10")],
+            _settings.RecordingFramesPerSecond, (s, v) => s with { RecordingFrameRate = v }, "Frames a second for remote desktops");
+
+        AutomationProperties.SetName(_recordAll, "Record every session");
+        _recordAll.IsCheckedChanged += (_, _) =>
+        {
+            if (!_loading)
+            {
+                RecordAllSessionsChanged?.Invoke(this, _recordAll.IsChecked == true);
+            }
+        };
+
+        var names = new CheckBox { Content = "Put connection names in file names", IsChecked = _settings.PutsNamesInRecordingFiles };
+        names.IsCheckedChanged += (_, _) =>
+        {
+            if (!_loading)
+            {
+                _settings = _settings with { RecordingNamesInFiles = names.IsChecked == true };
+                TrySaveSettings();
+            }
+        };
+
+        var folder = _location.FileIn(Recording.RecordingService.FolderName);
+        var used = Note(UsedText(folder));
+        var show = new Button { Content = "Show recordings" };
+        show.Click += (_, _) => ShowRecordingsRequested?.Invoke(this, EventArgs.Empty);
+        var open = new Button { Content = "Open the recordings folder" };
+        open.Click += (_, _) =>
+        {
+            Directory.CreateDirectory(folder);
+            OpenFolder(folder);
+        };
+
+        var noFfmpeg = OperatingSystem.IsWindows() ? "None chosen: MP4 uses Windows' own encoders." : "None chosen: screen recordings export as AVI only.";
+        var ffmpegText = Note(_settings.FfmpegPath is { } chosen ? $"Using {chosen}" : noFfmpeg);
+        var chooseFfmpeg = new Button { Content = "Choose ffmpeg…" };
+        var clearFfmpeg = new Button { Content = "Don't use ffmpeg", IsVisible = _settings.FfmpegPath is not null };
+        chooseFfmpeg.Click += async (_, _) =>
+        {
+            if (TopLevel.GetTopLevel(this) is not { } top)
+            {
+                return;
+            }
+
+            var picked = await top.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+            {
+                Title = "Choose ffmpeg",
+                AllowMultiple = false,
+            });
+            if (picked.Count == 0 || picked[0].TryGetLocalPath() is not { } path)
+            {
+                return;
+            }
+
+            ffmpegText.Text = "Checking…";
+            var info = await Core.Recording.Ffmpeg.ProbeAsync(path);
+            if (info is null)
+            {
+                ffmpegText.Text = "That isn't an ffmpeg Orrery could run. Nothing changed.";
+                return;
+            }
+
+            _settings = _settings with { FfmpegPath = path };
+            TrySaveSettings();
+            clearFfmpeg.IsVisible = true;
+            ffmpegText.Text = $"{info.Version}. MP4 export offers: {(info.Codecs.Count == 0 ? "nothing (this build has no H.264, H.265 or AV1 encoder)" : string.Join(", ", info.Codecs.Select(c => c.Name)))}.";
+        };
+        clearFfmpeg.Click += (_, _) =>
+        {
+            _settings = _settings with { FfmpegPath = null };
+            TrySaveSettings();
+            clearFfmpeg.IsVisible = false;
+            ffmpegText.Text = noFfmpeg;
+        };
+
+        return Section("Recordings",
+            Note("A connection's Record sessions setting, or a tab's menu, records a session: what a terminal printed (never what's typed), "
+                + "or what a remote desktop showed. Recordings are encrypted with a key kept with your saved credentials, and play in Orrery."),
+            _recordAll,
+            Note("Records every connection as it opens, quick connections too, unless a connection or its folder turns Record sessions off. "
+                + "It's the Record sessions setting in Defaults for all connections."),
+            Row("Keep recordings for", keep),
+            Row("Use at most", total),
+            Row("Stop a recording at", file),
+            Row("Frames a second for remote desktops", rate),
+            names,
+            Note("Old recordings are deleted for good, the oldest first, when they pass these limits."),
+            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { show, open } },
+            used,
+            Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg } }),
+            ffmpegText,
+            Note(OperatingSystem.IsWindows()
+                ? "Export… makes MP4 with Windows' own H.264, H.265 and AV1 encoders, whichever this PC has (AV1 and H.265 often need "
+                    + "a recent graphics card or Windows' HEVC extension). An ffmpeg you've installed adds any codec Windows lacks. "
+                    + "Orrery never downloads or bundles ffmpeg."
+                : "Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4: "
+                    + "Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."));
+    }
+
+    static string UsedText(string folder)
+    {
+        var files = Core.Recording.RecordingRetention.List(folder);
+        long bytes = files.Sum(f => f.Length);
+        return files.Count == 0 ? "No recordings yet." : $"{files.Count} recording{(files.Count == 1 ? "" : "s")}, {bytes / (1024.0 * 1024):0.#} MB.";
     }
 
     // ---- Start-up ----

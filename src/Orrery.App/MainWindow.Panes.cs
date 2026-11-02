@@ -83,8 +83,8 @@ public partial class MainWindow
         ApplyPanes();
     }
 
-    /// <summary>Whether a pane in <paramref name="mode"/> sits beside the sessions right now.</summary>
-    bool Docked(PaneMode mode) => mode == PaneMode.Expanded || (mode == PaneMode.Auto && _currentTab is null);
+    /// <summary>Whether a pane in <paramref name="mode"/> sits beside the sessions right now, or beside Recordings' player.</summary>
+    bool Docked(PaneMode mode) => mode == PaneMode.Expanded || (mode == PaneMode.Auto && (_currentTab is null || _recordingsShown));
 
     /// <summary>Puts each pane where its mode and the sessions say: beside them, over them, or away.</summary>
     void ApplyPanes()
