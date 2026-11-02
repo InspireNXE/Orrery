@@ -180,8 +180,17 @@ public sealed class InheritableSettings
     /// </summary>
     public List<string>? SharedFolders { get; set; }
 
-    /// <summary>RDP: in full screen, spread the remote desktop over every display of this computer. Null inherits; off by default.</summary>
+    /// <summary>
+    /// RDP and VNC: in full screen, true fills every display of this computer, false the one the window is on. Null
+    /// inherits; the one display by default. <see cref="ChosenDisplays"/>, when set on the same node, wins over it.
+    /// </summary>
     public bool? UseAllMonitors { get; set; }
+
+    /// <summary>
+    /// RDP and VNC: the displays full screen fills, one or several; set, it wins over <see cref="UseAllMonitors"/> on
+    /// the same node. Null inherits. Replaced whole when edited, never changed in place.
+    /// </summary>
+    public List<ChosenDisplay>? ChosenDisplays { get; set; }
 
     /// <summary>RDP: connect to the server's console (administrative) session, as mstsc /admin does. Null inherits; off by default.</summary>
     public bool? AdminSession { get; set; }
@@ -220,6 +229,7 @@ public sealed class InheritableSettings
     {
         var copy = (InheritableSettings)MemberwiseClone();
         copy.SharedFolders = SharedFolders?.ToList();
+        copy.ChosenDisplays = ChosenDisplays?.ToList();
         return copy;
     }
 
@@ -237,7 +247,7 @@ public sealed class InheritableSettings
     {
         nameof(Protocol), nameof(Port), nameof(CredentialId), nameof(Username), nameof(Domain),
         nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColorCorrection),
-        nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(AdminSession),
+        nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl),
     };
@@ -248,7 +258,7 @@ public sealed class InheritableSettings
     /// </summary>
     internal static readonly IReadOnlySet<string> AddedInSchema3 = new HashSet<string>
     {
-        nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(AdminSession),
+        nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl),
     };

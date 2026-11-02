@@ -15,6 +15,22 @@ public enum CredentialStoreKind
     VaultFile,
 }
 
+/// <summary>How one of the window's side panes shows beside the sessions.</summary>
+public enum PaneMode
+{
+    /// <summary>Always beside the sessions.</summary>
+    Expanded,
+
+    /// <summary>Only its icons; it opens over the sessions when one is clicked, so a remote desktop keeps its size.</summary>
+    Collapsed,
+
+    /// <summary>Expanded while no session is showing, collapsed while one is.</summary>
+    Auto,
+
+    /// <summary>Nothing on screen; its shortcut or the window's edge opens it over the sessions.</summary>
+    Hidden,
+}
+
 /// <summary>The 16 colors terminals draw with.</summary>
 public enum TerminalColorScheme
 {
@@ -77,11 +93,25 @@ public sealed record AppSettings
     [JsonIgnore]
     public bool ZoomRemoteDesktops => RemoteDesktopZoom ?? true;
 
-    /// <summary>The side panel (connections, credentials, recent) is showing. Null is open.</summary>
+    /// <summary>Before <see cref="SidePanelMode"/>: the side panel was showing. Null is open. Still read when that's unset.</summary>
     public bool? SidePanelOpen { get; init; }
 
-    /// <summary>The right-hand pane (connection settings, credential editor) is showing. Null is open.</summary>
+    /// <summary>Before <see cref="InspectorMode"/>: the right-hand pane was showing. Null is open. Still read when that's unset.</summary>
     public bool? InspectorOpen { get; init; }
+
+    /// <summary>How the side panel (connections, credentials, recent) shows. Null follows <see cref="SidePanelOpen"/>.</summary>
+    public PaneMode? SidePanelMode { get; init; }
+
+    /// <summary>How the right-hand pane (connection settings, credential editor) shows. Null follows <see cref="InspectorOpen"/>.</summary>
+    public PaneMode? InspectorMode { get; init; }
+
+    /// <summary>The side panel's mode: a closed panel from before modes kept its rail, which Collapsed is.</summary>
+    [JsonIgnore]
+    public PaneMode SidePanel => SidePanelMode ?? (SidePanelOpen == false ? PaneMode.Collapsed : PaneMode.Expanded);
+
+    /// <summary>The right-hand pane's mode: a closed pane from before modes left nothing on screen, which Hidden is.</summary>
+    [JsonIgnore]
+    public PaneMode Inspector => InspectorMode ?? (InspectorOpen == false ? PaneMode.Hidden : PaneMode.Expanded);
 
     /// <summary>
     /// Check from time to time whether the connections on screen are up, the way <see cref="HostStatusMethod"/> says.

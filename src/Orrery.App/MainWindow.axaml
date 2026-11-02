@@ -85,7 +85,7 @@
         </DockPanel>
       </Border>
 
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+      <Grid x:Name="Panes" ColumnDefinitions="Auto,Auto,*,Auto,Auto">
 
         <!-- Activity rail -->
         <Border x:Name="Rail" Width="52" BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0" Padding="0,10">
@@ -273,13 +273,27 @@
           </Grid>
         </DockPanel>
 
+        <!-- A hidden pane opens over the sessions when the pointer reaches the window's edge (MainWindow.Panes.cs). -->
+        <Border Grid.Column="2" x:Name="LeftEdge" Width="4" HorizontalAlignment="Left" Background="Transparent" IsVisible="False" ZIndex="5" />
+        <Border Grid.Column="2" x:Name="RightEdge" Width="4" HorizontalAlignment="Right" Background="Transparent" IsVisible="False" ZIndex="5" />
+
+        <!-- The right-hand pane collapsed to its icon. -->
+        <Border Grid.Column="3" x:Name="InspectorStrip" Width="52" IsVisible="False" Padding="0,10"
+                Background="{StaticResource OrreryPanel}"
+                BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0">
+          <Button x:Name="InspectorStripButton" Classes="icon rail" VerticalAlignment="Top" HorizontalAlignment="Center" Click="OnInspectorStripClick"
+                  ToolTip.Tip="Settings for the selected connection" AutomationProperties.Name="Show the settings pane">
+            <c:StrokeIcon Width="18" Height="18" Data="M4 6h10 M18 6h2 M4 12h4 M12 12h8 M4 18h12 M20 18h0 M14 4v4 M8 10v4 M16 16v4" />
+          </Button>
+        </Border>
+
         <!-- Properties of the selected connection or folder -->
-        <Border Grid.Column="3" x:Name="PropertiesHost" Width="320"
+        <Border Grid.Column="4" x:Name="PropertiesHost" Width="320"
                 Background="{StaticResource OrreryPanel}"
                 BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0" />
 
         <!-- Settings: a page of its own over everything right of the rail; sessions keep running underneath. -->
-        <ContentControl Grid.Column="1" Grid.ColumnSpan="3" x:Name="SettingsHost" IsVisible="False" />
+        <ContentControl Grid.Column="1" Grid.ColumnSpan="4" x:Name="SettingsHost" IsVisible="False" ZIndex="20" />
       </Grid>
     </DockPanel>
 

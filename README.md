@@ -41,7 +41,7 @@ mRemoteNG's `confCons.xml`, but it isn't affiliated with the mRemoteNG project.
 
 | Protocol | Library | Notes |
 | --- | --- | --- |
-| RDP | [IronRDP](https://github.com/Devolutions/IronRDP) | Fits the window and follows it as you resize, or keeps a fixed size; sound; shared drives and folders; full screen over every display (Windows); the console session; touch and pen; follows RD Connection Broker redirections; opens `.rdp` files |
+| RDP | [IronRDP](https://github.com/Devolutions/IronRDP) | Fits the window and follows it as you resize, or keeps a fixed size; sound; shared drives and folders; full screen over every display or chosen ones (Windows); the console session; touch and pen; follows RD Connection Broker redirections; opens `.rdp` files |
 | SSH | [SSH.NET](https://github.com/sshnet/SSH.NET) | Port forwards (`L`, `R`, `D`), a SOCKS proxy for a whole folder, key files, agent keys, a keep-alive interval, and an SFTP browser |
 | VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard, view only, fill the tab, shrink to fit or actual size |
 | Telnet | Built in | |
@@ -82,8 +82,11 @@ host you type in.
 - RDP can share every drive of this computer, or folders you choose, as drives on the remote computer, which can read
   and change their files. Linux and macOS can share only one folder: your home folder when sharing every drive, else
   the first folder you chose. Orrery says so when a folder isn't shared.
-- On Windows, full screen can spread a remote desktop over every display, one remote monitor for each, when the
-  displays sit against each other. Otherwise full screen stays on one display and says why.
+- Each connection says where full screen goes, under Display, Full screen on: the display the window is on, every
+  display, or displays you choose on a map of yours. On Windows a remote desktop can spread over several, one remote
+  monitor for each. Chosen displays with others between them, such as 1 and 3, sit side by side on the remote
+  computer, and the display between keeps showing this computer. VNC fits its picture across them. An `.rdp` file's
+  `use multimon` and `selectedmonitors` come in as every display or the chosen ones, numbered as mstsc numbers them.
 - RDP can join the server's console session, as `mstsc /admin` does.
 - When an RD Connection Broker sends a connection on to another session host, Orrery follows it, up to five times,
   and sends back the broker's routing token so it reaches the right session.
@@ -120,6 +123,16 @@ host you type in.
   is a plain TCP connect by default, which some networks treat as a port scan. Settings can switch it to ping or turn
   it off. Firewalls often block ping, so a host that's up can show as down, and where this computer isn't allowed to
   ping, hosts show the dashed ring. A serial port isn't checked, and a web page is checked at its host and port.
+- The properties pane lists each setting on one line with its value. A blue dot marks the ones set on that
+  connection or folder; the rest are muted and come from above. Click a row to change it, which sets it there, or
+  pick "Use that instead" to go back to the inherited value. The footer counts what's set there.
+- While a remote desktop is open for the connection shown, the pane has a This session tab. Scaling, View only and
+  Color correction change the open tab at once and last until it closes; Keep for next time saves a change on the
+  connection. Settings fixed when the session started are listed under Need a reconnect, with a Reconnect button.
+- The side panel and the properties pane each have a layout, in Settings > General: Expanded docks it beside the
+  sessions; Collapsed leaves a strip and opens it over them; Auto docks it while no session is showing and collapses
+  it while one is; Hidden leaves no strip, and the window's edge or its shortcut brings it back. A pane opened over a
+  session doesn't resize the remote desktop.
 - The properties pane shows when a connection last connected ("Last connected 3 days ago", with the exact time on
   hover), and when the last attempt failed, if that was more recent.
 
@@ -235,8 +248,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
-| Ctrl+B | Show or hide the side panel |
-| Ctrl+Alt+B | Show or hide the properties pane |
+| Ctrl+B | Show or hide the side panel (or open it over the sessions, when it isn't docked) |
+| Ctrl+Alt+B | Show or hide the properties pane (or open it over the sessions, when it isn't docked) |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (you can change this in Settings) |
 | Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back in |
 | Ctrl+Alt+End (Ctrl+Cmd+End on macOS) | In a remote desktop: send Ctrl+Alt+Del |
@@ -410,7 +423,7 @@ Not yet checked on real machines:
 - **Keys:** while a session has the keyboard, Orrery takes the Windows keys for it, as mstsc does. Windows keeps
   Ctrl+Alt+Del for itself, so Ctrl+Alt+End sends it.
 - **Shared drives:** every drive, or any number of folders, each as its own drive.
-- **Full screen** can spread a remote desktop over every display, when they sit against each other.
+- **Full screen** can spread a remote desktop over every display, or the ones you choose, even with others between.
 - **Sound** can also come as AAC.
 - **Not yet checked:** full screen over several displays, especially with different scaling on each; the Windows
   Hello prompt; the win-arm64 build.
@@ -424,8 +437,8 @@ Not yet checked on real machines:
 - **Keys:** Cmd+Tab, Cmd+Space and the other shortcuts macOS keeps for itself stay with macOS. The session's Send
   keys menu sends Alt+Tab, the Windows key and the rest.
 - **Shared drives:** one folder: your home folder when sharing every drive, else the first folder you chose.
-- **Full screen** is on one display: macOS gives each display its own full-screen space. Orrery says so when the
-  connection is set to use every display.
+- **Full screen** is on one display: macOS gives each display its own full-screen space. A connection can choose
+  which one; Orrery says so when it's set to use several.
 - **RDP clipboard:** text only.
 - **Not yet checked:** any of it on a real Mac, including local terminals, the RDP clipboard, Touch ID (which needs a
   signed build) and VoiceOver.
@@ -444,8 +457,8 @@ under XWayland, but it has no X11-specific code and doesn't rely on X11 behavior
 - **Keys:** Super, Alt+Tab and the other shortcuts your desktop keeps go to the desktop, not the session; Orrery
   doesn't capture them on Linux. The session's Send keys menu sends them instead.
 - **Shared drives:** one folder: your home folder when sharing every drive, else the first folder you chose.
-- **Full screen** is on one display: Wayland doesn't let a window place itself or span several displays. Orrery says
-  so when the connection is set to use every display.
+- **Full screen** is on one display: Wayland doesn't let a window place itself or span several displays, so it's the
+  display the window is on. Orrery says so when the connection is set to use several.
 - **RDP clipboard:** text only.
 - **Screen readers:** Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
 - **Not yet checked:** any of it on a real machine: the .deb, .rpm and AppImage, the arm64 builds, local terminals,

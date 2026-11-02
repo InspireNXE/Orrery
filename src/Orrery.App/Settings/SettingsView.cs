@@ -118,7 +118,7 @@ sealed class SettingsView : UserControl
 
         var pages = new (string Name, Control[] Sections)[]
         {
-            ("General", [StartupSection(), KeyboardSection(), HostStatusSection()]),
+            ("General", [StartupSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
             ("Sessions", [RemoteDesktopSection(), LocalTerminalSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
@@ -221,6 +221,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>Remembering recent connections was turned on or off; off means clearing what's kept.</summary>
     public event EventHandler<bool>? RememberRecentConnectionsChanged;
+
+    /// <summary>A pane mode was chosen, and saved: the side panel's, then the right-hand pane's.</summary>
+    public event EventHandler<(PaneMode Side, PaneMode Inspector)>? PaneModesChanged;
 
     /// <summary>Orrery must restart with these extra arguments: the data or credential store changed underneath.</summary>
     public event EventHandler<string[]>? RestartRequested;
@@ -775,8 +778,9 @@ sealed class SettingsView : UserControl
 
         return Section("Remote desktops",
             zoom,
-            Note("Remote desktops aren't told this display's scaling, so without this their text looks as small as it would at 100%. "
-                + "Enlarged text is sharp at 200% and slightly soft at 125% or 150%. Applies to new connections. "
+            Note("RDP tells the server this display's scaling, as Windows' own client does, so the desktop stays sharp with text the size of "
+                + "your other apps'. VNC can't be told, so its picture is enlarged instead: sharp at 200%, slightly soft at 125% or 150%. "
+                + "Off, remote text looks as small as it would at 100%. Applies to new connections. "
                 + "A connection or folder can set its own choice in its properties."));
     }
 
@@ -1018,6 +1022,44 @@ sealed class SettingsView : UserControl
                 Note("Color-blind friendly turns red into vermilion and green into bluish green, so programs that mark things red or green "
                     + "stay readable. With a color vision chosen above, it's tuned to that kind. Open terminals change at once.")),
         ];
+    }
+
+    // ---- Layout ----
+
+    Control LayoutSection()
+    {
+        ComboBox Choice(string name, PaneMode current, Func<AppSettings, PaneMode, AppSettings> with)
+        {
+            var choice = new ComboBox
+            {
+                MinWidth = 160,
+                ItemsSource = PaneModes.All.Select(mode => new ComboBoxItem { Content = mode.Label, Tag = mode.Mode }).ToList(),
+            };
+            choice.SelectedIndex = Array.FindIndex(PaneModes.All, mode => mode.Mode == current);
+            AutomationProperties.SetName(choice, name);
+            choice.SelectionChanged += (_, _) =>
+            {
+                if (_loading || choice.SelectedItem is not ComboBoxItem { Tag: PaneMode mode })
+                {
+                    return;
+                }
+
+                _settings = with(_settings, mode);
+                if (TrySaveSettings())
+                {
+                    PaneModesChanged?.Invoke(this, (_settings.SidePanel, _settings.Inspector));
+                }
+            };
+            return choice;
+        }
+
+        return Section("Layout",
+            Row("Side panel (connections, credentials, recent)", Choice("Side panel", _settings.SidePanel, (s, m) => s with { SidePanelMode = m })),
+            Row("Settings pane (connection and credential details)", Choice("Settings pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
+            Note(string.Join(" ", PaneModes.All.Select(mode => $"{mode.Label}: {mode.Description}"))),
+            Note("A pane that isn't expanded opens over the session rather than beside it, so a remote desktop doesn't resize each time. "
+                + "Ctrl+B and Ctrl+Alt+B collapse and expand the panes, or open them over the session; right-click the buttons beside the tabs to "
+                + "change their mode."));
     }
 
     // ---- Keyboard ----

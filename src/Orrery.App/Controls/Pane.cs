@@ -22,6 +22,23 @@ static class Pane
         return section;
     }
 
+    /// <summary>A titled group of one-line setting rows, which sit close together like a list.</summary>
+    public static Control RowSection(string title, params Control[] rows)
+    {
+        var section = (StackPanel)Section(title);
+        section.Spacing = 4;
+        section.Children.Add(Rows(rows));
+        return section;
+    }
+
+    /// <summary>Setting rows one under another, with no gap between them.</summary>
+    public static Control Rows(params Control[] rows)
+    {
+        var list = new StackPanel();
+        list.Children.AddRange(rows);
+        return list;
+    }
+
     /// <summary>The pane's actions, on a darker strip set apart from the scrolling content above.</summary>
     public static Control Footer(Control content) => new Border
     {

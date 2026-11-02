@@ -102,6 +102,23 @@
       <Setter Property="FontFamily" Value="{StaticResource OrreryMono}" />
     </Style>
 
+    <!-- A submenu's arrow, smaller than Fluent's 8 by 16 so it sits with 13 px text. The template sets its size, which
+         a style can't change, so it's scaled. -->
+    <Style Selector="MenuItem /template/ Path#PART_ChevronPath">
+      <Setter Property="RenderTransform" Value="scale(0.625)" />
+    </Style>
+
+    <!-- Fluent pads a menu row 4 px above and 7 below, which sets the text and arrow high; the same height, evenly. -->
+    <Style Selector="MenuItem">
+      <Setter Property="Padding" Value="11,5.5" />
+    </Style>
+
+    <!-- Avalonia's window buttons light up light gray whatever the theme, which hid their white glyphs; minimize and
+         maximize take the app's hover color instead. Close keeps its red. -->
+    <Style Selector="CaptionButtons /template/ Button:not(#PART_CloseButton)">
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+    </Style>
+
     <!-- Small bordered buttons, as in the mockup's session toolbar. -->
     <Style Selector="Button">
       <Setter Property="FontSize" Value="12" />
@@ -203,23 +220,59 @@
       <Setter Property="CornerRadius" Value="4" />
     </Style>
 
-    <!-- Inherit: a small chip that says where a setting comes from. -->
-    <Style Selector="ToggleButton.inherit">
-      <Setter Property="FontSize" Value="10" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="6,1" />
-      <Setter Property="CornerRadius" Value="4" />
-      <Setter Property="BorderThickness" Value="0" />
+    <!-- A saved setting's row: its name and value on one line, opened with a click to change it. -->
+    <Style Selector="Button.setting">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#8A93A3" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="Margin" Value="-8,0" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="ToggleButton.inherit:checked /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
-      <Setter Property="Foreground" Value="#B7C0CC" />
+    <Style Selector="Button.setting:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
-    <Style Selector="ToggleButton.inherit:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#2A303C" />
+    <!-- The settings pane's tabs: Saved settings and This session, side by side in a dark strip. -->
+    <Style Selector="Button.segment">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
+    </Style>
+    <Style Selector="Button.segment:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#191D24" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="Button.segment.selected">
+      <Setter Property="Background" Value="#222833" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.segment.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#222833" />
+    </Style>
+    <!-- A text-only action, such as "Use that instead". -->
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="#8FB4FF" />
+    </Style>
+    <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1C2533" />
+      <Setter Property="Foreground" Value="#B9D0FF" />
     </Style>
 
     <!-- Connection tree rows: rounded, with an accent edge on the selected row.
