@@ -22,7 +22,11 @@ public static class RdpFileImporter
     /// <summary>Whether <paramref name="path"/> is named like a Remote Desktop file.</summary>
     public static bool IsRdpFile(string path) => Path.GetExtension(path).Equals(".rdp", StringComparison.OrdinalIgnoreCase);
 
-    public static ImportResult ImportFile(string path)
+    /// <param name="displays">
+    /// This computer's displays in the order Windows lists them, which is mstsc's numbering for selectedmonitors; null
+    /// where that isn't known, so chosen displays become every display.
+    /// </param>
+    public static ImportResult ImportFile(string path, IReadOnlyList<ChosenDisplay>? displays = null)
     {
         var full = Path.GetFullPath(path);
         if (new FileInfo(full).Length > MaxFileBytes)
@@ -30,17 +34,18 @@ public static class RdpFileImporter
             throw new ImportException("This file is far larger than a Remote Desktop file would be.");
         }
 
-        return Import(File.ReadAllText(full), Path.GetFileName(full), Path.GetFileNameWithoutExtension(full), SourcePrefix + full);
+        return Import(File.ReadAllText(full), Path.GetFileName(full), Path.GetFileNameWithoutExtension(full), SourcePrefix + full, displays);
     }
 
     /// <param name="name">The connection's name, usually the file's name without .rdp.</param>
     /// <param name="sourceId">Marks the connection so importing the same file again is spotted; null for none.</param>
-    public static ImportResult Import(string text, string sourceName, string name, string? sourceId = null)
+    /// <param name="displays">See <see cref="ImportFile"/>.</param>
+    public static ImportResult Import(string text, string sourceName, string name, string? sourceId = null, IReadOnlyList<ChosenDisplay>? displays = null)
     {
         var settings = Parse(text);
         var warnings = new List<string>();
         var unsupported = new List<string>();
-        var entry = ToEntry(settings, name, warnings, unsupported);
+        var entry = ToEntry(settings, name, warnings, unsupported, displays);
         entry.ImportSourceId = sourceId;
 
         var root = new ConnectionFolder { Name = $"Imported from .rdp files ({DateTime.Now:yyyy-MM-dd})" };
@@ -78,7 +83,8 @@ public static class RdpFileImporter
     }
 
     /// <summary>A connection with what Orrery can use from <paramref name="settings"/>. Values equal to Orrery's defaults aren't set.</summary>
-    public static ConnectionEntry ToEntry(IReadOnlyDictionary<string, RdpSetting> settings, string name, List<string> warnings, List<string> unsupported)
+    public static ConnectionEntry ToEntry(IReadOnlyDictionary<string, RdpSetting> settings, string name, List<string> warnings, List<string> unsupported,
+        IReadOnlyList<ChosenDisplay>? displays = null)
     {
         string? Text(string key) => settings.TryGetValue(key, out var s) && s.Type == 's' && s.Value.Trim().Length > 0 ? s.Value.Trim() : null;
         int? Number(string key) => settings.TryGetValue(key, out var s) && s.Type == 'i'
@@ -193,9 +199,25 @@ public static class RdpFileImporter
         if (On("use multimon"))
         {
             own.UseAllMonitors = true;
-            if (Text("selectedmonitors") is not null)
+            if (Text("selectedmonitors") is { } selected)
             {
-                warnings.Add("The file chooses some of this computer's displays; Orrery spreads the session over all of them in full screen.");
+                // mstsc's numbers, as mstsc /l lists them: the order Windows lists the displays in.
+                var ids = selected.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(id => int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out int n) ? n : -1).Distinct().ToList();
+                if (displays is null)
+                {
+                    warnings.Add("The file chooses some of this computer's displays; Orrery spreads the session over all of them in full screen.");
+                }
+                else if (ids.Any(id => id < 0 || id >= displays.Count))
+                {
+                    warnings.Add($"The file chooses displays this computer doesn't have ({selected}); Orrery spreads the session over all of them in full screen.");
+                }
+                else
+                {
+                    own.UseAllMonitors = null;
+                    own.ChosenDisplays = ids.Select(id => displays[id]).ToList();
+                    warnings.Add($"Full screen fills the displays the file chooses ({selected}, as mstsc numbers them); check them under Full screen on in the connection's settings.");
+                }
             }
         }
 

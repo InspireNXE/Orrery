@@ -910,14 +910,29 @@ public partial class MainWindow : Window
     };
 
     /// <summary>
-    /// The current session fills the screen the window is on, or <paramref name="screen"/>; everything else hides
+    /// The current session fills the screen the window is on, or <paramref name="screen"/>, or for a remote desktop the
+    /// displays its connection chooses (<paramref name="choice"/> instead, for this time only); everything else hides
     /// until the full-screen shortcut.
     /// </summary>
-    void EnterFullScreen(Avalonia.Platform.Screen? screen = null)
+    void EnterFullScreen(Avalonia.Platform.Screen? screen = null, FullScreenChoice? choice = null)
     {
         if (_fullScreen || _currentTab is not { } tab)
         {
             return;
+        }
+
+        IReadOnlyList<Avalonia.Platform.Screen>? spread = null;
+        if (screen is null && tab.View is RemoteFrameView desktopView)
+        {
+            var chosen = ChosenScreens(tab, choice, desktopView);
+            if (chosen.Count == 1)
+            {
+                screen = chosen[0];
+            }
+            else if (chosen.Count > 1)
+            {
+                spread = chosen;
+            }
         }
 
         // Full screen covers the screen the window is on, so the window goes there first, and comes back after.
@@ -950,7 +965,7 @@ public partial class MainWindow : Window
         // Avalonia keeps a title bar strip at the top of a full-screen window that draws into its client
         // area; Orrery has its own bar for leaving, so the window goes back to plain decorations meanwhile.
         ExtendClientAreaToDecorationsHint = false;
-        if (!TrySpanDisplays(tab))
+        if (spread is null || !TrySpanDisplays(tab, spread))
         {
             WindowState = WindowState.FullScreen;
         }
@@ -959,39 +974,63 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// For a remote desktop set to use every display: the window covers all of them and the server is asked for a
-    /// monitor for each. Windows only (see <see cref="SpanningWindow"/>); elsewhere, with one display, or with displays
-    /// that can't make one desktop, full screen is the one display, and false is returned.
+    /// The displays a remote desktop's full screen fills: its connection's choice, or <paramref name="choice"/>. Several
+    /// only on Windows (see <see cref="SpanningWindow"/>); elsewhere the first of them. Empty for the display the window
+    /// is on. Says on the desktop when chosen displays aren't connected, or several can't be used here.
     /// </summary>
-    bool TrySpanDisplays(SessionTab tab)
+    IReadOnlyList<Avalonia.Platform.Screen> ChosenScreens(SessionTab tab, FullScreenChoice? choice, RemoteFrameView desktop)
     {
-        if (tab.View is not RemoteFrameView { Session: IMultiMonitorSession, FollowsViewSize: true } desktop
-            || tab.Origin.EntryId is not { } id || _tree.Find(id) is not { } node || !SettingsResolver.Resolve(node).UseAllMonitors.Value)
+        choice ??= tab.Origin.EntryId is { } id && _tree.Find(id) is { } node ? SettingsResolver.Resolve(node).FullScreen.Value : FullScreenChoice.ThisDisplay;
+        var screens = Screens.All;
+        var picked = choice.Pick(screens.Select(AreaOf).ToList(), screens.Select(s => DisplayPicker.Of(s).Name).ToList(), out int missing)
+            .Select(i => screens[i]).ToList();
+        if (choice.On == FullScreenOn.ChosenDisplays && missing > 0)
         {
-            return false;
+            desktop.ShowNotice(picked.Count == 0
+                ? "None of the displays chosen for full screen is connected, so it's on this display."
+                : missing == 1 ? "A display chosen for full screen isn't connected, so it's left out." : $"{missing} displays chosen for full screen aren't connected, so they're left out.");
         }
 
         // Wayland gives a window no say in where it goes or which displays it covers, and macOS gives each display its
-        // own full-screen space, so only Windows can put one window over all of them.
-        if (!OperatingSystem.IsWindows())
+        // own full-screen space, so only Windows can put one window over several.
+        if (picked.Count > 1 && !OperatingSystem.IsWindows())
         {
-            if (Screens.All.Count > 1)
-            {
-                desktop.ShowNotice("Full screen is on this display only. Spreading a remote desktop over every display works on Windows only.");
-            }
+            desktop.ShowNotice("Full screen is on one display. Spreading a remote desktop over several works on Windows only.");
+            return [picked[0]];
+        }
 
+        return picked;
+    }
+
+    /// <summary>
+    /// This computer's displays for an .rdp file's selectedmonitors, in the order Windows lists them, which is how
+    /// mstsc numbers them; null elsewhere, where the numbers mean nothing.
+    /// </summary>
+    IReadOnlyList<ChosenDisplay>? DisplaysForRdpFiles() => OperatingSystem.IsWindows()
+        ? Screens.All.Select(s => ChosenDisplay.Of(AreaOf(s), DisplayPicker.Of(s).Name)).ToList()
+        : null;
+
+    static ScreenArea AreaOf(Avalonia.Platform.Screen screen) => new(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height, screen.IsPrimary);
+
+    /// <summary>
+    /// Puts the window over <paramref name="screens"/>, with a monitor of the remote desktop for each where the server
+    /// takes a layout (RDP); VNC's picture is fitted over them. Displays between chosen ones are cut out of the window,
+    /// and the remote monitors, moved together, are each drawn on their display. False, with the reason on the
+    /// desktop, when they can't make one desktop; full screen is then the one display.
+    /// </summary>
+    bool TrySpanDisplays(SessionTab tab, IReadOnlyList<Avalonia.Platform.Screen> screens)
+    {
+        if (!OperatingSystem.IsWindows() || tab.View is not RemoteFrameView desktop
+            || (desktop.Session is IMultiMonitorSession && !desktop.FollowsViewSize))
+        {
             return false;
         }
 
-        var screens = Screens.All.Select(s => new ScreenArea(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height, s.IsPrimary)).ToList();
-        if (MonitorLayout.Arrange(screens, out var covered, out var whyNot) is not { } monitors)
+        var areas = screens.Select(AreaOf).ToList();
+        if (MonitorLayout.Arrange(areas, out var covered, out bool moved, out var whyNot) is not { } monitors)
         {
-            if (screens.Count > 1)
-            {
-                ConnectLog.LogInformation("Full screen for {Title} is on one display: {Reason}", tab.Origin.Title, whyNot);
-                desktop.ShowNotice($"Full screen is on this display only. {whyNot}");
-            }
-
+            ConnectLog.LogInformation("Full screen for {Title} is on one display: {Reason}", tab.Origin.Title, whyNot);
+            desktop.ShowNotice($"Full screen is on this display only. {whyNot}");
             return false;
         }
 
@@ -1001,16 +1040,37 @@ public partial class MainWindow : Window
 
         // Windows hides the taskbar for a window that fills one display, not for one across several, so this stays on top.
         Topmost = true;
-        SpanningWindow.Cover(this, covered);
+        void Place()
+        {
+            SpanningWindow.Cover(this, covered);
+            SpanningWindow.Limit(this, covered, areas);
+        }
+
+        Place();
         Dispatcher.UIThread.Post(() =>
         {
             if (_spanned is not null && OperatingSystem.IsWindows())
             {
-                SpanningWindow.Cover(this, covered);
+                Place();
             }
         }, DispatcherPriority.Background);
-        desktop.SpannedMonitors = monitors;
-        ConnectLog.LogInformation("Spreading {Title} over {Count} displays, {Width}x{Height} in all", tab.Origin.Title, monitors.Count, covered.Width, covered.Height);
+
+        if (desktop.Session is IMultiMonitorSession)
+        {
+            desktop.SpannedMonitors = monitors;
+        }
+
+        if (moved)
+        {
+            int left = monitors.Min(m => m.Left), top = monitors.Min(m => m.Top);
+            var layout = new PixelSize(monitors.Max(m => m.Left + m.Width) - left, monitors.Max(m => m.Top + m.Height) - top);
+            desktop.ShowPieces(areas.Select((a, i) => new RemoteFrameView.Piece(
+                new PixelRect(a.X - covered.X, a.Y - covered.Y, a.Width, a.Height),
+                new PixelRect(monitors[i].Left - left, monitors[i].Top - top, monitors[i].Width, monitors[i].Height))).ToList(), layout);
+        }
+
+        ConnectLog.LogInformation("Spreading {Title} over {Count} displays, {Width}x{Height} in all{Moved}", tab.Origin.Title, monitors.Count, covered.Width, covered.Height,
+            moved ? ", moved together on the remote desktop" : string.Empty);
         return true;
     }
 
@@ -1026,6 +1086,11 @@ public partial class MainWindow : Window
         {
             _spanned = null;
             spanned.View.SpannedMonitors = null;
+            spanned.View.ShowPieces(null, default);
+            if (OperatingSystem.IsWindows())
+            {
+                SpanningWindow.Limit(this, default, null);
+            }
             Topmost = spanned.Topmost;
             SystemDecorations = spanned.Decorations;
             Position = spanned.Position;
@@ -2608,6 +2673,16 @@ public partial class MainWindow : Window
         {
             var current = Screens.ScreenFromWindow(this);
             var on = MenuItemFor("Full screen on", null, enabled: tab.Session.State == SessionState.Connected);
+            if (tab.View is RemoteFrameView && OperatingSystem.IsWindows())
+            {
+                on.Items.Add(MenuItemFor("Every display", () =>
+                {
+                    SelectTab(tab);
+                    EnterFullScreen(choice: FullScreenChoice.EveryDisplay);
+                }));
+                on.Items.Add(new Separator());
+            }
+
             foreach (var (screen, i) in Screens.All.Select((s, i) => (s, i)))
             {
                 var label = $"Display {i + 1}  ({screen.Bounds.Width}×{screen.Bounds.Height})"
@@ -2806,7 +2881,8 @@ public partial class MainWindow : Window
         ConnectionEntry file;
         try
         {
-            var result = await Task.Run(() => RdpFileImporter.ImportFile(path));
+            var displays = DisplaysForRdpFiles();
+            var result = await Task.Run(() => RdpFileImporter.ImportFile(path, displays));
             file = result.Root.Children.OfType<ConnectionEntry>().Single();
             foreach (var warning in result.Report.Warnings.Concat(result.Report.NotYetSupported))
             {
@@ -2893,12 +2969,13 @@ public partial class MainWindow : Window
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
         bool rdpFile = RdpFileImporter.IsRdpFile(path);
         bool sshConfig = IsSshConfig(path);
+        var displays = DisplaysForRdpFiles();
         while (result is null)
         {
             try
             {
                 var password = masterPassword;
-                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path)
+                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
                     : sshConfig ? SshConfigImporter.ImportFile(path)
                     : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
             }

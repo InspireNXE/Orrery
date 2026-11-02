@@ -1,5 +1,6 @@
 using Orrery.Core.Connections;
 using Orrery.Core.Network;
+using Orrery.Core.Sessions;
 using Xunit;
 
 namespace Orrery.Core.Tests.Connections;
@@ -30,7 +31,7 @@ public class ProtocolSettingsTests : IDisposable
         Assert.Equal(RemoteAudio.PlayHere, resolved.RemoteAudio.Value);
         Assert.False(resolved.ShareAllDrives.Value);
         Assert.Empty(resolved.SharedFolders.Value);
-        Assert.False(resolved.UseAllMonitors.Value);
+        Assert.Equal(FullScreenOn.ThisDisplay, resolved.FullScreen.Value.On);
         Assert.False(resolved.AdminSession.Value);
         Assert.False(resolved.ViewOnly.Value);
         Assert.Equal(DesktopScaling.Fit, resolved.Scaling.Value);
@@ -145,6 +146,36 @@ public class ProtocolSettingsTests : IDisposable
     }
 
     [Fact]
+    public void The_nearest_full_screen_choice_wins_whether_its_every_display_or_chosen_ones()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Lab", Settings = { ChosenDisplays = [new(0, 0, 1920, 1080)] } };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example" };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        var chosen = SettingsResolver.Resolve(entry).FullScreen;
+        Assert.Equal(FullScreenOn.ChosenDisplays, chosen.Value.On);
+        Assert.Same(folder, chosen.Source);
+
+        entry.Settings.UseAllMonitors = true;
+        Assert.Equal(FullScreenChoice.EveryDisplay, SettingsResolver.Resolve(entry).FullScreen.Value);
+        entry.Settings.UseAllMonitors = false;
+        Assert.Equal(FullScreenChoice.ThisDisplay, SettingsResolver.Resolve(entry).FullScreen.Value);
+    }
+
+    [Fact]
+    public void Chosen_displays_are_found_by_position_or_else_by_name()
+    {
+        var choice = new FullScreenChoice(FullScreenOn.ChosenDisplays, [new(0, 0, 1920, 1080, "DELL"), new(4480, 0, 1080, 1920, "PORTRAIT"), new(9000, 0, 800, 600)]);
+        ScreenArea[] screens = [new(0, 0, 1920, 1080, true), new(1920, 0, 2560, 1440, false), new(4480, 0, 1200, 1920, false)];
+
+        // The portrait one changed resolution, so it's found by name; the third isn't connected.
+        Assert.Equal([0, 2], choice.Pick(screens, ["DELL", "LG", "PORTRAIT"], out int missing));
+        Assert.Equal(1, missing);
+    }
+
+    [Fact]
     public void Every_new_setting_survives_saving_and_loading()
     {
         var tree = ConnectionTree.Empty();
@@ -158,7 +189,12 @@ public class ProtocolSettingsTests : IDisposable
                 UseAllMonitors = true, AdminSession = true,
             },
         };
-        var vnc = new ConnectionEntry { Name = "vnc", Host = "vnc.example", Settings = { Protocol = Protocol.Vnc, ViewOnly = true, Scaling = DesktopScaling.ActualSize } };
+        var vnc = new ConnectionEntry
+        {
+            Name = "vnc",
+            Host = "vnc.example",
+            Settings = { Protocol = Protocol.Vnc, ViewOnly = true, Scaling = DesktopScaling.ActualSize, ChosenDisplays = [new(1920, 0, 2560, 1440, "LG 27GP850")] },
+        };
         var ssh = new ConnectionEntry { Name = "ssh", Host = "ssh.example", Settings = { Protocol = Protocol.Ssh, KeepAliveSeconds = 0, SocksProxy = "127.0.0.1:1080" } };
         var serial = new ConnectionEntry
         {
@@ -187,6 +223,7 @@ public class ProtocolSettingsTests : IDisposable
         Assert.True(Loaded(rdp).AdminSession);
         Assert.True(Loaded(vnc).ViewOnly);
         Assert.Equal(DesktopScaling.ActualSize, Loaded(vnc).Scaling);
+        Assert.Equal([new ChosenDisplay(1920, 0, 2560, 1440, "LG 27GP850")], Loaded(vnc).ChosenDisplays);
         Assert.Equal(0, Loaded(ssh).KeepAliveSeconds);
         Assert.Equal("127.0.0.1:1080", Loaded(ssh).SocksProxy);
         Assert.Equal(Protocol.Serial, Loaded(serial).Protocol);

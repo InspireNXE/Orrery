@@ -363,7 +363,7 @@ public static class ConnectionExporter
             Lost("Color correction turned off", !resolved.ColorCorrection.Value);
             bool rdp = resolved.Protocol.Value == Protocol.Rdp;
             Lost("Shared folders (only sharing every drive carries over)", rdp && !resolved.ShareAllDrives.Value && resolved.SharedFolders.Value.Count > 0);
-            Lost("Full screen over every display", rdp && resolved.UseAllMonitors.Value);
+            Lost("Full screen over every display or chosen ones", rdp && resolved.FullScreen.Value.On != FullScreenOn.ThisDisplay);
             Lost("SSH keep-alive intervals", resolved.Protocol.Value == Protocol.Ssh && !resolved.KeepAliveSeconds.IsDefault);
             Lost("SOCKS proxies", resolved.Protocol.Value == Protocol.Ssh && resolved.SocksProxy.Value is not null);
         }
