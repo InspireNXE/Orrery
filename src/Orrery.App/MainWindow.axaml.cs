@@ -81,7 +81,6 @@ public partial class MainWindow : Window
     bool _fullScreen;
     WindowState _stateBeforeFullScreen;
     (PixelPoint Position, WindowState State)? _positionBeforeFullScreen;
-    (bool Side, bool Inspector) _panesBeforeFullScreen;
 
     // The offer to reopen last time's sessions, set aside while a session is full screen.
     bool _restoreOfferBeforeFullScreen;
@@ -272,9 +271,7 @@ public partial class MainWindow : Window
         WireTitleBar();
         WireFullScreen();
         WireTabStrip();
-        var layout = _settingsStore.Load();
-        ShowSidePanel(layout.SidePanelOpen ?? true, save: false);
-        ShowInspector(layout.InspectorOpen ?? true, save: false);
+        WirePanes();
         _workspaceStore = WorkspaceStore.In(location);
         _savedWorkspace = _workspaceStore.Load();
         InitWorkspace();
@@ -644,7 +641,7 @@ public partial class MainWindow : Window
 
         if (side == _side && _sidePanel.IsVisible && !leavingSettings)
         {
-            ShowSidePanel(false);
+            ClickActiveRailItem();
             return;
         }
 
@@ -655,13 +652,13 @@ public partial class MainWindow : Window
             view.IsVisible = name == side;
         }
 
-        ShowSidePanel(true);
+        RevealSidePanel();
 
         _propertiesHost.Child = side == "credentials" ? _credentialsView.Editor : _properties;
         switch (side)
         {
             case "credentials":
-                ShowInspector(true);
+                RevealInspector();
                 await _credentialsView.ShowAsync();
                 break;
             case "recent":
@@ -670,57 +667,6 @@ public partial class MainWindow : Window
             default:
                 await _properties.ShowAsync(SelectedNode);
                 break;
-        }
-    }
-
-    // ---- Panes ----
-
-    void OnToggleSidePanelClick(object? sender, RoutedEventArgs e) => ShowSidePanel(!_sidePanel.IsVisible);
-
-    void OnToggleInspectorClick(object? sender, RoutedEventArgs e) => ShowInspector(!_propertiesHost.IsVisible);
-
-    /// <summary>Shows or hides the side panel (Ctrl+B); the rail stays, and its button for the panel lights up.</summary>
-    void ShowSidePanel(bool open, bool save = true)
-    {
-        _sidePanel.IsVisible = open;
-        foreach (var (name, (button, _)) in _sides)
-        {
-            button.Classes.Set("active", open && name == _side && !_settingsHost.IsVisible);
-        }
-
-        ToolTip.SetTip(_sidePanelToggle, open ? "Hide the side panel (Ctrl+B)" : "Show the side panel (Ctrl+B)");
-        if (save)
-        {
-            SaveLayout();
-        }
-    }
-
-    /// <summary>Shows or hides the right-hand pane (Ctrl+Alt+B): connection settings or the credential editor.</summary>
-    void ShowInspector(bool open, bool save = true)
-    {
-        if (!open)
-        {
-            _properties.TrySave();
-        }
-
-        _propertiesHost.IsVisible = open;
-        ToolTip.SetTip(_inspectorToggle, open ? "Hide the settings pane (Ctrl+Alt+B)" : "Show the settings pane (Ctrl+Alt+B)");
-        if (save)
-        {
-            SaveLayout();
-        }
-    }
-
-    /// <summary>Remembers which panes are open for the next start.</summary>
-    void SaveLayout()
-    {
-        try
-        {
-            _settingsStore.Save(_settingsStore.Load() with { SidePanelOpen = _sidePanel.IsVisible, InspectorOpen = _propertiesHost.IsVisible });
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            Log.For("App").LogWarning("Couldn't save the layout: {Message}", e.Message);
         }
     }
 
@@ -983,7 +929,6 @@ public partial class MainWindow : Window
         }
 
         _fullScreen = true;
-        _panesBeforeFullScreen = (_sidePanel.IsVisible, _propertiesHost.IsVisible);
         _restoreOfferBeforeFullScreen = _restoreBar is { IsVisible: true };
         if (_restoreBar is not null)
         {
@@ -992,7 +937,8 @@ public partial class MainWindow : Window
 
         _stateBeforeFullScreen = WindowState;
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = false;
-        _sidePanel.IsVisible = _propertiesHost.IsVisible = _sessionToolbar.IsVisible = false;
+        HidePanesForFullScreen();
+        _sessionToolbar.IsVisible = false;
         _fullScreenHotZone.IsVisible = true;
 
         // Avalonia keeps a title bar strip at the top of a full-screen window that draws into its client
@@ -1083,8 +1029,7 @@ public partial class MainWindow : Window
 
         _fullScreenHotZone.IsVisible = _fullScreenBar.IsVisible = false;
         _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
-        _sidePanel.IsVisible = _panesBeforeFullScreen.Side;
-        _propertiesHost.IsVisible = _panesBeforeFullScreen.Inspector;
+        ApplyPanes();
 
         // Still offered unless it was withdrawn meanwhile (ReopenWorkspaceAsync, ForgetOpenTabs).
         if (_restoreOfferBeforeFullScreen && _restoreBar is not null)
@@ -1490,12 +1435,12 @@ public partial class MainWindow : Window
         else if (e.Key == Key.B && e.KeyModifiers == modifier)
         {
             e.Handled = true;
-            ShowSidePanel(!_sidePanel.IsVisible);
+            ToggleSidePanel();
         }
         else if (e.Key == Key.B && e.KeyModifiers == (modifier | KeyModifiers.Alt))
         {
             e.Handled = true;
-            ShowInspector(!_propertiesHost.IsVisible);
+            ToggleInspector();
         }
     }
 
@@ -1536,8 +1481,8 @@ public partial class MainWindow : Window
                 OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
             }
 
-            ShowSidePanel(true);
-            ShowInspector(true);
+            RevealSidePanel();
+            RevealInspector();
             foreach (var folder in toEdit.Ancestors())
             {
                 folder.Expanded = true;
@@ -2448,6 +2393,13 @@ public partial class MainWindow : Window
             each.IsSelected = each == tab;
         }
 
+        // A pane opened over the sessions to pick this one has done its job; Auto collapses for it.
+        if (tab is not null)
+        {
+            CloseFloatingPanes();
+        }
+
+        ApplyPanes();
         UpdateSessionToolbar();
         if (tab is not null)
         {
@@ -3252,6 +3204,7 @@ public partial class MainWindow : Window
                 }
             };
             view.RememberRecentConnectionsChanged += (_, on) => RememberRecentConnections(on);
+            view.PaneModesChanged += (_, modes) => FollowPaneModes(modes.Side, modes.Inspector);
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             view.TerminalColorsChanged += (_, scheme) =>
             {
@@ -3293,7 +3246,7 @@ public partial class MainWindow : Window
         _settingsHost.IsVisible = false;
         _settingsHost.Content = null;
         _settingsRailButton.Classes.Set("active", false);
-        ShowSidePanel(_sidePanel.IsVisible, save: false);
+        ApplyPanes();
         _currentTab?.FocusContent();
     }
 
