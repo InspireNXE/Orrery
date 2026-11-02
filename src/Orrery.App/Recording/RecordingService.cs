@@ -44,6 +44,18 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
         }
     }
 
+    /// <summary>Raised on the UI thread when a recording starts or stops, so a list of them can show it.</summary>
+    public event EventHandler? Changed;
+
+    /// <summary>Whether <paramref name="path"/> is being recorded now.</summary>
+    public bool IsRecording(string path)
+    {
+        lock (_lock)
+        {
+            return _active.Any(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     /// <summary>
     /// Starts recording <paramref name="tab"/>. Asks for the vault only the first time anything is recorded, to keep
     /// the private key in it; after that the public key in settings is enough.
@@ -106,9 +118,14 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
                 _active.Remove(recorder);
             }
 
-            Dispatcher.UIThread.Post(ApplyRetention);
+            Dispatcher.UIThread.Post(() =>
+            {
+                ApplyRetention();
+                Changed?.Invoke(this, EventArgs.Empty);
+            });
         };
         Bind(recorder, tab);
+        Changed?.Invoke(this, EventArgs.Empty);
         Logger.LogInformation("Recording started: {File}", Path.GetFileName(recorder.Path));
         return (recorder, null);
     }

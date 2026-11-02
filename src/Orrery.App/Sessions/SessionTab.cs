@@ -163,11 +163,14 @@ sealed class SessionTab
 
     // ---- Recording (docs/design-session-recording.md §5.2) ----
 
+    /// <summary>The red of the dot on a recorded tab, and beside a recording that's still being made.</summary>
+    public static readonly IBrush RecordingBrush = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)).ToImmutable();
+
     readonly Avalonia.Controls.Shapes.Ellipse _recordingDot = new()
     {
         Width = 8,
         Height = 8,
-        Fill = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)),
+        Fill = RecordingBrush,
         VerticalAlignment = VerticalAlignment.Center,
         IsVisible = false,
     };

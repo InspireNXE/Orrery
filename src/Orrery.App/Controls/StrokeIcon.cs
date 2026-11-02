@@ -97,8 +97,8 @@ static class Icons
     public const string Trash = "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13";
     public const string Play = "M8 5.5v13a.5.5 0 0 0 .77.42l10-6.5a.5.5 0 0 0 0-.84l-10-6.5A.5.5 0 0 0 8 5.5z";
     public const string Pause = "M8 5v14 M16 5v14";
-    public const string SkipBack = "M3 12a9 9 0 1 1 2.6 6.4 M3 5v7h7";
-    public const string SkipForward = "M21 12a9 9 0 1 0-2.6 6.4 M21 5v7h-7";
+    public const string SkipBack = "M3 12a9 9 0 1 0 9-9c-2.5 0-4.9 1-6.7 2.7L3 8 M3 3v5h5";
+    public const string SkipForward = "M21 12a9 9 0 1 1-9-9c2.5 0 4.9 1 6.7 2.7L21 8 M21 3v5h-5";
     public const string Previous = "M6 15l6-6 6 6";
     public const string Next = "M6 9l6 6 6-6";
 }

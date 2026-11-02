@@ -31,6 +31,7 @@ sealed partial class PlayerWindow : Window
     static readonly TimeSpan SkipBy = TimeSpan.FromSeconds(10);
     static readonly double[] Speeds = [0.5, 1, 2, 4, 8];
     static readonly IBrush StageBorder = new SolidColorBrush(Color.Parse("#2A2F38")).ToImmutable();
+    static readonly IBrush BarBrush = new SolidColorBrush(Color.Parse("#181B21")).ToImmutable();
 
     // Half the slider's thumb: the track's ends sit this far in from the control's edges.
     const double ThumbInset = 10;
@@ -52,8 +53,10 @@ sealed partial class PlayerWindow : Window
 
     // Header.
     readonly TextBlock _title = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly TextBlock _protocolText = new() { FontSize = 11, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-    readonly Border _protocol = new() { CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1), VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+    readonly StrokeIcon _tileIcon = new() { Data = Geometry.Parse(Icons.Monitor), Foreground = Dialogs.MutedBrush };
+    readonly Border _tile;
+    readonly TextBlock _protocolText = new() { FontSize = 10, FontWeight = FontWeight.Medium, FontFamily = Dialogs.MonoFont, VerticalAlignment = VerticalAlignment.Center };
+    readonly Border _protocol = new() { CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1), VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
     readonly TextBlock _subtitle = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly Notice _banner = new(NoticeKind.Warning) { IsVisible = false, Margin = new Thickness(16, 10, 16, 0) };
 
@@ -65,11 +68,11 @@ sealed partial class PlayerWindow : Window
     readonly StackPanel _findBar = new() { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
 
     // Transport.
-    readonly Button _playButton = new() { Width = 40, Height = 40, CornerRadius = new CornerRadius(20), Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
-    readonly StrokeIcon _playIcon = StrokeIcon.Create(Icons.Play, 18);
+    readonly Button _playButton = new() { Width = 46, Height = 46, CornerRadius = new CornerRadius(23), Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+    readonly StrokeIcon _playIcon = StrokeIcon.Create(Icons.Play, 20);
     readonly Slider _timeline = new() { Minimum = 0, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center };
     readonly Canvas _ticks = new() { IsHitTestVisible = true };
-    readonly TextBlock _time = new() { VerticalAlignment = VerticalAlignment.Center, FontFamily = Dialogs.MonoFont, FontSize = 12, Margin = new Thickness(14, 0, 0, 0) };
+    readonly TextBlock _time = new() { VerticalAlignment = VerticalAlignment.Center, FontFamily = Dialogs.MonoFont, FontSize = 12, Foreground = Dialogs.MutedBrush };
     readonly ComboBox _speed = new() { MinWidth = 76, VerticalAlignment = VerticalAlignment.Center };
     readonly CheckBox _skipIdle = new() { Content = "Skip idle", IsChecked = true, VerticalAlignment = VerticalAlignment.Center };
 
@@ -107,6 +110,9 @@ sealed partial class PlayerWindow : Window
         _privateKey = privateKey;
         _playing = service.Playing(item.Path);
         _info = item.Info;
+        _tile = Pane.Tile(_tileIcon);
+        _tile.VerticalAlignment = VerticalAlignment.Center;
+        _tile.Background = Pane.LineBrush;
         Width = 1000;
         Height = 720;
         MinWidth = 640;
@@ -208,13 +214,15 @@ sealed partial class PlayerWindow : Window
                 {
                     Docked(export, Dock.Right),
                     Docked(_findBar, Dock.Right),
+                    Docked(_tile, Dock.Left),
                     new StackPanel
                     {
-                        Spacing = 3,
+                        Spacing = 2,
+                        Margin = new Thickness(12, 0, 0, 0),
                         VerticalAlignment = VerticalAlignment.Center,
                         Children =
                         {
-                            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _protocol, _title } },
+                            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _title, _protocol } },
                             _subtitle,
                         },
                     },
@@ -224,15 +232,27 @@ sealed partial class PlayerWindow : Window
 
         var timeline = new Grid { Children = { _timeline, _ticks } };
         timeline.SizeChanged += (_, _) => PlaceTicks();
-        var transport = new DockPanel
+
+        // The time on the left, the buttons in the middle and how it plays on the right, as in most players.
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, Children = { back, _playButton, forward } };
+        var how = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Children = { _skipIdle, _speed } };
+        Grid.SetColumn(buttons, 1);
+        Grid.SetColumn(how, 2);
+        var transport = new Grid
         {
-            Margin = new Thickness(0, 6, 0, 0),
-            Children =
-            {
-                Docked(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { back, _playButton, forward, _time } }, Dock.Left),
-                Docked(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Right, Children = { _skipIdle, _speed } }, Dock.Right),
-                new Panel(),
-            },
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,*"),
+            Margin = new Thickness(0, 2, 0, 0),
+            Children = { _time, buttons, how },
+        };
+        var bar = new Border
+        {
+            Background = BarBrush,
+            BorderBrush = StageBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 4, 14, 10),
+            Margin = new Thickness(16, 8, 16, 14),
+            Child = new StackPanel { Children = { timeline, transport } },
         };
 
         _stage.Children.Add(new TextBlock { Text = "Reading the recording…", Foreground = Brushes.Gray, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
@@ -242,10 +262,10 @@ sealed partial class PlayerWindow : Window
             {
                 Docked(header, Dock.Top),
                 Docked(_banner, Dock.Top),
-                Docked(new StackPanel { Margin = new Thickness(16, 4, 16, 12), Children = { timeline, transport } }, Dock.Bottom),
+                Docked(bar, Dock.Bottom),
                 new Border
                 {
-                    Margin = new Thickness(16, 12, 16, 4),
+                    Margin = new Thickness(16, 12, 16, 0),
                     BorderBrush = StageBorder,
                     BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(6),
@@ -285,19 +305,20 @@ sealed partial class PlayerWindow : Window
         return button;
     }
 
-    /// <summary>A round arrow with "10" inside it.</summary>
+    /// <summary>A round button holding a round arrow with "10" inside it.</summary>
     static Button SkipButton(string icon, string tip, Action click)
     {
         var button = IconButton(icon, tip);
-        button.Width = button.Height = 38;
+        button.Width = button.Height = 42;
+        button.CornerRadius = new CornerRadius(21);
         button.Content = new Panel
         {
-            Width = 26,
-            Height = 26,
+            Width = 32,
+            Height = 32,
             Children =
             {
-                new StrokeIcon { Data = Geometry.Parse(icon), Width = 26, Height = 26, StrokeThickness = 1.6 },
-                new TextBlock { Text = "10", FontSize = 8, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                new StrokeIcon { Data = Geometry.Parse(icon), Width = 32, Height = 32, StrokeThickness = 1.4 },
+                new TextBlock { Text = "10", FontSize = 9, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
             },
         };
         button.Click += (_, _) => click();
@@ -420,6 +441,9 @@ sealed partial class PlayerWindow : Window
             _protocolText.Foreground = ProtocolStyle.Foreground(protocol);
             _protocol.Background = ProtocolStyle.Background(protocol);
             _protocol.IsVisible = true;
+            _tile.Background = ProtocolStyle.Background(protocol);
+            _tileIcon.Foreground = ProtocolStyle.Foreground(protocol);
+            _tileIcon.Data = Geometry.Parse(ProtocolStyle.Icon(protocol));
         }
         else if (_info is not null || _entries.Count > 0)
         {
@@ -427,6 +451,7 @@ sealed partial class PlayerWindow : Window
             _protocolText.Foreground = Dialogs.MutedBrush;
             _protocol.Background = Pane.LineBrush;
             _protocol.IsVisible = true;
+            _tileIcon.Data = Geometry.Parse(_kind == RecordingKind.Screen ? Icons.Monitor : Icons.Terminal);
         }
 
         var parts = new List<string> { $"Recorded {(_info?.Started.LocalDateTime ?? _item.Modified.ToLocalTime()):f}" };

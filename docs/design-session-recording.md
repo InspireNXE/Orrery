@@ -192,9 +192,14 @@ under a new *Recording* group, for every protocol.
 - *Stop a recording at*: 1 (default), 4 or 16 GB. A recording that reaches it stops, says so on the tab, and the
   session carries on.
 - *Frames per second for remote desktops*: 1, 2, 5 (default) or 10.
+- *Record every session* (off by default): the *Record sessions* setting of Defaults for all connections, shown here
+  too, so every connection records unless it or its folder turns it off. Quick connections follow it as well; a local
+  shell and a file browser don't.
 - *Put connection names in file names* (on by default).
 - *ffmpeg for MP4 export*: none by default; *Choose…* picks the executable (§3.4).
-- *Open the recordings folder*, and the space recordings use now.
+- *Show recordings* (opens the side panel, §5.3), *Open the recordings folder*, and the space recordings use now.
+- Which MP4 codec isn't a setting: *Export…* on a screen recording lists AVI and each of H.264, H.265 and AV1 the
+  chosen ffmpeg can make.
 
 ### 4.3 Retention
 
@@ -229,18 +234,24 @@ The first time recording is turned on (in a connection, or from a tab), a one-ti
 
 ### 5.3 The player
 
-*Show recordings…* in Settings › Sessions › Recordings, or *Show recordings* in a recorded tab's menu (which shows
-only that connection's at first), opens a window listing recordings (newest first) with the connection's name,
-protocol, start time and size, read from the header and the first event after the store is opened. From the list: *Play*,
-*Export…*, *Show in folder*, *Delete*.
+The rail has a *Recordings* button, after *Recent*, whose side panel lists recordings newest first: the connection's
+name, its protocol badge, when it started ("Today 14:05"), how long it ran (from its start to the file's last write) and
+its size, with a red dot and "recording now" for one being made. A filter narrows it by name or protocol, and the
+foot gives the count and space used; the folder button opens the recordings folder. Double-click or Enter plays one;
+the context menu has *Play*, *Export…*, *Show in folder* and *Delete…* (also the Delete key). *Show recordings* in
+Settings, or in a recorded tab's menu (filtered to that connection), opens the panel.
+
+Names live inside the encrypted part, so they show only while the credential store is open: when it's locked the
+rows are the date, kind and size, with *Unlock* above them. The panel reads the key when it refreshes and forgets it
+straight after; what each file said is kept only while the store stays open.
 
 Playing, in a window titled with the connection's name:
-- **Header:** the protocol's badge, the connection's name, and "Recorded <date and time> · <length> · <size>" under
-  them. On the right, *Find* for a terminal recording and *Export…* (§3.4). A cut-short or damaged recording gets a
+- **Header:** a tile with the protocol's icon and colors, then the connection's name with its protocol badge, and
+  "Recorded <date and time> · <length> · <size>" under the name. On the right, *Find* for a terminal recording and *Export…* (§3.4). A cut-short or damaged recording gets a
   warning under the header.
-- **Transport:** the timeline across the window, with a tick for each marker (such as a reconnect) that shows what it
-  is on hover and jumps there on a click. Under it: 10 seconds back, play and pause, 10 seconds forward, the time
-  as "1:30 / 4:20", and on the right *Skip idle* (gaps over 2 seconds play as 2 seconds; on by default) and speed
+- **Transport:** a bar under the picture. The timeline runs across it, with a tick for each marker (such as a
+  reconnect) that shows what it is on hover and jumps there on a click. Under it: the time ("1:30 / 4:20") on the
+  left; 10 seconds back, play and pause, and 10 seconds forward in the middle; and on the right *Skip idle* (gaps over 2 seconds play as 2 seconds; on by default) and speed
   (½×, 1×, 2×, 4×, 8×). Keys: Space plays and pauses, Left and Right skip 10 seconds, Home and End go to the ends.
 - **Terminal:** a read-only terminal view fed by a `TerminalEmulator`. Seeking replays the output from the start into
   a fresh emulator without drawing, which is fast for text. *Find* (Ctrl+F) searches the recording's text as you
@@ -272,7 +283,6 @@ Playing, in a window titled with the connection's name:
 - MP4 export without ffmpeg, through the platform's own encoder (Media Foundation on Windows, AVFoundation on macOS).
 - Recording sound.
 - Recording the remote pointer's shape.
-- Each recording's length in the list, which needs reading the whole file.
 
 ---
 
@@ -286,7 +296,7 @@ Playing, in a window titled with the connection's name:
   and never slows the session).
 - `Orrery.Core/Recording/ScreenFrames.cs`: damage merging, XOR, Brotli, and decoding.
 - `Orrery.Core/Recording/RecordingRetention.cs`: the age and size limits.
-- `Orrery.App/Recording/RecordingsWindow.cs` and `PlayerWindow.cs`: the list and the player.
+- `Orrery.App/Recording/RecordingsPanel.cs` and `PlayerWindow.cs`: the side panel's list and the player.
 - `Orrery.Core/Recording/AviWriter.cs` (the container) and `Orrery.App/Recording/RecordingExport.cs` (`.cast`, JPEG
   frames through SkiaSharp, and ffmpeg).
 - Changes to `TerminalView`, `RemoteFrameView` (start and stop the recorder), `SessionTabHeader` (the dot),

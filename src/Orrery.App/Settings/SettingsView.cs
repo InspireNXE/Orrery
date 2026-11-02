@@ -201,6 +201,20 @@ sealed class SettingsView : UserControl
     /// <summary>The user asked to see the recordings.</summary>
     public event EventHandler? ShowRecordingsRequested;
 
+    /// <summary>Raised when Record every session is turned on or off; it's kept in the defaults for all connections.</summary>
+    public event EventHandler<bool>? RecordAllSessionsChanged;
+
+    readonly CheckBox _recordAll = new() { Content = "Record every session" };
+
+    /// <summary>Shows whether the defaults for all connections record sessions, without raising <see cref="RecordAllSessionsChanged"/>.</summary>
+    public void ShowRecordAllSessions(bool on)
+    {
+        bool loading = _loading;
+        _loading = true;
+        _recordAll.IsChecked = on;
+        _loading = loading;
+    }
+
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
 
@@ -746,6 +760,15 @@ sealed class SettingsView : UserControl
         var rate = Choice([(1, "1"), (2, "2"), (5, "5"), (10, "10")],
             _settings.RecordingFramesPerSecond, (s, v) => s with { RecordingFrameRate = v }, "Frames a second for remote desktops");
 
+        AutomationProperties.SetName(_recordAll, "Record every session");
+        _recordAll.IsCheckedChanged += (_, _) =>
+        {
+            if (!_loading)
+            {
+                RecordAllSessionsChanged?.Invoke(this, _recordAll.IsChecked == true);
+            }
+        };
+
         var names = new CheckBox { Content = "Put connection names in file names", IsChecked = _settings.PutsNamesInRecordingFiles };
         names.IsCheckedChanged += (_, _) =>
         {
@@ -758,7 +781,7 @@ sealed class SettingsView : UserControl
 
         var folder = _location.FileIn(Recording.RecordingService.FolderName);
         var used = Note(UsedText(folder));
-        var show = new Button { Content = "Show recordings…" };
+        var show = new Button { Content = "Show recordings" };
         show.Click += (_, _) => ShowRecordingsRequested?.Invoke(this, EventArgs.Empty);
         var open = new Button { Content = "Open the recordings folder" };
         open.Click += (_, _) =>
@@ -811,6 +834,9 @@ sealed class SettingsView : UserControl
         return Section("Recordings",
             Note("A connection's Record sessions setting, or a tab's menu, records a session: what a terminal printed (never what's typed), "
                 + "or what a remote desktop showed. Recordings are encrypted with a key kept with your saved credentials, and play in Orrery."),
+            _recordAll,
+            Note("Records every connection as it opens, quick connections too, unless a connection or its folder turns Record sessions off. "
+                + "It's the Record sessions setting in Defaults for all connections."),
             Row("Keep recordings for", keep),
             Row("Use at most", total),
             Row("Stop a recording at", file),
@@ -821,7 +847,8 @@ sealed class SettingsView : UserControl
             used,
             Row("ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg } }),
             ffmpegText,
-            Note("Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4."));
+            Note("Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4: "
+                + "Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."));
     }
 
     static string UsedText(string folder)
