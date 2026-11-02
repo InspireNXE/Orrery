@@ -111,6 +111,59 @@ public class RemoteFrameViewTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    sealed class GrowingDesktop : IFrameBufferSession
+    {
+        public ConnectionTarget Target { get; } = new("desk", 3389, "user", null);
+        public SessionState State => SessionState.Connected;
+#pragma warning disable CS0067 // Part of the interface; this fake never raises it.
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+#pragma warning restore CS0067
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+        public int Width { get; private set; } = 788;
+        public int Height { get; private set; } = 743;
+
+        public void Resize(int width, int height)
+        {
+            (Width, Height) = (width, height);
+            FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, width, height), resized: true));
+        }
+
+        public void Update() => FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, 10, 10), resized: false));
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
+        public void SendKey(ushort scancode, bool pressed) { }
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+        public void RequestResize(int width, int height) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    // The bar under the tabs shows the desktop's size, so it hears when a resize brings a new one, and only then.
+    [AvaloniaFact]
+    public void A_desktop_that_comes_in_at_a_new_size_says_so()
+    {
+        var session = new GrowingDesktop();
+        var view = new RemoteFrameView(session);
+        int resized = 0;
+        view.DesktopResized += (_, _) => resized++;
+        var window = new Window { Content = view, Width = 800, Height = 500 };
+        window.Show();
+        session.Resize(788, 743);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, resized);
+
+        session.Update();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, resized);
+
+        session.Resize(1280, 720);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, resized);
+        window.Close();
+    }
+
     // Waiting for the session's lock with the bitmap locked froze the window: the wait lets Windows run a paint, which
     // waits for the render thread, which waits for the bitmap.
     [AvaloniaFact]
