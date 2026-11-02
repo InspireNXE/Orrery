@@ -32,6 +32,7 @@ public static class DataFolderFiles
     [
         ("backups", "connections-*.json"),
         ("import", "mremoteng-*.md"),
+        ("recordings", "*.orrec"),
     ];
 
     /// <summary>

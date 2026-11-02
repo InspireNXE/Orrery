@@ -68,7 +68,7 @@ public sealed class KeychainCredentialStore(string indexPath, ISecretBackend bac
         lock (_lock)
         {
             return Task.FromResult<IReadOnlyList<CredentialSummary>>(
-                LoadIndex().OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList());
+                LoadIndex().Where(c => !Credential.ReservedIds.Contains(c.Id)).OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList());
         }
     }
 
