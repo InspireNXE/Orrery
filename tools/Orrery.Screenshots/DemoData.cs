@@ -57,6 +57,7 @@ sealed class DemoData
             HostStatusChecks = false,
             RestoreSessions = RestoreSessionsMode.Never,
             SettingsPage = "Appearance",
+            RecordingNoteShown = true,
         });
 
         var history = ConnectionHistory.In(location);

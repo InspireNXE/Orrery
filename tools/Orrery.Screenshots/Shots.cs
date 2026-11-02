@@ -80,6 +80,8 @@ static class Shots
                 Save(lost, output, "connection-lost.png");
             }
 
+            await RecordingAsync(window, web, tabs[0], demo.Web01.Id, output);
+
             await SettingsAsync(window, location, output);
 
             using var preview = await RenderAsync(SocialPreview(hero, new Bitmap(icon)), 1280, 640);
@@ -142,6 +144,59 @@ static class Shots
 
         quick.Close();
         dimmer.IsVisible = false;
+        await SettleAsync();
+    }
+
+    /// <summary>
+    /// web-01 recording, with its red dot and REC pill, then the Recordings section playing that recording back. The
+    /// vault is the temp folder's own, made here, so the recordings key is a real one and nothing asks for a password.
+    /// </summary>
+    static async Task RecordingAsync(MainWindow window, DemoTerminal web, SessionTab tab, Guid id, string output)
+    {
+        var credentials = Private<ICredentialStore>(window, "_credentials");
+        await credentials.UnlockAsync("screenshots");
+        SelectTab(window, tab);
+        Select(window, id);
+        await (Task)Method(window, "StartRecordingAsync").Invoke(window, [tab])!;
+        await SettleAsync();
+        // Real time apart, so the recording has a timeline to show.
+        foreach (var step in DemoShell.Recorded)
+        {
+            web.Output(step);
+            await SettleAsync(3);
+            await Task.Delay(1200);
+        }
+
+        await SettleAsync(10);
+        using (var recording = Capture(window))
+        {
+            Save(recording, output, "recording.png");
+        }
+
+        tab.Recorder!.Stop();
+        await SettleAsync(10);
+
+        Invoke(window, "ShowRecordings");
+        await SettleAsync(20);
+        var panel = Private<Orrery.App.Recording.RecordingsPanel>(window, "_recordingsPanel");
+        var item = Private<System.Collections.IList>(panel, "_items")[0]!;
+        var key = await Orrery.Core.Recording.RecordingKeys.PrivateKeyAsync(credentials)
+            ?? throw new InvalidOperationException("No recordings key was made.");
+        panel.Stage.Play(Private<Orrery.App.Recording.RecordingService>(window, "_recordings"), (Orrery.App.Recording.RecordingItem)item, key);
+        await SettleAsync(20);
+        var player = panel.Stage.Player!;
+        player.Pause();
+        var duration = Private<TimeSpan>(player, "_duration");
+        Method(player, "Seek").Invoke(player, [duration * 0.8]);
+        await SettleAsync(10);
+        using (var playback = Capture(window))
+        {
+            Save(playback, output, "recording-playback.png");
+        }
+
+        panel.Stage.Close();
+        var connections = Private<Dictionary<string, (Button RailButton, Control View)>>(window, "_sides")["connections"].RailButton;
+        Invoke(window, "OnRailClick", connections, new Avalonia.Interactivity.RoutedEventArgs());
         await SettleAsync();
     }
 
@@ -253,13 +308,15 @@ static class Shots
         Invoke(window, "AddTab", view, session, new SessionOrigin(entry.Name, Protocol.Ssh, entry.Id, () => Task.CompletedTask));
     }
 
-    static void SelectTab(MainWindow window, SessionTab tab) => Invoke(window, "SelectTab", tab);
+    static void SelectTab(MainWindow window, SessionTab tab) => Invoke(window, "SelectTab", tab, true);
+
+    static MethodInfo Method(object owner, string name) =>
+        owner.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!;
 
     static void Select(MainWindow window, Guid id) =>
         typeof(MainWindow).GetMethod("Select", BindingFlags.Instance | BindingFlags.NonPublic, [typeof(Guid)])!.Invoke(window, [id]);
 
-    static void Invoke(object owner, string method, params object[] arguments) =>
-        owner.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(owner, arguments);
+    static void Invoke(object owner, string method, params object[] arguments) => Method(owner, method).Invoke(owner, arguments);
 
     static T Private<T>(object owner, string field) =>
         (T)owner.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(owner)!;
