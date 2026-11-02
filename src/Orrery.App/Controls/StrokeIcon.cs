@@ -101,4 +101,8 @@ static class Icons
     public const string SkipForward = "M21 12a9 9 0 1 1-9-9c2.5 0 4.9 1 6.7 2.7L21 8 M21 3v5h-5";
     public const string Previous = "M6 15l6-6 6 6";
     public const string Next = "M6 9l6 6 6-6";
+    public const string Volume = "M11 5L6 9H3v6h3l5 4z M15.5 8.5a5 5 0 0 1 0 7 M18.5 5.5a9 9 0 0 1 0 13";
+    public const string VolumeLow = "M11 5L6 9H3v6h3l5 4z M15.5 8.5a5 5 0 0 1 0 7";
+    public const string Record = "M12 6.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11";
+    public const string Muted = "M11 5L6 9H3v6h3l5 4z M16 9.5l5 5 M21 9.5l-5 5";
 }

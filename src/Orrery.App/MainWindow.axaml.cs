@@ -2421,6 +2421,13 @@ public partial class MainWindow : Window
         tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
         tab.RecordingStoppedByItself += (_, reason) => ShowNotice($"{tab.Origin.Title}: {reason}");
+        tab.RecordingChanged += (_, _) =>
+        {
+            if (tab == _currentTab)
+            {
+                UpdateSessionToolbar();
+            }
+        };
         HistoryRecorder.Attach(tab, _tree, _history);
 
         // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
@@ -2521,6 +2528,9 @@ public partial class MainWindow : Window
         var (view, session) = restart();
         // Reconnecting after a drop, by itself or from the button, is still about that drop.
         var tab = NewTab(view, session, old.Origin, attempt, old.IsShowingFailure && old.Dropped);
+
+        // A muted tab stays muted when it reconnects.
+        tab.IsMuted = old.IsMuted;
 
         // The recording carries on in the same file, with the reconnect marked on its timeline.
         if (old.Recorder is { IsRecording: true } recorder)
@@ -2639,6 +2649,13 @@ public partial class MainWindow : Window
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
         _sessionDetail.Text = DescribeSession(tab);
+
+        // Recording: a REC pill with its settings while it records, a button to start one while connected.
+        if ((state == SessionState.Connected || tab.IsRecording) && tab.View is TerminalView or RemoteFrameView
+            && Recording.RecordingControl.For(tab, async () => await StartRecordingAsync(tab), () => StopRecording(tab), () => ShowRecordings()) is { } recording)
+        {
+            _sessionActions.Children.Add(recording);
+        }
 
         if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
         {
@@ -2816,6 +2833,13 @@ public partial class MainWindow : Window
             yield return tab.IsRecording
                 ? MenuItemFor("Stop recording", () => StopRecording(tab))
                 : MenuItemFor("Start recording", async () => await StartRecordingAsync(tab));
+        }
+
+        if (tab.CanMute)
+        {
+            yield return tab.IsMuted
+                ? MenuItemFor("Unmute tab", () => tab.IsMuted = false)
+                : MenuItemFor("Mute tab", () => tab.IsMuted = true);
         }
 
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
