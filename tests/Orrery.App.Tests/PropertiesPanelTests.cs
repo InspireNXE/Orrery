@@ -111,15 +111,43 @@ public class PropertiesPanelTests
 
         var clipboard = window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "ShareClipboard");
         Assert.False(clipboard.IsChecked); // Inherited from the folder.
-        Assert.False(clipboard.IsEnabled);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Servers");
 
-        var inherit = InheritBoxFor(clipboard);
-        inherit.IsChecked = false;
         clipboard.IsChecked = true;
         Assert.True(panel.TrySave());
 
         Assert.True(entry.Settings.ShareClipboard);
         Assert.True(SettingsResolver.Resolve(entry).ShareClipboard.Value);
+    }
+
+    [AvaloniaFact]
+    public async Task Changing_an_inherited_value_sets_it_here_and_the_footer_counts_it()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Lab servers", Settings = new InheritableSettings { Scaling = DesktopScaling.Fit } };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { RemoteAudio = RemoteAudio.PlayHere } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+        var (panel, window) = await Show(tree, entry);
+        bool Shown(string text) => window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
+
+        // Only the rows' names and values show until one is opened.
+        Assert.True(Shown("1 set on this connection"));
+        Assert.True(Shown("Fit the tab"));
+        var scaling = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "Scaling");
+        Assert.False(scaling.IsEffectivelyVisible);
+
+        scaling.SelectedItem = scaling.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, DesktopScaling.ShrinkToFit));
+        Assert.True(Shown("2 set on this connection"));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Lab servers: Fit the tab");
+        Assert.True(panel.TrySave());
+        Assert.Equal(DesktopScaling.ShrinkToFit, entry.Settings.Scaling);
+
+        UseInherited(scaling);
+        Assert.Equal(DesktopScaling.Fit, (scaling.SelectedItem as ComboBoxItem)?.Tag);
+        Assert.True(Shown("1 set on this connection"));
+        Assert.True(panel.TrySave());
+        Assert.Null(entry.Settings.Scaling);
     }
 
     [AvaloniaFact]
@@ -139,10 +167,9 @@ public class PropertiesPanelTests
         Assert.Contains("Defaults for all connections", texts);
         Assert.DoesNotContain("Name", texts);
 
-        // Turn off Inherit on Port (the second row) and set 3390.
-        var inherits = window.GetVisualDescendants().OfType<ToggleButton>().Where(c => Equals(c.Content, "Inherit")).ToList();
-        inherits[1].IsChecked = false;
-        var port = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.IsEffectivelyVisible && t.Text == "3389");
+        // Setting the port sets it here.
+        var port = window.GetVisualDescendants().OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "Port");
+        Assert.Equal("3389", port.Text);
         port.Text = "3390";
         Assert.True(panel.TrySave());
 
@@ -152,7 +179,7 @@ public class PropertiesPanelTests
 
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From defaults for all connections");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From defaults for all connections");
     }
 
     /// <summary>The headings of the sections shown, as written: "RDP", "SSH TUNNELS".</summary>
@@ -232,8 +259,6 @@ public class PropertiesPanelTests
         TextBox Box(string name) => window.GetVisualDescendants().OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == name);
         var keepAlive = Box("Keep-alive (seconds)");
         var socks = Box("SOCKS proxy");
-        InheritBoxFor(keepAlive).IsChecked = false;
-        InheritBoxFor(socks).IsChecked = false;
 
         keepAlive.Text = "15";
         socks.Text = "not a port";
@@ -251,9 +276,14 @@ public class PropertiesPanelTests
         Assert.Equal(15, folder.Settings.KeepAliveSeconds);
     }
 
-    /// <summary>The Inherit chip in the same row as <paramref name="editor"/>.</summary>
-    static ToggleButton InheritBoxFor(Control editor) =>
-        ((Control)editor.Parent!).GetVisualDescendants().OfType<ToggleButton>().Single(c => Equals(c.Content, "Inherit"));
+    /// <summary>Clicks "Use that instead" in the row of <paramref name="editor"/>, going back to the inherited value.</summary>
+    static void UseInherited(Control editor)
+    {
+        static Button? Use(Control c) => c.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => Equals(b.Content, "Use that instead"));
+        var around = editor.GetVisualAncestors().OfType<Control>().First(c => Use(c) is not null);
+        Use(around)!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
 
     [AvaloniaFact]
     public async Task The_ssh_agent_setting_is_on_by_default_and_can_be_turned_off()
@@ -271,7 +301,6 @@ public class PropertiesPanelTests
         Assert.True(agent.IsChecked);
         Assert.True(SettingsResolver.Resolve(entry).UseSshAgent.Value);
 
-        InheritBoxFor(agent).IsChecked = false;
         agent.IsChecked = false;
         Assert.True(panel.TrySave());
 
@@ -296,7 +325,6 @@ public class PropertiesPanelTests
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Allow older, weaker algorithms");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Only for old devices that can't connect otherwise");
 
-        InheritBoxFor(legacy).IsChecked = false;
         legacy.IsChecked = true;
         Assert.True(panel.TrySave());
 
@@ -322,7 +350,6 @@ public class PropertiesPanelTests
         Assert.Equal("Fastest, for slow links", (quality.SelectedItem as ComboBoxItem)?.Content);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Branch office");
 
-        InheritBoxFor(quality).IsChecked = false;
         quality.SelectedItem = quality.Items.OfType<ComboBoxItem>().Single(i => (DisplayQuality)i.Tag! == DisplayQuality.Best);
         Assert.True(panel.TrySave());
 
@@ -344,9 +371,8 @@ public class PropertiesPanelTests
 
         var enlarge = window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "EnlargeRemoteDesktop");
         Assert.False(enlarge.IsChecked);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From Settings");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Settings");
 
-        InheritBoxFor(enlarge).IsChecked = false;
         enlarge.IsChecked = true;
         Assert.True(panel.TrySave());
 
@@ -370,7 +396,6 @@ public class PropertiesPanelTests
         Assert.Equal("Use app setting", (correction.SelectedItem as ComboBoxItem)?.Content);
         Assert.Equal("Color correction", Avalonia.Automation.AutomationProperties.GetName(correction));
 
-        InheritBoxFor(correction).IsChecked = false;
         correction.SelectedItem = correction.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, false));
         Assert.True(panel.TrySave());
 
@@ -396,7 +421,7 @@ public class PropertiesPanelTests
         Dispatcher.UIThread.RunJobs();
         var texts = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
         Assert.Contains("Guest of hv-01 · Lab", texts);
-        Assert.Contains("From hv-01", texts);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From hv-01");
         Assert.False(window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "ShareClipboard").IsChecked);
 
         await panel.ShowAsync(host);
@@ -452,12 +477,7 @@ public class PropertiesPanelTests
 
         var box = KeyFileBox(window);
         Assert.Equal("~/.ssh/team_key", box.Text);
-        Assert.False(box.IsEffectivelyEnabled); // Inherited.
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "From Servers");
-
-        var inherit = InheritBoxFor((Control)box.Parent!);
-        inherit.IsChecked = false;
-        Assert.True(box.IsEffectivelyEnabled);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Servers");
         box.Text = "  /keys/box_key  ";
         Assert.True(panel.TrySave());
 
@@ -488,7 +508,7 @@ public class PropertiesPanelTests
         Assert.Equal(string.Empty, entry.Settings.KeyFile);
         Assert.Null(SettingsResolver.Resolve(entry).KeyFile.Value);
 
-        InheritBoxFor((Control)box.Parent!).IsChecked = true;
+        UseInherited(box);
         Assert.Equal("~/.ssh/team_key", box.Text);
         Assert.True(panel.TrySave());
         Assert.Null(entry.Settings.KeyFile);
@@ -507,7 +527,6 @@ public class PropertiesPanelTests
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
 
-        InheritBoxFor((Control)KeyFileBox(window).Parent!).IsChecked = false;
         KeyFileBox(window).Text = "/keys/a\nb";
 
         Assert.False(panel.TrySave());

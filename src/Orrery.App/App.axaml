@@ -203,23 +203,35 @@
       <Setter Property="CornerRadius" Value="4" />
     </Style>
 
-    <!-- Inherit: a small chip that says where a setting comes from. -->
-    <Style Selector="ToggleButton.inherit">
-      <Setter Property="FontSize" Value="10" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="6,1" />
-      <Setter Property="CornerRadius" Value="4" />
-      <Setter Property="BorderThickness" Value="0" />
+    <!-- A saved setting's row: its name and value on one line, opened with a click to change it. -->
+    <Style Selector="Button.setting">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#8A93A3" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="Margin" Value="-8,0" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="ToggleButton.inherit:checked /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
-      <Setter Property="Foreground" Value="#B7C0CC" />
+    <Style Selector="Button.setting:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
-    <Style Selector="ToggleButton.inherit:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#2A303C" />
-      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    <!-- A text-only action, such as "Use that instead". -->
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="#8FB4FF" />
+    </Style>
+    <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1C2533" />
+      <Setter Property="Foreground" Value="#B9D0FF" />
     </Style>
 
     <!-- Connection tree rows: rounded, with an accent edge on the selected row.
