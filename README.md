@@ -185,7 +185,8 @@ HDR isn't possible over RDP or VNC.
 - The *Recordings* panel on the left lists them, newest first. Orrery plays them itself: speed, Skip idle, 10-second
   skips, markers for drops and reconnects, and Find for terminals.
 - Export makes an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi` for remote desktops, or MP4 (H.264,
-  H.265 or AV1, picked when you export) through an ffmpeg you've installed and chosen in Settings. Orrery never
+  H.265 or AV1, picked when you export). On Windows MP4 uses Windows' own encoders, whichever the PC has; elsewhere,
+  or for a codec Windows lacks, it goes through an ffmpeg you've installed and chosen in Settings. Orrery never
   downloads or bundles ffmpeg.
   See [the design notes](docs/design-session-recording.md).
 

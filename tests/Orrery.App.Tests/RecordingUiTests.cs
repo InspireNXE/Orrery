@@ -245,6 +245,18 @@ public sealed class RecordingUiTests : IDisposable
         window.Close();
     }
 
+    [Fact]
+    public void Export_offers_windows_codecs_first_and_ffmpeg_only_for_the_rest()
+    {
+        var system = new[] { new SystemCodec("H.264", Guid.NewGuid(), false), new SystemCodec("AV1", Guid.NewGuid(), true) };
+        var ffmpeg = new FfmpegInfo("ffmpeg", "ffmpeg version 7", [new FfmpegCodec("H.264", "libx264"), new FfmpegCodec("H.265", "libx265")]);
+
+        var routes = Mp4Route.All(system, ffmpeg);
+
+        Assert.Equal(["MP4, H.264", "MP4, AV1 (graphics card)", "MP4, H.265 (through ffmpeg)"], routes.Select(r => r.Label));
+        Assert.Empty(Mp4Route.All([], null));
+    }
+
     static async Task WaitFor(Func<bool> condition)
     {
         for (int i = 0; i < 200 && !condition(); i++)

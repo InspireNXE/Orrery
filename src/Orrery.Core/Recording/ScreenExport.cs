@@ -41,6 +41,8 @@ public static class ScreenExport
             var at = time - skipped;
             while (any && next <= at)
             {
+                // A long still stretch is many frames from one event.
+                cancel.ThrowIfCancellationRequested();
                 if (changed)
                 {
                     Render(decoder, output, width, height);
