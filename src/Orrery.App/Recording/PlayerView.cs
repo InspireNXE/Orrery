@@ -20,12 +20,12 @@ using Orrery.Core.Sessions;
 namespace Orrery.App.Recording;
 
 /// <summary>
-/// Plays a recording (docs/design-session-recording.md §5.3): a terminal through a read-only terminal view, a screen
+/// Plays a recording in the Recordings section's main area (docs/design-session-recording.md §5.3): a terminal through a read-only terminal view, a screen
 /// through the decoder into a bitmap. A header says what was recorded and when, with Find for a terminal and Export;
 /// under the picture are the timeline with its markers, play and pause, 10 seconds back and forward, speed and Skip
 /// idle. Seeking back replays a terminal's output from the start, and a screen's from the key frame before.
 /// </summary>
-sealed partial class PlayerWindow : Window
+sealed partial class PlayerView : DockPanel, IDisposable
 {
     static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(33);
     static readonly TimeSpan SkipBy = TimeSpan.FromSeconds(10);
@@ -103,7 +103,10 @@ sealed partial class PlayerWindow : Window
     readonly Image _image = new() { Stretch = Stretch.Uniform };
     WriteableBitmap? _bitmap;
 
-    public PlayerWindow(RecordingService service, RecordingItem item, byte[] privateKey)
+    bool _started;
+    bool _disposed;
+
+    public PlayerView(RecordingService service, RecordingItem item, byte[] privateKey)
     {
         _service = service;
         _item = item;
@@ -113,12 +116,8 @@ sealed partial class PlayerWindow : Window
         _tile = Pane.Tile(_tileIcon);
         _tile.VerticalAlignment = VerticalAlignment.Center;
         _tile.Background = Pane.LineBrush;
-        Width = 1000;
-        Height = 720;
-        MinWidth = 640;
-        MinHeight = 400;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Dialogs.PanelBrush;
+        Focusable = true;
         ShowWhat();
 
         foreach (var speed in Speeds)
@@ -199,7 +198,12 @@ sealed partial class PlayerWindow : Window
         export.Click += async (_, _) =>
         {
             Pause();
-            await RecordingExport.ExportAsync(this, _service, _item.Path, _privateKey, Path.GetFileNameWithoutExtension(_item.Path));
+            if (TopLevel.GetTopLevel(this) is not Window owner)
+            {
+                return;
+            }
+
+            await RecordingExport.ExportAsync(owner, _service, _item.Path, _privateKey, System.IO.Path.GetFileNameWithoutExtension(_item.Path));
         };
 
         _protocol.Child = _protocolText;
@@ -256,38 +260,53 @@ sealed partial class PlayerWindow : Window
         };
 
         _stage.Children.Add(new TextBlock { Text = "Reading the recording…", Foreground = Brushes.Gray, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        Content = new DockPanel
+        Children.Add(Docked(header, Dock.Top));
+        Children.Add(Docked(_banner, Dock.Top));
+        Children.Add(Docked(bar, Dock.Bottom));
+        Children.Add(new Border
         {
-            Children =
-            {
-                Docked(header, Dock.Top),
-                Docked(_banner, Dock.Top),
-                Docked(bar, Dock.Bottom),
-                new Border
-                {
-                    Margin = new Thickness(16, 12, 16, 0),
-                    BorderBrush = StageBorder,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(6),
-                    ClipToBounds = true,
-                    Child = _stage,
-                },
-            },
-        };
+            Margin = new Thickness(16, 12, 16, 0),
+            BorderBrush = StageBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            ClipToBounds = true,
+            Child = _stage,
+        });
 
         _timer.Tick += (_, _) => OnTick();
-        Opened += async (_, _) => await LoadAsync();
-        Closed += (_, _) =>
+        AttachedToVisualTree += async (_, _) =>
         {
-            _timer.Stop();
-            _cursor?.Dispose();
-            _reader?.Dispose();
-            _playing.Dispose();
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(_privateKey);
+            if (!_started)
+            {
+                _started = true;
+                await LoadAsync();
+            }
         };
 
         // Tunnel, so Space plays and pauses wherever focus is rather than pressing the focused button.
         AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel);
+    }
+
+    /// <summary>The recording this plays.</summary>
+    public string Path => _item.Path;
+
+    /// <summary>What the header says is playing.</summary>
+    public string Heading => _title.Text ?? string.Empty;
+
+    /// <summary>Stops playing and lets go of the recording, so it can be deleted, and of its key.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _timer.Stop();
+        _cursor?.Dispose();
+        _reader?.Dispose();
+        _playing.Dispose();
+        System.Security.Cryptography.CryptographicOperations.ZeroMemory(_privateKey);
     }
 
     static Control Docked(Control control, Dock dock)
@@ -385,6 +404,11 @@ sealed partial class PlayerWindow : Window
             _info = RecordingFile.ReadInfo(info) ?? _info;
         }
 
+        if (_disposed)
+        {
+            return;
+        }
+
         MapTimes();
         ShowWhat();
         PlaceTicks();
@@ -409,6 +433,7 @@ sealed partial class PlayerWindow : Window
         _loaded = true;
         Seek(TimeSpan.Zero);
         Play();
+        Focus();
     }
 
     (RecordingKind, RecordingEnding) ReadTimeline()
@@ -425,7 +450,7 @@ sealed partial class PlayerWindow : Window
         return (reader.Header.Kind, reader.Ending);
     }
 
-    /// <summary>The header and window title: the connection, its protocol, when it was recorded, for how long and how big.</summary>
+    /// <summary>The header: the connection, its protocol, when it was recorded, for how long and how big.</summary>
     void ShowWhat()
     {
         _title.Text = _item.Title;
@@ -434,7 +459,6 @@ sealed partial class PlayerWindow : Window
             _title.Text = _info.Name;
         }
 
-        Title = $"{_title.Text} — recording";
         if (_info is not null && Enum.TryParse<Protocol>(_info.Protocol, ignoreCase: true, out var protocol))
         {
             _protocolText.Text = ProtocolInfo.Label(protocol);
@@ -570,7 +594,7 @@ sealed partial class PlayerWindow : Window
         _timer.Start();
     }
 
-    void Pause()
+    public void Pause()
     {
         _playingNow = false;
         SetPlayLook(playing: false);

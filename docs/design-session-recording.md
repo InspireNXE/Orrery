@@ -207,7 +207,7 @@ under a new *Recording* group, for every protocol.
   shell and a file browser don't.
 - *Put connection names in file names* (on by default).
 - *ffmpeg for MP4 export* (*ffmpeg (optional)* on Windows): none by default; *Choose…* picks the executable (§3.4).
-- *Show recordings* (opens the side panel, §5.3), *Open the recordings folder*, and the space recordings use now.
+- *Show recordings* (opens the Recordings section, §5.3), *Open the recordings folder*, and the space recordings use now.
 - Which MP4 codec isn't a setting: *Export…* on a screen recording lists AVI and each of H.264, H.265 and AV1 that
   Windows or the chosen ffmpeg can make.
 
@@ -247,15 +247,19 @@ The first time recording is turned on (in a connection, or from a tab), a one-ti
 The rail has a *Recordings* button, after *Recent*, whose side panel lists recordings newest first: the connection's
 name, its protocol badge, when it started ("Today 14:05"), how long it ran (from its start to the file's last write) and
 its size, with a red dot and "recording now" for one being made. A filter narrows it by name or protocol, and the
-foot gives the count and space used; the folder button opens the recordings folder. Double-click or Enter plays one;
-the context menu has *Play*, *Export…*, *Show in folder* and *Delete…* (also the Delete key). *Show recordings* in
-Settings, or in a recorded tab's menu (filtered to that connection), opens the panel.
+foot gives the count and space used; the folder button opens the recordings folder. Clicking one or pressing Enter
+plays it in the main area; the context menu has *Play*, *Export…*, *Show in folder* and *Delete…* (also the Delete
+key). Deleting the one playing closes the player first. *Show recordings* in Settings opens the section.
+
+While *Recordings* is the open rail item, the main area (over the sessions and the right-hand pane) is the player, or
+"Choose a recording to play" until one is chosen; the side panel stays beside it in Auto. Choosing a session tab,
+another rail item, or *Recordings* again goes back to the sessions and pauses the player; coming back carries on.
 
 Names live inside the encrypted part, so they show only while the credential store is open: when it's locked the
 rows are the date, kind and size, with *Unlock* above them. The panel reads the key when it refreshes and forgets it
 straight after; what each file said is kept only while the store stays open.
 
-Playing, in a window titled with the connection's name:
+Playing:
 - **Header:** a tile with the protocol's icon and colors, then the connection's name with its protocol badge, and
   "Recorded <date and time> · <length> · <size>" under the name. On the right, *Find* for a terminal recording and *Export…* (§3.4). A cut-short or damaged recording gets a
   warning under the header.
@@ -267,7 +271,7 @@ Playing, in a window titled with the connection's name:
   a fresh emulator without drawing, which is fast for text. *Find* (Ctrl+F) searches the recording's text as you
   type, says how many matches there are, and Enter, Shift+Enter and the arrows beside it go to the next or previous
   one, playing the recording up to it.
-- **Screen:** the frame, scaled to the window, with the same controls. Seeking decodes from the key frame before the
+- **Screen:** the frame, scaled to fit, with the same controls. Seeking decodes from the key frame before the
   point.
 - A recording that ended without being closed plays to where it stops, with "This recording ended without being
   closed, probably because Orrery stopped" at the end.
@@ -306,7 +310,7 @@ Playing, in a window titled with the connection's name:
   and never slows the session).
 - `Orrery.Core/Recording/ScreenFrames.cs`: damage merging, XOR, Brotli, and decoding.
 - `Orrery.Core/Recording/RecordingRetention.cs`: the age and size limits.
-- `Orrery.App/Recording/RecordingsPanel.cs` and `PlayerWindow.cs`: the side panel's list and the player.
+- `Orrery.App/Recording/RecordingsPanel.cs`, `RecordingStage.cs` and `PlayerView.cs`: the side panel's list, the main area and the player.
 - `Orrery.Core/Recording/MediaFoundation.cs` and `Nv12.cs`: MP4 through Windows' encoders.
 - `Orrery.Core/Recording/AviWriter.cs` (the container) and `Orrery.App/Recording/RecordingExport.cs` (`.cast`, JPEG
   frames through SkiaSharp, and ffmpeg).

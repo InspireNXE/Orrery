@@ -94,6 +94,10 @@ public partial class MainWindow : Window
     readonly ConnectionHistory _history;
     readonly RecentPanel _recentPanel;
     readonly Recording.RecordingsPanel _recordingsPanel;
+    readonly ContentControl _recordingsHost;
+
+    // The Recordings section is open, so the main area shows its player rather than the sessions.
+    bool _recordingsShown;
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
@@ -271,6 +275,8 @@ public partial class MainWindow : Window
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
         _recordingsPanel = new Recording.RecordingsPanel(_recordings);
         this.FindControl<ContentControl>("RecordingsSide")!.Content = _recordingsPanel;
+        _recordingsHost = this.FindControl<ContentControl>("RecordingsHost")!;
+        _recordingsHost.Content = _recordingsPanel.Stage;
 
         _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
             () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
@@ -657,12 +663,26 @@ public partial class MainWindow : Window
 
         if (side == _side && _sidePanel.IsVisible && !leavingSettings)
         {
+            // Clicking Recordings again goes back to the sessions; after a session was chosen, it shows the player again.
+            if (side == "recordings" && !_recordingsShown)
+            {
+                ShowRecordingsHost(true);
+                _recordingsPanel.Refresh();
+                return;
+            }
+
+            if (_recordingsShown)
+            {
+                ShowRecordingsHost(false);
+            }
+
             ClickActiveRailItem();
             return;
         }
 
         _properties.TrySave();
         _side = side;
+        ShowRecordingsHost(side == "recordings");
         foreach (var (name, (_, view)) in _sides)
         {
             view.IsVisible = name == side;
@@ -2496,9 +2516,15 @@ public partial class MainWindow : Window
         await old.Session.DisposeAsync();
     }
 
-    void SelectTab(SessionTab? tab)
+    /// <param name="chosen">Chosen or opened, rather than next in line after another closed, so it leaves Recordings.</param>
+    void SelectTab(SessionTab? tab, bool chosen = true)
     {
         _currentTab = tab;
+        if (tab is not null && chosen && _recordingsShown)
+        {
+            ShowRecordingsHost(false);
+        }
+
         foreach (var each in _tabs)
         {
             each.IsSelected = each == tab;
@@ -2537,7 +2563,7 @@ public partial class MainWindow : Window
 
             if (tab == _currentTab)
             {
-                SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)]);
+                SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)], chosen: false);
             }
 
             UpdateSessionChrome();
@@ -2754,7 +2780,6 @@ public partial class MainWindow : Window
             yield return tab.IsRecording
                 ? MenuItemFor("Stop recording", () => StopRecording(tab))
                 : MenuItemFor("Start recording", async () => await StartRecordingAsync(tab));
-            yield return MenuItemFor("Show recordings", () => ShowRecordings(tab.Origin.Title));
         }
 
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
@@ -2816,11 +2841,23 @@ public partial class MainWindow : Window
         ShowNotice($"Stopped recording {tab.Origin.Title}");
     }
 
-    /// <summary>Shows the recordings in the side panel, filtered to one connection's when given.</summary>
-    internal void ShowRecordings(string? connectionName = null)
+    /// <summary>Shows or hides the Recordings section's main area. Hiding it pauses the player, so coming back carries on.</summary>
+    void ShowRecordingsHost(bool show)
     {
-        _recordingsPanel.Filter = connectionName ?? string.Empty;
-        if (_side != "recordings" || !_sidePanel.IsVisible || _settingsHost.IsVisible)
+        _recordingsShown = show;
+        _recordingsHost.IsVisible = show;
+        if (!show)
+        {
+            _recordingsPanel.Stage.Pause();
+        }
+
+        ApplyPanes();
+    }
+
+    /// <summary>Opens the Recordings section: the list in the side panel and the player in the main area.</summary>
+    internal void ShowRecordings()
+    {
+        if (_side != "recordings" || !_sidePanel.IsVisible || _settingsHost.IsVisible || !_recordingsShown)
         {
             OnRailClick(_sides["recordings"].RailButton, new RoutedEventArgs());
         }
