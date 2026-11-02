@@ -108,6 +108,11 @@
       <Setter Property="RenderTransform" Value="scale(0.625)" />
     </Style>
 
+    <!-- Fluent pads a menu row 4 px above and 7 below, which sets the text and arrow high; the same height, evenly. -->
+    <Style Selector="MenuItem">
+      <Setter Property="Padding" Value="11,5.5" />
+    </Style>
+
     <!-- Small bordered buttons, as in the mockup's session toolbar. -->
     <Style Selector="Button">
       <Setter Property="FontSize" Value="12" />
