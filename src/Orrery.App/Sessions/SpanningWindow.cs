@@ -30,6 +30,54 @@ static class SpanningWindow
         return SetWindowPos(handle, IntPtr.Zero, area.X, area.Y, area.Width, area.Height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 
+    /// <summary>
+    /// Limits the window to <paramref name=areas/>, in the desktop's pixels, so displays between chosen ones show
+    /// what's under the window and take its clicks; null gives it all of its rectangle back.
+    /// </summary>
+    public static bool Limit(Window window, ScreenArea covered, IReadOnlyList<ScreenArea>? areas)
+    {
+        if (window.TryGetPlatformHandle()?.Handle is not { } handle || handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (areas is null)
+        {
+            return SetWindowRgn(handle, IntPtr.Zero, true) != 0;
+        }
+
+        // Windows owns the region once it's set, so it's only deleted here when setting it fails.
+        IntPtr region = CreateRectRgn(0, 0, 0, 0);
+        foreach (var area in areas)
+        {
+            IntPtr part = CreateRectRgn(area.X - covered.X, area.Y - covered.Y, area.Right - covered.X, area.Bottom - covered.Y);
+            CombineRgn(region, region, part, RGN_OR);
+            DeleteObject(part);
+        }
+
+        if (SetWindowRgn(handle, region, true) == 0)
+        {
+            DeleteObject(region);
+            return false;
+        }
+
+        return true;
+    }
+
+    const int RGN_OR = 2;
+
+    [DllImport("user32.dll")]
+    static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool redraw);
+
+    [DllImport("gdi32.dll")]
+    static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    static extern int CombineRgn(IntPtr destination, IntPtr first, IntPtr second, int mode);
+
+    [DllImport("gdi32.dll")]
+    static extern bool DeleteObject(IntPtr handle);
+
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 }

@@ -116,6 +116,29 @@ public class RdpFileImporterTests
     }
 
     [Fact]
+    public void Selected_monitors_become_the_chosen_displays_by_mstscs_numbers()
+    {
+        ChosenDisplay[] displays = [new(0, 360, 1920, 1080), new(1920, 0, 2560, 1440), new(4480, 0, 1080, 1920)];
+        var result = RdpFileImporter.Import("full address:s:h\nuse multimon:i:1\nselectedmonitors:s:0,2", "test.rdp", "test", displays: displays);
+        var entry = Assert.Single(result.Root.Children.OfType<ConnectionEntry>());
+
+        Assert.Equal([displays[0], displays[2]], entry.Settings.ChosenDisplays);
+        Assert.Null(entry.Settings.UseAllMonitors);
+        Assert.Equal(FullScreenOn.ChosenDisplays, SettingsResolver.Resolve(entry).FullScreen.Value.On);
+    }
+
+    [Fact]
+    public void Selected_monitors_this_computer_lacks_fall_back_to_every_display()
+    {
+        var result = RdpFileImporter.Import("full address:s:h\nuse multimon:i:1\nselectedmonitors:s:0,5", "test.rdp", "test", displays: [new(0, 0, 1920, 1080)]);
+        var entry = Assert.Single(result.Root.Children.OfType<ConnectionEntry>());
+
+        Assert.True(entry.Settings.UseAllMonitors);
+        Assert.Null(entry.Settings.ChosenDisplays);
+        Assert.Contains(result.Report.Warnings, w => w.Contains("doesn't have"));
+    }
+
+    [Fact]
     public void Settings_that_match_orrerys_defaults_are_left_to_inherit()
     {
         var entry = Entry("full address:s:h\nredirectclipboard:i:1\naudiomode:i:0\nuse multimon:i:0\nadministrative session:i:0");

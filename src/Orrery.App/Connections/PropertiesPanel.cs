@@ -63,7 +63,9 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _remoteAudio = Choices("RemoteAudio", (RemoteAudio.PlayHere, "Play on this computer"), (RemoteAudio.DoNotPlay, "Don't play"));
     readonly ToggleSwitch _shareAllDrives = Switch("ShareAllDrives");
     readonly TextBox _sharedFolders = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = OperatingSystem.IsWindows() ? "~/Documents\nD:\\Projects" : "~/Documents\n/Volumes/Projects" };
-    readonly ToggleSwitch _useAllMonitors = Switch("UseAllMonitors");
+    readonly ComboBox _fullScreenOn = Choices("FullScreenOn", (FullScreenOn.ThisDisplay, "The display the window is on"), (FullScreenOn.EveryDisplay, "Every display"),
+        (FullScreenOn.ChosenDisplays, "Chosen displays"));
+    readonly DisplayPicker _displayPicker;
     readonly ToggleSwitch _adminSession = Switch("AdminSession");
     readonly ToggleSwitch _viewOnly = Switch("ViewOnly");
     readonly ComboBox _scaling = Choices("Scaling", SessionSettingsView.ScalingLabels);
@@ -79,7 +81,7 @@ sealed class PropertiesPanel : UserControl
     readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
 
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow;
-    readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _useAllMonitorsRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
+    readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
         _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save;
@@ -113,8 +115,11 @@ sealed class PropertiesPanel : UserControl
     /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, shown where nothing in the tree sets it.</param>
     /// <param name="history">When connections last connected, shown under the name.</param>
     /// <param name="now">The clock, for wording like "3 days ago".</param>
-    public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null, ConnectionHistory? history = null, Func<DateTimeOffset>? now = null)
+    /// <param name="displays">This computer's displays, for choosing them for full screen; by default the window's screens.</param>
+    public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null, ConnectionHistory? history = null, Func<DateTimeOffset>? now = null,
+        Func<IReadOnlyList<LocalDisplay>>? displays = null)
     {
+        _displayPicker = new DisplayPicker(displays) { IsVisible = false };
         _tree = tree;
         _enlargeByDefault = enlargeByDefault ?? (() => true);
         _history = history;
@@ -203,9 +208,17 @@ sealed class PropertiesPanel : UserControl
             () => ShowInherited(r => _sharedFolders.Text = string.Join("\n", r.SharedFolders.Value)));
         _sharedFoldersRow.Tip("RDP: folders on this computer to show on the remote one as drives, one per line; ~ means your home folder. "
             + "The remote computer can read and change their files. Leave it empty to share none. Linux and macOS share only the first.");
-        _useAllMonitorsRow = new InheritRow("Use every display in full screen", _useAllMonitors, () => ShowInherited(r => _useAllMonitors.IsChecked = r.UseAllMonitors.Value));
-        _useAllMonitorsRow.Tip("RDP: full screen spreads the remote desktop over all of this computer's displays, each one a display of the remote computer. "
-            + "Windows only; elsewhere, or when the displays don't sit against each other, full screen stays on one display.");
+        _fullScreenRow = new InheritRow("Full screen on", new StackPanel { Spacing = 8, Children = { _fullScreenOn, _displayPicker } },
+            () => ShowInherited(r => ShowFullScreen(r.FullScreen.Value)), describe: DescribeFullScreen);
+        _fullScreenRow.Tip("RDP and VNC: the displays full screen fills. Every display, or several chosen ones, make one remote desktop with a "
+            + "monitor for each (VNC fits its picture across them); chosen displays with others between sit side by side on the remote computer. "
+            + "Several displays work on Windows only; elsewhere full screen fills one, the first chosen.");
+        _fullScreenOn.SelectionChanged += (_, _) => _displayPicker.IsVisible = Chosen<FullScreenOn>(_fullScreenOn) == FullScreenOn.ChosenDisplays;
+        _displayPicker.Changed += (_, _) =>
+        {
+            _fullScreenRow.Edited();
+            MarkDirty();
+        };
         _adminSessionRow = new InheritRow("Connect to the console session", _adminSession, () => ShowInherited(r => _adminSession.IsChecked = r.AdminSession.Value));
         _adminSessionRow.Tip("RDP: the server's console (administrative) session, as mstsc /admin, for administering a server without a Remote Desktop license.");
         _viewOnlyRow = new InheritRow("View only", _viewOnly, () => ShowInherited(r => _viewOnly.IsChecked = r.ViewOnly.Value));
@@ -274,8 +287,8 @@ sealed class PropertiesPanel : UserControl
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View)),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View)),
-                (_displaySection = Pane.RowSection("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _qualityRow.View, _colorCorrectionRow.View)),
-                (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _useAllMonitorsRow.View, _adminSessionRow.View)),
+                (_displaySection = Pane.RowSection("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
                 (_serialSection = Pane.RowSection("Serial line", _baudRateRow.View, _dataBitsRow.View, _parityRow.View, _stopBitsRow.View, _flowControlRow.View)),
@@ -352,12 +365,12 @@ sealed class PropertiesPanel : UserControl
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
         _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var box in new[] { _remoteAudio, _scaling, _dataBits, _parity, _stopBits, _flowControl })
+        foreach (var box in new[] { _remoteAudio, _fullScreenOn, _scaling, _dataBits, _parity, _stopBits, _flowControl })
         {
             box.SelectionChanged += (_, _) => MarkDirty();
         }
 
-        foreach (var toggle in new[] { _shareAllDrives, _useAllMonitors, _adminSession, _viewOnly })
+        foreach (var toggle in new[] { _shareAllDrives, _adminSession, _viewOnly })
         {
             toggle.IsCheckedChanged += (_, _) => MarkDirty();
         }
@@ -365,7 +378,7 @@ sealed class PropertiesPanel : UserControl
         foreach (var row in new[]
                  {
                      _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow,
-                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _useAllMonitorsRow,
+                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
                      _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
                  })
         {
@@ -548,8 +561,10 @@ sealed class PropertiesPanel : UserControl
             _shareAllDrives.IsChecked = own.ShareAllDrives ?? inherited.ShareAllDrives.Value;
             _sharedFoldersRow.Load(own.SharedFolders is null, Describe(inherited.SharedFolders));
             _sharedFolders.Text = string.Join("\n", own.SharedFolders ?? inherited.SharedFolders.Value);
-            _useAllMonitorsRow.Load(own.UseAllMonitors is null, Describe(inherited.UseAllMonitors));
-            _useAllMonitors.IsChecked = own.UseAllMonitors ?? inherited.UseAllMonitors.Value;
+            _fullScreenRow.Load(own.ChosenDisplays is null && own.UseAllMonitors is null, Describe(inherited.FullScreen));
+            ShowFullScreen(own.ChosenDisplays is { } chosen ? new FullScreenChoice(FullScreenOn.ChosenDisplays, chosen)
+                : own.UseAllMonitors is { } every ? (every ? FullScreenChoice.EveryDisplay : FullScreenChoice.ThisDisplay)
+                : inherited.FullScreen.Value);
             _adminSessionRow.Load(own.AdminSession is null, Describe(inherited.AdminSession));
             _adminSession.IsChecked = own.AdminSession ?? inherited.AdminSession.Value;
             _viewOnlyRow.Load(own.ViewOnly is null, Describe(inherited.ViewOnly));
@@ -750,6 +765,16 @@ sealed class PropertiesPanel : UserControl
             }
         }
 
+        List<ChosenDisplay>? chosenDisplays = null;
+        if (!_fullScreenRow.Inheriting && Chosen<FullScreenOn>(_fullScreenOn) == FullScreenOn.ChosenDisplays)
+        {
+            chosenDisplays = _displayPicker.Chosen;
+            if (chosenDisplays.Count == 0)
+            {
+                return Fail("Choose a display for full screen, or another choice under Full screen on.");
+            }
+        }
+
         List<PortForward>? forwards = null;
         if (_node is ConnectionEntry)
         {
@@ -804,7 +829,13 @@ sealed class PropertiesPanel : UserControl
             RemoteAudio = _remoteAudioRow.Inheriting ? null : Chosen<RemoteAudio>(_remoteAudio),
             ShareAllDrives = _shareAllDrivesRow.Inheriting ? null : _shareAllDrives.IsChecked == true,
             SharedFolders = sharedFolders,
-            UseAllMonitors = _useAllMonitorsRow.Inheriting ? null : _useAllMonitors.IsChecked == true,
+            UseAllMonitors = _fullScreenRow.Inheriting ? null : Chosen<FullScreenOn>(_fullScreenOn) switch
+            {
+                FullScreenOn.EveryDisplay => true,
+                FullScreenOn.ThisDisplay => false,
+                _ => null,
+            },
+            ChosenDisplays = chosenDisplays,
             AdminSession = _adminSessionRow.Inheriting ? null : _adminSession.IsChecked == true,
             ViewOnly = _viewOnlyRow.Inheriting ? null : _viewOnly.IsChecked == true,
             Scaling = _scalingRow.Inheriting ? null : Chosen<DesktopScaling>(_scaling),
@@ -1164,6 +1195,22 @@ sealed class PropertiesPanel : UserControl
         };
     }
 
+    /// <summary>Shows a full-screen choice: the option, and the chosen displays under it.</summary>
+    void ShowFullScreen(FullScreenChoice choice)
+    {
+        Choose(_fullScreenOn, choice.On);
+        _displayPicker.Chosen = [.. choice.Displays];
+        _displayPicker.IsVisible = choice.On == FullScreenOn.ChosenDisplays;
+    }
+
+    /// <summary>The row's value: "This display", "Every display", or the chosen ones ("Displays 1 and 3").</summary>
+    string DescribeFullScreen() => Chosen<FullScreenOn>(_fullScreenOn) switch
+    {
+        FullScreenOn.EveryDisplay => "Every display",
+        FullScreenOn.ChosenDisplays => _displayPicker.Describe(),
+        _ => "This display",
+    };
+
     static string Describe<T>(Resolved<T> resolved) =>
         resolved.Source is { } source ? source.Parent is null ? "From defaults for all connections" : $"From {source.Name}" : "Orrery's default";
 
@@ -1186,6 +1233,7 @@ sealed class PropertiesPanel : UserControl
         readonly Action _showInherited;
         readonly string _whenEmpty;
         readonly bool _canPreview;
+        readonly Func<string>? _describe;
         readonly Ellipse _dot = new() { Width = 6, Height = 6, Fill = DotBrush, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
         readonly TextBlock _value = new() { FontSize = 13, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         readonly TextBlock _hint = new() { FontSize = 11, Foreground = InheritedBrush, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
@@ -1200,8 +1248,10 @@ sealed class PropertiesPanel : UserControl
         /// <see cref="Edited"/> for the user's own changes instead.
         /// </param>
         /// <param name="whenEmpty">The value shown for an empty text box.</param>
-        public InheritRow(string label, Control editor, Action showInherited, bool watchEditor = true, string whenEmpty = "None")
+        /// <param name="describe">The value to show, where the editor's own isn't it.</param>
+        public InheritRow(string label, Control editor, Action showInherited, bool watchEditor = true, string whenEmpty = "None", Func<string>? describe = null)
         {
+            _describe = describe;
             _label = label;
             _editor = editor;
             _showInherited = showInherited;
@@ -1250,7 +1300,9 @@ sealed class PropertiesPanel : UserControl
             void OnEditorChanged(object? sender, EventArgs e)
             {
                 ShowValue();
-                if (watchEditor)
+
+                // A display picker says itself when the user changes it, not when it's filled in.
+                if (watchEditor && !((e as RoutedEventArgs)?.Source is StyledElement source && source.FindLogicalAncestorOfType<DisplayPicker>() is not null))
                 {
                     Edited();
                 }
@@ -1362,6 +1414,11 @@ sealed class PropertiesPanel : UserControl
         /// <summary>The editor's value in a few words: On or Off, the choice picked, or the text.</summary>
         string Summary()
         {
+            if (_describe is not null)
+            {
+                return _describe();
+            }
+
             var input = _editor is TextBox or ComboBox or ToggleSwitch
                 ? _editor
                 : _editor.GetLogicalDescendants().OfType<Control>().FirstOrDefault(c => c is TextBox or ComboBox or ToggleSwitch);

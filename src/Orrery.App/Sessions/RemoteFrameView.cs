@@ -147,6 +147,8 @@ public sealed class RemoteFrameView : Panel
         Background = SurfaceBrush;
         _scroller.Content = _image;
         Children.Add(_scroller);
+        _piecesLayer = new PiecesLayer(this) { IsVisible = false };
+        Children.Add(_piecesLayer);
         Children.Add(_status);
 
         // Caught on the way down, so at actual size the wheel scrolls the remote desktop's windows, not the view.
@@ -475,6 +477,78 @@ public sealed class RemoteFrameView : Panel
 
     IReadOnlyList<RemoteMonitor>? _spannedMonitors;
 
+    /// <summary>One remote monitor and the display it's shown on, when the two don't sit alike.</summary>
+    /// <param name="Window">Where it's shown, in pixels from the window's top-left corner.</param>
+    /// <param name="Remote">Where it is on the remote desktop as laid out, in pixels from its top-left corner.</param>
+    internal readonly record struct Piece(PixelRect Window, PixelRect Remote);
+
+    readonly PiecesLayer _piecesLayer;
+    (IReadOnlyList<Piece> Pieces, PixelSize Layout)? _pieces;
+
+    /// <summary>
+    /// While full screen covers displays with others between them: each remote monitor drawn on its own display, the
+    /// remote desktop being <paramref name="layout"/> pixels with them moved together. A VNC picture of another size is
+    /// fitted to the same pieces. Null draws the desktop whole again.
+    /// </summary>
+    internal void ShowPieces(IReadOnlyList<Piece>? pieces, PixelSize layout)
+    {
+        _pieces = pieces is null ? null : (pieces, layout);
+        ShowPiecesOrWhole();
+    }
+
+    bool PiecesShown => _pieces is not null && _bitmap is not null;
+
+    void ShowPiecesOrWhole()
+    {
+        _piecesLayer.IsVisible = PiecesShown;
+        _scroller.IsVisible = !PiecesShown;
+        _piecesLayer.InvalidateVisual();
+    }
+
+    /// <summary>The remote pixel under <paramref name="windowPixel"/>, when it's on one of the pieces.</summary>
+    internal (int X, int Y)? PieceRemotePoint(PixelPoint windowPixel)
+    {
+        if (_pieces is not { } shown)
+        {
+            return null;
+        }
+
+        foreach (var piece in shown.Pieces)
+        {
+            if (piece.Window.Contains(windowPixel))
+            {
+                double x = piece.Remote.X + (windowPixel.X - piece.Window.X) * (double)piece.Remote.Width / piece.Window.Width;
+                double y = piece.Remote.Y + (windowPixel.Y - piece.Window.Y) * (double)piece.Remote.Height / piece.Window.Height;
+                return ((int)(x * Session.Width / shown.Layout.Width), (int)(y * Session.Height / shown.Layout.Height));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Draws the remote monitors each on its display, from the same bitmap the whole desktop is drawn from.</summary>
+    sealed class PiecesLayer(RemoteFrameView view) : Control
+    {
+        public override void Render(DrawingContext context)
+        {
+            if (view._pieces is not { } shown || view._bitmap is not { } bitmap || view._topLevel is not { } top
+                || this.TranslatePoint(default, top) is not { } origin)
+            {
+                return;
+            }
+
+            double scaling = top.RenderScaling;
+            double sx = bitmap.PixelSize.Width / (double)shown.Layout.Width, sy = bitmap.PixelSize.Height / (double)shown.Layout.Height;
+            foreach (var piece in shown.Pieces)
+            {
+                // The bitmap is at 96 DPI, so its pixels are its DIPs.
+                var source = new Rect(piece.Remote.X * sx, piece.Remote.Y * sy, piece.Remote.Width * sx, piece.Remote.Height * sy);
+                var target = new Rect(piece.Window.X / scaling - origin.X, piece.Window.Y / scaling - origin.Y, piece.Window.Width / scaling, piece.Window.Height / scaling);
+                context.DrawImage(bitmap, source, target);
+            }
+        }
+    }
+
     /// <summary>
     /// While the window covers every display: the remote desktop's monitors, one for each display, asked for instead of
     /// one desktop the size of the view. Null for one desktop.
@@ -548,6 +622,7 @@ public sealed class RemoteFrameView : Panel
                 _bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Opaque);
                 _image.Source = _bitmap;
                 SizeImage();
+                ShowPiecesOrWhole();
                 dirty = new FrameRect(0, 0, width, height);
             }
 
@@ -582,6 +657,10 @@ public sealed class RemoteFrameView : Panel
         }
 
         _image.InvalidateVisual();
+        if (PiecesShown)
+        {
+            _piecesLayer.InvalidateVisual();
+        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -658,6 +737,12 @@ public sealed class RemoteFrameView : Panel
     /// <summary>Where the pointer is on the remote desktop, in its pixels; null while nothing is shown.</summary>
     (int X, int Y)? RemotePoint(PointerEventArgs e)
     {
+        if (PiecesShown && _topLevel is { } top)
+        {
+            var at = e.GetPosition(top) * top.RenderScaling;
+            return PieceRemotePoint(new PixelPoint((int)at.X, (int)at.Y));
+        }
+
         // Scale by what's on screen, which covers zoom, a desktop fitted to the view, and one at actual size.
         var p = e.GetPosition(_image);
         double width = _image.Bounds.Width, height = _image.Bounds.Height;
@@ -935,10 +1020,11 @@ public sealed class RemoteFrameView : Panel
 
         // Whole-number zoom (200%) stays crisp with plain pixel doubling; other factors need smoothing.
         bool wholeZoom = Math.Abs(displayScale - Math.Round(displayScale)) < 0.01;
-        RenderOptions.SetBitmapInterpolationMode(_image,
-            !_zoom || displayScale <= 1 ? BitmapInterpolationMode.Unspecified
+        var interpolation = !_zoom || displayScale <= 1 ? BitmapInterpolationMode.Unspecified
             : wholeZoom ? BitmapInterpolationMode.None
-            : BitmapInterpolationMode.HighQuality);
+            : BitmapInterpolationMode.HighQuality;
+        RenderOptions.SetBitmapInterpolationMode(_image, interpolation);
+        RenderOptions.SetBitmapInterpolationMode(_piecesLayer, interpolation);
     }
 
     /// <summary>The desktop size to ask for, in remote pixels, for a session area of <paramref name="size"/> DIPs.</summary>

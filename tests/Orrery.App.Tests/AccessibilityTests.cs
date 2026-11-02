@@ -367,7 +367,7 @@ public class AccessibilityTests : IDisposable
             Assert.Equal("Remote desktop: desk", peer.GetName());
             Assert.Equal($"{SessionEscape.Description} moves to the session's tab.", peer.GetHelpText());
 
-            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null]);
+            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, null]);
             view.Focus();
             Dispatcher.UIThread.RunJobs();
             Assert.Same(view, window.FocusManager!.GetFocusedElement());

@@ -414,7 +414,7 @@ public class WorkspaceWindowTests : IDisposable
             var bar = window.FindControl<Border>("RestoreBar")!;
             Assert.True(bar.IsVisible);
 
-            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null]);
+            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, null]);
             Assert.False(bar.IsVisible);
 
             typeof(MainWindow).GetMethod("ExitFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, []);

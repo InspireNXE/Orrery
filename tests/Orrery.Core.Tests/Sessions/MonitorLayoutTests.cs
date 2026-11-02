@@ -52,17 +52,40 @@ public class MonitorLayoutTests
     }
 
     [Fact]
-    public void A_gap_between_displays_is_refused()
+    public void The_outer_two_of_three_displays_sit_side_by_side_on_the_remote_desktop()
     {
-        Assert.Contains("doesn't sit against", WhyNot(new ScreenArea(0, 0, 1920, 1080, true), new ScreenArea(1930, 0, 1920, 1080, false)));
+        // Displays 1 and 3, with display 2 (2560 wide, not chosen) between them; 3 is portrait and taller.
+        var monitors = MonitorLayout.Arrange(
+            [new ScreenArea(0, 360, 1920, 1080, true), new ScreenArea(4480, 0, 1080, 1920, false)], out var covered, out bool moved, out var whyNot);
+        Assert.Null(whyNot);
+        Assert.True(moved);
+        Assert.Equal([new RemoteMonitor(0, 0, 1920, 1080, true), new RemoteMonitor(1920, -360, 1080, 1920, false)], monitors);
+
+        // Here the window still reaches from the first to the last.
+        Assert.Equal(new ScreenArea(0, 0, 5560, 1920, false), covered);
     }
 
     [Fact]
-    public void Two_pairs_apart_from_each_other_are_refused()
+    public void Displays_that_already_touch_are_not_moved()
     {
-        Assert.Contains("doesn't sit against", WhyNot(
+        Assert.NotNull(MonitorLayout.Arrange([new ScreenArea(0, 0, 1920, 1080, true), new ScreenArea(1920, 0, 1920, 1080, false)], out _, out bool moved, out _));
+        Assert.False(moved);
+    }
+
+    [Fact]
+    public void Two_pairs_apart_from_each_other_are_moved_together()
+    {
+        var monitors = Arrange(
             new ScreenArea(0, 0, 1920, 1080, true), new ScreenArea(1920, 0, 1920, 1080, false),
-            new ScreenArea(0, 2000, 1920, 1080, false), new ScreenArea(1920, 2000, 1920, 1080, false)));
+            new ScreenArea(0, 2000, 1920, 1080, false), new ScreenArea(1920, 2000, 1920, 1080, false));
+        Assert.Equal(new RemoteMonitor(0, 1080, 1920, 1080, false), monitors![2]);
+    }
+
+    [Fact]
+    public void The_size_limit_counts_the_remote_desktop_with_its_gaps_closed()
+    {
+        // 3840 + 3840 fits once the 4000 between them is gone.
+        Assert.NotNull(Arrange(new ScreenArea(0, 0, 3840, 2160, true), new ScreenArea(7680, 0, 3840, 2160, false)));
     }
 
     [Fact]
