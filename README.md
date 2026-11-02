@@ -177,14 +177,16 @@ HDR isn't possible over RDP or VNC.
 
 ### Recording sessions
 
-- A connection's *Record sessions* setting (inherited like the others, so a folder can record everything in it), or
-  a tab's menu, records a session: what a terminal printed, never what's typed, or what a remote desktop showed, at
+- A connection's *Record sessions* setting (inherited like the others, so a folder can record everything in it),
+  *Record every session* in Settings, or a tab's menu, records a session: what a terminal printed, never what's typed, or what a remote desktop showed, at
   up to 10 frames a second. A red dot on the tab shows it's recording, and a reconnect carries on in the same file.
 - Recordings are encrypted, sealed to a key kept with your saved credentials, so recording never asks for the vault
   but playing does. They go in `recordings/` in the data folder, and old ones are deleted by age and total size.
-- Orrery plays them itself: speed, Skip idle, markers for drops and reconnects, and Find for terminals.
+- The *Recordings* panel on the left lists them, newest first. Orrery plays them itself: speed, Skip idle, 10-second
+  skips, markers for drops and reconnects, and Find for terminals.
 - Export makes an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi` for remote desktops, or MP4 (H.264,
-  H.265 or AV1) through an ffmpeg you've installed and chosen in Settings. Orrery never downloads or bundles ffmpeg.
+  H.265 or AV1, picked when you export) through an ffmpeg you've installed and chosen in Settings. Orrery never
+  downloads or bundles ffmpeg.
   See [the design notes](docs/design-session-recording.md).
 
 ### Your workspace

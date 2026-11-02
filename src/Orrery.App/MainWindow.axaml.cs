@@ -93,6 +93,7 @@ public partial class MainWindow : Window
     readonly RecentConnections _recent;
     readonly ConnectionHistory _history;
     readonly RecentPanel _recentPanel;
+    readonly Recording.RecordingsPanel _recordingsPanel;
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
@@ -169,6 +170,7 @@ public partial class MainWindow : Window
             ["connections"] = (this.FindControl<Button>("ConnectionsRailButton")!, this.FindControl<Control>("ConnectionsSide")!),
             ["credentials"] = (this.FindControl<Button>("CredentialsRailButton")!, this.FindControl<Control>("CredentialsSide")!),
             ["recent"] = (this.FindControl<Button>("RecentRailButton")!, this.FindControl<Control>("RecentSide")!),
+            ["recordings"] = (this.FindControl<Button>("RecordingsRailButton")!, this.FindControl<Control>("RecordingsSide")!),
         };
         _settingsHost = this.FindControl<ContentControl>("SettingsHost")!;
         _settingsRailButton = this.FindControl<Button>("SettingsRailButton")!;
@@ -267,6 +269,8 @@ public partial class MainWindow : Window
         _recentPanel = new RecentPanel(_recent);
         _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
+        _recordingsPanel = new Recording.RecordingsPanel(_recordings);
+        this.FindControl<ContentControl>("RecordingsSide")!.Content = _recordingsPanel;
 
         _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
             () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
@@ -634,7 +638,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The rail switches the side panel between connections, credentials and recent. Clicking the open
+    /// The rail switches the side panel between connections, credentials, recent and recordings. Clicking the open
     /// one hides the panel, as in VS Code. Credentials edit in the right-hand pane, like connections.
     /// </summary>
     async void OnRailClick(object? sender, RoutedEventArgs e)
@@ -675,6 +679,9 @@ public partial class MainWindow : Window
                 break;
             case "recent":
                 _recentPanel.Refresh();
+                break;
+            case "recordings":
+                _recordingsPanel.Refresh();
                 break;
             default:
                 await _properties.ShowAsync(SelectedNode);
@@ -2760,9 +2767,14 @@ public partial class MainWindow : Window
 
     // ---- Recording (docs/design-session-recording.md) ----
 
-    /// <summary>Whether the connection a tab opened says to record it.</summary>
-    bool RecordsBySetting(SessionOrigin origin) =>
-        origin is { EntryId: { } id, Files: false } && _tree.Find(id) is { } node && SettingsResolver.Resolve(node).RecordSessions.Value;
+    /// <summary>
+    /// Whether the connection a tab opened says to record it; a quick connection follows the defaults for all
+    /// connections. A local shell or a file browser isn't recorded by a setting.
+    /// </summary>
+    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false }
+        && (origin.EntryId is { } id && _tree.Find(id) is { } node
+            ? SettingsResolver.Resolve(node).RecordSessions.Value
+            : _tree.Root.Settings.RecordSessions == true);
 
     async Task StartRecordingAsync(SessionTab tab)
     {
@@ -2773,7 +2785,7 @@ public partial class MainWindow : Window
 
         if (_settingsStore.Load().RecordingNoteShown != true)
         {
-            if (!await Dialogs.ConfirmAsync(this, "Recording sessions", Recording.RecordingsWindow.Note, "Record"))
+            if (!await Dialogs.ConfirmAsync(this, "Recording sessions", Recording.RecordingsPanel.Note, "Record"))
             {
                 return;
             }
@@ -2804,9 +2816,19 @@ public partial class MainWindow : Window
         ShowNotice($"Stopped recording {tab.Origin.Title}");
     }
 
-    /// <summary>Opens the list of recordings, optionally showing only one connection's.</summary>
-    internal void ShowRecordings(string? connectionName = null) =>
-        new Recording.RecordingsWindow(_recordings, connectionName).Show(this);
+    /// <summary>Shows the recordings in the side panel, filtered to one connection's when given.</summary>
+    internal void ShowRecordings(string? connectionName = null)
+    {
+        _recordingsPanel.Filter = connectionName ?? string.Empty;
+        if (_side != "recordings" || !_sidePanel.IsVisible || _settingsHost.IsVisible)
+        {
+            OnRailClick(_sides["recordings"].RailButton, new RoutedEventArgs());
+        }
+        else
+        {
+            _recordingsPanel.Refresh();
+        }
+    }
 
     /// <param name="shortcut">Shown beside the item (the key itself is handled elsewhere), in KeyGesture form.</param>
     static MenuItem MenuItemFor(string header, Action? click, string? shortcut = null, bool enabled = true)
@@ -3362,6 +3384,16 @@ public partial class MainWindow : Window
             }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), ImportDefaultSshConfigAsync, VaultUnlockWindow.Biometric);
             view.CloseRequested += (_, _) => CloseSettings();
             view.ShowRecordingsRequested += (_, _) => ShowRecordings();
+            view.ShowRecordAllSessions(_tree.Root.Settings.RecordSessions == true);
+            view.RecordAllSessionsChanged += async (_, on) =>
+            {
+                _tree.Root.Settings.RecordSessions = on ? true : null;
+                SaveNow();
+                if (_properties.Node == _tree.Root)
+                {
+                    await _properties.ShowAsync(_tree.Root);
+                }
+            };
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {
                 _fullScreenShortcut = shortcut;
@@ -3474,5 +3506,14 @@ public partial class MainWindow : Window
         }
     }
 
-    void UpdateVaultButton() => _lockVault.IsVisible = _credentials is VaultFileStore && !_credentials.IsLocked;
+    void UpdateVaultButton()
+    {
+        _lockVault.IsVisible = _credentials is VaultFileStore && !_credentials.IsLocked;
+
+        // Recordings' names show only while the store is open.
+        if (_side == "recordings" && _sidePanel.IsVisible)
+        {
+            _recordingsPanel.Refresh();
+        }
+    }
 }

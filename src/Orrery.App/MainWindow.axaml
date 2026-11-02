@@ -112,17 +112,22 @@
                       ToolTip.Tip="Recent connections" AutomationProperties.Name="Recent">
                 <c:StrokeIcon Width="20" Height="20" Data="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3 2" />
               </Button>
+              <Button x:Name="RecordingsRailButton" Classes="icon rail" Click="OnRailClick" Tag="recordings"
+                      ToolTip.Tip="Recordings" AutomationProperties.Name="Recordings">
+                <c:StrokeIcon Width="20" Height="20" Data="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0" />
+              </Button>
             </StackPanel>
           </DockPanel>
         </Border>
 
-        <!-- Side panel: the rail picks connections, credentials or recent. -->
+        <!-- Side panel: the rail picks connections, credentials, recent or recordings. -->
         <Border x:Name="SidePanel" Grid.Column="1" Width="280"
                 Background="{StaticResource OrreryPanel}"
                 BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,1,0">
           <Panel>
             <ContentControl x:Name="CredentialsSide" IsVisible="False" />
             <ContentControl x:Name="RecentSide" IsVisible="False" />
+            <ContentControl x:Name="RecordingsSide" IsVisible="False" />
             <DockPanel x:Name="ConnectionsSide">
               <DockPanel DockPanel.Dock="Top" Margin="14,10,10,6">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">

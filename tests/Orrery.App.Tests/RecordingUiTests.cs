@@ -205,6 +205,46 @@ public sealed class RecordingUiTests : IDisposable
         player.Close();
     }
 
+    [AvaloniaFact]
+    public async Task The_side_panel_lists_recordings_newest_first_and_filters_them()
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var service = new RecordingService(_location, _settings, _credentials);
+        Directory.CreateDirectory(service.Folder);
+        foreach (var (name, protocol, hoursAgo) in new[] { ("web-01", "SSH", 3), ("db-02", "RDP", 1) })
+        {
+            var path = Path.Combine(service.Folder, $"{name}.orrec");
+            using (var writer = RecordingWriter.Create(path, protocol == "RDP" ? RecordingKind.Screen : RecordingKind.Terminal, publicKey))
+            {
+                writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(new RecordingInfo(name, protocol, DateTimeOffset.Now.AddHours(-hoursAgo))));
+                writer.Complete(TimeSpan.FromMinutes(5));
+            }
+
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-hoursAgo).AddMinutes(5));
+        }
+
+        var panel = new RecordingsPanel(service);
+        var window = new Window { Content = panel, Width = 300, Height = 500 };
+        window.Show();
+        panel.Refresh();
+        var list = panel.GetVisualDescendants().OfType<ListBox>().Single();
+        await WaitFor(() => list.ItemCount == 2);
+
+        // Newest first, named from inside the recording, with how long it ran.
+        var items = list.Items.Cast<RecordingItem>().ToList();
+        Assert.Equal(["db-02", "web-01"], items.Select(i => i.Title));
+        Assert.InRange(items[0].Length!.Value.TotalSeconds, 298, 302);
+        Assert.Contains(panel.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.StartsWith("2 recordings · ") == true && t.Text.EndsWith(" KB"));
+
+        panel.Filter = "web";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["web-01"], list.Items.Cast<RecordingItem>().Select(i => i.Title));
+        panel.Filter = "nothing like it";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(panel.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("No recordings match") == true);
+        window.Close();
+    }
+
     static async Task WaitFor(Func<bool> condition)
     {
         for (int i = 0; i < 200 && !condition(); i++)
