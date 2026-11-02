@@ -23,6 +23,13 @@ public sealed record Credential(
 {
     public CredentialSummary Summary => new(Id, Name, Kind, Username, Domain, Notes);
 
+    /// <summary>
+    /// Ids Orrery keeps its own secrets under (the recordings key). Stores leave them out of <see cref="ICredentialStore.ListAsync"/>,
+    /// so they're never shown, picked or exported, but <see cref="ICredentialStore.GetAsync"/> finds them and
+    /// <see cref="CredentialCopier"/> carries them to a new store.
+    /// </summary>
+    public static readonly IReadOnlySet<Guid> ReservedIds = new HashSet<Guid> { Recording.RecordingKeys.CredentialId };
+
     /// <summary>Keeps secrets out of logs and crash reports.</summary>
     public override string ToString() => $"Credential {{ Id = {Id}, Name = {Name}, Kind = {Kind}, Username = {Username} }}";
 }

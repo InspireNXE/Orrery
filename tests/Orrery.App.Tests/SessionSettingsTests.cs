@@ -46,7 +46,7 @@ public class SessionSettingsTests
         public Task DeleteAsync(Guid id) => Task.CompletedTask;
     }
 
-    static async Task<(PropertiesPanel Panel, Window Window, RemoteFrameView View, ConnectionEntry Entry, SessionTab Tab)> Open(Protocol protocol = Protocol.Rdp)
+    static async Task<(PropertiesPanel Panel, Window Window, RemoteFrameView View, ConnectionEntry Entry, SessionTab Tab, ConnectionTree Tree)> Open(Protocol protocol = Protocol.Rdp)
     {
         var tree = ConnectionTree.Empty();
         var folder = new ConnectionFolder { Name = "Lab servers", Settings = { Scaling = DesktopScaling.ShrinkToFit } };
@@ -63,7 +63,7 @@ public class SessionSettingsTests
         await panel.ShowAsync(entry);
         panel.ShowSession(tab);
         Dispatcher.UIThread.RunJobs();
-        return (panel, window, view, entry, tab);
+        return (panel, window, view, entry, tab, tree);
     }
 
     static Button ButtonNamed(Window window, string content) =>
@@ -82,7 +82,7 @@ public class SessionSettingsTests
     [AvaloniaFact]
     public async Task A_change_reaches_the_open_desktop_and_keeping_it_saves_it_on_the_connection()
     {
-        var (_, window, view, entry, _) = await Open();
+        var (_, window, view, entry, _, _) = await Open();
         Click(ButtonNamed(window, "This session"));
 
         var scaling = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible && c.Name == "Scaling");
@@ -105,7 +105,7 @@ public class SessionSettingsTests
     [AvaloniaFact]
     public async Task Undo_puts_the_saved_values_back_and_color_correction_turns_off_at_once()
     {
-        var (_, window, view, entry, _) = await Open();
+        var (_, window, view, entry, _, _) = await Open();
         Click(ButtonNamed(window, "This session"));
 
         var correction = window.GetVisualDescendants().OfType<ToggleSwitch>().Single(t => t.IsEffectivelyVisible && t.Name == "ColorCorrection");
@@ -122,16 +122,29 @@ public class SessionSettingsTests
     }
 
     [AvaloniaFact]
-    public async Task Settings_fixed_at_the_start_are_listed_with_a_reconnect_and_the_tab_shows_only_for_its_own_connection()
+    public async Task A_reconnect_is_asked_for_only_once_a_setting_fixed_at_the_start_is_saved_differently()
     {
-        var (panel, window, _, _, tab) = await Open();
+        var (panel, window, _, entry, tab, tree) = await Open();
         var reconnects = new List<SessionTab>();
         panel.ReconnectRequested += (_, t) => reconnects.Add(t);
         Click(ButtonNamed(window, "This session"));
+        Assert.False(Shown(window, "Need a reconnect")); // Nothing changed since it started.
+
+        entry.Settings.RemoteAudio = RemoteAudio.DoNotPlay;
+        tree.NotifyChanged();
+        Dispatcher.UIThread.RunJobs();
         Assert.True(Shown(window, "Need a reconnect"));
         Assert.True(Shown(window, "Remote audio"));
+        Assert.True(Shown(window, "This session: Play here"));
+        Assert.False(Shown(window, "Display quality")); // Unchanged, so not listed.
         Click(ButtonNamed(window, "Reconnect"));
         Assert.Equal([tab], reconnects);
+
+        // Put back as it was: nothing to reconnect for.
+        entry.Settings.RemoteAudio = null;
+        tree.NotifyChanged();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(Shown(window, "Need a reconnect"));
 
         // Another connection shown: its saved settings only.
         var other = new ConnectionEntry { Name = "other", Host = "other.example" };

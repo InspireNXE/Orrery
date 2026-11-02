@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     readonly ConnectionStore _connectionStore;
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
+    readonly Recording.RecordingService _recordings;
     readonly ServerCertificateValidator _certificateValidator;
     readonly HostKeyValidator _hostKeyValidator;
     readonly PropertiesPanel _properties;
@@ -92,6 +93,11 @@ public partial class MainWindow : Window
     readonly RecentConnections _recent;
     readonly ConnectionHistory _history;
     readonly RecentPanel _recentPanel;
+    readonly Recording.RecordingsPanel _recordingsPanel;
+    readonly ContentControl _recordingsHost;
+
+    // The Recordings section is open, so the main area shows its player rather than the sessions.
+    bool _recordingsShown;
     readonly CredentialsView _credentialsView;
     string _side = "connections";
     readonly Button _lockVault;
@@ -168,6 +174,7 @@ public partial class MainWindow : Window
             ["connections"] = (this.FindControl<Button>("ConnectionsRailButton")!, this.FindControl<Control>("ConnectionsSide")!),
             ["credentials"] = (this.FindControl<Button>("CredentialsRailButton")!, this.FindControl<Control>("CredentialsSide")!),
             ["recent"] = (this.FindControl<Button>("RecentRailButton")!, this.FindControl<Control>("RecentSide")!),
+            ["recordings"] = (this.FindControl<Button>("RecordingsRailButton")!, this.FindControl<Control>("RecordingsSide")!),
         };
         _settingsHost = this.FindControl<ContentControl>("SettingsHost")!;
         _settingsRailButton = this.FindControl<Button>("SettingsRailButton")!;
@@ -205,6 +212,7 @@ public partial class MainWindow : Window
                 () => AskAndRefocusAsync(new HostKeyPromptWindow(prompt))));
 
         _credentials = CredentialStores.For(location, _settingsStore.Load());
+        _recordings = new Recording.RecordingService(location, _settingsStore, _credentials);
         StorageLog.LogInformation("Credentials are kept in {Store}", (_credentials as KeychainCredentialStore)?.BackendName ?? "the vault file");
         if (_credentials is VaultFileStore vault)
         {
@@ -265,6 +273,10 @@ public partial class MainWindow : Window
         _recentPanel = new RecentPanel(_recent);
         _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
+        _recordingsPanel = new Recording.RecordingsPanel(_recordings);
+        this.FindControl<ContentControl>("RecordingsSide")!.Content = _recordingsPanel;
+        _recordingsHost = this.FindControl<ContentControl>("RecordingsHost")!;
+        _recordingsHost.Content = _recordingsPanel.Stage;
 
         _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
             () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
@@ -288,6 +300,8 @@ public partial class MainWindow : Window
         KeyDown += OnWindowKeyDown;
         Opened += async (_, _) =>
         {
+            // In the background: a full folder can take a moment, and nothing waits on it.
+            _ = Task.Run(_recordings.ApplyRetention);
             FitTitleBarToCaptionButtons();
 
             // Move data leaves this in the new folder; it's only good for the first start there.
@@ -317,6 +331,8 @@ public partial class MainWindow : Window
         _network.Back += (_, _) => NetworkBack();
         Closing += (_, _) =>
         {
+            // Before the sessions go, so each file is closed properly rather than left as if Orrery had stopped.
+            _recordings.StopAll(TimeSpan.FromSeconds(3));
             _network.Dispose();
             _properties.TrySave();
             SaveNow();
@@ -628,7 +644,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The rail switches the side panel between connections, credentials and recent. Clicking the open
+    /// The rail switches the side panel between connections, credentials, recent and recordings. Clicking the open
     /// one hides the panel, as in VS Code. Credentials edit in the right-hand pane, like connections.
     /// </summary>
     async void OnRailClick(object? sender, RoutedEventArgs e)
@@ -647,12 +663,26 @@ public partial class MainWindow : Window
 
         if (side == _side && _sidePanel.IsVisible && !leavingSettings)
         {
+            // Clicking Recordings again goes back to the sessions; after a session was chosen, it shows the player again.
+            if (side == "recordings" && !_recordingsShown)
+            {
+                ShowRecordingsHost(true);
+                _recordingsPanel.Refresh();
+                return;
+            }
+
+            if (_recordingsShown)
+            {
+                ShowRecordingsHost(false);
+            }
+
             ClickActiveRailItem();
             return;
         }
 
         _properties.TrySave();
         _side = side;
+        ShowRecordingsHost(side == "recordings");
         foreach (var (name, (_, view)) in _sides)
         {
             view.IsVisible = name == side;
@@ -669,6 +699,9 @@ public partial class MainWindow : Window
                 break;
             case "recent":
                 _recentPanel.Refresh();
+                break;
+            case "recordings":
+                _recordingsPanel.Refresh();
                 break;
             default:
                 await _properties.ShowAsync(SelectedNode);
@@ -2329,6 +2362,11 @@ public partial class MainWindow : Window
         _tabs.Add(tab);
         _tabStrip.Children.Add(tab.Header);
         _sessionHost.Children.Add(tab.Host);
+        if (RecordsBySetting(origin))
+        {
+            _ = StartRecordingAsync(tab);
+        }
+
         if (_settingsHost.IsVisible)
         {
             CloseSettings();
@@ -2346,6 +2384,7 @@ public partial class MainWindow : Window
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
         tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
+        tab.RecordingStoppedByItself += (_, reason) => ShowNotice($"{tab.Origin.Title}: {reason}");
         HistoryRecorder.Attach(tab, _tree, _history);
 
         // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
@@ -2446,6 +2485,14 @@ public partial class MainWindow : Window
         var (view, session) = restart();
         // Reconnecting after a drop, by itself or from the button, is still about that drop.
         var tab = NewTab(view, session, old.Origin, attempt, old.IsShowingFailure && old.Dropped);
+
+        // The recording carries on in the same file, with the reconnect marked on its timeline.
+        if (old.Recorder is { IsRecording: true } recorder)
+        {
+            old.Recorder = null;
+            tab.Recorder = recorder;
+            Recording.RecordingService.Bind(recorder, tab);
+        }
         if (old.IsShowingFailure)
         {
             tab.ContinueFrom(old, attempt > 0 ? $"Trying again now (try {attempt} of {ReconnectSchedule.MaxAttempts})…" : "Trying again now…");
@@ -2469,9 +2516,15 @@ public partial class MainWindow : Window
         await old.Session.DisposeAsync();
     }
 
-    void SelectTab(SessionTab? tab)
+    /// <param name="chosen">Chosen or opened, rather than next in line after another closed, so it leaves Recordings.</param>
+    void SelectTab(SessionTab? tab, bool chosen = true)
     {
         _currentTab = tab;
+        if (tab is not null && chosen && _recordingsShown)
+        {
+            ShowRecordingsHost(false);
+        }
+
         foreach (var each in _tabs)
         {
             each.IsSelected = each == tab;
@@ -2498,6 +2551,7 @@ public partial class MainWindow : Window
         {
             tab.EndedByUser = true;
             tab.CancelReconnect();
+            tab.Recorder?.Stop();
             int index = _tabs.IndexOf(tab);
             _tabs.Remove(tab);
             _tabStrip.Children.Remove(tab.Header);
@@ -2509,7 +2563,7 @@ public partial class MainWindow : Window
 
             if (tab == _currentTab)
             {
-                SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)]);
+                SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)], chosen: false);
             }
 
             UpdateSessionChrome();
@@ -2721,12 +2775,96 @@ public partial class MainWindow : Window
                 : MenuItemFor("Browse files (SFTP)", async () => await ConnectAsync(entry, files: true));
         }
 
+        if (tab.View is TerminalView or RemoteFrameView)
+        {
+            yield return tab.IsRecording
+                ? MenuItemFor("Stop recording", () => StopRecording(tab))
+                : MenuItemFor("Start recording", async () => await StartRecordingAsync(tab));
+        }
+
         yield return MenuItemFor("Duplicate session", async () => await tab.Origin.Reconnect());
         yield return MenuItemFor(tab.Origin.Local ? "Restart" : "Reconnect", async () =>
         {
             await CloseTabAsync(tab.Session);
             await tab.Origin.Reconnect();
         });
+    }
+
+    // ---- Recording (docs/design-session-recording.md) ----
+
+    /// <summary>
+    /// Whether the connection a tab opened says to record it; a quick connection follows the defaults for all
+    /// connections. A local shell or a file browser isn't recorded by a setting.
+    /// </summary>
+    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false }
+        && (origin.EntryId is { } id && _tree.Find(id) is { } node
+            ? SettingsResolver.Resolve(node).RecordSessions.Value
+            : _tree.Root.Settings.RecordSessions == true);
+
+    async Task StartRecordingAsync(SessionTab tab)
+    {
+        if (tab.IsRecording || !_tabs.Contains(tab))
+        {
+            return;
+        }
+
+        if (_settingsStore.Load().RecordingNoteShown != true)
+        {
+            if (!await Dialogs.ConfirmAsync(this, "Recording sessions", Recording.RecordingsPanel.Note, "Record"))
+            {
+                return;
+            }
+
+            _settingsStore.Save(_settingsStore.Load() with { RecordingNoteShown = true });
+        }
+
+        var (recorder, problem) = await _recordings.StartAsync(tab, this);
+        if (recorder is null)
+        {
+            ShowNotice($"{tab.Origin.Title}: {problem}");
+            return;
+        }
+
+        // The tab may have closed, or been replaced by a reconnect, while the vault was being unlocked.
+        if (!_tabs.Contains(tab))
+        {
+            recorder.Stop();
+            return;
+        }
+
+        tab.Recorder = recorder;
+    }
+
+    void StopRecording(SessionTab tab)
+    {
+        tab.Recorder?.Stop();
+        ShowNotice($"Stopped recording {tab.Origin.Title}");
+    }
+
+    /// <summary>Shows or hides the Recordings section's main area. Hiding it pauses the player, so coming back carries on.</summary>
+    void ShowRecordingsHost(bool show)
+    {
+        _recordingsShown = show;
+        _recordingsHost.IsVisible = show;
+        if (!show)
+        {
+            _recordingsPanel.Stage.Pause();
+        }
+
+        ApplyPanes();
+    }
+
+    /// <summary>Opens the Recordings section: the list in the side panel and the player in the main area.</summary>
+    internal void ShowRecordings()
+    {
+        if (_side != "recordings" || !_sidePanel.IsVisible || _settingsHost.IsVisible || !_recordingsShown)
+        {
+            OnRailClick(_sides["recordings"].RailButton, new RoutedEventArgs());
+        }
+        else
+        {
+            _recordingsPanel.Refresh();
+        }
     }
 
     /// <param name="shortcut">Shown beside the item (the key itself is handled elsewhere), in KeyGesture form.</param>
@@ -3282,6 +3420,17 @@ public partial class MainWindow : Window
                 return Task.CompletedTask;
             }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), ImportDefaultSshConfigAsync, VaultUnlockWindow.Biometric);
             view.CloseRequested += (_, _) => CloseSettings();
+            view.ShowRecordingsRequested += (_, _) => ShowRecordings();
+            view.ShowRecordAllSessions(_tree.Root.Settings.RecordSessions == true);
+            view.RecordAllSessionsChanged += async (_, on) =>
+            {
+                _tree.Root.Settings.RecordSessions = on ? true : null;
+                SaveNow();
+                if (_properties.Node == _tree.Root)
+                {
+                    await _properties.ShowAsync(_tree.Root);
+                }
+            };
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {
                 _fullScreenShortcut = shortcut;
@@ -3394,5 +3543,14 @@ public partial class MainWindow : Window
         }
     }
 
-    void UpdateVaultButton() => _lockVault.IsVisible = _credentials is VaultFileStore && !_credentials.IsLocked;
+    void UpdateVaultButton()
+    {
+        _lockVault.IsVisible = _credentials is VaultFileStore && !_credentials.IsLocked;
+
+        // Recordings' names show only while the store is open.
+        if (_side == "recordings" && _sidePanel.IsVisible)
+        {
+            _recordingsPanel.Refresh();
+        }
+    }
 }

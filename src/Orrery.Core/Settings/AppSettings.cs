@@ -232,6 +232,67 @@ public sealed record AppSettings
     /// <summary>The Settings page last shown, by name. Null, or a name no longer there, is the first page.</summary>
     public string? SettingsPage { get; init; }
 
+    // ---- Recordings (docs/design-session-recording.md §4.2) ----
+
+    /// <summary>Days a recording is kept; 0 keeps them until deleted. Null is <see cref="DefaultRecordingKeepDays"/>.</summary>
+    public int? RecordingKeepDays { get; init; }
+
+    public const int DefaultRecordingKeepDays = 30;
+
+    /// <summary>Gigabytes all recordings together may use. Null is <see cref="DefaultRecordingTotalGB"/>.</summary>
+    public int? RecordingTotalGB { get; init; }
+
+    public const int DefaultRecordingTotalGB = 5;
+
+    /// <summary>Gigabytes one recording may reach before it stops. Null is <see cref="DefaultRecordingFileGB"/>.</summary>
+    public int? RecordingFileGB { get; init; }
+
+    public const int DefaultRecordingFileGB = 1;
+
+    /// <summary>Frames a second for remote desktop recordings: 1, 2, 5 or 10. Null is <see cref="DefaultRecordingFrameRate"/>.</summary>
+    public int? RecordingFrameRate { get; init; }
+
+    public const int DefaultRecordingFrameRate = 5;
+
+    /// <summary>Put the connection's name in a recording's file name. Null is on.</summary>
+    public bool? RecordingNamesInFiles { get; init; }
+
+    /// <summary>The ffmpeg executable MP4 export runs, as the user chose it. Null offers only the built-in AVI export.</summary>
+    public string? FfmpegPath { get; init; }
+
+    /// <summary>
+    /// The recordings public key (X25519, base64) recordings are sealed to; its private half is in the credential
+    /// store. Null until the first recording; recovered from the private key if it's lost.
+    /// </summary>
+    public string? RecordingPublicKey { get; init; }
+
+    /// <summary>The note about what recordings hold has been shown and accepted.</summary>
+    public bool? RecordingNoteShown { get; init; }
+
+    [JsonIgnore]
+    public TimeSpan? RecordingKeepFor => (RecordingKeepDays ?? DefaultRecordingKeepDays) is > 0 and var days ? TimeSpan.FromDays(days) : null;
+
+    [JsonIgnore]
+    public long RecordingTotalBytes => Math.Max(1, RecordingTotalGB ?? DefaultRecordingTotalGB) * Gigabyte;
+
+    [JsonIgnore]
+    public long RecordingFileBytes => Math.Max(1, RecordingFileGB ?? DefaultRecordingFileGB) * Gigabyte;
+
+    /// <summary>The frame rate in use; a hand-edited value is brought to the nearest allowed one.</summary>
+    [JsonIgnore]
+    public int RecordingFramesPerSecond => (RecordingFrameRate ?? DefaultRecordingFrameRate) switch
+    {
+        <= 1 => 1,
+        <= 3 => 2,
+        <= 7 => 5,
+        _ => 10,
+    };
+
+    [JsonIgnore]
+    public bool PutsNamesInRecordingFiles => RecordingNamesInFiles ?? true;
+
+    const long Gigabyte = 1024L * 1024 * 1024;
+
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;
