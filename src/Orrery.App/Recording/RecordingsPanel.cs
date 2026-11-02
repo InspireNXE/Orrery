@@ -34,7 +34,7 @@ sealed record RecordingItem(string Path, long Size, DateTime Modified, Recording
 
 /// <summary>
 /// The side panel listing recordings in the data folder, newest first (docs/design-session-recording.md §5.3).
-/// Double-click or Enter plays one; the context menu exports, shows it in the folder or deletes it. Names show once
+/// Clicking one or pressing Enter plays it in <see cref="Stage"/>, the section's main area; the context menu exports, shows it in the folder or deletes it. Names show once
 /// the credential store is open, since only the recordings key can read them; until then each is its date, kind and size.
 /// </summary>
 sealed class RecordingsPanel : DockPanel
@@ -68,7 +68,7 @@ sealed class RecordingsPanel : DockPanel
         _filter.TextChanged += (_, _) => Show();
 
         _list.ItemTemplate = new FuncDataTemplate<RecordingItem>((r, _) => r is null ? new Panel() : Row(r));
-        _list.DoubleTapped += async (_, _) => await PlayAsync();
+        _list.Tapped += async (_, _) => await PlayAsync();
         _list.KeyDown += async (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -147,6 +147,9 @@ sealed class RecordingsPanel : DockPanel
             }
         };
     }
+
+    /// <summary>Where the chosen recording plays: the Recordings section's main area.</summary>
+    public RecordingStage Stage { get; } = new();
 
     /// <summary>The text in the filter, such as a connection's name to show only its recordings.</summary>
     public string Filter
@@ -352,11 +355,12 @@ sealed class RecordingsPanel : DockPanel
 
     async Task PlayAsync()
     {
-        if (Selected is { Problem: null } item && Owner is { } owner && await _service.PrivateKeyAsync(owner) is { } key)
+        if (Selected is { Problem: null } item && !string.Equals(Stage.Player?.Path, item.Path, StringComparison.OrdinalIgnoreCase)
+            && Owner is { } owner && await _service.PrivateKeyAsync(owner) is { } key)
         {
             // Opening it may have unlocked the store, which shows the names.
             Refresh();
-            new PlayerWindow(_service, item, key).Show(owner);
+            Stage.Play(_service, item, key);
         }
     }
 
@@ -417,14 +421,22 @@ sealed class RecordingsPanel : DockPanel
             return;
         }
 
-        if (_service.InUse.Contains(item.Path))
+        // One playing here is let go of first; one being made has to be stopped.
+        if (_service.IsRecording(item.Path))
         {
-            ShowProblem("That recording is being made or played. Stop it first.");
+            ShowProblem("That recording is being made. Stop it first.");
             return;
         }
 
         if (!await Dialogs.ConfirmAsync(owner, "Delete recording", $"Delete \"{item.Title}\" from {item.Started:g} for good? It can't be got back.", "Delete"))
         {
+            return;
+        }
+
+        Stage.Close(item.Path);
+        if (_service.InUse.Contains(item.Path))
+        {
+            ShowProblem("That recording is in use. Stop it first.");
             return;
         }
 

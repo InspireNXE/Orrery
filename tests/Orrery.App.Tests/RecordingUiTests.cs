@@ -2,6 +2,7 @@ using System.Text;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
@@ -142,11 +143,12 @@ public sealed class RecordingUiTests : IDisposable
 
         var service = new RecordingService(_location, _settings, _credentials);
         var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Terminal, null, null);
-        var player = new PlayerWindow(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
-        player.Show();
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = 1000, Height = 720 };
+        window.Show();
         await WaitFor(() => player.GetVisualDescendants().OfType<TerminalView>().Any());
         Assert.Contains(path, service.InUse);
-        Assert.Equal("web-01 — recording", player.Title);
+        Assert.Equal("web-01", player.Heading);
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "SSH");
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("1 min 1 s") == true);
 
@@ -176,8 +178,9 @@ public sealed class RecordingUiTests : IDisposable
         terminal = player.GetVisualDescendants().OfType<TerminalView>().Single();
         Assert.Contains("needle", terminal.AllText());
 
-        player.Close();
+        player.Dispose();
         Assert.DoesNotContain(path, service.InUse);
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -195,14 +198,16 @@ public sealed class RecordingUiTests : IDisposable
 
         var service = new RecordingService(_location, _settings, _credentials);
         var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
-        var player = new PlayerWindow(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
-        player.Show();
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = 1000, Height = 720 };
+        window.Show();
         await WaitFor(() => player.GetVisualDescendants().OfType<Image>().Any(i => i.Source is not null));
 
         var image = player.GetVisualDescendants().OfType<Image>().Single();
         Assert.Equal(new Avalonia.PixelSize(16, 8), ((Avalonia.Media.Imaging.Bitmap)image.Source!).PixelSize);
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.Contains("ended without being closed") == true);
-        player.Close();
+        player.Dispose();
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -243,6 +248,49 @@ public sealed class RecordingUiTests : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(panel.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("No recordings match") == true);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Choosing_a_recording_plays_it_in_the_main_area_and_deleting_it_closes_the_player()
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var service = new RecordingService(_location, _settings, _credentials);
+        Directory.CreateDirectory(service.Folder);
+        var path = Path.Combine(service.Folder, "web-01.orrec");
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Terminal, publicKey))
+        {
+            writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(new RecordingInfo("web-01", "SSH", DateTimeOffset.Now)));
+            writer.Append(RecordingEventType.Output, TimeSpan.FromSeconds(1), "hello\r\n"u8);
+            writer.Complete(TimeSpan.FromSeconds(2));
+        }
+
+        var panel = new RecordingsPanel(service);
+        var window = new Window { Content = new DockPanel { Children = { Docked(panel), panel.Stage } }, Width = 1200, Height = 700 };
+        window.Show();
+        Assert.Contains(panel.Stage.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text == "Choose a recording to play");
+
+        panel.Refresh();
+        var list = panel.GetVisualDescendants().OfType<ListBox>().Single();
+        await WaitFor(() => list.ItemCount == 1);
+        list.SelectedIndex = 0;
+        list.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        await WaitFor(() => panel.Stage.Player?.GetVisualDescendants().OfType<TerminalView>().Any() == true);
+        Assert.Equal("web-01", panel.Stage.Player!.Heading);
+        Assert.Contains(path, service.InUse);
+
+        // Deleting the one playing lets go of it first, so the file can go.
+        panel.Stage.Close(path);
+        Assert.Null(panel.Stage.Player);
+        Assert.DoesNotContain(path, service.InUse);
+        Assert.Contains(panel.Stage.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text == "Choose a recording to play");
+        window.Close();
+    }
+
+    static Control Docked(Control control)
+    {
+        DockPanel.SetDock(control, Dock.Left);
+        control.Width = 280;
+        return control;
     }
 
     [Fact]

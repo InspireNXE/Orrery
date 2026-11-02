@@ -297,6 +297,10 @@
                 Background="{StaticResource OrreryPanel}"
                 BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0" />
 
+        <!-- Recordings: the player for the recording chosen in the side panel, over the sessions and the right-hand pane. -->
+        <ContentControl Grid.Column="2" Grid.ColumnSpan="3" x:Name="RecordingsHost" IsVisible="False" ZIndex="4"
+                        Background="{StaticResource OrreryPanel}" />
+
         <!-- Settings: a page of its own over everything right of the rail; sessions keep running underneath. -->
         <ContentControl Grid.Column="1" Grid.ColumnSpan="4" x:Name="SettingsHost" IsVisible="False" ZIndex="20" />
       </Grid>
