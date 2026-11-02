@@ -219,7 +219,9 @@ sealed class SessionTab
         bool muted = IsMuted;
         _soundButton.IsVisible = muted || IsPlayingSound;
         _soundIcon.Data = Geometry.Parse(muted ? Icons.Muted : Icons.Volume);
-        _soundIcon.Foreground = muted ? Dialogs.MutedBrush : null;
+        // Clear rather than set null: a local null blocks the inherited foreground and the icon draws nothing.
+        if (muted) _soundIcon.Foreground = Dialogs.MutedBrush;
+        else _soundIcon.ClearValue(StrokeIcon.ForegroundProperty);
         var tip = muted ? $"Unmute {Origin.Title}" : $"Mute {Origin.Title}";
         ToolTip.SetTip(_soundButton, muted ? "Unmute this tab" : "Mute this tab");
         Avalonia.Automation.AutomationProperties.SetName(_soundButton, tip);

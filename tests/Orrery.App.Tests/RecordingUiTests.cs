@@ -5,6 +5,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Orrery.App.Controls;
 using Orrery.App.Connections;
 using Orrery.App.Recording;
 using Orrery.App.Sessions;
@@ -89,6 +90,7 @@ public sealed class RecordingUiTests : IDisposable
         var tab = new SessionTab(session, new RemoteFrameView(session), new SessionOrigin("desk", Protocol.Rdp, null, () => Task.CompletedTask));
         var window = new Window { Content = tab.Header };
         window.Show();
+        StrokeIcon Icon() { window.UpdateLayout(); return Assert.IsType<StrokeIcon>(Speaker().Content); }
         Button Speaker() => tab.Header.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b)?.Contains("mute", StringComparison.OrdinalIgnoreCase) == true);
 
         Assert.True(tab.CanMute);
@@ -99,6 +101,7 @@ public sealed class RecordingUiTests : IDisposable
         tab.ShowSound();
         Assert.True(Speaker().IsVisible);
         Assert.Equal("Mute desk", AutomationProperties.GetName(Speaker()));
+        Assert.NotNull(Icon().Foreground); // unmuted, the speaker still draws
 
         Speaker().RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Assert.True(session.Tap.Muted);
@@ -111,6 +114,12 @@ public sealed class RecordingUiTests : IDisposable
 
         tab.IsMuted = false;
         Assert.False(session.Tap.Muted);
+        session.Tap.SoundAge = TimeSpan.FromMilliseconds(200);
+        tab.ShowSound();
+        Assert.True(Speaker().IsVisible);
+        Assert.NotNull(Icon().Foreground); // back from muted, the speaker draws again
+        session.Tap.SoundAge = TimeSpan.FromMinutes(1);
+        tab.ShowSound();
         Assert.False(Speaker().IsVisible);
         window.Close();
     }
