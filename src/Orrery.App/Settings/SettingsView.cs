@@ -790,7 +790,8 @@ sealed class SettingsView : UserControl
             OpenFolder(folder);
         };
 
-        var ffmpegText = Note(_settings.FfmpegPath is { } chosen ? $"Using {chosen}" : "None chosen: screen recordings export as AVI only.");
+        var noFfmpeg = OperatingSystem.IsWindows() ? "None chosen: MP4 uses Windows' own encoders." : "None chosen: screen recordings export as AVI only.";
+        var ffmpegText = Note(_settings.FfmpegPath is { } chosen ? $"Using {chosen}" : noFfmpeg);
         var chooseFfmpeg = new Button { Content = "Choose ffmpeg…" };
         var clearFfmpeg = new Button { Content = "Don't use ffmpeg", IsVisible = _settings.FfmpegPath is not null };
         chooseFfmpeg.Click += async (_, _) =>
@@ -828,7 +829,7 @@ sealed class SettingsView : UserControl
             _settings = _settings with { FfmpegPath = null };
             TrySaveSettings();
             clearFfmpeg.IsVisible = false;
-            ffmpegText.Text = "None chosen: screen recordings export as AVI only.";
+            ffmpegText.Text = noFfmpeg;
         };
 
         return Section("Recordings",
@@ -845,10 +846,14 @@ sealed class SettingsView : UserControl
             Note("Old recordings are deleted for good, the oldest first, when they pass these limits."),
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { show, open } },
             used,
-            Row("ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg } }),
+            Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg } }),
             ffmpegText,
-            Note("Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4: "
-                + "Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."));
+            Note(OperatingSystem.IsWindows()
+                ? "Export… makes MP4 with Windows' own H.264, H.265 and AV1 encoders, whichever this PC has (AV1 and H.265 often need "
+                    + "a recent graphics card or Windows' HEVC extension). An ffmpeg you've installed adds any codec Windows lacks. "
+                    + "Orrery never downloads or bundles ffmpeg."
+                : "Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4: "
+                    + "Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."));
     }
 
     static string UsedText(string folder)

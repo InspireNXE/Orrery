@@ -23,8 +23,10 @@ credential stores (§3) of [design-storage-vault-import.md](design-storage-vault
 - Recording what the user types. Terminal recordings hold what the remote side sent back, never keystrokes, so a
   password typed at a prompt that doesn't echo it isn't recorded.
 - Sound, the clipboard and file transfers.
-- Bundling a video encoder. Screen recordings export to Motion-JPEG `.avi` with nothing extra, and to MP4 only through
-  an ffmpeg the user has installed (§3.4).
+- Bundling a video encoder. Screen recordings export to Motion-JPEG `.avi` with nothing extra; to MP4 through Windows'
+  own encoders on Windows; and through an ffmpeg the user has installed anywhere (§3.4). Bundling ffmpeg would mean
+  meeting its license for each build (GPL with x264 and x265), the H.264 and H.265 patent pools, and 80–130 MB a
+  platform; the operating system's encoders come with their licenses paid.
 - Recording on someone else's behalf: there's no server, upload or central store. Recordings stay on this computer,
   in the data folder.
 - Telling the remote side or its other users that the session is being recorded. Orrery can't, for any of these
@@ -168,9 +170,17 @@ readable by anyone who has the file, then writes it where the user chooses:
   Orrery (RIFF, `hdrl`, `movi` and an `idx1` index). Plain AVI is limited in size, so a long export is split into
   parts of 1 GB (`name (part 2).avi`) rather than written as OpenDML. Frames are written at the recording's frame
   rate, with an empty chunk for a frame that repeats the last (players hold the picture), and the pointer drawn in.
+- **Screen recordings, through Windows:** MP4 with H.264 (default), H.265 or AV1, each listed only if Windows has an
+  encoder for it (`MFTEnumEx`): H.264 everywhere but the N editions, H.265 with a graphics card or the HEVC extension,
+  AV1 with a recent graphics card, marked "(graphics card)". Media Foundation's sink writer takes NV12 pictures that
+  Orrery converts from RGB (BT.709, 16–235), at the recording's frame rate and about a quarter of a bit a pixel. The
+  size is rounded up to even sides, or to 16-pixel blocks for a graphics card's encoder, padded with black. The
+  graphics card is used only for a codec Windows has no software encoder for: with it on for H.264, the sink writer
+  hung in `Finalize` on the PC this was built on. The calls are raw COM by vtable slot, from the Windows SDK headers,
+  as the Windows Hello code does.
 - **Screen recordings, through ffmpeg:** when Settings › Recordings names an ffmpeg executable, export also offers MP4
-  with H.264 (default), H.265 or AV1, each listed only if that ffmpeg has an encoder for it (`ffmpeg -encoders`, read
-  once). Orrery starts ffmpeg by its full path with arguments as a list (no shell), pipes raw RGB frames to its standard
+  with any of H.264, H.265 or AV1 that Windows can't make, each listed only if that ffmpeg has an encoder for it
+  (`ffmpeg -encoders`, read once). This is how macOS and Linux make MP4. Orrery starts ffmpeg by its full path with arguments as a list (no shell), pipes raw RGB frames to its standard
   input, and writes nothing to disk unencrypted except ffmpeg's output file. ffmpeg is never searched for on `PATH`,
   downloaded or bundled: the user picks the file, and Settings shows its version line.
 
@@ -196,10 +206,10 @@ under a new *Recording* group, for every protocol.
   too, so every connection records unless it or its folder turns it off. Quick connections follow it as well; a local
   shell and a file browser don't.
 - *Put connection names in file names* (on by default).
-- *ffmpeg for MP4 export*: none by default; *Choose…* picks the executable (§3.4).
+- *ffmpeg for MP4 export* (*ffmpeg (optional)* on Windows): none by default; *Choose…* picks the executable (§3.4).
 - *Show recordings* (opens the side panel, §5.3), *Open the recordings folder*, and the space recordings use now.
-- Which MP4 codec isn't a setting: *Export…* on a screen recording lists AVI and each of H.264, H.265 and AV1 the
-  chosen ffmpeg can make.
+- Which MP4 codec isn't a setting: *Export…* on a screen recording lists AVI and each of H.264, H.265 and AV1 that
+  Windows or the chosen ffmpeg can make.
 
 ### 4.3 Retention
 
@@ -280,7 +290,7 @@ Playing, in a window titled with the connection's name:
 
 ## 7. Later
 
-- MP4 export without ffmpeg, through the platform's own encoder (Media Foundation on Windows, AVFoundation on macOS).
+- MP4 export without ffmpeg on macOS, through AVFoundation's `AVAssetWriter`. It needs a Mac to build and test on.
 - Recording sound.
 - Recording the remote pointer's shape.
 
@@ -297,6 +307,7 @@ Playing, in a window titled with the connection's name:
 - `Orrery.Core/Recording/ScreenFrames.cs`: damage merging, XOR, Brotli, and decoding.
 - `Orrery.Core/Recording/RecordingRetention.cs`: the age and size limits.
 - `Orrery.App/Recording/RecordingsPanel.cs` and `PlayerWindow.cs`: the side panel's list and the player.
+- `Orrery.Core/Recording/MediaFoundation.cs` and `Nv12.cs`: MP4 through Windows' encoders.
 - `Orrery.Core/Recording/AviWriter.cs` (the container) and `Orrery.App/Recording/RecordingExport.cs` (`.cast`, JPEG
   frames through SkiaSharp, and ffmpeg).
 - Changes to `TerminalView`, `RemoteFrameView` (start and stop the recorder), `SessionTabHeader` (the dot),
@@ -322,6 +333,8 @@ at most 1,000 rectangles a frame.
 - `RecordingExportTests`: a `.cast` export plays back the same output; an `.avi` export has a valid RIFF structure,
   frame count and index; ffmpeg arguments are built as a list and never through a shell; a canceled export leaves no
   file. ffmpeg itself isn't run in tests.
+- `Nv12Tests` and `MediaFoundationTests` (Windows): RGB to NV12 colors; an MP4 through each codec this Windows has,
+  checked for its boxes, sample entry, frame count and padded size; a canceled export leaves no file.
 
 ### 8.2 Phases
 
@@ -332,4 +345,4 @@ All built together, 2026-11-01.
 The tests use fake sessions. Still to check in the running app: recording a real SSH, Telnet, local and serial session
 and an RDP and VNC desktop; a reconnect carrying on in the same file; the tab's dot; the first-time note; the player
 on a long recording (seeking, speed, Find); the vault unlock the first recording asks for; an AVI export in VLC and
-Windows Media Player; an MP4 export through an installed ffmpeg; and Move data with recordings in the folder.
+Windows Media Player; MP4 exports through Windows (H.264, H.265, AV1) and an installed ffmpeg; and Move data with recordings in the folder.

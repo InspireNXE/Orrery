@@ -14,8 +14,8 @@ namespace Orrery.App.Recording;
 
 /// <summary>
 /// Exporting a recording for other software (docs/design-session-recording.md §3.4): a terminal as <c>.cast</c>, a
-/// screen as Motion-JPEG <c>.avi</c>, or as MP4 through the ffmpeg chosen in Settings. The copy isn't encrypted, so
-/// the user is told first.
+/// screen as Motion-JPEG <c>.avi</c>, or as MP4 through Windows' own encoders or the ffmpeg chosen in Settings. The
+/// copy isn't encrypted, so the user is told first.
 /// </summary>
 static class RecordingExport
 {
@@ -51,19 +51,20 @@ static class RecordingExport
         }
 
         var ffmpeg = service.Settings.FfmpegPath is { } ffmpegPath ? await Ffmpeg.ProbeAsync(ffmpegPath) : null;
-        var choice = await new ExportChoiceWindow(ffmpeg).ShowDialog<ExportChoice?>(owner);
+        var system = OperatingSystem.IsWindows() ? await Task.Run(MediaFoundation.Codecs) : [];
+        var choice = await new ExportChoiceWindow(Mp4Route.All(system, ffmpeg), ffmpeg is not null).ShowDialog<ExportChoice?>(owner);
         if (choice is null)
         {
             return;
         }
 
-        var extension = choice.Codec is null ? "avi" : "mp4";
+        var extension = choice.Route is null ? "avi" : "mp4";
         var file = await owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Export recording",
             SuggestedFileName = $"{suggestedName}.{extension}",
             DefaultExtension = extension,
-            FileTypeChoices = [new FilePickerFileType(choice.Codec is null ? "AVI video" : "MP4 video") { Patterns = [$"*.{extension}"] }],
+            FileTypeChoices = [new FilePickerFileType(choice.Route is null ? "AVI video" : "MP4 video") { Patterns = [$"*.{extension}"] }],
         });
         if (file?.TryGetLocalPath() is not { } output)
         {
@@ -72,9 +73,12 @@ static class RecordingExport
 
         int framesPerSecond = service.Settings.RecordingFramesPerSecond;
         var progress = new ExportProgressWindow();
-        var work = Task.Run(() => choice.Codec is { } codec
-            ? ExportMp4(path, privateKey, ffmpeg!, codec, output, framesPerSecond, choice.SkipIdle, progress)
-            : ExportAvi(path, privateKey, output, framesPerSecond, choice.SkipIdle, progress));
+        var work = Task.Run(() => choice.Route switch
+        {
+            { System: { } codec } when OperatingSystem.IsWindows() => ExportSystemMp4(path, privateKey, codec, output, framesPerSecond, choice.SkipIdle, progress),
+            { Ffmpeg: { } codec } => ExportMp4(path, privateKey, ffmpeg!, codec, output, framesPerSecond, choice.SkipIdle, progress),
+            _ => ExportAvi(path, privateKey, output, framesPerSecond, choice.SkipIdle, progress),
+        });
         var shown = progress.ShowDialog(owner);
         string? problem;
         try
@@ -97,7 +101,7 @@ static class RecordingExport
         }
         else if (!progress.Canceled)
         {
-            Logger.LogInformation("Exported a screen recording as {Format}", extension);
+            Logger.LogInformation("Exported a screen recording as {Format}", choice.Route is { } route ? $"MP4 {route.Name}{(route.Ffmpeg is null ? "" : " through ffmpeg")}" : "AVI");
         }
     }
 
@@ -195,6 +199,29 @@ static class RecordingExport
         catch (Exception e) when (e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException)
         {
             DeleteAll(parts);
+            return e.Message;
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    static string? ExportSystemMp4(string path, byte[] privateKey, SystemCodec codec, string output, int framesPerSecond, bool skipIdle,
+        ExportProgressWindow progress)
+    {
+        try
+        {
+            using var reader = RecordingReader.Open(path, privateKey);
+            MediaFoundation.Export(reader, codec, output, framesPerSecond, skipIdle, progress.Report, progress.Token);
+            return reader.Ending == RecordingEnding.Damaged ? "Part of the recording couldn't be read, so the video stops where that part starts." : null;
+        }
+        catch (VideoEncoderException e)
+        {
+            Logger.LogWarning("Windows couldn't export as {Codec}: {Message}", codec.Name, e.InnerException?.Message);
+            return codec.HardwareOnly
+                ? $"{e.Message} {codec.Name} here comes from the graphics card, which may not take a picture this big. Try H.264 or AVI."
+                : e.Message;
+        }
+        catch (Exception e) when (e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException)
+        {
             return e.Message;
         }
     }
@@ -317,12 +344,26 @@ static class RecordingExport
     }
 }
 
-sealed record ExportChoice(FfmpegCodec? Codec, bool SkipIdle);
+/// <summary>One way to make an MP4: a codec, through Windows' own encoder or an ffmpeg.</summary>
+sealed record Mp4Route(string Name, SystemCodec? System, FfmpegCodec? Ffmpeg)
+{
+    public string Label => $"MP4, {Name}{(System is { HardwareOnly: true } ? " (graphics card)" : Ffmpeg is not null ? " (through ffmpeg)" : "")}";
 
-/// <summary>Asks what a screen recording should become: AVI, or MP4 with one of the codecs the chosen ffmpeg has.</summary>
+    /// <summary>Windows' codecs, then any more the ffmpeg has; Windows' encoder wins when both have one.</summary>
+    public static IReadOnlyList<Mp4Route> All(IReadOnlyList<SystemCodec> system, FfmpegInfo? ffmpeg)
+    {
+        var routes = system.Select(c => new Mp4Route(c.Name, c, null)).ToList();
+        routes.AddRange((ffmpeg?.Codecs ?? []).Where(c => routes.All(r => r.Name != c.Name)).Select(c => new Mp4Route(c.Name, null, c)));
+        return routes;
+    }
+}
+
+sealed record ExportChoice(Mp4Route? Route, bool SkipIdle);
+
+/// <summary>Asks what a screen recording should become: AVI, or MP4 with a codec Windows or the chosen ffmpeg has.</summary>
 sealed class ExportChoiceWindow : Window
 {
-    public ExportChoiceWindow(FfmpegInfo? ffmpeg)
+    public ExportChoiceWindow(IReadOnlyList<Mp4Route> routes, bool hasFfmpeg)
     {
         Title = "Export recording";
         Width = 460;
@@ -333,9 +374,9 @@ sealed class ExportChoiceWindow : Window
 
         var format = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         format.Items.Add(new ComboBoxItem { Content = "AVI, Motion-JPEG (plays in VLC and Windows Media Player)", Tag = null });
-        foreach (var codec in ffmpeg?.Codecs ?? [])
+        foreach (var route in routes)
         {
-            format.Items.Add(new ComboBoxItem { Content = $"MP4, {codec.Name} (through ffmpeg)", Tag = codec });
+            format.Items.Add(new ComboBoxItem { Content = route.Label, Tag = route });
         }
 
         format.SelectedIndex = format.Items.Count > 1 ? 1 : 0;
@@ -343,7 +384,7 @@ sealed class ExportChoiceWindow : Window
         var export = new Button { Content = "Export…", IsDefault = true };
         export.Classes.Add("accent");
         var cancel = new Button { Content = "Cancel", IsCancel = true };
-        export.Click += (_, _) => Close(new ExportChoice((format.SelectedItem as ComboBoxItem)?.Tag as FfmpegCodec, skipIdle.IsChecked == true));
+        export.Click += (_, _) => Close(new ExportChoice((format.SelectedItem as ComboBoxItem)?.Tag as Mp4Route, skipIdle.IsChecked == true));
         cancel.Click += (_, _) => Close(null);
 
         var panel = new StackPanel
@@ -358,11 +399,13 @@ sealed class ExportChoiceWindow : Window
                 skipIdle,
             },
         };
-        if (ffmpeg is null)
+        if (routes.Count == 0 && !hasFfmpeg)
         {
             panel.Children.Add(new TextBlock
             {
-                Text = "For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings.",
+                Text = OperatingSystem.IsWindows()
+                    ? "This Windows has no video encoders of its own (an N edition, or Server without Media Foundation). For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings."
+                    : "For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings.",
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 12,
                 Foreground = Dialogs.MutedBrush,
