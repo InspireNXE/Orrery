@@ -4,7 +4,9 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Orrery.App.Controls;
 using Orrery.App.Setup;
+using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Xunit;
@@ -59,7 +61,8 @@ public class SetupWizardTests : IDisposable
     {
         var window = Open(Portable(), keychain: null);
 
-        Assert.Equal([SetupStep.Data, SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.Equal([SetupStep.Data, SetupStep.Passwords, SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<RadioButton>(), r => r.GroupName == "Passwords" && r.IsEffectivelyVisible);
         Assert.Equal(SetupStep.Data, window.Current);
         window.Close();
     }
@@ -77,13 +80,125 @@ public class SetupWizardTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Without_a_keychain_there_is_no_password_question()
+    public void Without_a_keychain_only_the_vaults_password_is_asked_and_it_can_wait()
     {
         var window = Open(portable: null, keychain: null);
 
-        Assert.Equal([SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.Equal([SetupStep.Passwords, SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.True(VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword").IsEffectivelyVisible);
+        Assert.Equal("Master password", VaultAutoLockTests.Private<TextBlock>(window, "_title").Text);
         Assert.Null(window.Choices.Passwords);
-        Assert.Contains(("Passwords", "Encrypted vault"), window.Summary());
+        Assert.Contains(("Passwords", "Encrypted vault, master password when first needed"), window.Summary());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_vaults_password_is_asked_only_once_the_vault_is_chosen_and_must_be_good_and_match()
+    {
+        var window = Open(portable: null, Keychain);
+        var password = VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword");
+        var confirm = VaultAutoLockTests.Private<TextBox>(window, "_vaultConfirm");
+        var message = VaultAutoLockTests.Private<Notice>(window, "_message");
+        Assert.False(password.IsEffectivelyVisible);
+
+        // Typed, then the keychain chosen after all: nothing is asked of it, and no vault is made.
+        VaultAutoLockTests.Private<RadioButton>(window, "_vault").IsChecked = true;
+        Assert.True(password.IsEffectivelyVisible);
+        password.Text = "short";
+        VaultAutoLockTests.Private<RadioButton>(window, "_keychain").IsChecked = true;
+        Assert.Null(window.VaultPassword);
+        await window.NextAsync();
+        Assert.Equal(SetupStep.Import, window.Current);
+
+        window.Back();
+        VaultAutoLockTests.Private<RadioButton>(window, "_vault").IsChecked = true;
+        await window.NextAsync();
+        Assert.Equal(SetupStep.Passwords, window.Current);
+        Assert.True(message.IsVisible);
+
+        password.Text = "correct horse battery staple";
+        confirm.Text = "correct horse battery stapler";
+        await window.NextAsync();
+        Assert.Equal(SetupStep.Passwords, window.Current);
+        Assert.Equal("The passwords don't match.", message.Text);
+
+        confirm.Text = password.Text;
+        await window.NextAsync();
+        Assert.Equal(SetupStep.Import, window.Current);
+        Assert.Contains(("Passwords", "Encrypted vault, master password set"), window.Summary());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Start_hands_over_the_vaults_password_once_and_checks_it_even_when_its_step_was_skipped()
+    {
+        var window = Open(portable: null, keychain: null);
+        SetupResult? result = null;
+        window.Completed += r => result = r;
+        var password = VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword");
+        var confirm = VaultAutoLockTests.Private<TextBox>(window, "_vaultConfirm");
+
+        password.Text = "correct horse battery staple";
+        window.GoTo(SetupStep.Done);
+        await window.NextAsync();
+        Assert.Null(result);
+        Assert.Equal(SetupStep.Passwords, window.Current);
+
+        confirm.Text = password.Text;
+        window.GoTo(SetupStep.Done);
+        await window.NextAsync();
+        window.Close();
+
+        Assert.NotNull(result);
+        Assert.Equal("correct horse battery staple", result.VaultPassword);
+        Assert.DoesNotContain("correct horse", result.ToString());
+        Assert.Empty(password.Text ?? string.Empty);
+        Assert.Empty(confirm.Text ?? string.Empty);
+    }
+
+    [AvaloniaFact]
+    public async Task The_main_window_makes_the_vault_with_setups_password_before_anything_asks_for_it()
+    {
+        var location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
+        Directory.CreateDirectory(location.DataDir);
+        VaultAutoLockTests.AddMainWindowResources();
+        var window = new MainWindow(location, newVaultPassword: "correct horse battery staple");
+        try
+        {
+            var vault = Assert.IsType<VaultFileStore>(VaultAutoLockTests.Private<ICredentialStore>(window, "_credentials"));
+            Assert.False(vault.Exists);
+
+            window.Show();
+            for (int i = 0; i < 500 && vault.IsLocked; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+
+            Assert.True(vault.Exists);
+            Assert.False(vault.IsLocked);
+
+            vault.Lock();
+            await vault.UnlockAsync("correct horse battery staple");
+            Assert.False(vault.IsLocked);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Use_defaults_forgets_a_typed_vault_password()
+    {
+        var window = Open(portable: null, keychain: null);
+        var password = VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword");
+        password.Text = VaultAutoLockTests.Private<TextBox>(window, "_vaultConfirm").Text = "correct horse battery staple";
+
+        window.UseDefaults();
+
+        Assert.Null(window.VaultPassword);
+        Assert.Contains(("Passwords", "Encrypted vault, master password when first needed"), window.Summary());
         window.Close();
     }
 

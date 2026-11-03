@@ -52,6 +52,9 @@ public partial class MainWindow : Window
     readonly string? _movedFrom;
     readonly string? _openOnStart;
     readonly IReadOnlyList<string>? _importOnStart;
+
+    // Setup's master password for a new vault, made as the window opens and then dropped.
+    string? _newVaultPassword;
     readonly ConnectionStore _connectionStore;
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
@@ -134,9 +137,14 @@ public partial class MainWindow : Window
     /// empty, it stands in for the offer to import mRemoteNG's connections, which setup has already made.
     /// </param>
     /// <param name="updates">The update engine, which the window owns from here; null for no update checks at all.</param>
+    /// <param name="newVaultPassword">
+    /// The master password first-launch setup chose: the vault is made with it as the window opens, before the imports,
+    /// so they don't ask for it again. Ignored when the store isn't a vault still to be made.
+    /// </param>
     internal MainWindow(DataLocation location, string? movedFrom = null, string? openOnStart = null, IReadOnlyList<string>? importOnStart = null,
-        IUpdateService? updates = null)
+        IUpdateService? updates = null, string? newVaultPassword = null)
     {
+        _newVaultPassword = newVaultPassword;
         AvaloniaXamlLoader.Load(this);
         _location = location;
         _movedFrom = movedFrom;
@@ -331,6 +339,8 @@ public partial class MainWindow : Window
             // In the background: a full folder can take a moment, and nothing waits on it.
             _ = Task.Run(_recordings.ApplyRetention);
             FitTitleBarToCaptionButtons();
+
+            await CreateVaultFromSetupAsync();
 
             // Move data leaves this in the new folder; it's only good for the first start there.
             var pendingCleanup = PendingCleanup.TryLoad(_location.DataDir);
@@ -3642,6 +3652,33 @@ public partial class MainWindow : Window
         {
             await Dialogs.ShowMessageAsync(this, "No SSH config found",
                 $"Orrery looked for:\n{path}\n\nIf your config is somewhere else, use Import and choose the file.");
+        }
+    }
+
+    /// <summary>
+    /// Makes the vault with the master password setup chose, leaving it unlocked for the imports that follow. If it can't
+    /// be made, says so; the vault then asks for a password when it's first needed, as without setup.
+    /// </summary>
+    async Task CreateVaultFromSetupAsync()
+    {
+        var password = _newVaultPassword;
+        _newVaultPassword = null;
+        if (password is null || _credentials is not VaultFileStore { Exists: false } vault)
+        {
+            return;
+        }
+
+        try
+        {
+            await vault.UnlockAsync(password);
+            StorageLog.LogInformation("Created the vault chosen in setup");
+            UpdateVaultButton();
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            StorageLog.LogError(e, "Couldn't create the vault chosen in setup");
+            await Dialogs.ShowMessageAsync(this, "Couldn't create the vault",
+                $"{e.Message}\n\nOrrery will ask for a master password when you first save one.");
         }
     }
 

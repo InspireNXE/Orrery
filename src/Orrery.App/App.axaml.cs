@@ -92,17 +92,17 @@ public partial class App : Application
             ImportSources.OnThisComputer());
 
         bool started = false;
-        void Start(DataLocation location, SetupChoices choices, IReadOnlyList<string>? imports)
+        void Start(DataLocation location, SetupChoices choices, IReadOnlyList<string>? imports, string? vaultPassword = null)
         {
             // Swap the main window before closing setup, or closing it would end the app.
             started = true;
-            desktop.MainWindow = OpenMainWindow(location, choices, imports);
+            desktop.MainWindow = OpenMainWindow(location, choices, imports, vaultPassword);
             desktop.MainWindow.Show();
         }
 
         wizard.Completed += result =>
         {
-            Start(result.Location ?? known!, result.Choices, result.Choices.Imports);
+            Start(result.Location ?? known!, result.Choices, result.Choices.Imports, result.VaultPassword);
             wizard.Close();
         };
 
@@ -165,7 +165,8 @@ public partial class App : Application
 
     /// <param name="setup">What first-launch setup chose, saved to the settings before the window reads them.</param>
     /// <param name="importOnStart">Files to import once the window opens; see <see cref="MainWindow"/>.</param>
-    Window OpenMainWindow(DataLocation location, SetupChoices? setup = null, IReadOnlyList<string>? importOnStart = null)
+    /// <param name="newVaultPassword">The master password setup chose for a new vault, made as the window opens.</param>
+    Window OpenMainWindow(DataLocation location, SetupChoices? setup = null, IReadOnlyList<string>? importOnStart = null, string? newVaultPassword = null)
     {
         try
         {
@@ -203,7 +204,7 @@ public partial class App : Application
         // "Orrery file.rdp", as Windows runs it for a .rdp file opened with Orrery: connected to once the window opens.
         var rdpFile = _args.FirstOrDefault(a => Orrery.Core.Import.RdpFileImporter.IsRdpFile(a) && File.Exists(a));
         return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null, openOnStart: rdpFile,
-            importOnStart: importOnStart, updates: StartUpdates(location));
+            importOnStart: importOnStart, updates: StartUpdates(location), newVaultPassword: newVaultPassword);
     }
 
     /// <summary>
