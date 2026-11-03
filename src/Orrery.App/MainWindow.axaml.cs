@@ -3696,11 +3696,13 @@ public partial class MainWindow : Window
                 return null;
             }
 
+            // Named, since setup's imports come one after another and each may ask.
+            var name = Path.GetFileName(path);
             var entered = orrery
                 ? await Dialogs.PromptPasswordAsync(this, "Export password",
-                    "This Orrery export includes saved passwords, so it's encrypted. Enter the password it was exported with.", Check)
+                    $"{name} is an Orrery export that includes saved passwords, so it's encrypted. Enter the password it was exported with.", Check)
                 : await Dialogs.PromptPasswordAsync(this, "Master password",
-                    "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", Check);
+                    $"{name} is protected with an mRemoteNG master password. Enter it to read the connections and saved passwords.", Check);
             if (entered is null)
             {
                 return;

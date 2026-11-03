@@ -188,32 +188,32 @@ public static class MRemoteNgImporter
     public static ImportResult Import(Stream xml, string sourceName, string? masterPassword = null) =>
         Import(xml, sourceName, masterPassword, MaxTotalKdfIterations);
 
+    /// <summary>
+    /// Whether the file at <paramref name="path"/> is protected with a master password of its own, so importing it will ask
+    /// for one. Only the file's marker is tried, with mRemoteNG's default password; nothing else is decrypted. False for a
+    /// file that can't be read or isn't mRemoteNG's: the import itself says what's wrong.
+    /// </summary>
+    public static bool NeedsMasterPassword(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var root = LoadRoot(stream);
+            var marker = (string?)root.Attribute("Protected") ?? string.Empty;
+            int iterations = int.TryParse((string?)root.Attribute("KdfIterations"), out var k) && k > 0 ? k : 1000;
+            return marker.Length > 0 && iterations <= MaxKdfIterations
+                && MRemoteNgCrypto.TryDecrypt(marker, MRemoteNgCrypto.DefaultPassword, iterations) is null;
+        }
+        catch (Exception e) when (e is ImportException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>As <see cref="Import(Stream, string, string?)"/>, with a smaller decryption budget for tests.</summary>
     internal static ImportResult Import(Stream xml, string sourceName, string? masterPassword, long kdfBudget)
     {
-        var settings = new XmlReaderSettings
-        {
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null,
-            MaxCharactersInDocument = MaxFileCharacters,
-        };
-
-        XDocument document;
-        try
-        {
-            using var reader = XmlReader.Create(xml, settings);
-            document = XDocument.Load(reader);
-        }
-        catch (XmlException e)
-        {
-            throw new ImportException($"This isn't a readable XML file: {e.Message}");
-        }
-
-        var root = document.Root;
-        if (root is null || root.Name.LocalName != "Connections" || root.Name.NamespaceName != Namespace)
-        {
-            throw new ImportException("This isn't an mRemoteNG connections file (confCons.xml).");
-        }
+        var root = LoadRoot(xml);
 
         var confVersion = double.TryParse((string?)root.Attribute("ConfVersion"), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0;
         if (confVersion < SupportedConfVersion)
@@ -244,7 +244,7 @@ public static class MRemoteNgImporter
                 ?? throw new ImportException("The file's contents couldn't be decrypted.");
             try
             {
-                using var reader = XmlReader.Create(new StringReader($"<root>{inner}</root>"), settings);
+                using var reader = XmlReader.Create(new StringReader($"<root>{inner}</root>"), ReaderSettings);
                 nodes = XElement.Load(reader).Elements("Node");
             }
             catch (XmlException e)
@@ -285,6 +285,40 @@ public static class MRemoteNgImporter
                 pending.Push((child, item.Depth + 1));
             }
         }
+    }
+
+    // No DTDs or outside references, and a cap on size; XmlReader.Create copies it, so it's shared.
+    static readonly XmlReaderSettings ReaderSettings = new()
+    {
+        DtdProcessing = DtdProcessing.Prohibit,
+        XmlResolver = null,
+        MaxCharactersInDocument = MaxFileCharacters,
+    };
+
+    /// <summary>
+    /// The <c>Connections</c> element of <paramref name="xml"/>, read without DTDs or outside references. Fails with
+    /// <see cref="ImportException"/> when it isn't mRemoteNG's.
+    /// </summary>
+    static XElement LoadRoot(Stream xml)
+    {
+        XDocument document;
+        try
+        {
+            using var reader = XmlReader.Create(xml, ReaderSettings);
+            document = XDocument.Load(reader);
+        }
+        catch (XmlException e)
+        {
+            throw new ImportException($"This isn't a readable XML file: {e.Message}");
+        }
+
+        var root = document.Root;
+        if (root is null || root.Name.LocalName != "Connections" || root.Name.NamespaceName != Namespace)
+        {
+            throw new ImportException("This isn't an mRemoteNG connections file (confCons.xml).");
+        }
+
+        return root;
     }
 
     static string ResolvePassword(string protectedMarker, Decryptor crypto, string? masterPassword)

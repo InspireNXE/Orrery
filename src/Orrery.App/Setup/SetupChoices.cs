@@ -103,6 +103,18 @@ static class ImportSources
         Find(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             OperatingSystem.IsWindows() ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) : null);
 
+    /// <summary>
+    /// Whether importing the file will ask for a password: an mRemoteNG file with a master password of its own, or an
+    /// Orrery export sealed because it holds saved passwords. Reads the file, so not on the UI thread.
+    /// </summary>
+    public static bool NeedsPassword(string path) =>
+        !RdpFileImporter.IsRdpFile(path) && ConnectionExporter.FormatFor(path) switch
+        {
+            ExportFormat.MRemoteNg => MRemoteNgImporter.NeedsMasterPassword(path),
+            ExportFormat.Orrery => OrreryImporter.IsSealedFile(path),
+            _ => false,
+        };
+
     /// <summary>What a chosen file is, by its name, as Import will read it.</summary>
     public static string KindOf(string path) =>
         RdpFileImporter.IsRdpFile(path) ? "Remote Desktop file" : ConnectionExporter.FormatFor(path) switch

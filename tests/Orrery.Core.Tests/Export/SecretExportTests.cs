@@ -69,6 +69,28 @@ public class SecretExportTests
     }
 
     [Fact]
+    public void A_sealed_export_is_known_without_its_password()
+    {
+        var (tree, _, _, _) = Sample();
+        var dir = Directory.CreateTempSubdirectory("orrery-tests-").FullName;
+        try
+        {
+            var sealedFile = Path.Combine(dir, "sealed.json");
+            var plainFile = Path.Combine(dir, "plain.json");
+            File.WriteAllText(sealedFile, ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, Summaries, Now, Secrets).Content);
+            File.WriteAllText(plainFile, ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, Summaries, Now).Content);
+
+            Assert.True(OrreryImporter.IsSealedFile(sealedFile));
+            Assert.False(OrreryImporter.IsSealedFile(plainFile));
+            Assert.False(OrreryImporter.IsSealedFile(Path.Combine(dir, "missing.json")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void With_the_password_the_credentials_come_back_with_new_ids_and_connections_use_them()
     {
         var (tree, _, _, _) = Sample();
