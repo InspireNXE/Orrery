@@ -2036,6 +2036,14 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>The recording playing now takes the color vision, correction and terminal colors just saved in Settings.</summary>
+    void FollowColorsInPlayer()
+    {
+        var settings = _settingsStore.Load();
+        _recordingsPanel.Stage.Player?.SetColors(settings.Vision, ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
+            settings.TerminalColors ?? TerminalColorScheme.Standard);
+    }
+
     void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
 
     /// <summary>
@@ -3785,6 +3793,8 @@ public partial class MainWindow : Window
                 {
                     terminal.ColorScheme = scheme;
                 }
+
+                FollowColorsInPlayer();
             };
             view.ColorVisionChanged += (_, change) =>
             {
@@ -3798,6 +3808,8 @@ public partial class MainWindow : Window
                 {
                     desktop.Correction = correction;
                 }
+
+                FollowColorsInPlayer();
             };
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;

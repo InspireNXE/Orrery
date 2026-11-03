@@ -16,6 +16,7 @@ using Orrery.App.Sessions;
 using Orrery.Core.Connections;
 using Orrery.Core.Recording;
 using Orrery.Core.Sessions;
+using Orrery.Core.Settings;
 
 namespace Orrery.App.Recording;
 
@@ -30,12 +31,18 @@ sealed partial class PlayerView : DockPanel, IDisposable
     static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(33);
     static readonly TimeSpan SkipBy = TimeSpan.FromSeconds(10);
     static readonly double[] Speeds = [0.5, 1, 2, 4, 8];
-    static readonly IBrush StageBorder = new SolidColorBrush(Color.Parse("#2A2F38")).ToImmutable();
-    static readonly IBrush BarBrush = new SolidColorBrush(Color.Parse("#181B21")).ToImmutable();
+    static readonly IBrush BarBrush = new SolidColorBrush(Color.Parse("#101216")).ToImmutable();
+    static readonly IBrush ControlBorder = new SolidColorBrush(Color.Parse("#2A2F38")).ToImmutable();
+    static readonly IBrush NoteBrush = new SolidColorBrush(Color.Parse("#EB101216")).ToImmutable();
+    static readonly IBrush ShadeBrush = new SolidColorBrush(Color.Parse("#99080A0E")).ToImmutable();
+    static readonly IBrush SoftText = new SolidColorBrush(Color.Parse("#C3C9D3")).ToImmutable();
 
     // Half the slider's thumb: the track's ends sit this far in from the control's edges.
     const double ThumbInset = 10;
     const int MaxMatches = 10_000;
+
+    /// <summary>Find matches drawn on the timeline; past this many they'd only be a smear.</summary>
+    const int MostMatchTicks = 500;
 
     /// <summary>One event on the timeline. Terminal events keep their payload; a screen's big frames are read again when needed.</summary>
     sealed record Entry(RecordingEventType Type, TimeSpan Recorded, EventPosition Position, byte[]? Payload)
@@ -51,38 +58,64 @@ sealed partial class PlayerView : DockPanel, IDisposable
     readonly DispatcherTimer _timer = new() { Interval = Tick };
     readonly Panel _stage = new() { Background = Brushes.Black, ClipToBounds = true };
 
-    // Header.
-    readonly TextBlock _title = new() { FontSize = 15, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-    readonly StrokeIcon _tileIcon = new() { Data = Geometry.Parse(Icons.Monitor), Foreground = Dialogs.MutedBrush };
-    readonly Border _tile;
+    // Header: one line, like a session's toolbar. The title and subtitle sit in a dock panel so a long name ends in
+    // "…" before the buttons instead of running under them.
+    readonly TextBlock _title = new() { FontSize = 14, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
     readonly TextBlock _protocolText = new() { FontSize = 10, FontWeight = FontWeight.Medium, FontFamily = Dialogs.MonoFont, VerticalAlignment = VerticalAlignment.Center };
     readonly Border _protocol = new() { CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1), VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
-    readonly TextBlock _subtitle = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
+    readonly TextBlock _subtitle = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 12, 0) };
     readonly Notice _banner = new(NoticeKind.Warning) { IsVisible = false, Margin = new Thickness(16, 10, 16, 0) };
 
-    // Find, for a terminal.
-    readonly TextBox _find = new() { PlaceholderText = "Find in output", Width = 200, VerticalContentAlignment = VerticalAlignment.Center };
-    readonly TextBlock _matches = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, MinWidth = 64, TextAlignment = TextAlignment.Right };
-    readonly Button _findPrevious = IconButton(Icons.Previous, "Previous match (Shift+Enter)");
-    readonly Button _findNext = IconButton(Icons.Next, "Next match (Enter)");
-    readonly StackPanel _findBar = new() { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+    // Find, for a terminal: one box holding the search, the count and the arrows.
+    readonly TextBox _find = new() { PlaceholderText = "Find in output", Width = 260, VerticalContentAlignment = VerticalAlignment.Center };
+    readonly TextBlock _matches = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 6, 0) };
+    readonly Button _findPrevious = IconButton(Icons.Previous, "Previous match", "Shift+Enter");
+    readonly Button _findNext = IconButton(Icons.Next, "Next match", "Enter");
+    readonly Panel _findBar = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), IsVisible = false };
 
     // Transport.
-    readonly Button _playButton = new() { Width = 46, Height = 46, CornerRadius = new CornerRadius(23), Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
-    readonly StrokeIcon _playIcon = StrokeIcon.Create(Icons.Play, 20);
+    readonly Button _playButton = new() { Width = 38, Height = 38, CornerRadius = new CornerRadius(19), Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+    readonly StrokeIcon _playIcon = StrokeIcon.Create(Icons.Play, 18);
     readonly Slider _timeline = new() { Minimum = 0, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Center };
     readonly Canvas _ticks = new() { IsHitTestVisible = true };
     readonly TextBlock _time = new() { VerticalAlignment = VerticalAlignment.Center, FontFamily = Dialogs.MonoFont, FontSize = 12, Foreground = Dialogs.MutedBrush };
-    readonly ComboBox _speed = new() { MinWidth = 76, VerticalAlignment = VerticalAlignment.Center };
-    readonly CheckBox _skipIdle = new() { Content = "Skip idle", IsChecked = true, VerticalAlignment = VerticalAlignment.Center };
+    readonly ComboBox _speed = new() { MinWidth = 72, VerticalAlignment = VerticalAlignment.Center };
+    readonly Button _skipIdle = Toggle(Icons.SkipIdle, "Skip idle");
+    readonly Button _loop = Toggle(Icons.Loop, "Loop");
+    bool _skipIdleOn = true;
+
+    /// <summary>Whether a recording starts again when it ends. Off at first; kept for the next one played while Orrery runs.</summary>
+    static bool s_loop;
+
+    // Over the picture: a note at the end, and the keyboard shortcuts.
+    readonly Border _endNote = new()
+    {
+        Background = NoteBrush,
+        BorderBrush = ControlBorder,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(6),
+        Padding = new Thickness(12, 6),
+        Margin = new Thickness(16, 0, 16, 16),
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Bottom,
+        IsVisible = false,
+        Child = new TextBlock { Text = "End of recording. Play to watch it again, or turn on Loop.", FontSize = 12, TextWrapping = TextWrapping.Wrap },
+    };
+    readonly Panel _keys = new() { Background = ShadeBrush, IsVisible = false };
+    readonly Grid _keyRows = new() { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(16, 4, 16, 16) };
 
     // Sound: a speaker that mutes, and how loud. Kept for the next recording played while Orrery runs.
     static double s_volume = 0.8;
     static bool s_muted;
     readonly StrokeIcon _speakerIcon = StrokeIcon.Create(Icons.Volume, 16);
-    readonly Button _speaker = new() { Width = 30, Height = 30, VerticalAlignment = VerticalAlignment.Center };
-    readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Width = 92, VerticalAlignment = VerticalAlignment.Center, Classes = { "volume" } };
-    readonly StackPanel _sound = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+    readonly Button _speaker = new() { Width = 28, Height = 28, VerticalAlignment = VerticalAlignment.Center };
+    readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Width = 84, VerticalAlignment = VerticalAlignment.Center, Classes = { "volume" } };
+    readonly StackPanel _sound = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), IsVisible = false };
+
+    // Colors as the viewer has them set: recordings keep the original colors, so they're corrected as they play.
+    ColorVision _vision;
+    TerminalColorScheme _scheme;
+    ColorCorrection? _correction;
 
     RecordingKind _kind;
     RecordingEnding _ending;
@@ -130,6 +163,12 @@ sealed partial class PlayerView : DockPanel, IDisposable
     bool _started;
     bool _disposed;
 
+    /// <summary>The ⋯ menu's Show in folder.</summary>
+    public event EventHandler? ShowInFolderRequested;
+
+    /// <summary>The ⋯ menu's Delete recording, or the Delete key.</summary>
+    public event EventHandler? DeleteRequested;
+
     public PlayerView(RecordingService service, RecordingItem item, byte[] privateKey)
     {
         _service = service;
@@ -137,9 +176,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _privateKey = privateKey;
         _playing = service.Playing(item.Path);
         _info = item.Info;
-        _tile = Pane.Tile(_tileIcon);
-        _tile.VerticalAlignment = VerticalAlignment.Center;
-        _tile.Background = Pane.LineBrush;
+        var settings = service.Settings;
+        _vision = settings.Vision;
+        _scheme = settings.TerminalColors ?? TerminalColorScheme.Standard;
+        _correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength);
         Background = Dialogs.PanelBrush;
         Focusable = true;
         ShowWhat();
@@ -150,18 +190,17 @@ sealed partial class PlayerView : DockPanel, IDisposable
         }
 
         _speed.SelectedIndex = 1;
-        ToolTip.SetTip(_speed, "Playback speed");
+        ToolTip.SetTip(_speed, Tip("Playback speed", "[  ]"));
         AutomationProperties.SetName(_speed, "Playback speed");
         AutomationProperties.SetName(_timeline, "Position");
         AutomationProperties.SetName(_find, "Find in output");
-        ToolTip.SetTip(_skipIdle, "Cut pauses longer than 2 seconds down to 2");
 
         _playButton.Classes.Add("accent");
         _playButton.Content = _playIcon;
         _playButton.Click += (_, _) => TogglePlay();
         SetPlayLook(playing: false);
-        var back = SkipButton(Icons.SkipBack, "Back 10 seconds (Left)", () => Seek(_position - SkipBy));
-        var forward = SkipButton(Icons.SkipForward, "Forward 10 seconds (Right)", () => Seek(_position + SkipBy));
+        var back = SkipButton(Icons.SkipBack, "Back 10 seconds", "←", () => Seek(_position - SkipBy));
+        var forward = SkipButton(Icons.SkipForward, "Forward 10 seconds", "→", () => Seek(_position + SkipBy));
 
         _timeline.PropertyChanged += (_, e) =>
         {
@@ -170,13 +209,13 @@ sealed partial class PlayerView : DockPanel, IDisposable
                 Seek(TimeSpan.FromSeconds(_timeline.Value));
             }
         };
-        _skipIdle.IsCheckedChanged += (_, _) =>
-        {
-            var recorded = RecordedAt(_position);
-            MapTimes();
-            PlaceTicks();
-            Seek(PlayedAt(recorded));
-        };
+
+        ToolTip.SetTip(_skipIdle, "Cut pauses longer than 2 seconds down to 2");
+        SetOn(_skipIdle, _skipIdleOn);
+        _skipIdle.Click += (_, _) => SetSkipIdle(!_skipIdleOn);
+        ToolTip.SetTip(_loop, Tip("Play again from the start when it ends", "L"));
+        SetOn(_loop, s_loop);
+        _loop.Click += (_, _) => ToggleLoop();
 
         _find.TextChanged += (_, _) => FindAll();
         _find.KeyDown += (_, e) =>
@@ -194,30 +233,18 @@ sealed partial class PlayerView : DockPanel, IDisposable
         };
         _findPrevious.Click += (_, _) => FindStep(-1);
         _findNext.Click += (_, _) => FindStep(1);
-        _findBar.Children.Add(new Panel
+        _findPrevious.Width = _findPrevious.Height = _findNext.Width = _findNext.Height = 26;
+        _find.InnerLeftContent = new StrokeIcon { Data = Geometry.Parse(Icons.Search), Width = 14, Height = 14, Foreground = Dialogs.MutedBrush, IsHitTestVisible = false, Margin = new Thickness(9, 0, 0, 0) };
+        _find.InnerRightContent = new StackPanel
         {
-            Children =
-            {
-                _find,
-                new StrokeIcon { Data = Geometry.Parse(Icons.Search), Width = 14, Height = 14, Foreground = Dialogs.MutedBrush, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 9, 0) },
-            },
-        });
-        _findBar.Children.Add(_matches);
-        _findBar.Children.Add(_findPrevious);
-        _findBar.Children.Add(_findNext);
-
-        var export = new Button
-        {
-            Content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
-                Children = { StrokeIcon.Create(Icons.Download, 14), new TextBlock { Text = "Export…", VerticalAlignment = VerticalAlignment.Center } },
-            },
+            Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(12, 0, 0, 0),
+            Margin = new Thickness(0, 0, 2, 0),
+            Children = { _matches, new Border { Width = 1, Height = 18, Background = ControlBorder, Margin = new Thickness(0, 0, 2, 0) }, _findPrevious, _findNext },
         };
-        ToolTip.SetTip(export, "Save an unencrypted copy to share: asciicast for a terminal, video for a screen");
+        _findBar.Children.Add(_find);
+
+        var export = IconButton(Icons.Download, "Export an unencrypted copy…", null);
         AutomationProperties.SetName(export, "Export");
         export.Click += async (_, _) =>
         {
@@ -230,30 +257,28 @@ sealed partial class PlayerView : DockPanel, IDisposable
             await RecordingExport.ExportAsync(owner, _service, _item.Path, _privateKey, System.IO.Path.GetFileNameWithoutExtension(_item.Path));
         };
 
+        Button more = null!;
+        more = IconButton(Icons.More, "More options", null);
+        more.Click += (_, _) => PopupMenu.ShowAt(more, MoreMenu(), PlacementMode.BottomEdgeAlignedRight);
+
         _protocol.Child = _protocolText;
         var header = new Border
         {
             BorderBrush = Pane.LineBrush,
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(16, 12),
+            Padding = new Thickness(16, 6, 10, 6),
+            MinHeight = 48,
             Child = new DockPanel
             {
                 Children =
                 {
+                    Docked(more, Dock.Right),
                     Docked(export, Dock.Right),
                     Docked(_findBar, Dock.Right),
-                    Docked(_tile, Dock.Left),
-                    new StackPanel
-                    {
-                        Spacing = 2,
-                        Margin = new Thickness(12, 0, 0, 0),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Children =
-                        {
-                            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _title, _protocol } },
-                            _subtitle,
-                        },
-                    },
+                    Docked(_protocol, Dock.Left),
+
+                    // Clipped, so in a narrow window the subtitle's "…" and margins stop at the find box.
+                    new DockPanel { ClipToBounds = true, Children = { Docked(_title, Dock.Left), _subtitle } },
                 },
             },
         };
@@ -262,7 +287,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
         timeline.SizeChanged += (_, _) => PlaceTicks();
 
         // The time on the left, the buttons in the middle and how it plays on the right, as in most players.
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, Children = { back, _playButton, forward } };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, Children = { back, _playButton, forward } };
         _speaker.Classes.Add("icon");
         _speaker.Content = _speakerIcon;
         _speaker.Click += (_, _) => ToggleMute();
@@ -280,39 +305,45 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _sound.Children.Add(_speaker);
         _sound.Children.Add(_volume);
         ShowVolume();
-        var how = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Children = { _sound, _skipIdle, _speed } };
+        var keys = IconButton(Icons.Keyboard, "Keyboard shortcuts", "?");
+        keys.Width = keys.Height = 28;
+        keys.Click += (_, _) => ShowKeys(!_keys.IsVisible);
+        var how = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { _sound, _skipIdle, _loop, _speed, keys },
+        };
         Grid.SetColumn(buttons, 1);
         Grid.SetColumn(how, 2);
         var transport = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto,*"),
+            ColumnSpacing = 12,
             Margin = new Thickness(0, 2, 0, 0),
             Children = { _time, buttons, how },
         };
+
+        // Docked along the bottom with a line above, like the app's other bars.
         var bar = new Border
         {
             Background = BarBrush,
-            BorderBrush = StageBorder,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(14, 4, 14, 10),
-            Margin = new Thickness(16, 8, 16, 14),
+            BorderBrush = Pane.LineBrush,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(16, 4, 16, 10),
             Child = new StackPanel { Children = { timeline, transport } },
         };
 
+        BuildKeys();
         _stage.Children.Add(new TextBlock { Text = "Reading the recording…", Foreground = Brushes.Gray, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
         Children.Add(Docked(header, Dock.Top));
         Children.Add(Docked(_banner, Dock.Top));
         Children.Add(Docked(bar, Dock.Bottom));
-        Children.Add(new Border
-        {
-            Margin = new Thickness(16, 12, 16, 0),
-            BorderBrush = StageBorder,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            ClipToBounds = true,
-            Child = _stage,
-        });
+
+        // The picture runs edge to edge, as a live session's does.
+        Children.Add(new Panel { Children = { _stage, _endNote, _keys } });
 
         _timer.Tick += (_, _) => OnTick();
         AttachedToVisualTree += async (_, _) =>
@@ -358,34 +389,233 @@ sealed partial class PlayerView : DockPanel, IDisposable
         return control;
     }
 
-    static Button IconButton(string icon, string tip)
+    /// <summary>A tooltip that names its shortcut in a key cap after the words.</summary>
+    static object Tip(string text, string? key)
+    {
+        if (key is null)
+        {
+            return text;
+        }
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children =
+            {
+                new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center },
+                KeyCap(key),
+            },
+        };
+    }
+
+    static Border KeyCap(string key) => new()
+    {
+        BorderBrush = ControlBorder,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(5, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        Child = new TextBlock { Text = key, FontFamily = Dialogs.MonoFont, FontSize = 11, Foreground = Dialogs.MutedBrush },
+    };
+
+    static Button IconButton(string icon, string name, string? key)
     {
         var button = new Button { Content = StrokeIcon.Create(icon, 16), Width = 30, Height = 30, VerticalAlignment = VerticalAlignment.Center };
         button.Classes.Add("icon");
-        ToolTip.SetTip(button, tip);
-        AutomationProperties.SetName(button, tip[..(tip.IndexOf(" (", StringComparison.Ordinal) is var at and >= 0 ? at : tip.Length)]);
+        ToolTip.SetTip(button, Tip(name, key));
+        AutomationProperties.SetName(button, name.TrimEnd('…'));
         return button;
     }
 
-    /// <summary>A round button holding a round arrow with "10" inside it.</summary>
-    static Button SkipButton(string icon, string tip, Action click)
+    /// <summary>A round arrow with "10" inside it.</summary>
+    static Button SkipButton(string icon, string name, string key, Action click)
     {
-        var button = IconButton(icon, tip);
-        button.Width = button.Height = 42;
-        button.CornerRadius = new CornerRadius(21);
+        var button = IconButton(icon, name, key);
+        button.Width = button.Height = 34;
+        button.CornerRadius = new CornerRadius(6);
         button.Content = new Panel
         {
-            Width = 32,
-            Height = 32,
+            Width = 24,
+            Height = 24,
             Children =
             {
-                new StrokeIcon { Data = Geometry.Parse(icon), Width = 32, Height = 32, StrokeThickness = 1.4 },
-                new TextBlock { Text = "10", FontSize = 9, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                new StrokeIcon { Data = Geometry.Parse(icon), Width = 24, Height = 24, StrokeThickness = 1.6 },
+                new TextBlock { Text = "10", FontSize = 8, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
             },
         };
         button.Click += (_, _) => click();
         return button;
     }
+
+    /// <summary>An on/off button in the app's segment style: the selected fill and a border when on.</summary>
+    static Button Toggle(string icon, string text)
+    {
+        var button = new Button
+        {
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { StrokeIcon.Create(icon, 14), new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center } },
+            },
+            Height = 28,
+            Padding = new Thickness(10, 0),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        button.Classes.Add("segment");
+        AutomationProperties.SetName(button, text);
+        return button;
+    }
+
+    static void SetOn(Button button, bool on)
+    {
+        button.Classes.Set("selected", on);
+        AutomationProperties.SetItemStatus(button, on ? "On" : "Off");
+    }
+
+    /// <summary>Whether Skip idle is on.</summary>
+    internal bool SkipsIdle => _skipIdleOn;
+
+    /// <summary>Whether Loop is on.</summary>
+    internal bool Loops => s_loop;
+
+    void SetSkipIdle(bool on)
+    {
+        _skipIdleOn = on;
+        SetOn(_skipIdle, on);
+        var recorded = RecordedAt(_position);
+        MapTimes();
+        PlaceTicks();
+        Seek(PlayedAt(recorded));
+    }
+
+    void ToggleLoop()
+    {
+        s_loop = !s_loop;
+        SetOn(_loop, s_loop);
+    }
+
+    /// <summary>The ⋯ menu, built as it opens.</summary>
+    List<Control> MoreMenu()
+    {
+        var show = new MenuItem { Header = "Show in folder" };
+        show.Click += (_, _) => ShowInFolderRequested?.Invoke(this, EventArgs.Empty);
+        var keys = new MenuItem { Header = "Keyboard shortcuts", InputGesture = new KeyGesture(Key.OemQuestion) };
+        keys.Click += (_, _) => ShowKeys(true);
+        var delete = new MenuItem { Header = "Delete recording…", Foreground = Dialogs.DangerBrush, InputGesture = new KeyGesture(Key.Delete) };
+        delete.Click += (_, _) => DeleteRequested?.Invoke(this, EventArgs.Empty);
+        return [show, keys, new Separator(), delete];
+    }
+
+    /// <summary>The shortcuts card over the picture, opened with ? or the keyboard button.</summary>
+    void BuildKeys()
+    {
+        var close = IconButton(Icons.Close, "Close", "Esc");
+        close.Width = close.Height = 28;
+        close.Click += (_, _) => ShowKeys(false);
+        var card = new Border
+        {
+            Background = Dialogs.PanelBrush,
+            BorderBrush = ControlBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Width = 440,
+            Margin = new Thickness(16),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new DockPanel
+            {
+                Children =
+                {
+                    Docked(new DockPanel
+                    {
+                        Margin = new Thickness(16, 10, 10, 6),
+                        Children =
+                        {
+                            Docked(close, Dock.Right),
+                            new TextBlock { Text = "Keyboard shortcuts", FontSize = 14, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center },
+                        },
+                    }, Dock.Top),
+                    _keyRows,
+                },
+            },
+        };
+        AutomationProperties.SetName(card, "Keyboard shortcuts");
+        _keys.Children.Add(card);
+        _keys.PointerPressed += (_, e) =>
+        {
+            if (e.Source == _keys)
+            {
+                ShowKeys(false);
+            }
+        };
+    }
+
+    void ShowKeys(bool show)
+    {
+        if (show)
+        {
+            var rows = new List<(string What, string Key)>
+            {
+                ("Play or pause", "Space"),
+                ("Back or forward 10 seconds", "← →"),
+                ("Previous or next marker", "Shift+← →"),
+                ("Start or end", "Home  End"),
+                ("Slower or faster", "[  ]"),
+                ("Loop", "L"),
+            };
+            if (_sound.IsVisible)
+            {
+                rows.Add(("Mute", "M"));
+            }
+
+            if (_findBar.IsVisible)
+            {
+                rows.Add(("Find in output", "Ctrl+F"));
+            }
+
+            rows.Add(("Delete the recording", "Delete"));
+            rows.Add(("Show these shortcuts", "?"));
+            _keyRows.Children.Clear();
+            _keyRows.RowDefinitions.Clear();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                _keyRows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                var what = new TextBlock { Text = rows[i].What, Foreground = SoftText, Margin = new Thickness(0, 4), VerticalAlignment = VerticalAlignment.Center };
+                var key = KeyCap(rows[i].Key);
+                Grid.SetRow(what, i);
+                Grid.SetRow(key, i);
+                Grid.SetColumn(key, 1);
+                _keyRows.Children.Add(what);
+                _keyRows.Children.Add(key);
+            }
+        }
+
+        _keys.IsVisible = show;
+        if (!show)
+        {
+            Focus();
+        }
+    }
+
+    /// <summary>Jumps to the marker before or after where it's playing.</summary>
+    void JumpToMarker(int by)
+    {
+        var times = _entries.Where(e => e.Type == RecordingEventType.Marker).Select(e => e.Played).ToList();
+        var to = by > 0
+            ? times.Where(t => t > _position + TimeSpan.FromMilliseconds(250)).Cast<TimeSpan?>().FirstOrDefault()
+            : times.Where(t => t < _position - TimeSpan.FromMilliseconds(750)).Cast<TimeSpan?>().LastOrDefault();
+        if (to is { } at)
+        {
+            Seek(at);
+        }
+    }
+
+    void ChangeSpeed(int by) => _speed.SelectedIndex = Math.Clamp(_speed.SelectedIndex + by, 0, Speeds.Length - 1);
 
     void OnKey(object? sender, KeyEventArgs e)
     {
@@ -397,8 +627,34 @@ sealed partial class PlayerView : DockPanel, IDisposable
             return;
         }
 
-        // Leave typing, lists and check boxes their own keys.
-        if (e.Source is TextBox or ComboBox or CheckBox || e.KeyModifiers != KeyModifiers.None)
+        if (e.Key == Key.Escape && _keys.IsVisible)
+        {
+            ShowKeys(false);
+            e.Handled = true;
+            return;
+        }
+
+        // Leave typing and lists their own keys.
+        if (e.Source is TextBox or ComboBox)
+        {
+            return;
+        }
+
+        if (e.KeySymbol == "?")
+        {
+            ShowKeys(!_keys.IsVisible);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyModifiers == KeyModifiers.Shift && e.Key is Key.Left or Key.Right)
+        {
+            JumpToMarker(e.Key == Key.Right ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyModifiers != KeyModifiers.None)
         {
             return;
         }
@@ -423,12 +679,42 @@ sealed partial class PlayerView : DockPanel, IDisposable
             case Key.End:
                 Seek(_duration);
                 break;
+            case Key.L:
+                ToggleLoop();
+                break;
+            case Key.OemOpenBrackets:
+                ChangeSpeed(-1);
+                break;
+            case Key.OemCloseBrackets:
+                ChangeSpeed(1);
+                break;
+            case Key.Delete:
+                DeleteRequested?.Invoke(this, EventArgs.Empty);
+                break;
             default:
                 return;
         }
 
         e.Handled = true;
     }
+
+    /// <summary>Follows a change to the viewer's color vision or terminal colors in Settings.</summary>
+    internal void SetColors(ColorVision vision, ColorCorrection? correction, TerminalColorScheme scheme)
+    {
+        _vision = vision;
+        _correction = correction;
+        _scheme = scheme;
+        if (_terminal is not null)
+        {
+            _terminal.ColorVision = vision;
+            _terminal.ColorScheme = scheme;
+        }
+
+        DrawScreen();
+    }
+
+    /// <summary>The correction screens are drawn with; tests read it.</summary>
+    internal ColorCorrection? Correction => _correction;
 
     // ---- Loading ----
 
@@ -512,9 +798,6 @@ sealed partial class PlayerView : DockPanel, IDisposable
             _protocolText.Foreground = ProtocolStyle.Foreground(protocol);
             _protocol.Background = ProtocolStyle.Background(protocol);
             _protocol.IsVisible = true;
-            _tile.Background = ProtocolStyle.Background(protocol);
-            _tileIcon.Foreground = ProtocolStyle.Foreground(protocol);
-            _tileIcon.Data = Geometry.Parse(ProtocolStyle.Icon(protocol));
         }
         else if (_info is not null || _entries.Count > 0)
         {
@@ -522,7 +805,6 @@ sealed partial class PlayerView : DockPanel, IDisposable
             _protocolText.Foreground = Dialogs.MutedBrush;
             _protocol.Background = Pane.LineBrush;
             _protocol.IsVisible = true;
-            _tileIcon.Data = Geometry.Parse(_kind == RecordingKind.Screen ? Icons.Monitor : Icons.Terminal);
         }
 
         var parts = new List<string> { $"Recorded {(_info?.Started.LocalDateTime ?? _item.Modified.ToLocalTime()):f}" };
@@ -542,7 +824,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
     /// <summary>Works out when each event plays: as recorded, or with pauses over 2 seconds cut to 2.</summary>
     void MapTimes()
     {
-        bool skip = _skipIdle.IsChecked == true;
+        bool skip = _skipIdleOn;
         var cut = TimeSpan.Zero;
         var last = TimeSpan.Zero;
         foreach (var entry in _entries)
@@ -595,6 +877,33 @@ sealed partial class PlayerView : DockPanel, IDisposable
             Canvas.SetTop(tick, (_ticks.Bounds.Height - 14) / 2);
             _ticks.Children.Add(tick);
         }
+
+        // Find's matches: short blue ticks under the track, each going to its match.
+        for (int i = 0; i < _found.Count && i < MostMatchTicks; i++)
+        {
+            var entry = _entries[_textEvent[Math.Min(_found[i], _textEvent.Length - 1)]];
+            var tick = new Border
+            {
+                Width = 8,
+                Height = 8,
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = new Border { Width = 2, Height = 6, CornerRadius = new CornerRadius(1), Background = Palette.Accent, VerticalAlignment = VerticalAlignment.Bottom },
+            };
+            var label = $"Match at {Format(entry.Played)}";
+            ToolTip.SetTip(tick, label);
+            AutomationProperties.SetName(tick, label);
+            int index = i;
+            tick.PointerPressed += (_, e) =>
+            {
+                _foundAt = index - 1;
+                FindStep(1);
+                e.Handled = true;
+            };
+            Canvas.SetLeft(tick, ThumbInset + width * Math.Clamp(entry.Played / _duration, 0, 1) - 4);
+            Canvas.SetTop(tick, _ticks.Bounds.Height - 8);
+            _ticks.Children.Add(tick);
+        }
     }
 
     TimeSpan RecordedAt(TimeSpan played)
@@ -636,6 +945,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
     void Play()
     {
         _playingNow = true;
+        _endNote.IsVisible = false;
         SetPlayLook(playing: true);
         _lastTick = DateTime.UtcNow;
         _timer.Start();
@@ -650,14 +960,16 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _timer.Stop();
     }
 
+    /// <summary>Pause while playing, play while paused, and play again once it has ended.</summary>
     void SetPlayLook(bool playing)
     {
-        _playIcon.Data = Geometry.Parse(playing ? Icons.Pause : Icons.Play);
+        bool ended = !playing && _loaded && _duration > TimeSpan.Zero && _position >= _duration;
+        _playIcon.Data = Geometry.Parse(playing ? Icons.Pause : ended ? Icons.SkipBack : Icons.Play);
         _playIcon.StrokeThickness = playing ? 2.6 : 2;
-        _playIcon.Margin = playing ? default : new Thickness(2, 0, 0, 0); // a triangle looks centered a little right of center
-        var name = playing ? "Pause (Space)" : "Play (Space)";
-        ToolTip.SetTip(_playButton, name);
-        AutomationProperties.SetName(_playButton, playing ? "Pause" : "Play");
+        _playIcon.Margin = playing || ended ? default : new Thickness(2, 0, 0, 0); // a triangle looks centered a little right of center
+        var name = playing ? "Pause" : ended ? "Play again" : "Play";
+        ToolTip.SetTip(_playButton, Tip(name, "Space"));
+        AutomationProperties.SetName(_playButton, name);
     }
 
     void OnTick()
@@ -666,10 +978,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
         var speed = (_speed.SelectedItem as ComboBoxItem)?.Tag as double? ?? 1;
         var to = _position + TimeSpan.FromTicks((long)((now - _lastTick).Ticks * speed));
         _lastTick = now;
-        if (to >= _duration)
+        bool ended = to >= _duration;
+        if (ended)
         {
             to = _duration;
-            Pause();
         }
 
         // Sound keeps up with the screen, stretched to the speed.
@@ -677,6 +989,15 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _playSpeed = speed;
         AdvanceTo(to);
         _audible = false;
+        if (ended && s_loop && _duration > TimeSpan.Zero)
+        {
+            Seek(TimeSpan.Zero);
+        }
+        else if (ended)
+        {
+            Pause();
+            _endNote.IsVisible = true;
+        }
     }
 
     void Seek(TimeSpan to)
@@ -688,6 +1009,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
         _audio?.Clear();
         _stretch = null;
+        _endNote.IsVisible = false;
 
         to = to < TimeSpan.Zero ? TimeSpan.Zero : to > _duration ? _duration : to;
         if (_kind == RecordingKind.Terminal)
@@ -725,6 +1047,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _timeline.Value = to.TotalSeconds;
         _settingTimeline = false;
         _time.Text = $"{Format(to)} / {Format(_duration)}";
+        if (!_playingNow)
+        {
+            SetPlayLook(playing: false);
+        }
     }
 
     static string Format(TimeSpan time) => time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss") : time.ToString(@"m\:ss");
@@ -734,7 +1060,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
     void NewTerminal()
     {
         _terminalSession = new PlaybackSession();
-        _terminal = new TerminalView(_terminalSession) { Focusable = false };
+        _terminal = new TerminalView(_terminalSession) { Focusable = false, ColorVision = _vision, ColorScheme = _scheme };
         _terminalBox = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Child = _terminal };
         _stage.Children.Clear();
         _stage.Children.Add(_terminalBox);
@@ -836,6 +1162,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
             : $"{_foundAt + 1:N0} of {count}";
         _matches.Foreground = !any && !string.IsNullOrEmpty(_find.Text) ? Palette.Warning : Dialogs.MutedBrush;
         _findPrevious.IsEnabled = _findNext.IsEnabled = any;
+        PlaceTicks();
     }
 
     // ---- Screen ----
@@ -1003,19 +1330,44 @@ sealed partial class PlayerView : DockPanel, IDisposable
         {
             unsafe
             {
-                var pixels = new Span<byte>((void*)buffer.Address, buffer.RowBytes * size.Height);
                 if (buffer.RowBytes == size.Width * 4)
                 {
-                    _decoder.CopyRgba(pixels);
-                    if (_decoder.Pointer is var (x, y))
-                    {
-                        PointerArrow.Draw(pixels, size.Width, size.Height, x, y, bytesPerPixel: 4);
-                    }
+                    Paint(new Span<byte>((void*)buffer.Address, buffer.RowBytes * size.Height), size.Width, size.Height);
                 }
             }
         }
 
         _image.InvalidateVisual();
+    }
+
+    /// <summary>The picture as it is now into RGBA pixels: corrected for the viewer's color vision, then the pointer.</summary>
+    unsafe void Paint(Span<byte> pixels, int width, int height)
+    {
+        _decoder.CopyRgba(pixels);
+        if (_correction is not null)
+        {
+            fixed (byte* start = pixels)
+            {
+                _correction.Apply((IntPtr)start, width * 4, width, height, new FrameRect(0, 0, width, height));
+            }
+        }
+
+        if (_decoder.Pointer is var (x, y))
+        {
+            PointerArrow.Draw(pixels, width, height, x, y, bytesPerPixel: 4);
+        }
+    }
+
+    /// <summary>What the screen shows now, as RGBA pixels; tests read it.</summary>
+    internal byte[] Picture()
+    {
+        var pixels = new byte[_decoder.Width * _decoder.Height * 4];
+        if (_decoder.HasFrame)
+        {
+            Paint(pixels, _decoder.Width, _decoder.Height);
+        }
+
+        return pixels;
     }
 
     /// <summary>A terminal session that only plays back: output comes from the recording, and keys go nowhere.</summary>

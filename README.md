@@ -253,8 +253,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   frame rate and sound, or stops. A reconnect carries on in the same file.
 - **Encrypted,** sealed to a key kept with your saved credentials: recording never asks for the vault, playing does.
   Recordings live in `recordings/` in the data folder; old ones are deleted by age and total size.
-- **Playback** in the *Recordings* panel: ½× to 8×, sound at its pitch up to 4×, Skip idle, 10-second skips, markers
-  for drops and reconnects, volume, and Find for terminals.
+- **Playback** in the *Recordings* panel: ½× to 8×, sound at its pitch up to 4×, Skip idle, Loop, 10-second skips,
+  markers for drops and reconnects, volume, Find for terminals with its matches on the timeline, keyboard shortcuts
+  (? lists them), and your color correction.
 - **Export** an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
   in Settings, without sound. Orrery never downloads or bundles ffmpeg. See
