@@ -93,6 +93,15 @@ public sealed record AppSettings
     [JsonIgnore]
     public bool ZoomRemoteDesktops => RemoteDesktopZoom ?? true;
 
+    /// <summary>
+    /// Open web connections and management pages in a tab in Orrery (null is on) rather than the default browser.
+    /// A connection or folder can choose for itself; see InheritableSettings.WebPagesInOrrery.
+    /// </summary>
+    public bool? WebPagesInOrrery { get; init; }
+
+    [JsonIgnore]
+    public bool OpensWebPagesInOrrery => WebPagesInOrrery ?? true;
+
     /// <summary>Before <see cref="SidePanelMode"/>: the side panel was showing. Null is open. Still read when that's unset.</summary>
     public bool? SidePanelOpen { get; init; }
 

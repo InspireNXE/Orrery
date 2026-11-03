@@ -381,6 +381,30 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaFact]
+    public async Task Where_web_pages_open_shows_the_app_setting_until_the_connection_sets_its_own()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "router", Host = "router.lan", Settings = { Protocol = Protocol.Https } };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore(), webPagesInOrreryByDefault: () => false);
+        var window = new Window { Content = panel, Width = 400, Height = 1000 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var webPages = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "WebPages");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "Open web pages in");
+        Assert.Equal("The default browser", (webPages.SelectedItem as ComboBoxItem)?.Content);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "From Settings");
+
+        webPages.SelectedItem = webPages.Items.OfType<ComboBoxItem>().Single(i => (bool)i.Tag! == true);
+        Assert.True(panel.TrySave());
+
+        Assert.True(entry.Settings.WebPagesInOrrery);
+        Assert.True(SettingsResolver.Resolve(entry).InOrrery(appSetting: false));
+    }
+
+    [AvaloniaFact]
     public async Task Color_correction_can_be_turned_off_for_one_connection()
     {
         var tree = ConnectionTree.Empty();

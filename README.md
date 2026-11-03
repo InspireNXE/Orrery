@@ -54,7 +54,7 @@ machine yet, hence the 🧪.
 | Telnet | ✅ | 🧪 | 🧪 |
 | Serial consoles | 🧪 | 🧪 | 🧪 |
 | Local terminal | ✅ PowerShell, cmd, WSL | 🧪 login shell | 🧪 login shell |
-| Web pages, in your browser | ✅ | 🧪 | 🧪 |
+| Web pages, in a tab or your browser | ✅ | 🧪 | 🧪 [^webkit] |
 | Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
 | **Remote desktops** | | | |
@@ -94,6 +94,7 @@ machine yet, hence the 🧪.
 [^spaces]: macOS gives each display its own full-screen space.
 [^wayland]: Wayland doesn't let a window place itself or span displays. X11 sessions aren't supported.
 [^orca]: Avalonia has no screen reader support on Linux yet.
+[^webkit]: Pages in a tab need WebKitGTK (libwebkit2gtk-4.1), which the .deb and .rpm recommend; without it they open in your browser. Like the rest of Orrery's window, they're drawn through XWayland.
 [^files]: Remote files download when copied, up to 1 GB, into a private folder removed when the session ends.
 
 Further out: actions in quick connect, browser access through a tray agent, and scripted connect. See the
@@ -110,7 +111,7 @@ Further out: actions in quick connect, browser access through a tray agent, and 
 | VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard, view only, fill, shrink to fit or actual size |
 | Telnet | Built in | |
 | Serial | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports) | COM ports and `/dev/tty*`, with speed, data bits, parity, stop bits and flow control |
-| Web (HTTP, HTTPS) | Your browser | Keeps admin pages in the tree beside the rest; opens in your default browser |
+| Web (HTTP, HTTPS) | [Avalonia.Controls.WebView](https://www.nuget.org/packages/Avalonia.Controls.WebView): WebView2, WebKit or WebKitGTK | Keeps admin pages in the tree beside the rest; opens in a tab, or your default browser if you choose |
 | Local terminal | Built in | PowerShell, cmd or WSL on Windows; your login shell on Linux and macOS |
 
 ### Connecting
@@ -123,10 +124,10 @@ Further out: actions in quick connect, browser access through a tray agent, and 
 Quick connect (Ctrl+K) searches saved connections and open sessions as you type, or connects straight to a host.
 
 - **Jump hosts** work for every protocol, like `ssh -J`; RDP, VNC and Telnet go through an SSH tunnel. Web pages
-  can't, since the browser wouldn't use it: give the jump host a SOCKS proxy instead.
+  can't, in a tab or the browser: give the jump host a SOCKS proxy instead.
 - **Folders** can give every SSH connection inside a SOCKS proxy (like its own `D 1080`) and a keep-alive interval
   (30 seconds by default; 0 for none).
-- **Quick connect** also takes `http://` and `https://` addresses, which open in your browser, and serial ports:
+- **Quick connect** also takes `http://` and `https://` addresses, which open in a tab like other web pages, and serial ports:
   `COM3`, `/dev/ttyUSB0` or `serial://<port>`.
 - **`.rdp` files** open from the tree's right-click menu or the command line (`Orrery server.rdp`) without being
   saved; Import adds them to the tree. Saved passwords aren't imported (Windows encrypts them per user and
@@ -162,7 +163,7 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
   returns. A refused login or an untrusted host key or certificate is never retried.
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
-  *Open management page* opens it in the browser. Folders don't pass it on.
+  *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.
 
 <p align="center">
   <img src="docs/images/connection-lost.png" width="720"

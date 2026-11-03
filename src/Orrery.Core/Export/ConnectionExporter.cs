@@ -362,6 +362,7 @@ public static class ConnectionExporter
             Lost("Older SSH algorithms allowed", resolved.Protocol.Value == Protocol.Ssh && resolved.AllowLegacySsh.Value);
             Lost("Reconnect turned off", !resolved.AutoReconnect.Value);
             Lost("Enlarge setting chosen per connection", resolved.EnlargeRemoteDesktop.Value is not null);
+            Lost("Where web pages open, chosen per connection", resolved.WebPagesInOrrery.Value is not null);
             Lost("Color correction turned off", !resolved.ColorCorrection.Value);
             bool rdp = resolved.Protocol.Value == Protocol.Rdp;
             Lost("Shared folders (only sharing every drive carries over)", rdp && !resolved.ShareAllDrives.Value && resolved.SharedFolders.Value.Count > 0);
