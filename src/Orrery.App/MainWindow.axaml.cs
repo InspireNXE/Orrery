@@ -3185,47 +3185,69 @@ public partial class MainWindow : Window
     async Task ImportAsync(string path)
     {
         ImportResult? result = null;
-        string? masterPassword = null, passwordError = null;
+        Exception? failure = null;
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
         bool rdpFile = RdpFileImporter.IsRdpFile(path);
         bool sshConfig = IsSshConfig(path);
         var displays = DisplaysForRdpFiles();
-        while (result is null)
+        Task<ImportResult> Read(string? password) => Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
+            : sshConfig ? SshConfigImporter.ImportFile(path)
+            : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
+
+        try
         {
-            try
+            result = await Read(null);
+        }
+        catch (MasterPasswordRequiredException)
+        {
+            // The prompt tries each password itself and stays open, saying so, while it's wrong.
+            async Task<string?> Check(string password)
             {
-                var password = masterPassword;
-                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
-                    : sshConfig ? SshConfigImporter.ImportFile(path)
-                    : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
-            }
-            catch (MasterPasswordRequiredException e)
-            {
-                passwordError = e.WrongPassword ? "That password is incorrect." : null;
-                masterPassword = orrery
-                    ? await Dialogs.PromptPasswordAsync(this, "Export password",
-                        "This Orrery export includes saved passwords, so it's encrypted. Enter the password it was exported with.", passwordError)
-                    : await Dialogs.PromptPasswordAsync(this, "Master password",
-                        "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", passwordError);
-                if (masterPassword is null)
+                try
                 {
-                    return;
+                    result = await Read(password);
                 }
+                catch (MasterPasswordRequiredException e) when (e.WrongPassword)
+                {
+                    return "That password is incorrect.";
+                }
+                catch (Exception e)
+                {
+                    failure = e;
+                }
+
+                return null;
             }
-            catch (Exception e) when (e is ImportException or IOException or UnauthorizedAccessException)
+
+            var entered = orrery
+                ? await Dialogs.PromptPasswordAsync(this, "Export password",
+                    "This Orrery export includes saved passwords, so it's encrypted. Enter the password it was exported with.", Check)
+                : await Dialogs.PromptPasswordAsync(this, "Master password",
+                    "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", Check);
+            if (entered is null)
             {
-                StorageLog.LogWarning("Couldn't import {Path}: {Message}", path, e.Message);
-                await Dialogs.ShowMessageAsync(this, "Couldn't import this file", e.Message);
                 return;
             }
-            catch (Exception e)
-            {
-                // The importer means to fail only as above; anything else is a bug, not a reason to exit.
-                Log.For("App").LogError(e, "Importing {Path} failed", path);
-                await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
-                    "Orrery couldn't read this file. It may be damaged, or not a file Orrery can import.");
-                return;
-            }
+        }
+        catch (Exception e)
+        {
+            failure = e;
+        }
+
+        if (failure is ImportException or IOException or UnauthorizedAccessException)
+        {
+            StorageLog.LogWarning("Couldn't import {Path}: {Message}", path, failure.Message);
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file", failure.Message);
+            return;
+        }
+
+        if (failure is not null || result is null)
+        {
+            // The importer means to fail only as above; anything else is a bug, not a reason to exit.
+            Log.For("App").LogError(failure, "Importing {Path} failed", path);
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
+                "Orrery couldn't read this file. It may be damaged, or not a file Orrery can import.");
+            return;
         }
 
         int already = result.CountAlreadyIn(_tree);
