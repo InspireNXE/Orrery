@@ -110,4 +110,7 @@ static class Icons
     public const string VolumeLow = "M11 5L6 9H3v6h3l5 4z M15.5 8.5a5 5 0 0 1 0 7";
     public const string Record = "M12 6.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11";
     public const string Muted = "M11 5L6 9H3v6h3l5 4z M16 9.5l5 5 M21 9.5l-5 5";
+    public const string Loop = "M17 2l3 3-3 3 M4 11V9a4 4 0 0 1 4-4h12 M7 22l-3-3 3-3 M20 13v2a4 4 0 0 1-4 4H4";
+    public const string SkipIdle = "M4 6v12 M8 12h12 M16 8l4 4-4 4";
+    public const string Keyboard = "M4.5 6h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z M6.5 10h.01 M10 10h.01 M14 10h.01 M17.5 10h.01 M8 14h8";
 }

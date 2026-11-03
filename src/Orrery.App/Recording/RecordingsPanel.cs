@@ -102,6 +102,15 @@ sealed class RecordingsPanel : DockPanel
             play.IsEnabled = export.IsEnabled = Selected is { Problem: null };
         };
 
+        Stage.ShowInFolderRequested += path => Reveal(path, select: true);
+        Stage.DeleteRequested += async path =>
+        {
+            if (_items.FirstOrDefault(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase)) is { } item)
+            {
+                await DeleteAsync(item);
+            }
+        };
+
         var folder = new Button { Content = StrokeIcon.Create(Icons.Folder, 16), Width = 28, Height = 28 };
         folder.Classes.Add("icon");
         ToolTip.SetTip(folder, "Open the recordings folder");
@@ -419,7 +428,15 @@ sealed class RecordingsPanel : DockPanel
 
     async Task DeleteAsync()
     {
-        if (Selected is not { } item || Owner is not { } owner)
+        if (Selected is { } item)
+        {
+            await DeleteAsync(item);
+        }
+    }
+
+    async Task DeleteAsync(RecordingItem item)
+    {
+        if (Owner is not { } owner)
         {
             return;
         }
