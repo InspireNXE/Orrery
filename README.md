@@ -62,7 +62,7 @@ machine yet, hence the 🧪.
 | Clipboard | ✅ text, images, files | 🧪 text, images, files [^files] | 🧪 text, images, files [^files] |
 | Sound | ✅ | 🧪 | 🧪 |
 | Mute a tab | ✅ | 🧪 | 🧪 |
-| Shared drives and folders | 🧪 every drive or any folders | 🔸 one folder | 🔸 one folder |
+| Shared drives and folders | 🧪 every drive or any folders | 🧪 home or any folders | 🧪 home or any folders |
 | Full screen over several displays | 🧪 | ➖ one display [^spaces] | ➖ one display [^wayland] |
 | System keys (Windows key, Alt+Tab) sent to the session | ✅ | 🔸 Send keys menu | 🔸 Send keys menu |
 | Touch and pen, console session, broker redirection | 🧪 | 🧪 | 🧪 |
@@ -70,9 +70,8 @@ machine yet, hence the 🧪.
 | Record terminals and remote desktops, with sound | ✅ | 🧪 | 🧪 |
 | Play back, with speed, skip idle and Find | ✅ | 🧪 | 🧪 |
 | Export `.cast` and `.avi` | 🧪 | 🧪 | 🧪 |
-| Export MP4 | 🧪 built in, with sound | 🔸 through ffmpeg, no sound | 🔸 through ffmpeg, no sound |
+| Export MP4, with sound | 🧪 built in | 🔸 through ffmpeg | 🔸 through ffmpeg |
 | MP4 without ffmpeg | ✅ | 🗓️ AVFoundation | ➖ |
-| Sound in an ffmpeg export | 🗓️ | 🗓️ | 🗓️ |
 | Record the remote pointer's shape | 🗓️ | 🗓️ | 🗓️ |
 | **Credentials** | | | |
 | System secret store | ✅ Credential Manager | 🧪 Keychain | 🧪 Secret Service |
@@ -140,9 +139,8 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
   Recordings still get the sound.
 - **Graphics pipeline (RDPGFX)** is used when the server offers it, without H.264, which blurred text. Resizing,
   full screen included, then keeps the session running. Without it, each resize restarts the display.
-- **Shared drives:** every drive, or folders you pick, appear as drives on the remote computer. Linux and macOS
-  share one folder: your home folder when sharing every drive, else the first you picked. Orrery says when a
-  folder isn't shared.
+- **Shared drives:** every drive, or folders you pick, appear as drives on the remote computer, one each. On Linux
+  and macOS, sharing every drive shares your home folder. Orrery says when a folder isn't shared.
 - **Full screen** goes where the connection says, under Display › Full screen on: the window's display, every
   display, or ones you pick on a map. On Windows, a remote desktop gets one monitor per display; with a gap (1 and
   3), the remote monitors sit side by side and display 2 keeps showing this computer. VNC stretches across.
@@ -243,7 +241,7 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
   for drops and reconnects, volume, and Find for terminals.
 - **Export** an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
-  in Settings, without sound. Orrery never downloads or bundles ffmpeg. See
+  in Settings. Orrery never downloads or bundles ffmpeg. See
   [the design notes](docs/design-session-recording.md).
 
 <p align="center">
@@ -462,9 +460,9 @@ what differs there, and what's untried.
 
 IronRDP versions needed: `2026.10.29-orrery.3` for sound, shared drives, the console session, spanning displays and
 the routing token; `orrery.4` for sound without shared drives; `orrery.6` for the graphics pipeline and display
-scaling; `orrery.7` for recording sound; `orrery.8` for tab muting; `orrery.9` for clipboard files off Windows. With
-a package built on one machine, whose other platforms' libraries are older, Orrery connects without the missing
-features and logs which. IronRDP is built without Opus (it needs CMake), so servers send PCM, ADPCM or G.711 (or AAC,
+scaling; `orrery.7` for recording sound; `orrery.8` for tab muting; `orrery.9` for clipboard files off Windows;
+`orrery.10` for several shared folders off Windows. With a package built on one machine, whose other platforms'
+libraries are older, Orrery connects without the missing features and logs which. IronRDP is built without Opus (it needs CMake), so servers send PCM, ADPCM or G.711 (or AAC,
 on Windows).
 
 Not yet checked on real machines:
@@ -499,7 +497,7 @@ Not yet checked on real machines:
   `/dev/cu.*` and `/dev/tty.*`.
 - **Keys:** Cmd+Tab, Cmd+Space and other macOS shortcuts stay with macOS. The Send keys menu sends Alt+Tab, the
   Windows key and the rest.
-- **Shared drives:** one folder: home when sharing every drive, else the first you picked.
+- **Shared drives:** your home folder when sharing every drive, or any folders, each as its own drive.
 - **Full screen** is on one display, since macOS gives each its own space. A connection can pick which; Orrery says
   so when it's set to several.
 - **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
@@ -517,7 +515,7 @@ X11-specific code. X11 sessions aren't supported.
   libsecret and a Secret Service (GNOME Keyring or KWallet); otherwise, or when portable, the vault file is used.
   For serial ports, your user must be in `dialout` (`uucp` on Arch); log out and back in after adding it.
 - **Keys:** Super, Alt+Tab and other desktop shortcuts stay with the desktop. The Send keys menu sends them.
-- **Shared drives:** one folder: home when sharing every drive, else the first you picked.
+- **Shared drives:** your home folder when sharing every drive, or any folders, each as its own drive.
 - **Full screen** is on the window's display: Wayland doesn't let windows place themselves or span displays. Orrery
   says so when a connection is set to several.
 - **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.

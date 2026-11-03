@@ -20,8 +20,8 @@ public sealed record RdpOptions
 public readonly record struct SharedDrive(string Name, string Path);
 
 /// <summary>
-/// Turns a connection's drive settings into the folders to share. Windows can share several, each as its own drive.
-/// IronRDP shares only one on Linux and macOS, so there the first is shared and the rest are reported.
+/// Turns a connection's drive settings into the folders to share, each as its own drive. An IronRDP before
+/// <c>2026.10.29-orrery.10</c> shares only one on Linux and macOS, so there the first is shared and the rest are reported.
 /// </summary>
 public static class RdpDrives
 {
@@ -34,8 +34,23 @@ public static class RdpDrives
         }
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        bool multiple = OperatingSystem.IsWindows();
-        return Plan(shareAll, folders, home, multiple ? LocalDriveRoots() : [], multiple, Directory.Exists, problems);
+        bool multiple = OperatingSystem.IsWindows() || LibrarySharesSeveral();
+        // Off Windows, every drive is the home folder: the rest of the file system isn't the user's to share.
+        IReadOnlyList<string> roots = OperatingSystem.IsWindows() ? LocalDriveRoots() : [home];
+        return Plan(shareAll, folders, home, roots, multiple, Directory.Exists, problems);
+    }
+
+    /// <summary>Whether the IronRDP library loaded can share more than one folder here.</summary>
+    static bool LibrarySharesSeveral()
+    {
+        try
+        {
+            return Devolutions.IronRdp.DriveRedirection.SupportsMultipleDrives();
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false;
+        }
     }
 
     /// <param name="shareAll">
@@ -43,7 +58,7 @@ public static class RdpDrives
     /// only one can. The folders aren't shared as well, since they're on those drives.
     /// </param>
     /// <param name="folders">Folders as set, where a leading ~ is the home folder.</param>
-    /// <param name="multiple">Whether more than one folder can be shared (Windows).</param>
+    /// <param name="multiple">Whether more than one folder can be shared.</param>
     public static IReadOnlyList<SharedDrive> Plan(bool shareAll, IReadOnlyList<string> folders, string home, IReadOnlyList<string> driveRoots,
         bool multiple, Func<string, bool> folderExists, List<string> problems)
     {
