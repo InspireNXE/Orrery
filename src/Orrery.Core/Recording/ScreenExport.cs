@@ -23,6 +23,9 @@ public static class ScreenExport
     /// <summary>Gaps longer than this play as this long when idle stretches are skipped.</summary>
     public static readonly TimeSpan IdleCap = TimeSpan.FromSeconds(2);
 
+    /// <summary>Silence longer than this is laid down as frames pass, where the sound needn't run steadily.</summary>
+    static readonly TimeSpan LongSilence = TimeSpan.FromSeconds(1);
+
     /// <param name="width">The video's size: every frame is drawn at it, a screen of another size centered on black.</param>
     /// <remarks>Each frame's pixels are the same buffer, drawn again for the next one: use them before moving on.</remarks>
     /// <param name="sound">The sound track's format, from <see cref="SoundFormat.Of"/>; null leaves sound out.</param>
@@ -35,7 +38,7 @@ public static class ScreenExport
         CancellationToken cancel = default, SoundFormat? sound = null, bool steadySound = false,
         Action<byte[]>? recolor = null)
     {
-        byte[] Sound(SoundTrack? track, TimeSpan at)
+        byte[] Sound(SoundTrack? track, TimeSpan frame, TimeSpan step)
         {
             if (track is null)
             {
@@ -44,7 +47,13 @@ public static class ScreenExport
 
             if (steadySound)
             {
-                track.PadTo(at);
+                track.PadTo(frame + step + step);
+            }
+            else if (frame - track.Laid > LongSilence)
+            {
+                // A long quiet stretch goes out as the frames do, not all at once with the next sound: an hour of
+                // silence is hundreds of megabytes.
+                track.PadTo(frame);
             }
 
             return track.Take();
@@ -53,7 +62,7 @@ public static class ScreenExport
         var track = sound is null ? null : new SoundTrack(sound);
         var decoder = new ScreenDecoder();
         var step = TimeSpan.FromSeconds(1.0 / Math.Max(1, framesPerSecond));
-        var output = new byte[width * height * 3];
+        var output = new byte[checked(width * height * 3)];
         var next = TimeSpan.Zero;       // the next frame's time, on the export's clock
         var skipped = TimeSpan.Zero;    // idle time taken out so far
         var last = TimeSpan.Zero;       // the last event's time, on the recording's clock
@@ -80,7 +89,7 @@ public static class ScreenExport
                     recolor?.Invoke(output);
                 }
 
-                yield return new ExportFrame(next, width, height, output, changed) { Sound = Sound(track, next + step + step) };
+                yield return new ExportFrame(next, width, height, output, changed) { Sound = Sound(track, next, step) };
                 changed = false;
                 next += step;
             }
@@ -102,7 +111,7 @@ public static class ScreenExport
         {
             Render(decoder, output, width, height);
             recolor?.Invoke(output);
-            yield return new ExportFrame(next, width, height, output, true) { Sound = Sound(track, next + step + step) };
+            yield return new ExportFrame(next, width, height, output, true) { Sound = Sound(track, next, step) };
         }
     }
 
@@ -111,7 +120,9 @@ public static class ScreenExport
     {
         foreach (var e in reader.Events())
         {
-            if (e.Type == RecordingEventType.Resize && RecordingFile.ReadPair(e.Payload) is var (w, h) && w > 0 && h > 0)
+            // Sized as the player's frames are (design §8): a file can claim any size, and this one is allocated.
+            if (e.Type == RecordingEventType.Resize && RecordingFile.ReadPair(e.Payload) is var (w, h)
+                && w is > 0 and <= ScreenFrames.MaxSide && h is > 0 and <= ScreenFrames.MaxSide)
             {
                 return (w, h);
             }

@@ -193,8 +193,9 @@ public partial class MainWindow
             {
                 yield return new PaletteCommand($"Wake {name}", group, async () =>
                 {
+                    // The entry itself, not the selection: a filtered tree may not show it, and then can't select it.
                     Select(entry.Id);
-                    await WakeSelectedAsync();
+                    await WakeAsync([entry]);
                 }, name) { Keywords = ["wol", "lan", "power"] };
             }
 

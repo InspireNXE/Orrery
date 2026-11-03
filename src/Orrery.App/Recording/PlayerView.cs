@@ -737,10 +737,9 @@ sealed partial class PlayerView : DockPanel, IDisposable
         {
             (_kind, _ending) = await Task.Run(ReadTimeline);
         }
-        catch (Exception e) when (e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException)
+        catch (Exception e) when (CantRead(e))
         {
-            _stage.Children.Clear();
-            _stage.Children.Add(new Notice(NoticeKind.Error, e.Message) { MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+            ShowLoadError(e);
             return;
         }
 
@@ -773,7 +772,16 @@ sealed partial class PlayerView : DockPanel, IDisposable
         }
         else
         {
-            _reader = RecordingReader.Open(_item.Path, _privateKey);
+            // Opened again for the frames: the file can have gone, or changed, since the timeline was read.
+            try
+            {
+                _reader = RecordingReader.Open(_item.Path, _privateKey);
+            }
+            catch (Exception e) when (CantRead(e))
+            {
+                ShowLoadError(e);
+                return;
+            }
         }
 
         _stage.Children.Clear();
@@ -781,6 +789,14 @@ sealed partial class PlayerView : DockPanel, IDisposable
         Seek(TimeSpan.Zero);
         Play();
         Focus();
+    }
+
+    static bool CantRead(Exception e) => e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException;
+
+    void ShowLoadError(Exception e)
+    {
+        _stage.Children.Clear();
+        _stage.Children.Add(new Notice(NoticeKind.Error, e.Message) { MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
     }
 
     (RecordingKind, RecordingEnding) ReadTimeline()

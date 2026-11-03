@@ -53,7 +53,7 @@ public static class PasswordRules
         "firewall", "remote", "desktop", "connect", "manager", "vault", "keepass", "qwerty", "azerty", "abcd", "orrery",
     ];
 
-    static readonly string[] KeyboardRows = ["qwertyuiop", "asdfghjkl", "zxcvbnm", "azertyuiop", "qwertzuiop", "1234567890"];
+    static readonly string[] KeyboardRows = ["qwertyuiop", "asdfghjkl", "zxcvbnm", "azertyuiop", "qwertzuiop", "1234567890", "!@#$%^&*()"];
 
     static readonly Regex Year = new("(19|20)[0-9]{2}", RegexOptions.CultureInvariant);
 
@@ -116,7 +116,10 @@ public static class PasswordRules
         return Math.Min(Remove(Normalize(text, leet: false), personal).Length, Remove(Normalize(text, leet: true), personal).Length);
     }
 
-    /// <summary>Lowercase letters and digits only, with leetspeak undone if asked, so "P@ssw0rd!" can read as "password".</summary>
+    /// <summary>
+    /// Lowercase, without spaces, with leetspeak undone if asked, so "P@ssw0rd!" can read as "password". Symbols and
+    /// other characters stay: they count as much as letters do, so a long password of them isn't taken for a pattern.
+    /// </summary>
     static string Normalize(string text, bool leet)
     {
         var plain = new StringBuilder(text.Length);
@@ -134,7 +137,7 @@ public static class PasswordRules
                 '9' => 'g',
                 _ => c,
             };
-            if (char.IsLetterOrDigit(letter))
+            if (!char.IsWhiteSpace(letter) && !char.IsControl(letter))
             {
                 plain.Append(letter);
             }

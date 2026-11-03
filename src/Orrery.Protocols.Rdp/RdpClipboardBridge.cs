@@ -379,6 +379,8 @@ sealed class RdpClipboardBridge
         }
         else
         {
+            // Files no longer on the clipboard stop being readable, except what the server locked while they were.
+            _offered = [];
             await _channel.AnnounceFormatsAsync(
                 hasText ? [new(CfUnicodeText), new(CfText)]
                 : hasImage ? [new(CfDib), new(LocalPngFormat, PngName)]
@@ -480,8 +482,12 @@ sealed class RdpClipboardBridge
                 break;
 
             case Kind.Png:
-                ForgetLocal();
-                RemoteImageChanged?.Invoke(this, data);
+                // Decoding is sized by the header, not by the bytes sent, so a small file can claim a huge picture.
+                if (RdpDib.PngWithinLimit(data))
+                {
+                    ForgetLocal();
+                    RemoteImageChanged?.Invoke(this, data);
+                }
                 break;
 
             case Kind.Dib:
@@ -621,14 +627,25 @@ sealed class RdpClipboardBridge
             return;
         }
 
-        long total = files.Where(f => !f.Directory).Sum(f => Math.Max(0, f.Size ?? 0));
+        // Each size is clamped first, so a list of huge ones can't wrap the total around to under the limit.
+        long total = files.Where(f => !f.Directory).Sum(f => Math.Clamp(f.Size ?? 0, 0, MaxDownloadBytes + 1));
         if (total > MaxDownloadBytes)
         {
             Refuse($"The copied files weren't copied here: together they're over {MaxDownloadBytes / (1 << 30):N0} GB.");
             return;
         }
 
-        var root = RdpClipboardFiles.CreatePrivateFolder();
+        string root;
+        try
+        {
+            root = RdpClipboardFiles.CreatePrivateFolder();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Refuse($"The copied files weren't copied here: {e.Message}");
+            return;
+        }
+
         var download = new Download(root, lockId, total);
         for (int i = 0; i < files.Count; i++)
         {
@@ -639,14 +656,23 @@ sealed class RdpClipboardBridge
                 continue;
             }
 
-            if (file.Directory)
+            try
             {
-                Directory.CreateDirectory(path);
+                if (file.Directory)
+                {
+                    Directory.CreateDirectory(path);
+                }
+                else
+                {
+                    // A folder the list leaves out still has to be there.
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                }
             }
-            else
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // A folder the list leaves out still has to be there.
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                // A name this file system can't take, such as one over its length in bytes.
+                Logger.LogWarning("Left out a copied file that can't be made here: {Message}", e.Message);
+                continue;
             }
 
             // Requests name a file by its index in the server's list, so that is kept with it.
@@ -746,14 +772,15 @@ sealed class RdpClipboardBridge
                 }
 
                 long size = (long)Math.Min(BinaryPrimitives.ReadUInt64LittleEndian(data), long.MaxValue);
-                download.Total += size;
-                if (download.Total > MaxDownloadBytes)
+                // Compared before adding, so the total never wraps around.
+                if (size > MaxDownloadBytes - download.Total)
                 {
                     EndDownload(null);
                     Refuse($"The copied files weren't copied here: together they're over {MaxDownloadBytes / (1 << 30):N0} GB.");
                     return;
                 }
 
+                download.Total += size;
                 download.Size = size;
             }
             else

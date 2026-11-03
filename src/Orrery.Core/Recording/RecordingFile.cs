@@ -261,7 +261,10 @@ public sealed class RecordingWriter : IDisposable
             headerBytes.CopyTo(preamble, RecordingFile.Magic.Length + 4);
 
             // Shared for reading, so the list can show it while it's written, but not for deleting.
-            var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            var file = new FileStream(path, Storage.PrivateStorage.Private(new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.Read,
+            }));
             try
             {
                 file.Write(preamble);

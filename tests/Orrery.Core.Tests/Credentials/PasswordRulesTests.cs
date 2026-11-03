@@ -28,6 +28,7 @@ public class PasswordRulesTests
     [InlineData("zyxwvutsrqponm")]
     [InlineData("welcome-admin-2025")]
     [InlineData("OrreryOrrery99")]
+    [InlineData("!@#$%^&*()!@#")]
     public void Common_passwords_runs_and_years_are_refused(string password)
     {
         var check = PasswordRules.Check(password);
@@ -55,5 +56,15 @@ public class PasswordRulesTests
         var check = PasswordRules.Check(password);
         Assert.True(check.Accepted, check.Problem);
         Assert.Equal(strength, check.Strength);
+    }
+
+    [Theory]
+    [InlineData("#!$%&*()-_=+[]{}")]
+    [InlineData("🦊🌲🚲🎻🧭🪐🍋🐙🎈🧩🌋🦉")]
+    [InlineData("k#9]~q;<x/*?v")]
+    public void A_long_password_mostly_of_symbols_isnt_taken_for_a_pattern(string password)
+    {
+        var check = PasswordRules.Check(password);
+        Assert.True(check.Accepted, check.Problem);
     }
 }

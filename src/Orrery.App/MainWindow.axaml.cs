@@ -223,15 +223,7 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    UpdateVaultButton();
-                    _credentialsView?.ShowLocked();
-
-                    // As the manual lock does: keep the inspector's edits, then rebuild it so the credential picker stops listing names.
-                    _properties?.TrySave();
-                    if (_properties is not null)
-                    {
-                        await _properties.ShowAsync(_properties.Node);
-                    }
+                    await ShowVaultLockedAsync();
                 }
                 catch (Exception)
                 {
@@ -1400,9 +1392,17 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Hands <paramref name="url"/> to the default browser. Null if it went; what went wrong if not.</summary>
+    /// <summary>
+    /// Hands <paramref name="url"/> to the default browser. Null if it went; what went wrong if not. Only http and https
+    /// go: a page can navigate itself to any scheme, and the shell would hand another to whatever program claims it.
+    /// </summary>
     static string? OpenInBrowser(Uri url)
     {
+        if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+        {
+            return $"Only web addresses open in the browser, not {url.Scheme}: ones.";
+        }
+
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
@@ -1433,11 +1433,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
-    async Task WakeSelectedAsync()
+    Task WakeSelectedAsync() => WakeAsync(SelectedNodes().OfType<ConnectionEntry>());
+
+    async Task WakeAsync(IEnumerable<ConnectionEntry> entries)
     {
         var problems = new List<string>();
         var woken = new List<string>();
-        foreach (var entry in SelectedNodes().OfType<ConnectionEntry>().Where(en => !string.IsNullOrEmpty(en.MacAddress)))
+        foreach (var entry in entries.Where(en => !string.IsNullOrEmpty(en.MacAddress)))
         {
             if (WakeOnLan.PlanFor(entry, out var whyNot) is not { } plan)
             {
@@ -3445,9 +3447,9 @@ public partial class MainWindow : Window
         bool rdpFile = RdpFileImporter.IsRdpFile(path);
         bool sshConfig = IsSshConfig(path);
         var displays = DisplaysForRdpFiles();
-        Task<ImportResult> Read(string? password) => Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
+        Task<ImportResult> Read(string? password) => Task.Run(() => ImportReview.WithWarnings(rdpFile ? RdpFileImporter.ImportFile(path, displays)
             : sshConfig ? SshConfigImporter.ImportFile(path)
-            : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
+            : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password)));
 
         try
         {
@@ -3708,9 +3710,26 @@ public partial class MainWindow : Window
     {
         _properties.TrySave();
         _credentials.Lock();
+        await ShowVaultLockedAsync();
+    }
+
+    /// <summary>
+    /// What a lock hides, by hand or on idle: the credentials, the inspector's credential picker, and the recordings: the
+    /// player holds the recordings key and what it has read, and the list shows connection names only while unlocked.
+    /// </summary>
+    async Task ShowVaultLockedAsync()
+    {
         UpdateVaultButton();
-        _credentialsView.ShowLocked();
-        await _properties.ShowAsync(_properties.Node);
+        _credentialsView?.ShowLocked();
+        _recordingsPanel?.Stage.Close();
+        _recordingsPanel?.Refresh();
+
+        // Keep the inspector's edits, then rebuild it so the credential picker stops listing names.
+        _properties?.TrySave();
+        if (_properties is not null)
+        {
+            await _properties.ShowAsync(_properties.Node);
+        }
     }
 
     /// <summary>A saved connection opens with its current settings; one since deleted, or a typed host, opens directly.</summary>

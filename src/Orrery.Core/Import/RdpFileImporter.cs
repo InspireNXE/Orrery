@@ -210,7 +210,9 @@ public static class RdpFileImporter
                 }
                 else if (ids.Any(id => id < 0 || id >= displays.Count))
                 {
-                    warnings.Add($"The file chooses displays this computer doesn't have ({selected}); Orrery spreads the session over all of them in full screen.");
+                    // The numbers as read, not the file's text, which could be any length.
+                    var listed = string.Join(", ", ids.Take(16).Select(id => id < 0 ? "?" : id.ToString(CultureInfo.InvariantCulture)));
+                    warnings.Add($"The file chooses displays this computer doesn't have ({listed}{(ids.Count > 16 ? ", …" : "")}); Orrery spreads the session over all of them in full screen.");
                 }
                 else
                 {

@@ -46,6 +46,9 @@ public sealed class SoundTrack(SoundFormat format)
     /// <summary>Sample frames laid so far, handed out or not.</summary>
     public long Length => _taken + _pending.Length / Format.BlockAlign;
 
+    /// <summary><see cref="Length"/> as time on the export's clock.</summary>
+    public TimeSpan Laid => TimeSpan.FromSeconds((double)Length / Format.SampleRate);
+
     /// <summary>Lays a recorded <see cref="RecordingEventType.Audio"/> event at <paramref name="at"/> on the export's clock.</summary>
     public void Add(TimeSpan at, byte[] payload)
     {

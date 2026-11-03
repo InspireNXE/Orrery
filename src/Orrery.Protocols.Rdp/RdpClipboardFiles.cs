@@ -112,20 +112,17 @@ static class RdpClipboardFiles
     /// <summary>A new folder only this user can open, for files the server copies.</summary>
     public static string CreatePrivateFolder()
     {
-        var parent = Path.Combine(Path.GetTempPath(), "Orrery", "Clipboard");
-        var path = Path.Combine(parent, Guid.NewGuid().ToString("N"));
         if (OperatingSystem.IsWindows())
         {
             // The user's temp folder is already private to them.
+            var path = Path.Combine(Path.GetTempPath(), "Orrery", "Clipboard", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(path);
-        }
-        else
-        {
-            Directory.CreateDirectory(parent, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            return path;
         }
 
-        return path;
+        // /tmp is shared, and a parent folder another user made first would be theirs to swap things in. A folder made
+        // straight in it, under a name chosen as it's made, is ours alone (mkdtemp: mode 0700).
+        return Directory.CreateTempSubdirectory("orrery-clipboard-").FullName;
     }
 
     /// <summary>Deletes <paramref name="folder"/> and what it holds, quietly when it can't.</summary>

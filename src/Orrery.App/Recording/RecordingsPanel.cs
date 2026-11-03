@@ -401,7 +401,7 @@ sealed class RecordingsPanel : DockPanel
 
     void OpenFolder()
     {
-        Directory.CreateDirectory(_service.Folder);
+        Orrery.Core.Storage.PrivateStorage.CreateDirectory(_service.Folder);
         Reveal(_service.Folder, select: false);
     }
 

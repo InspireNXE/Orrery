@@ -10,7 +10,8 @@ public static class ManagementUrl
 
     /// <summary>
     /// Reads a web address, adding <c>https://</c> when it has no scheme (<c>10.20.0.1:8443</c>). Only http and https
-    /// are taken, so the menu can't be made to run a program or open a file.
+    /// are taken, so the menu can't be made to run a program or open a file, and none with user details
+    /// (<c>https://bank.example@evil.example</c>), which hide where the address really goes.
     /// </summary>
     public static bool TryNormalize(string? text, out string url)
     {
@@ -28,7 +29,8 @@ public static class ManagementUrl
 
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https")
-            || string.IsNullOrEmpty(uri.Host))
+            || string.IsNullOrEmpty(uri.Host)
+            || !string.IsNullOrEmpty(uri.UserInfo))
         {
             return false;
         }
