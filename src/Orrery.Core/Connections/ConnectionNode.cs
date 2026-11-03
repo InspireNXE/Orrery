@@ -216,7 +216,7 @@ public sealed class InheritableSettings
     /// <summary>VNC: watch without sending keys, clicks or the clipboard. Null inherits; off by default.</summary>
     public bool? ViewOnly { get; set; }
 
-    /// <summary>VNC: how the remote desktop is fitted into the tab. Null inherits; shrunk to fit by default.</summary>
+    /// <summary>VNC: how the remote desktop is fitted into the tab. Null inherits; fitted to the tab by default.</summary>
     public DesktopScaling? Scaling { get; set; }
 
     /// <summary>SSH: seconds between keep-alive messages, which stop idle sessions being dropped; 0 sends none. Null inherits; 30 by default.</summary>
@@ -303,6 +303,25 @@ public sealed class InheritableSettings
                 property.SetValue(this, property.GetValue(parent) is List<string> list ? list.ToList() : property.GetValue(parent));
             }
         }
+    }
+
+    /// <summary>
+    /// Settings set to a number that isn't one of their choices, such as <c>"protocol": 99</c>. JSON takes numbers for
+    /// them, so only a file edited by hand or damaged has one.
+    /// </summary>
+    internal IReadOnlyList<string> UndefinedChoices() =>
+        SettingProperties.Where(p => p.GetValue(this) is Enum value && !Enum.IsDefined(value.GetType(), value)).Select(p => p.Name).ToList();
+
+    /// <summary>Sets each of <see cref="UndefinedChoices"/> back to inherit, and returns their names.</summary>
+    internal IReadOnlyList<string> ForgetUndefinedChoices()
+    {
+        var names = UndefinedChoices();
+        foreach (var name in names)
+        {
+            typeof(InheritableSettings).GetProperty(name)!.SetValue(this, null);
+        }
+
+        return names;
     }
 
     static readonly System.Reflection.PropertyInfo[] SettingProperties =

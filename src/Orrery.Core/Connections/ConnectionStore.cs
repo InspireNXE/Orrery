@@ -60,6 +60,16 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
 
         var tree = new ConnectionTree(file.Root);
+
+        // A number that isn't a choice (hand-edited) would throw once used, so it's dropped and the folder's value applies.
+        foreach (var node in tree.Root.Descendants().Prepend(tree.Root))
+        {
+            if (node.Settings?.ForgetUndefinedChoices() is { Count: > 0 } names)
+            {
+                Logger.LogWarning("\"{Name}\" had values Orrery doesn't know for {Settings}; it inherits them instead", node.Name, string.Join(", ", names));
+            }
+        }
+
         Logger.LogInformation("Loaded {Connections} connections in {Folders} folders from {Path}", tree.Root.Descendants().OfType<ConnectionEntry>().Count(),
             tree.Root.Descendants().OfType<ConnectionFolder>().Count(), path);
         return tree;

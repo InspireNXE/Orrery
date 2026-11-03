@@ -28,12 +28,19 @@ public static class DataFolderFiles
     ];
 
     /// <summary>Folders Orrery writes, and the only files in them it touches. Nothing deeper.</summary>
-    public static readonly IReadOnlyList<(string Name, string Pattern)> Folders =
+    public static readonly IReadOnlyList<(string Name, IReadOnlyList<string> Patterns)> Folders =
     [
-        ("backups", "connections-*.json"),
-        ("import", "mremoteng-*.md"),
-        ("recordings", "*.orrec"),
+        ("backups", ["connections-*.json"]),
+        ("import", ImportReports()),
+        ("recordings", ["*.orrec"]),
     ];
+
+    /// <summary>
+    /// Import reports, named by MainWindow.WriteImportReport after each importer's <c>ImportReport.From</c> and the time,
+    /// like <c>ssh-config-20261101-090000.md</c>. Only that shape, so a file of the user's beside them isn't taken for one.
+    /// </summary>
+    static string[] ImportReports() =>
+        new[] { "mremoteng", "orrery", "ssh-config", "remote-desktop-file" }.Select(from => $"{from}-????????-??????.md").ToArray();
 
     /// <summary>
     /// Orrery's, but about the folder they sit in: deleted with an old copy, never copied. Interrupted
@@ -51,14 +58,14 @@ public static class DataFolderFiles
 
     public static bool IsUntouched(string name) => MatchesAny(Untouched, name);
 
-    /// <summary>The pattern for files inside <paramref name="folder"/>, or null if Orrery doesn't own that folder.</summary>
-    public static string? PatternFor(string folder) =>
-        Folders.FirstOrDefault(f => Matches(f.Name, folder)) is { Name: not null } match ? match.Pattern : null;
+    /// <summary>The patterns for files inside <paramref name="folder"/>, or null if Orrery doesn't own that folder.</summary>
+    public static IReadOnlyList<string>? PatternsFor(string folder) =>
+        Folders.FirstOrDefault(f => Matches(f.Name, folder)) is { Name: not null } match ? match.Patterns : null;
 
-    public static bool IsCopiedFrom(string pattern, string name) => Matches(pattern, name);
+    public static bool IsCopiedFrom(IReadOnlyList<string> patterns, string name) => MatchesAny(patterns, name);
 
-    public static bool IsDeletedFrom(string pattern, string name) =>
-        Matches(pattern, name) || IsTempOf(name, n => Matches(pattern, n));
+    public static bool IsDeletedFrom(IReadOnlyList<string> patterns, string name) =>
+        MatchesAny(patterns, name) || IsTempOf(name, n => MatchesAny(patterns, n));
 
     static bool IsTempOf(string name, Func<string, bool> owned) =>
         AtomicFile.TargetOfTemp(name) is { } target && owned(target);

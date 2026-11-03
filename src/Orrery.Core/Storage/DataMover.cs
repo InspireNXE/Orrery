@@ -171,7 +171,7 @@ public static class DataMover
                 continue;
             }
 
-            if (entry is DirectoryInfo folder && DataFolderFiles.PatternFor(folder.Name) is { } pattern)
+            if (entry is DirectoryInfo folder && DataFolderFiles.PatternsFor(folder.Name) is { } patterns)
             {
                 if (IsLink(folder))
                 {
@@ -182,7 +182,7 @@ public static class DataMover
                 foreach (var child in folder.EnumerateFileSystemInfos())
                 {
                     var relative = Path.Combine(folder.Name, child.Name);
-                    bool ours = child is FileInfo && (copying ? DataFolderFiles.IsCopiedFrom(pattern, child.Name) : DataFolderFiles.IsDeletedFrom(pattern, child.Name));
+                    bool ours = child is FileInfo && (copying ? DataFolderFiles.IsCopiedFrom(patterns, child.Name) : DataFolderFiles.IsDeletedFrom(patterns, child.Name));
                     Place(child, relative, ours);
                 }
             }

@@ -121,6 +121,13 @@ public static class OrreryImporter
             throw new ImportException($"This file has more than {MRemoteNgImporter.MaxNodes:N0} folders and connections, more than Orrery imports at once.");
         }
 
+        // JSON takes a number for a choice, such as "protocol": 99; one that isn't a choice would fail once used.
+        if (nodes.Prepend(file.Root).Any(n => n.Settings?.UndefinedChoices().Count > 0
+                || (n is ConnectionEntry { PortForwards: { } forwards } && forwards.Any(f => f is not null && !Enum.IsDefined(f.Kind)))))
+        {
+            throw new ImportException("This file has a setting Orrery doesn't recognize, so it may be damaged.");
+        }
+
         // The import lands in a folder of its own, which takes one level.
         if (!ConnectionTree.CanPlace(file.Root, new ConnectionFolder()))
         {

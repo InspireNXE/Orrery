@@ -143,6 +143,44 @@ public class HostGroupTests : IDisposable
     }
 
     [Fact]
+    public void Duplicating_a_folder_puts_its_hosts_guests_in_the_copy_so_they_take_its_settings()
+    {
+        var (tree, lab, _, _, _, _) = Sample();
+        lab.Settings.Protocol = Protocol.Ssh;
+
+        var copy = Assert.IsType<ConnectionFolder>(tree.Duplicate(lab));
+
+        var hostCopy = copy.Children.OfType<ConnectionEntry>().Single(e => e.IsHost);
+        Assert.All(hostCopy.Guests, g => Assert.Same(copy, g.Parent));
+        Assert.All(hostCopy.Guests, g => Assert.Equal(Protocol.Ssh, SettingsResolver.Resolve(g).Protocol.Value));
+        Assert.Equal("Lab (copy) / hv-01", hostCopy.Guests[0].Path);
+    }
+
+    [Fact]
+    public void Bringing_in_only_a_folders_contents_gives_a_top_level_hosts_guests_what_they_took_from_it()
+    {
+        var source = ConnectionTree.Empty();
+        source.Root.Settings.Protocol = Protocol.Ssh;
+        source.Root.Settings.Username = "ops";
+        source.Root.Settings.ShareClipboard = false;
+        var host = new ConnectionEntry { Name = "hv-01", Host = "hv-01.lab" };
+        var vm = new ConnectionEntry { Name = "vm", Host = "vm.lab", Settings = { Username = "me" } };
+        source.Add(host, source.Root);
+        source.AddGuest(vm, host);
+        var tree = ConnectionTree.Empty();
+        tree.Root.Settings.Protocol = Protocol.Vnc;
+
+        tree.AddFrom(source.Root, tree.Root, includeSourceFolder: false);
+
+        var resolved = SettingsResolver.Resolve(vm);
+        Assert.Equal(Protocol.Ssh, resolved.Protocol.Value);
+        Assert.Equal("me", resolved.Username.Value);
+        Assert.False(resolved.ShareClipboard.Value);
+        Assert.Same(host, resolved.ShareClipboard.Source);
+        Assert.Null(vm.Settings.ShareClipboard);
+    }
+
+    [Fact]
     public void Bringing_in_a_folder_with_hosts_keeps_the_guests_with_them()
     {
         var (source, _, _, _, _, _) = Sample();

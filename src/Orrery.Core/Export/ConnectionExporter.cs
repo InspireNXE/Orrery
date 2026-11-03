@@ -120,9 +120,14 @@ public static class ConnectionExporter
                 copy.Settings.FillFrom(host.Settings, InheritableSettings.PassedToGuests);
             }
 
+            // A host's guests skip it for what they keep, so they take those from its folders themselves.
             foreach (var ancestor in node.Ancestors())
             {
                 copy.Settings.FillFrom(ancestor.Settings);
+                foreach (var guest in (copy as ConnectionEntry)?.Guests ?? [])
+                {
+                    guest.Settings.FillFrom(ancestor.Settings, InheritableSettings.KeptByGuests);
+                }
             }
 
             root = new ConnectionFolder { Name = "Connections" };

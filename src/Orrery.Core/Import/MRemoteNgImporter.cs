@@ -21,16 +21,13 @@ public sealed class MasterPasswordRequiredException(bool wrongPassword)
 /// <summary>An import ready to add: the folder of imported items, the credentials to save, and what happened.</summary>
 public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credential> Credentials, ImportReport Report)
 {
-    /// <summary>How many imported connections already exist in <paramref name="tree"/> from an earlier import.</summary>
-    public int CountAlreadyIn(ConnectionTree tree)
-    {
-        var existing = ExistingSourceIds(tree);
-        return Root.Descendants().OfType<ConnectionEntry>().Count(e => e.ImportSourceId is { } id && existing.Contains(id));
-    }
+    /// <summary>How many imported connections already exist in <paramref name="tree"/> from an earlier import: the ones <see cref="WithoutAlreadyIn"/> drops.</summary>
+    public int CountAlreadyIn(ConnectionTree tree) => AlreadyIn(ExistingSourceIds(tree)).Count;
 
     /// <summary>
     /// Drops connections already imported into <paramref name="tree"/>, then folders left empty that were
-    /// imported before too, and credentials nothing uses any more.
+    /// imported before too, and credentials nothing uses any more. A host already there that brings a new
+    /// guest stays, holding just its new guests, so nothing new is lost.
     /// </summary>
     public ImportResult WithoutAlreadyIn(ConnectionTree tree)
     {
@@ -38,7 +35,7 @@ public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credentia
         var importTree = new ConnectionTree(Root);
 
         // A jump host that's dropped as already imported is still what its users go through: point them at the copy in the tree.
-        var already = Root.Descendants().OfType<ConnectionEntry>().Where(e => e.ImportSourceId is { } id && existing.Contains(id)).ToList();
+        var already = AlreadyIn(existing);
         var inTree = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var node in tree.Root.Descendants())
         {
@@ -49,8 +46,9 @@ public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credentia
             }
         }
 
+        // The import's root too: what's added at the top takes its settings.
         var moved = already.Where(e => inTree.ContainsKey(e.ImportSourceId!)).ToDictionary(e => e.Id, e => inTree[e.ImportSourceId!]);
-        foreach (var node in Root.Descendants().Where(n => n.Settings.JumpHostId is { } jump && moved.ContainsKey(jump)))
+        foreach (var node in Root.Descendants().Prepend(Root).Where(n => n.Settings.JumpHostId is { } jump && moved.ContainsKey(jump)))
         {
             node.Settings.JumpHostId = moved[node.Settings.JumpHostId!.Value];
         }
@@ -71,6 +69,13 @@ public sealed record ImportResult(ConnectionFolder Root, IReadOnlyList<Credentia
 
         var used = Root.Descendants().Select(n => n.Settings.CredentialId).OfType<Guid>().ToHashSet();
         return this with { Credentials = Credentials.Where(c => used.Contains(c.Id)).ToList() };
+    }
+
+    /// <summary>Imported connections already in the tree, but not a host with a guest that isn't.</summary>
+    List<ConnectionEntry> AlreadyIn(HashSet<string> existing)
+    {
+        bool In(ConnectionEntry entry) => entry.ImportSourceId is { } id && existing.Contains(id);
+        return Root.Descendants().OfType<ConnectionEntry>().Where(e => In(e) && e.Guests.All(In)).ToList();
     }
 
     // Each node's own id counts too, so an Orrery export brought back into the tree it came from is spotted.
@@ -460,10 +465,24 @@ public static class MRemoteNgImporter
                 return;
             }
 
+            // A web page's host may be a whole address. It decides: its scheme is the protocol and its port (or the scheme's) the port.
+            var host = node.Raw("Hostname").Trim();
+            int? addressPort = null;
+            if (ProtocolInfo.IsWeb(mapped) && WebAddress.TryParseUrl(host, out var scheme, out var webHost, out var webPort))
+            {
+                if (scheme != mapped)
+                {
+                    _warnings.Add($"{node.Path}: its address starts with {scheme.ToString().ToLowerInvariant()}://, so it was imported as {ProtocolInfo.Label(scheme)}.");
+                    mapped = scheme;
+                }
+
+                (host, addressPort) = (webHost, webPort);
+            }
+
             var entry = new ConnectionEntry
             {
                 Name = node.Name,
-                Host = node.Raw("Hostname").Trim(),
+                Host = host,
                 Notes = Blank(node.Effective("Descr")),
                 ImportSourceId = SourceId(node),
             };
@@ -483,6 +502,15 @@ public static class MRemoteNgImporter
 
             SetProtocol(entry, mapped);
             SetPort(entry, node);
+            if (addressPort is { } port)
+            {
+                entry.Settings.Port = null;
+                if (SettingsResolver.Resolve(entry).Port.Value != port)
+                {
+                    entry.Settings.Port = port;
+                }
+            }
+
             SetText(entry, node.Effective("Username"), s => s.Username, (s, v) => s.Username = v);
             SetText(entry, node.Effective("Domain"), s => s.Domain, (s, v) => s.Domain = v);
             SetClipboard(entry, node);
