@@ -14,13 +14,12 @@ namespace Orrery.App.Credentials;
 /// </summary>
 sealed class VaultUnlockWindow : Window
 {
-    const int MinimumPasswordLength = 8;
-
     readonly ICredentialStore _store;
     readonly bool _creating;
     readonly BiometricUnlock? _biometric;
     readonly TextBox _password = new PasswordBox();
     readonly TextBox _confirm = new PasswordBox();
+    readonly PasswordMeter? _meter;
     readonly Notice _notice = new(NoticeKind.Warning) { IsVisible = false };
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
@@ -88,6 +87,7 @@ sealed class VaultUnlockWindow : Window
         body.Children.Add(Field("Master password", _password));
         if (_creating)
         {
+            body.Children.Add(_meter = new PasswordMeter(_password, "vault", "master"));
             body.Children.Add(Field("Confirm master password", _confirm));
         }
 
@@ -218,9 +218,9 @@ sealed class VaultUnlockWindow : Window
         var password = _password.Text ?? string.Empty;
         if (_creating)
         {
-            if (password.Length < MinimumPasswordLength)
+            if (_meter!.Check().Problem is { } problem)
             {
-                ShowError($"Use at least {MinimumPasswordLength} characters. A short phrase is easier to remember than a complex word.");
+                ShowError(problem);
                 return;
             }
 
