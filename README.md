@@ -31,9 +31,27 @@ Orrery is built on Avalonia and .NET 10. It takes its cue from [mRemoteNG](https
 
 > Version 0.1.0. The protocols work, but much hasn't been tried on real machines yet; see [Status](#status).
 
-**Contents:** [Platform support](#platform-support) · [Features](#features) · [Accessibility](#accessibility) ·
+**Contents:** [Download](#download) · [Platform support](#platform-support) · [Features](#features) · [Accessibility](#accessibility) ·
 [Keyboard shortcuts](#keyboard-shortcuts) · [Where your data lives](#where-your-data-lives) · [Building](#building) ·
 [Status](#status) · [Security](#security) · [How it's made](#how-its-made) · [License and credits](#license-and-credits)
+
+## Download
+
+From [Releases](https://github.com/InspireNXE/Orrery/releases):
+
+| | Installed | Portable |
+| --- | --- | --- |
+| Windows | `Orrery-Setup-<version>.exe` (x64) | `Orrery-<version>-win-<x64\|arm64>-portable.zip` |
+| Linux | `.deb`, `.rpm`, or the AppImage | `Orrery-<version>-linux-<x64\|arm64>-portable.zip` |
+| macOS | | `Orrery-<version>-macos-<arm64\|x64>-portable.zip` (an `Orrery.app`) |
+
+The packages aren't signed yet, so Windows SmartScreen and macOS Gatekeeper will warn the first time
+([docs/code-signing.md](docs/code-signing.md) has the plan). Each release lists its files' SHA-256s in `SHA256SUMS`,
+and GitHub attests that they were built by this repository's workflow:
+`gh attestation verify <file> --repo InspireNXE/Orrery`.
+
+On first launch a short setup asks where a portable copy keeps its data, where saved passwords go (and the vault's
+master password, if that's your choice), what to import, and how to handle updates. *Use defaults* skips to the end.
 
 ## Platform support
 
@@ -274,6 +292,11 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 ### Your workspace
 
 - Install it, or run it portable with its data wherever you choose.
+- Updates come from this repository's releases. Orrery checks once a day (Settings › About › Updates, or
+  Ctrl+K *Check for updates*), sending only its version, and shows a bar above the tabs when one is out. Windows
+  copies and the AppImage download it, check it against the release's `SHA256SUMS`, and restart as the new version,
+  reopening the sessions that were open; *When I quit* waits instead. The .deb, .rpm and macOS copies point you to
+  the release. Later, Skip this version, previews and downloading in the background are in Settings.
 - Orrery remembers the window and open tabs and can reopen them at start: ask, always or never. Quick-connect hosts
   come back by address and ask for their login again. Never also stops saving the tab list and deletes the saved
   one; window size, position and panes are still kept.
@@ -446,8 +469,10 @@ portable app is one executable that unpacks its native libraries to a cache fold
 `Orrery.app` bundle, not yet signed or notarized. On Linux, `chmod +x Orrery` after unzipping; the machine needs what
 [Linux](#linux-wayland-only) lists, which the .deb and .rpm pull in. No Flatpak.
 
-GitHub Actions builds all of these on every push and pull request. [docs/packaging.md](docs/packaging.md) covers
-Linux requirements, third-party notices, lock files and the workflow.
+GitHub Actions builds all of these on every push and pull request. Pushing a `v<version>` tag also makes a draft
+release with every package, `SHA256SUMS` and attestations; `build/New-TestRelease.ps1` makes one locally for trying
+updates. [docs/packaging.md](docs/packaging.md) covers Linux requirements, third-party notices, lock files, the
+workflow, releasing and testing updates.
 
 ### Screenshots
 
