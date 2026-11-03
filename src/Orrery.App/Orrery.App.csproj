@@ -6,6 +6,7 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\orrery.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>Orrery</Product>
     <Description>Orrery Connection Manager</Description>
   </PropertyGroup>
@@ -21,6 +22,8 @@
     <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
+    <!-- Versioned apart from Avalonia; 12.1.1 is the newest. -->
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.1.1" />
     <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
@@ -38,6 +41,14 @@
        already puts that runtime's library beside the app, so these copies are never loaded: drop them (about 16 MB
        of Windows DLLs in every Linux and macOS package built on Windows). Builds without a runtime keep them,
        since that's where they're found. -->
+  <!-- SkiaSharp 3 and HarfBuzzSharp carry debug symbols for their native libraries (about 100 MB on Windows), which a
+       publish copies beside the app. Nothing loads them, so they're left out. -->
+  <Target Name="DropPackageNativeSymbols" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb' And '%(ResolvedFileToPublish.NuGetPackageId)' != ''" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="DropUnusedIronRdpNatives" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RuntimeIdentifier)' != ''">
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"

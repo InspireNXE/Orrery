@@ -39,7 +39,7 @@ sealed class PortableSetupWindow : Window
         _withApp = new RadioButton { GroupName = "location", IsChecked = true };
         _userProfile = new RadioButton { GroupName = "location" };
         _custom = new RadioButton { GroupName = "location" };
-        _customPath = new TextBox { Watermark = "Choose a folder", FontFamily = Dialogs.MonoFont, FontSize = 12, IsEnabled = false };
+        _customPath = new TextBox { PlaceholderText = "Choose a folder", FontFamily = Dialogs.MonoFont, FontSize = 12, IsEnabled = false };
         Avalonia.Automation.AutomationProperties.SetName(_customPath, "Custom folder");
         _custom.IsCheckedChanged += (_, _) => _customPath.IsEnabled = _custom.IsChecked == true;
 

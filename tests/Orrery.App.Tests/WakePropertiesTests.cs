@@ -35,7 +35,7 @@ public class WakePropertiesTests
         await panel.ShowAsync(entry);
         Dispatcher.UIThread.RunJobs();
         var boxes = window.GetVisualDescendants().OfType<TextBox>().ToList();
-        return (panel, window, entry, boxes.Single(t => t.Watermark == "00:1A:2B:3C:4D:5E"), boxes.Single(t => t.Watermark == "255.255.255.255"),
+        return (panel, window, entry, boxes.Single(t => t.PlaceholderText == "00:1A:2B:3C:4D:5E"), boxes.Single(t => t.PlaceholderText == "255.255.255.255"),
             window.GetVisualDescendants().OfType<TextBlock>().First(t => t.Foreground == Dialogs.DangerBrush && t.GetVisualAncestors().OfType<Orrery.App.Controls.Notice>().Any()));
     }
 
@@ -101,7 +101,7 @@ public class WakePropertiesTests
         await panel.ShowAsync(folder);
         Dispatcher.UIThread.RunJobs();
 
-        var mac = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "00:1A:2B:3C:4D:5E");
+        var mac = window.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "00:1A:2B:3C:4D:5E");
         Assert.False(mac.IsEffectivelyVisible);
         window.Close();
     }

@@ -395,7 +395,7 @@ public sealed partial class RemoteFrameView : Panel
     }
 
     /// <summary>Writes the remote screen as it is now, color correction included, as a PNG.</summary>
-    public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream);
+    public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream, PngBitmapEncoderOptions.Default);
 
     /// <summary>Presses the keys in order on the remote computer, then lets them go in reverse.</summary>
     public void SendKeys(RemoteKeyCombo combo)
@@ -896,7 +896,7 @@ public sealed partial class RemoteFrameView : Panel
         _ => null,
     };
 
-    protected override void OnGotFocus(GotFocusEventArgs e)
+    protected override void OnGotFocus(FocusChangedEventArgs e)
     {
         base.OnGotFocus(e);
         UpdateKeyCapture();
@@ -946,7 +946,7 @@ public sealed partial class RemoteFrameView : Panel
         }
     }
 
-    protected override void OnLostFocus(RoutedEventArgs e)
+    protected override void OnLostFocus(FocusChangedEventArgs e)
     {
         base.OnLostFocus(e);
         UpdateKeyCapture();

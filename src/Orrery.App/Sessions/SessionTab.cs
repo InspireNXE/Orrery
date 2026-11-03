@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -29,6 +30,12 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
     /// <summary>A local terminal's shell, by id ("pwsh", "wsl:Ubuntu"), so it can be opened again the same way.</summary>
     public string? LocalShell { get; init; }
 
+    /// <summary>
+    /// A connection's management page in a tab: not the connection itself, so it isn't added to Recent or counted as
+    /// connecting.
+    /// </summary>
+    public bool ManagementPage { get; init; }
+
     /// <summary>What the tab and toolbar call it: the protocol, SFTP or LOCAL.</summary>
     public string Label => Local ? "LOCAL" : Files ? "SFTP" : ProtocolInfo.Label(Protocol);
 }
@@ -41,17 +48,8 @@ sealed class SessionTab
 {
 
     readonly StateGlyph _state = new() { VerticalAlignment = VerticalAlignment.Center };
-    // The current tab's top edge: drawn over the tab's own outline (hence the -1 margin) so it
-    // follows the rounded corners instead of sitting inside them.
-    readonly Border _accent = new()
-    {
-        Margin = new Thickness(-1, -1, -1, 0),
-        BorderThickness = new Thickness(0, 2, 0, 0),
-        CornerRadius = new CornerRadius(8, 8, 0, 0),
-        BorderBrush = Palette.Accent,
-        IsHitTestVisible = false,
-        IsVisible = false,
-    };
+    // The current tab's marker, along its top over the outline; App.axaml shows it on the selected tab.
+    readonly Border _marker = new() { Classes = { "marker", "top" } };
 
     public SessionTab(IConnectionSession session, Control view, SessionOrigin origin)
     {
@@ -91,7 +89,7 @@ sealed class SessionTab
             {
                 Children =
                 {
-                    _accent,
+                    _marker,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
@@ -747,12 +745,20 @@ sealed class SessionTab
     /// <summary>Raised on the UI thread when the session connects, ends or fails.</summary>
     public event EventHandler? StateChanged;
 
-    /// <summary>user@host, plus the port when it isn't the protocol's usual one; user@computer for a local shell.</summary>
+    /// <summary>
+    /// user@host, plus the port when it isn't the protocol's usual one; user@computer for a local shell; the page
+    /// showing now for a web page, without its query, which can carry tokens.
+    /// </summary>
     public string Address
     {
         get
         {
             var target = Session.Target;
+            if (View is WebPageView web)
+            {
+                return web.Address.GetLeftPart(UriPartial.Path);
+            }
+
             if (Origin.Local)
             {
                 return $"{target.Username}@{target.Host}";
@@ -770,7 +776,6 @@ sealed class SessionTab
         {
             Header.Classes.Set("selected", value);
             Header.IsCurrent = value;
-            _accent.IsVisible = value;
             Host.IsVisible = value;
         }
     }

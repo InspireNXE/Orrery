@@ -45,7 +45,7 @@ $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Projec
 # OpenSSL (TLS and crypto); Avalonia needs X11 (XWayland, on the Wayland sessions Orrery supports) and fontconfig;
 # IronRDP's native library links ALSA (libasound.so.2) for remote sound, and won't load without it. libsecret is only
 # for keeping credentials in the system keyring, so it's recommended rather than required: without it Orrery uses the
-# vault file.
+# vault file. WebKitGTK is only for web pages in a tab, so it's recommended too: without it they open in the browser.
 $debDepends = @(
     'libc6', 'libgcc-s1', 'libstdc++6',
     'libicu78 | libicu77 | libicu76 | libicu74 | libicu72 | libicu70',
@@ -132,11 +132,13 @@ function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
     foreach ($d in $debDepends) { $lines.Add("      - $(Yaml $d)") }
     $lines.Add('    recommends:')
     $lines.Add("      - libsecret-1-0")
+    $lines.Add("      - libwebkit2gtk-4.1-0")
     $lines.Add('  rpm:')
     $lines.Add('    depends:')
     foreach ($d in $rpmDepends) { $lines.Add("      - $(Yaml $d)") }
     $lines.Add('    recommends:')
     $lines.Add("      - libsecret")
+    $lines.Add("      - webkit2gtk4.1")
 
     # UTF-8 without a BOM in Windows PowerShell 5.1 too, which has no utf8NoBOM encoding.
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))

@@ -87,7 +87,7 @@ public partial class MainWindow : Window
     bool _restoreOfferBeforeFullScreen;
 
     /// <summary>While a remote desktop is spread over every display: its view, and the window as it was before.</summary>
-    (RemoteFrameView View, PixelPoint Position, double Width, double Height, SystemDecorations Decorations, bool Topmost)? _spanned;
+    (RemoteFrameView View, PixelPoint Position, double Width, double Height, WindowDecorations Decorations, bool Topmost)? _spanned;
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
@@ -112,6 +112,8 @@ public partial class MainWindow : Window
     bool _rebuilding;
     Point? _dragStart;
     NodeViewModel? _dragRow;
+    // The press a drag starts from: Avalonia starts the drag with it once the pointer has moved far enough.
+    PointerPressedEventArgs? _dragPress;
 
     // A plain press on a row that's part of a multi-selection keeps the selection, so the rows can be dragged
     // together; released without a drag, the press selects just that row.
@@ -251,7 +253,8 @@ public partial class MainWindow : Window
 
         _history = ConnectionHistory.In(location);
         _tree.Removed += (_, e) => _history.Forget(e.Ids);
-        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history);
+        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history,
+            webPagesInOrreryByDefault: () => _settingsStore.Load().OpensWebPagesInOrrery);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
         _properties.SessionSettingsApplied += (_, _) => UpdateSessionToolbar();
         _properties.ReconnectRequested += async (_, tab) =>
@@ -259,7 +262,8 @@ public partial class MainWindow : Window
             await CloseTabAsync(tab.Session);
             await tab.Origin.Reconnect();
         };
-        _propertiesHost.Child = _properties;
+        _inspectorContent.Content = _properties;
+        _propertiesHost.Child = new Panel { Children = { _inspectorContent } };
 
         _credentialsView = new CredentialsView(_credentials, async () =>
         {
@@ -278,6 +282,18 @@ public partial class MainWindow : Window
         this.FindControl<ContentControl>("RecordingsSide")!.Content = _recordingsPanel;
         _recordingsHost = this.FindControl<ContentControl>("RecordingsHost")!;
         _recordingsHost.Content = _recordingsPanel.Stage;
+
+        // A web page is drawn in a window of its own above Orrery's, so it hides while anything is opened over it.
+        foreach (var cover in new Control[] { _settingsHost, _dimmer, _recordingsHost, _sidePanel, _propertiesHost })
+        {
+            cover.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty || e.Property == ZIndexProperty)
+                {
+                    CoverWebPages();
+                }
+            };
+        }
 
         _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
             () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
@@ -492,6 +508,7 @@ public partial class MainWindow : Window
             if (e.GetCurrentPoint(_treeView).Properties.IsLeftButtonPressed)
             {
                 _dragStart = e.GetPosition(_treeView);
+                _dragPress = e;
                 _dragRow = RowAt(e.Source);
                 _pressedInSelection = null;
                 if (_dragRow is { } row && e.KeyModifiers == KeyModifiers.None && e.ClickCount == 1
@@ -507,7 +524,8 @@ public partial class MainWindow : Window
 
         _treeView.AddHandler(PointerMovedEvent, async (_, e) =>
         {
-            if (_dragStart is not { } start || _dragRow is not { } row || !e.GetCurrentPoint(_treeView).Properties.IsLeftButtonPressed)
+            if (_dragStart is not { } start || _dragPress is not { } press || _dragRow is not { } row
+                || !e.GetCurrentPoint(_treeView).Properties.IsLeftButtonPressed)
             {
                 return;
             }
@@ -519,18 +537,20 @@ public partial class MainWindow : Window
             }
 
             _dragStart = null;
+            _dragPress = null;
             _pressedInSelection = null;
 
             // The whole selection when the dragged row is part of it, else just that row.
             var rows = _treeView.SelectedItems.Contains(row) ? SelectedNodes() : [row.Node];
             var data = new DataTransfer();
             data.Add(DataTransferItem.Create(DragFormat, string.Join(",", TreeDrop.Normalize(_tree.Root, rows).Select(n => n.Id))));
-            await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+            await DragDrop.DoDragDropAsync(press, data, DragDropEffects.Move);
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         _treeView.AddHandler(PointerReleasedEvent, (_, _) =>
         {
             _dragStart = null;
+            _dragPress = null;
             if (_pressedInSelection is { } pressed)
             {
                 _pressedInSelection = null;
@@ -695,7 +715,7 @@ public partial class MainWindow : Window
 
         RevealSidePanel();
 
-        _propertiesHost.Child = side == "credentials" ? _credentialsView.Editor : _properties;
+        _inspectorContent.Content = side == "credentials" ? _credentialsView.Editor : _properties;
         switch (side)
         {
             case "credentials":
@@ -1073,8 +1093,8 @@ public partial class MainWindow : Window
         }
 
         WindowState = WindowState.Normal;
-        _spanned = (desktop, Position, Width, Height, SystemDecorations, Topmost);
-        SystemDecorations = SystemDecorations.None;
+        _spanned = (desktop, Position, Width, Height, WindowDecorations, Topmost);
+        WindowDecorations = WindowDecorations.None;
 
         // Windows hides the taskbar for a window that fills one display, not for one across several, so this stays on top.
         Topmost = true;
@@ -1130,7 +1150,7 @@ public partial class MainWindow : Window
                 SpanningWindow.Limit(this, default, null);
             }
             Topmost = spanned.Topmost;
-            SystemDecorations = spanned.Decorations;
+            WindowDecorations = spanned.Decorations;
             Position = spanned.Position;
             Width = spanned.Width;
             Height = spanned.Height;
@@ -1349,7 +1369,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Opens a connection's management page in the browser, if it's an http or https address.</summary>
+    /// <summary>
+    /// Opens a connection's management page, if it's an http or https address: in a tab, or in the browser if the
+    /// connection or Settings says so.
+    /// </summary>
     async Task OpenManagementPageAsync(ConnectionEntry entry)
     {
         if (!ManagementUrl.TryNormalize(entry.ManagementUrl, out var text) || !Uri.TryCreate(text, UriKind.Absolute, out var url))
@@ -1359,17 +1382,54 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (WebPagesInOrrery(entry.Id))
+        {
+            ConnectLog.LogInformation("Opening the management page of \"{Name}\" in a tab: {Site}", entry.Name, url.GetLeftPart(UriPartial.Authority));
+            var protocol = url.Scheme == Uri.UriSchemeHttps ? Protocol.Https : Protocol.Http;
+            OpenWebTab(new SessionOrigin($"{entry.Name} · management", protocol, entry.Id, () => OpenManagementPageAsync(entry)) { ManagementPage = true },
+                url, new ConnectionTarget(url.Host, url.Port, null, null));
+            return;
+        }
+
         // Only the scheme, host and port: a page's path or query can carry tokens.
         ConnectLog.LogInformation("Opening the management page of \"{Name}\" in the browser: {Site}", entry.Name, url.GetLeftPart(UriPartial.Authority));
+        if (OpenInBrowser(url) is { } problem)
+        {
+            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\"'s management page: {Message}", entry.Name, problem);
+            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
+        }
+    }
+
+    /// <summary>Hands <paramref name="url"/> to the default browser. Null if it went; what went wrong if not.</summary>
+    static string? OpenInBrowser(Uri url)
+    {
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+            return null;
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
         {
-            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\"'s management page: {Message}", entry.Name, e.Message);
-            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", e.Message);
+            return e.Message;
         }
+    }
+
+    /// <summary>
+    /// Whether web pages open in a tab for this connection: its own choice or its folders', else Settings'. Where the
+    /// engine is missing they go to the browser instead, with a note saying why.
+    /// </summary>
+    bool WebPagesInOrrery(Guid? entryId)
+    {
+        bool appSetting = _settingsStore.Load().OpensWebPagesInOrrery;
+        bool wanted = entryId is { } id && _tree.Find(id) is { } node ? SettingsResolver.Resolve(node).InOrrery(appSetting) : appSetting;
+        if (wanted && !WebPageView.EngineAvailable)
+        {
+            ConnectLog.LogWarning("WebKitGTK (libwebkit2gtk-4.1) isn't installed, so the page opens in the browser");
+            ShowNotice("Opened in your browser: pages in a tab need WebKitGTK (libwebkit2gtk-4.1)");
+            return false;
+        }
+
+        return wanted;
     }
 
     /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
@@ -1586,6 +1646,27 @@ public partial class MainWindow : Window
 
     async void OnQuickConnectClick(object? sender, RoutedEventArgs e) => await OpenQuickConnectAsync();
 
+    /// <summary>A connection's settings, ready to change, without connecting.</summary>
+    void EditEntry(ConnectionEntry entry)
+    {
+        _filter.Text = string.Empty;
+        if (_side != "connections")
+        {
+            OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
+        }
+
+        RevealSidePanel();
+        RevealInspector();
+        foreach (var folder in entry.Ancestors())
+        {
+            folder.Expanded = true;
+        }
+
+        RebuildTree();
+        Select(entry.Id);
+        Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
+    }
+
     async Task OpenQuickConnectAsync()
     {
         if (_dimmer.IsVisible)
@@ -1598,7 +1679,7 @@ public partial class MainWindow : Window
         try
         {
             var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol, t.Origin.Label)).ToList();
-            choice = await new QuickConnectWindow(_tree, open).ShowOver(this);
+            choice = await new QuickConnectWindow(_tree, open, PaletteCommands()).ShowOver(this);
         }
         finally
         {
@@ -1612,25 +1693,13 @@ public partial class MainWindow : Window
                 SelectTab(_tabs[index]);
             }
         }
+        else if (choice?.Command is { } command)
+        {
+            await command.Run();
+        }
         else if (choice is { Edit: true, Entry: { } toEdit })
         {
-            // Its settings, ready to change, without connecting.
-            _filter.Text = string.Empty;
-            if (_side != "connections")
-            {
-                OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
-            }
-
-            RevealSidePanel();
-            RevealInspector();
-            foreach (var folder in toEdit.Ancestors())
-            {
-                folder.Expanded = true;
-            }
-
-            RebuildTree();
-            Select(toEdit.Id);
-            Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
+            EditEntry(toEdit);
         }
         else if (choice?.NewName is { } name)
         {
@@ -1958,13 +2027,20 @@ public partial class MainWindow : Window
     RemoteFrameView NewRemoteFrameView(SessionOrigin origin, IFrameBufferSession session, bool zoom, bool followsViewSize)
     {
         var settings = _settingsStore.Load();
-        bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
         return new RemoteFrameView(session, zoom)
         {
             FollowsViewSize = followsViewSize,
-            AllowsColorCorrection = allowed,
+            AllowsColorCorrection = AllowsColorCorrection(origin),
             Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
         };
+    }
+
+    /// <summary>The recording playing now takes the color vision, correction and terminal colors just saved in Settings.</summary>
+    void FollowColorsInPlayer()
+    {
+        var settings = _settingsStore.Load();
+        _recordingsPanel.Stage.Player?.SetColors(settings.Vision, ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
+            settings.TerminalColors ?? TerminalColorScheme.Standard);
     }
 
     void OnLocalTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal();
@@ -2006,9 +2082,9 @@ public partial class MainWindow : Window
     });
 
     /// <summary>
-    /// Opens a web connection in the default browser: no tab, no session, nothing to reconnect. Opening it counts as
-    /// connecting in the history and the Recent list. A jump host can't be used, since the browser wouldn't go
-    /// through it, so one set for it stops the page opening rather than going around it.
+    /// Opens a web connection: in a tab, or in the default browser if the connection or Settings says so. Opening it
+    /// counts as connecting in the history and the Recent list. A jump host can't be used, since neither the tab nor
+    /// the browser would go through it, so one set for it stops the page opening rather than going around it.
     /// </summary>
     /// <param name="entryId">The saved connection, or null for one typed into quick connect.</param>
     async Task OpenWebPageAsync(string title, Guid? entryId, Protocol protocol, string host, int port, bool behindJumpHost = false)
@@ -2016,7 +2092,7 @@ public partial class MainWindow : Window
         if (behindJumpHost)
         {
             await Dialogs.ShowMessageAsync(this, $"Can't open \"{title}\" through a jump host",
-                "Web pages open in your browser, which can't go through Orrery's jump hosts. Set this connection to connect directly, "
+                "Web pages can't go through Orrery's jump hosts, in a tab or in your browser. Set this connection to connect directly, "
                 + "or give the jump host a SOCKS proxy (D 1080) and set your browser to use it.");
             return;
         }
@@ -2028,21 +2104,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (WebPagesInOrrery(entryId))
+        {
+            ConnectLog.LogInformation("Opening \"{Name}\" in a tab: {Site}", title, url.GetLeftPart(UriPartial.Authority));
+            // The tab adds itself to Recent, and to the history once its session is connected, which it is at once.
+            OpenWebTab(new SessionOrigin(title, protocol, entryId, () => OpenWebPageAsync(title, entryId, protocol, host, port)),
+                url, new ConnectionTarget(host, port, null, null));
+            return;
+        }
+
         // Only the scheme, host and port: a page's path or query can carry tokens.
         ConnectLog.LogInformation("Opening \"{Name}\" in the browser: {Site}", title, url.GetLeftPart(UriPartial.Authority));
-        try
+        if (OpenInBrowser(url) is { } problem)
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
-        }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
-        {
-            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\": {Message}", title, e.Message);
+            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\": {Message}", title, problem);
             if (entryId is { } failed && _tree.Find(failed) is ConnectionEntry)
             {
                 _history.RecordFailed(failed, DateTimeOffset.Now);
             }
 
-            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", e.Message);
+            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
             return;
         }
 
@@ -2052,6 +2133,40 @@ public partial class MainWindow : Window
         }
 
         _recent.Add(new RecentConnection(entryId, title, protocol, host, port, null, DateTimeOffset.Now));
+    }
+
+    /// <summary>
+    /// A web page in a new tab, with the color correction from Settings unless its connection turns that off (a pop-up
+    /// follows the page it came from). Its sign-ins and cookies are kept in <c>web</c> in Orrery's data folder.
+    /// </summary>
+    void OpenWebTab(SessionOrigin origin, Uri url, ConnectionTarget target, bool? allowsCorrection = null)
+    {
+        var settings = _settingsStore.Load();
+        var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"))
+        {
+            AllowsColorCorrection = allowsCorrection ?? AllowsColorCorrection(origin),
+            Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
+        };
+        view.NewWindowRequested += (_, address) => OpenPopUpTab(address, view.AllowsColorCorrection);
+        AddTab(view, new WebSession(target, view.Frames), origin);
+    }
+
+    /// <summary>The "Color correction" of the connection a tab was opened from; on for one that isn't a saved connection.</summary>
+    bool AllowsColorCorrection(SessionOrigin origin) =>
+        origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
+
+    /// <summary>
+    /// A page's pop-up or new-window link, in a tab beside it. Like a management page it isn't a connection: it isn't
+    /// added to Recent and isn't reopened with the workspace.
+    /// </summary>
+    void OpenPopUpTab(Uri address, bool allowsCorrection)
+    {
+        var protocol = address.Scheme == Uri.UriSchemeHttps ? Protocol.Https : Protocol.Http;
+        OpenWebTab(new SessionOrigin(address.Host, protocol, null, () =>
+        {
+            OpenPopUpTab(address, allowsCorrection);
+            return Task.CompletedTask;
+        }) { ManagementPage = true }, address, new ConnectionTarget(address.Host, address.Port, null, null), allowsCorrection);
     }
 
     /// <summary>
@@ -2389,7 +2504,7 @@ public partial class MainWindow : Window
     void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
         var tab = NewTab(view, session, origin);
-        if (!origin.Local)
+        if (!origin.Local && !origin.ManagementPage)
         {
             _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
                 session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
@@ -2438,6 +2553,19 @@ public partial class MainWindow : Window
                 if (tab == _currentTab)
                 {
                     _sessionDetail.Text = DescribeSession(tab);
+                }
+            };
+        }
+
+        // A web page's address, loading and back and forward are in that bar too.
+        if (view is WebPageView web)
+        {
+            web.Covered = SessionsCovered;
+            web.Changed += (_, _) =>
+            {
+                if (tab == _currentTab)
+                {
+                    UpdateSessionToolbar();
                 }
             };
         }
@@ -2626,12 +2754,52 @@ public partial class MainWindow : Window
         (ILocalSession, SessionState.Disconnected) => "Ended",
         (ILocalSession, SessionState.Failed) => "Couldn't start",
         (ILocalSession, _) => "Running",
+        (WebSession, _) => tab.View switch
+        {
+            WebPageView { Loading: true } => "Loading…",
+            WebPageView { Failed: true } => "Didn't load",
+            _ => "Loaded",
+        },
         (_, SessionState.Connecting) => "Connecting…",
         (_, SessionState.Disconnected) => "Disconnected",
         (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
         (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
         _ => "Connected",
     } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+
+    const string ClosedLock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4";
+    const string OpenLock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 7.75-1.4";
+
+    /// <summary>
+    /// Whether what's on the wire is encrypted: SSH, RDP and a page whose address is https are; Telnet, plain HTTP and
+    /// VNC (only its classic security types are offered) aren't. Null for a local shell or serial port, which cross
+    /// no network.
+    /// </summary>
+    internal static bool? Encrypted(SessionTab tab) => tab switch
+    {
+        { Origin.Local: true } or { Origin.Protocol: Protocol.Serial } => null,
+        { View: WebPageView page } => page.Address.Scheme == Uri.UriSchemeHttps,
+        { Origin.Protocol: Protocol.Ssh or Protocol.Rdp } => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// The lock before the address: closed and green only while an encrypted session is connected, open in amber for
+    /// one that isn't encrypted, and not there for a local one.
+    /// </summary>
+    void ShowLock(SessionTab tab)
+    {
+        bool? encrypted = Encrypted(tab);
+        _sessionLock.IsVisible = encrypted is not null;
+        _sessionLock.Data = Geometry.Parse(encrypted == false ? OpenLock : ClosedLock);
+        // A page that didn't load, such as one whose certificate isn't trusted, isn't shown as connected.
+        bool connected = tab.Session.State == SessionState.Connected && tab.View is not WebPageView { Failed: true };
+        _sessionLock.Foreground = encrypted == false ? Palette.Warning
+            : (IBrush?)this.FindResource(connected ? "OrreryConnected" : "OrreryMuted");
+        string said = encrypted == false ? "Not encrypted" : "Encrypted";
+        ToolTip.SetTip(_sessionLock, said);
+        Avalonia.Automation.AutomationProperties.SetName(_sessionLock, said);
+    }
 
     /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
     void UpdateSessionToolbar()
@@ -2647,8 +2815,33 @@ public partial class MainWindow : Window
         var session = tab.Session;
         var state = session.State;
         _sessionAddress.Text = tab.Address;
-        _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
+        ShowLock(tab);
         _sessionDetail.Text = DescribeSession(tab);
+
+        // A web page has a browser's buttons and no connection to end: closing the tab is enough.
+        if (tab.View is WebPageView web)
+        {
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Back, "Back", web.GoBack, web.CanGoBack));
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Forward, "Forward", web.GoForward, web.CanGoForward));
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Refresh, "Reload", web.Reload));
+            if (Recording.RecordingService.Recordable(web)
+                && Recording.RecordingControl.For(tab, async () => await StartRecordingAsync(tab), () => StopRecording(tab), () => ShowRecordings()) is { } webRecording)
+            {
+                _sessionActions.Children.Add(webRecording);
+            }
+
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.External, "Open in the default browser", async () =>
+            {
+                if (OpenInBrowser(web.Address) is { } problem)
+                {
+                    await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
+                }
+            }));
+            Button webMore = null!;
+            webMore = ToolbarIcon(Controls.Icons.More, "More options", () => Controls.PopupMenu.ShowAt(webMore, SessionMenu(tab), PlacementMode.BottomEdgeAlignedRight));
+            _sessionActions.Children.Add(webMore);
+            return;
+        }
 
         // Recording: a REC pill with its settings while it records, a button to start one while connected.
         if ((state == SessionState.Connected || tab.IsRecording) && tab.View is TerminalView or RemoteFrameView
@@ -2708,6 +2901,31 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Whether Settings, Recordings, quick connect's dimming or a pane opened over the sessions covers them.</summary>
+    bool SessionsCovered => _settingsHost.IsVisible || _dimmer.IsVisible || _recordingsHost.IsVisible
+        || (_sidePanel.IsVisible && _sidePanel.ZIndex > 0) || (_propertiesHost.IsVisible && _propertiesHost.ZIndex > 0);
+
+    void CoverWebPages()
+    {
+        bool covered = SessionsCovered;
+        foreach (var web in _tabs.Select(t => t.View).OfType<WebPageView>())
+        {
+            web.Covered = covered;
+        }
+    }
+
+    /// <summary>A small icon button for the session toolbar, named for screen readers by its tip.</summary>
+    static Button ToolbarIcon(string icon, string name, Action click, bool enabled = true)
+    {
+        var button = new Button { Content = Controls.StrokeIcon.Create(icon, 15), IsEnabled = enabled };
+        button.Classes.Add("icon");
+        button.Classes.Add("small");
+        ToolTip.SetTip(button, name);
+        Avalonia.Automation.AutomationProperties.SetName(button, name);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
     /// <summary>What the session toolbar's More menu offers, for the session as it is now.</summary>
     List<Control> SessionMenu(SessionTab tab)
     {
@@ -2751,6 +2969,21 @@ public partial class MainWindow : Window
             items.Add(new Separator());
             items.Add(MenuItemFor("Save output…", async () => await SaveOutputAsync(tab, terminal)));
             items.Add(MenuItemFor("Clear scrollback", terminal.ClearScrollback));
+        }
+        else if (tab.View is WebPageView page)
+        {
+            items.Add(MenuItemFor("Print…", async () =>
+            {
+                try
+                {
+                    page.Print();
+                }
+                catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
+                {
+                    await Dialogs.ShowMessageAsync(this, "Couldn't print the page", e.Message);
+                }
+            }, enabled: !page.Loading));
+            items.Add(MenuItemFor("Save as PDF…", async () => await SavePdfAsync(tab, page), enabled: !page.Loading));
         }
 
         items.Add(new Separator());
@@ -2828,7 +3061,7 @@ public partial class MainWindow : Window
                 : MenuItemFor("Browse files (SFTP)", async () => await ConnectAsync(entry, files: true));
         }
 
-        if (tab.View is TerminalView or RemoteFrameView)
+        if (Recording.RecordingService.Recordable(tab.View))
         {
             yield return tab.IsRecording
                 ? MenuItemFor("Stop recording", () => StopRecording(tab))
@@ -2854,9 +3087,11 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Whether the connection a tab opened says to record it; a quick connection follows the defaults for all
-    /// connections. A local shell or a file browser isn't recorded by a setting.
+    /// connections. A local shell, a file browser, a management page or a page's pop-up isn't recorded by a setting,
+    /// nor a web page where pages can't be recorded (Linux and macOS).
     /// </summary>
-    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false }
+    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false, ManagementPage: false }
+        && (!ProtocolInfo.IsWeb(origin.Protocol) || WebFrames.Supported)
         && (origin.EntryId is { } id && _tree.Find(id) is { } node
             ? SettingsResolver.Resolve(node).RecordSessions.Value
             : _tree.Root.Settings.RecordSessions == true);
@@ -2966,6 +3201,32 @@ public partial class MainWindow : Window
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             await Dialogs.ShowMessageAsync(this, "Couldn't save the screenshot", e.Message);
+        }
+    }
+
+    async Task SavePdfAsync(SessionTab tab, WebPageView page)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = "Save page as PDF",
+            SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.pdf",
+            DefaultExtension = "pdf",
+            FileTypeChoices = [new Avalonia.Platform.Storage.FilePickerFileType("PDF document") { Patterns = ["*.pdf"] }],
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var pdf = await page.PdfAsync();
+            await using var stream = await file.OpenWriteAsync();
+            await pdf.CopyToAsync(stream);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or InvalidOperationException)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the page", e.Message);
         }
     }
 
@@ -3179,47 +3440,69 @@ public partial class MainWindow : Window
     async Task ImportAsync(string path)
     {
         ImportResult? result = null;
-        string? masterPassword = null, passwordError = null;
+        Exception? failure = null;
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
         bool rdpFile = RdpFileImporter.IsRdpFile(path);
         bool sshConfig = IsSshConfig(path);
         var displays = DisplaysForRdpFiles();
-        while (result is null)
+        Task<ImportResult> Read(string? password) => Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
+            : sshConfig ? SshConfigImporter.ImportFile(path)
+            : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
+
+        try
         {
-            try
+            result = await Read(null);
+        }
+        catch (MasterPasswordRequiredException)
+        {
+            // The prompt tries each password itself and stays open, saying so, while it's wrong.
+            async Task<string?> Check(string password)
             {
-                var password = masterPassword;
-                result = await Task.Run(() => rdpFile ? RdpFileImporter.ImportFile(path, displays)
-                    : sshConfig ? SshConfigImporter.ImportFile(path)
-                    : orrery ? OrreryImporter.ImportFile(path, password) : MRemoteNgImporter.ImportFile(path, password));
-            }
-            catch (MasterPasswordRequiredException e)
-            {
-                passwordError = e.WrongPassword ? "That password is incorrect." : null;
-                masterPassword = orrery
-                    ? await Dialogs.PromptPasswordAsync(this, "Export password",
-                        "This Orrery export includes saved passwords, so it's encrypted. Enter the password it was exported with.", passwordError)
-                    : await Dialogs.PromptPasswordAsync(this, "Master password",
-                        "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", passwordError);
-                if (masterPassword is null)
+                try
                 {
-                    return;
+                    result = await Read(password);
                 }
+                catch (MasterPasswordRequiredException e) when (e.WrongPassword)
+                {
+                    return "That password is incorrect.";
+                }
+                catch (Exception e)
+                {
+                    failure = e;
+                }
+
+                return null;
             }
-            catch (Exception e) when (e is ImportException or IOException or UnauthorizedAccessException)
+
+            var entered = orrery
+                ? await Dialogs.PromptPasswordAsync(this, "Export password",
+                    "This Orrery export includes saved passwords, so it's encrypted. Enter the password it was exported with.", Check)
+                : await Dialogs.PromptPasswordAsync(this, "Master password",
+                    "This mRemoteNG file is protected with a master password. Enter it to read the connections and saved passwords.", Check);
+            if (entered is null)
             {
-                StorageLog.LogWarning("Couldn't import {Path}: {Message}", path, e.Message);
-                await Dialogs.ShowMessageAsync(this, "Couldn't import this file", e.Message);
                 return;
             }
-            catch (Exception e)
-            {
-                // The importer means to fail only as above; anything else is a bug, not a reason to exit.
-                Log.For("App").LogError(e, "Importing {Path} failed", path);
-                await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
-                    "Orrery couldn't read this file. It may be damaged, or not a file Orrery can import.");
-                return;
-            }
+        }
+        catch (Exception e)
+        {
+            failure = e;
+        }
+
+        if (failure is ImportException or IOException or UnauthorizedAccessException)
+        {
+            StorageLog.LogWarning("Couldn't import {Path}: {Message}", path, failure.Message);
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file", failure.Message);
+            return;
+        }
+
+        if (failure is not null || result is null)
+        {
+            // The importer means to fail only as above; anything else is a bug, not a reason to exit.
+            Log.For("App").LogError(failure, "Importing {Path} failed", path);
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file",
+                "Orrery couldn't read this file. It may be damaged, or not a file Orrery can import.");
+            return;
         }
 
         int already = result.CountAlreadyIn(_tree);
@@ -3521,6 +3804,8 @@ public partial class MainWindow : Window
                 {
                     terminal.ColorScheme = scheme;
                 }
+
+                FollowColorsInPlayer();
             };
             view.ColorVisionChanged += (_, change) =>
             {
@@ -3534,6 +3819,13 @@ public partial class MainWindow : Window
                 {
                     desktop.Correction = correction;
                 }
+
+                foreach (var page in _tabs.Select(t => t.View).OfType<WebPageView>())
+                {
+                    page.Correction = correction;
+                }
+
+                FollowColorsInPlayer();
             };
             _settingsHost.Content = view;
             _settingsHost.IsVisible = true;

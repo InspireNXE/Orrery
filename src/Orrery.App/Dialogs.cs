@@ -46,7 +46,17 @@ static class Dialogs
     }
 
     /// <summary>Asks for a password. Null if canceled.</summary>
-    public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error = null)
+    public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error = null) =>
+        PromptPasswordAsync(owner, title, body, error, check: null);
+
+    /// <summary>
+    /// Asks for a password, and keeps the window open until <paramref name="check"/> takes it: check returns why it
+    /// was turned down, shown in the window with the box cleared for another try, or null to close. Null if canceled.
+    /// </summary>
+    public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, Func<string, Task<string?>> check) =>
+        PromptPasswordAsync(owner, title, body, error: null, check);
+
+    static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error, Func<string, Task<string?>>? check)
     {
         var box = new PasswordBox();
         AutomationProperties.SetName(box, "Password");
@@ -58,14 +68,40 @@ static class Dialogs
 
         var window = Shell(title, buttons);
         var panel = (StackPanel)window.Content!;
+        var notice = new Notice(NoticeKind.Error, error) { IsVisible = error is not null };
         panel.Children.Insert(1, new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap });
         panel.Children.Insert(2, box);
-        if (error is not null)
-        {
-            panel.Children.Insert(3, new Notice(NoticeKind.Error, error));
-        }
+        panel.Children.Insert(3, notice);
 
-        ok.Click += (_, _) => window.Close(box.Text ?? string.Empty);
+        ok.Click += async (_, _) =>
+        {
+            var password = box.Text ?? string.Empty;
+            if (check is null)
+            {
+                window.Close(password);
+                return;
+            }
+
+            ok.IsEnabled = false;
+            try
+            {
+                if (await check(password) is { } rejected)
+                {
+                    notice.Text = rejected;
+                    notice.IsVisible = true;
+                    AutomationProperties.SetHelpText(box, $"{rejected} {body}");
+                    box.Text = string.Empty;
+                    box.Focus();
+                    return;
+                }
+
+                window.Close(password);
+            }
+            finally
+            {
+                ok.IsEnabled = true;
+            }
+        };
         cancel.Click += (_, _) => window.Close(null);
         window.Opened += (_, _) => box.Focus();
         return window.ShowDialog<string?>(owner);

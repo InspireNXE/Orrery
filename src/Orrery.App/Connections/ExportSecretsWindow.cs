@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Orrery.App.Controls;
+using Orrery.Core.Credentials;
 using Orrery.Core.Export;
 
 namespace Orrery.App.Connections;
@@ -16,11 +17,10 @@ sealed record ExportSecretsChoice(string? Password);
 /// </summary>
 sealed class ExportSecretsWindow : Window
 {
-    internal const int MinimumPasswordLength = 8;
-
     readonly CheckBox _include;
     readonly TextBox _password = new PasswordBox { IsEnabled = false };
     readonly TextBox _confirm = new PasswordBox { IsEnabled = false };
+    readonly PasswordMeter _meter;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
 
     public ExportSecretsWindow(ExportFormat format)
@@ -69,6 +69,7 @@ sealed class ExportSecretsWindow : Window
                 },
                 _include,
                 Dialogs.Field("Password for this file", _password),
+                (_meter = new PasswordMeter(_password, "export")),
                 Dialogs.Field("Confirm password", _confirm),
                 new Notice(NoticeKind.Warning, "Anyone with the file and this password can read every password in it, and there's no way to recover them if it's forgotten."),
                 _error,
@@ -79,10 +80,13 @@ sealed class ExportSecretsWindow : Window
         Opened += (_, _) => _include.Focus();
     }
 
-    /// <summary>Why the passwords can't be used, or null when they can (or aren't wanted).</summary>
-    internal static string? Problem(bool include, string password, string confirm) =>
+    /// <summary>
+    /// Why the passwords can't be used, or null when they can (or aren't wanted). The file's password follows the same
+    /// rules as the vault's: it guards the same secrets, and the file can be copied anywhere.
+    /// </summary>
+    internal static string? Problem(bool include, string password, string confirm, IEnumerable<string>? personal = null) =>
         !include ? null
-        : password.Length < MinimumPasswordLength ? $"Use at least {MinimumPasswordLength} characters. A short phrase is easier to remember than a complex word."
+        : PasswordRules.Check(password, personal).Problem is { } problem ? problem
         : password != confirm ? "The passwords don't match."
         : null;
 
@@ -90,7 +94,8 @@ sealed class ExportSecretsWindow : Window
     {
         bool include = _include.IsChecked == true;
         string password = _password.Text ?? string.Empty;
-        if (Problem(include, password, _confirm.Text ?? string.Empty) is { } problem)
+        // The meter knows the words close to the user as well.
+        if (((include ? _meter.Check().Problem : null) ?? Problem(include, password, _confirm.Text ?? string.Empty)) is { } problem)
         {
             _error.Text = problem;
             _error.IsVisible = true;

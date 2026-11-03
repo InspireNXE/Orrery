@@ -142,6 +142,12 @@ public sealed class InheritableSettings
     /// <summary>RDP, VNC: enlarge the remote desktop to match this display's scaling. Null inherits; with nothing set, the app setting applies.</summary>
     public bool? EnlargeRemoteDesktop { get; set; }
 
+    /// <summary>
+    /// Web connections and management pages: open in a tab in Orrery (true) or in the default browser (false). Null
+    /// inherits; with nothing set, the app setting applies.
+    /// </summary>
+    public bool? WebPagesInOrrery { get; set; }
+
     /// <summary>RDP, VNC: how the remote desktop trades looks for speed. Null inherits; balanced by default.</summary>
     public DisplayQuality? DisplayQuality { get; set; }
 
@@ -255,7 +261,7 @@ public sealed class InheritableSettings
         nameof(KeyFile), nameof(UseSshAgent), nameof(AllowLegacySsh), nameof(DesktopSize), nameof(EnlargeRemoteDesktop), nameof(DisplayQuality), nameof(ColorCorrection),
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
-        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl),
+        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(WebPagesInOrrery),
     };
 
     /// <summary>
@@ -266,7 +272,7 @@ public sealed class InheritableSettings
     {
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
-        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(RecordSessions),
+        nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(RecordSessions), nameof(WebPagesInOrrery),
     };
 
     /// <summary>Whether this sets anything Orrery 0.1 can't keep: a setting added since, or a protocol added since.</summary>

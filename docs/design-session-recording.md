@@ -276,7 +276,7 @@ plays it in the main area; the context menu has *Play*, *Export…*, *Show in fo
 key). Deleting the one playing closes the player first. *Show recordings* in Settings opens the section.
 
 While *Recordings* is the open rail item, the main area (over the sessions and the right-hand pane) is the player, or
-"Choose a recording to play" until one is chosen; the side panel stays beside it in Auto. Choosing a session tab,
+"Choose a recording to play" until one is chosen; the side panel stays beside it, whatever its mode. Choosing a session tab,
 another rail item, or *Recordings* again goes back to the sessions and pauses the player; coming back carries on.
 
 Names live inside the encrypted part, so they show only while the credential store is open: when it's locked the
@@ -284,13 +284,33 @@ rows are the date, kind and size, with *Unlock* above them. The panel reads the 
 straight after; what each file said is kept only while the store stays open.
 
 Playing:
-- **Header:** a tile with the protocol's icon and colors, then the connection's name with its protocol badge, and
-  "Recorded <date and time> · <length> · <size>" under the name. On the right, *Find* for a terminal recording and *Export…* (§3.4). A cut-short or damaged recording gets a
-  warning under the header.
-- **Transport:** a bar under the picture. The timeline runs across it, with a tick for each marker (such as a
-  reconnect) that shows what it is on hover and jumps there on a click. Under it: the time ("1:30 / 4:20") on the
-  left; 10 seconds back, play and pause, and 10 seconds forward in the middle; and on the right *Skip idle* (gaps over 2 seconds play as 2 seconds; on by default) and speed
-  (½×, 1×, 2×, 4×, 8×). Keys: Space plays and pauses, Left and Right skip 10 seconds, Home and End go to the ends.
+- **Header:** one line, like a session's toolbar: the protocol badge, the connection's name, then "Recorded <date
+  and time> · <length> · <size>" in gray. A long name ends in "…" before the right-hand side, and the subtitle gives
+  way first. On the right, *Find* for a terminal recording (the box holds the count and the arrows), an *Export* icon
+  (§3.4), and ⋯ with *Show in folder*, *Keyboard shortcuts* and *Delete recording…*. A cut-short or damaged recording
+  gets a warning under the header.
+- **Picture:** edge to edge, as a live session's is.
+- **Transport:** a bar along the bottom with a line above it. The timeline runs across it, with an amber tick for
+  each marker (such as a reconnect) and a short blue one under the track for each *Find* match; each shows what it
+  is on hover and jumps there on a click. Under it: the time ("1:30 / 4:20") on the left; 10 seconds back, play and
+  pause, and 10 seconds forward in the middle; and on the right *Skip idle* (gaps over 2 seconds play as 2 seconds;
+  on by default), *Loop* (plays again from the start at the end; off at first, then kept while Orrery runs), speed
+  (½×, 1×, 2×, 4×, 8×) and a keyboard button. *Skip idle* and *Loop* are segment buttons, filled when on. Without
+  Loop, the end says so and Play becomes *Play again*.
+- **Keys:** Space plays and pauses, Left and Right skip 10 seconds, Shift+Left and Shift+Right go to the previous or
+  next marker, Home and End go to the ends, [ and ] change the speed, L turns Loop on or off, Delete deletes the
+  recording (after asking), and ? shows them all over the picture. Every button's tooltip names its key.
+- **Colors:** recordings keep the colors as they were recorded; the player shows them as the viewer has them set. A
+  screen is drawn through the color correction from Settings and a terminal with the color-vision palette and
+  terminal colors, and both follow a change in Settings while playing. A recording keeps the connection's own
+  "Color correction" (`RecordingInfo.ColorCorrection`): one recorded with it off plays in its own colors.
+- **Web pages** are the exception to keeping the colors as recorded. The page is corrected in the engine, with an SVG
+  `feColorMatrix` filter on its root element in linear light, so the screencast is of the page already corrected.
+  The recording says with what (`CorrectedFor`, `CorrectedStrength`; frames shown with another correction, after a
+  change in Settings partway, are converted to it as they're recorded). The player undoes that and applies the
+  viewer's own correction, nothing when they're the same, and an export undoes it, so the video has the page's own
+  colors like every other export. Undoing is exact within rounding except where the correction pushed a color past
+  what the screen shows.
 - **Terminal:** a read-only terminal view fed by a `TerminalEmulator`. Seeking replays the output from the start into
   a fresh emulator without drawing, which is fast for text. *Find* (Ctrl+F) searches the recording's text as you
   type, says how many matches there are, and Enter, Shift+Enter and the arrows beside it go to the next or previous

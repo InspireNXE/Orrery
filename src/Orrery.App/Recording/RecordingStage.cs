@@ -38,6 +38,12 @@ sealed class RecordingStage : Panel
         Children.Add(_empty);
     }
 
+    /// <summary>The player's Show in folder, with the recording's path.</summary>
+    public event Action<string>? ShowInFolderRequested;
+
+    /// <summary>The player's Delete recording, with the recording's path.</summary>
+    public event Action<string>? DeleteRequested;
+
     /// <summary>The player showing now, if any.</summary>
     public PlayerView? Player { get; private set; }
 
@@ -46,6 +52,8 @@ sealed class RecordingStage : Panel
     {
         Close();
         Player = new PlayerView(service, item, privateKey);
+        Player.ShowInFolderRequested += (_, _) => ShowInFolderRequested?.Invoke(item.Path);
+        Player.DeleteRequested += (_, _) => DeleteRequested?.Invoke(item.Path);
         Children.Add(Player);
         _empty.IsVisible = false;
     }

@@ -35,7 +35,7 @@ static class AccessibilityAudit
         IInputElement? at = start;
         for (int i = 0; i < 500 && at is not null; i++)
         {
-            at = KeyboardNavigationHandler.GetNext(at, NavigationDirection.Next);
+            at = TopLevel.GetTopLevel(at as Visual)?.FocusManager?.FindNextElement(NavigationDirection.Next, new FindNextElementOptions { FocusedElement = at });
             if (at is not Control control || control == start || order.Contains(control))
             {
                 break;

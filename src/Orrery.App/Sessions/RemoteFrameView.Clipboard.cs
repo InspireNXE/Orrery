@@ -224,7 +224,7 @@ public sealed partial class RemoteFrameView
         var bgra = new byte[size.Width * size.Height * 4];
         using (var frame = pixels.Lock())
         {
-            bitmap.CopyPixels(frame, AlphaFormat.Unpremul);
+            bitmap.CopyPixels(frame);
             for (int row = 0; row < size.Height; row++)
             {
                 Marshal.Copy(frame.Address + row * frame.RowBytes, bgra, row * size.Width * 4, size.Width * 4);
@@ -235,7 +235,7 @@ public sealed partial class RemoteFrameView
         if (png)
         {
             using var stream = new MemoryStream();
-            bitmap.Save(stream);
+            bitmap.Save(stream, PngBitmapEncoderOptions.Default);
             encoded = stream.ToArray();
         }
 

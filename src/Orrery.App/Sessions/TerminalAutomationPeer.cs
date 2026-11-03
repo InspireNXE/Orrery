@@ -5,7 +5,7 @@ namespace Orrery.App.Sessions;
 
 /// <summary>
 /// A terminal as a screen reader sees it: a read-only edit box whose value is the text on screen, with the cursor's
-/// line and column as its status. Avalonia 11.3 has no UI Automation text pattern, so a screen reader can read the
+/// line and column as its status. Avalonia 12.1 has no UI Automation text pattern, so a screen reader can read the
 /// screen as a whole but can't move through it by line or word; new output is read out by the view itself.
 /// </summary>
 sealed class TerminalAutomationPeer(TerminalView owner) : ControlAutomationPeer(owner), IValueProvider

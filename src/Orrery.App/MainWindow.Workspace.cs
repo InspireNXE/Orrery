@@ -100,14 +100,16 @@ public partial class MainWindow
             ? bounds with { Maximized = state == WindowState.Maximized }
             : null;
 
-        var tabs = _tabs.Select(tab => tab.Origin switch
+        // A management page isn't the connection, which is all a remembered tab can name, so it isn't kept.
+        var kept = _tabs.Where(tab => !tab.Origin.ManagementPage).ToList();
+        var tabs = kept.Select(tab => tab.Origin switch
         {
             // A local terminal comes back as its shell, not as a connection to this computer's name.
             { Local: true } local => new WorkspaceTab(null, null, 0, local.Protocol, LocalShell: local.LocalShell ?? Orrery.Protocols.Local.LocalShells.Find(null).Id),
             { EntryId: { } id } => new WorkspaceTab(id, null, 0, tab.Origin.Protocol, tab.Origin.Files),
             _ => new WorkspaceTab(null, tab.Session.Target.Host, tab.Session.Target.Port, tab.Origin.Protocol),
         }).ToList();
-        return new Workspace { Window = window, Tabs = tabs, Active = _currentTab is null ? -1 : _tabs.IndexOf(_currentTab) };
+        return new Workspace { Window = window, Tabs = tabs, Active = _currentTab is null ? -1 : kept.IndexOf(_currentTab) };
     }
 
     /// <summary>Writes the workspace as the window closes; with reopening set to Never, only where the window was.</summary>

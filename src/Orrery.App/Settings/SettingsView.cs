@@ -120,7 +120,7 @@ sealed class SettingsView : UserControl
         {
             ("General", [StartupSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
-            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection(), RecordingSection()]),
+            ("Sessions", [RemoteDesktopSection(), WebPagesSection(), LocalTerminalSection(), RecordingSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
             ("About", [LogsSection(), AboutSection()]),
         };
@@ -138,13 +138,12 @@ sealed class SettingsView : UserControl
             page.Children.AddRange(sections.Select(Card));
             host.Children.Add(page);
             _pages[name] = page;
-            // Text lines up with the title above: the list's 12, the accent's 2 and 18 make the header's 32.
+            // Text lines up with the title above: the list's 12 and the row's 20 make the header's 32.
             _pageList.Items.Add(new ListBoxItem
             {
                 Content = name,
                 Tag = name,
-                MinHeight = 34,
-                Padding = new Thickness(18, 0, 8, 0),
+                Padding = new Thickness(20, 0, 8, 0),
                 Margin = new Thickness(0, 0, 0, 2),
                 VerticalContentAlignment = VerticalAlignment.Center,
             });
@@ -957,6 +956,39 @@ sealed class SettingsView : UserControl
                 + "A connection or folder can set its own choice in its properties."));
     }
 
+    // ---- Web pages ----
+
+    Control WebPagesSection()
+    {
+        var buttons = new[] { (Label: "In an Orrery tab", InOrrery: true), (Label: "In the default browser", InOrrery: false) }.Select(choice => new RadioButton
+        {
+            Content = choice.Label,
+            GroupName = "WebPages",
+            Tag = choice.InOrrery,
+            IsChecked = _settings.OpensWebPagesInOrrery == choice.InOrrery,
+        }).ToList();
+        foreach (var button in buttons)
+        {
+            button.IsCheckedChanged += (_, _) =>
+            {
+                if (button.IsChecked == true && !_loading)
+                {
+                    _settings = _settings with { WebPagesInOrrery = (bool)button.Tag! };
+                    TrySaveSettings();
+                }
+            };
+        }
+
+        var choiceList = new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1] } };
+        AutomationProperties.SetName(choiceList, "Open web pages");
+        return Section("Web pages",
+            Dialogs.Label("Open web connections and management pages"),
+            choiceList,
+            Note("An Orrery tab keeps them beside your sessions, with their own sign-ins kept in Orrery's data folder. The default "
+                + "browser is for pages that need its extensions or saved passwords; a tab can also send its page there. "
+                + "A connection or folder can set its own choice in its properties."));
+    }
+
     // ---- Local terminal ----
 
     Control LocalTerminalSection()
@@ -1230,9 +1262,10 @@ sealed class SettingsView : UserControl
             Row("Side panel (connections, credentials, recent)", Choice("Side panel", _settings.SidePanel, (s, m) => s with { SidePanelMode = m })),
             Row("Settings pane (connection and credential details)", Choice("Settings pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
             Note(string.Join(" ", PaneModes.All.Select(mode => $"{mode.Label}: {mode.Description}"))),
-            Note("A pane that isn't expanded opens over the session rather than beside it, so a remote desktop doesn't resize each time. "
-                + "Ctrl+B and Ctrl+Alt+B collapse and expand the panes, or open them over the session; right-click the buttons beside the tabs to "
-                + "change their mode."));
+            Note("A pane that isn't pinned opens over the session rather than beside it, so a remote desktop doesn't resize each time. "
+                + "On Linux and macOS it opens beside a web page instead, since nothing can be drawn over the page there. Ctrl+B and Ctrl+Alt+B show and hide "
+                + "the panes without changing this. The pin in each pane's header, or a right-click on the buttons beside the tabs, changes it. "
+                + "Drag a pane's inner edge to change its width."));
     }
 
     // ---- Keyboard ----

@@ -100,8 +100,9 @@ public static unsafe class MediaFoundation
     /// </summary>
     /// <param name="progress">Told how far it has got now and then, from this thread.</param>
     /// <exception cref="VideoEncoderException">Windows couldn't make the video.</exception>
+    /// <param name="recolor">Passed to <see cref="ScreenExport.Frames"/>.</param>
     public static void Export(RecordingReader reader, SystemCodec codec, string output, int framesPerSecond, bool skipIdle,
-        Action<TimeSpan>? progress = null, CancellationToken cancel = default)
+        Action<TimeSpan>? progress = null, CancellationToken cancel = default, Action<byte[]>? recolor = null)
     {
         if (ScreenExport.FirstSize(reader) is not var (first, second))
         {
@@ -117,7 +118,7 @@ public static unsafe class MediaFoundation
             var sound = SoundFormat.Of(reader, cancel);
             using var writer = new MediaFoundationVideoWriter(output, codec, width, height, framesPerSecond, sound);
             int index = 0;
-            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, cancel, sound))
+            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, cancel, sound, recolor: recolor))
             {
                 writer.Write(frame.Rgb, frame.Changed);
                 writer.WriteSound(frame.Sound);

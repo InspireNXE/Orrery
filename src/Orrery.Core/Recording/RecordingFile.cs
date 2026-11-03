@@ -45,7 +45,17 @@ public enum RecordingEventType : byte
 }
 
 /// <summary>What a recording is of, kept inside its encrypted part.</summary>
-public sealed record RecordingInfo(string Name, string Protocol, DateTimeOffset Started);
+/// <param name="ColorCorrection">
+/// The connection's "Color correction": false when it was off, so the recording plays in its own colors whatever the
+/// viewer has set. Null where it doesn't apply (terminals) and in recordings made before it was kept.
+/// </param>
+/// <param name="CorrectedFor">
+/// The color correction the pictures were recorded with already, as a web page's are (its screencast is of the page
+/// as shown); null when they're the colors as they were.
+/// </param>
+/// <param name="CorrectedStrength">How strong that correction was, in percent.</param>
+public sealed record RecordingInfo(string Name, string Protocol, DateTimeOffset Started, bool? ColorCorrection = null,
+    Settings.ColorVision? CorrectedFor = null, int? CorrectedStrength = null);
 
 /// <summary>An event read back, with where it starts so playing can come back to it.</summary>
 public sealed record RecordedEvent(RecordingEventType Type, TimeSpan Time, byte[] Payload, EventPosition Position);

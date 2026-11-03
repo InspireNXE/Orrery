@@ -1,4 +1,5 @@
 using System.Text;
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -284,7 +285,7 @@ public sealed class RecordingUiTests : IDisposable
         terminal = player.GetVisualDescendants().OfType<TerminalView>().Single();
         Assert.DoesNotContain("first line", terminal.AllText());
 
-        var find = player.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "Find in output");
+        var find = player.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "Find in output");
         find.Text = "needle";
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "1 found");
@@ -360,7 +361,7 @@ public sealed class RecordingUiTests : IDisposable
             speed.SelectedItem = speed.Items.OfType<ComboBoxItem>().Single(i => (double)i.Tag! == speedSetting);
             var play = player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) is "Play" or "Pause");
             await WaitFor(() => AutomationProperties.GetName(play) == "Pause"); // playing
-            await WaitFor(() => AutomationProperties.GetName(play) == "Play"); // played to the end
+            await WaitFor(() => AutomationProperties.GetName(play) == "Play again"); // played to the end
             lock (output.Heard)
             {
                 Assert.InRange(output.Heard.Count, least * 20 * tone.Length, most * 20 * tone.Length);
@@ -496,6 +497,37 @@ public sealed class RecordingUiTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_long_recording_name_is_cut_short_before_its_badge()
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var service = new RecordingService(_location, _settings, _credentials);
+        Directory.CreateDirectory(service.Folder);
+        const string name = "2026-11-02 23.15.20 inxe-vmh-01 - management console";
+        var path = Path.Combine(service.Folder, "long.orrec");
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(new RecordingInfo(name, "Screen", DateTimeOffset.Now)));
+            writer.Complete(TimeSpan.FromMinutes(1));
+        }
+
+        var panel = new RecordingsPanel(service);
+        var window = new Window { Content = panel, Width = 260, Height = 400 };
+        window.Show();
+        panel.Refresh();
+        var list = panel.GetVisualDescendants().OfType<ListBox>().Single();
+        await WaitFor(() => list.ItemCount == 1);
+        Dispatcher.UIThread.RunJobs();
+
+        var title = list.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == name);
+        var badge = list.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "SCREEN");
+        double titleRight = title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X;
+        double badgeLeft = badge.TranslatePoint(new Point(0, 0), window)!.Value.X;
+        Assert.True(titleRight <= badgeLeft, $"The name ends at {titleRight} but the badge starts at {badgeLeft}.");
+        Assert.True(titleRight <= window.Width);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Choosing_a_recording_plays_it_in_the_main_area_and_deleting_it_closes_the_player()
     {
         var publicKey = await RecordingKeys.EnsureAsync(_credentials);
@@ -548,6 +580,260 @@ public sealed class RecordingUiTests : IDisposable
 
         Assert.Equal(["MP4, H.264", "MP4, AV1 (graphics card)", "MP4, H.265 (through ffmpeg)"], routes.Select(r => r.Label));
         Assert.Empty(Mp4Route.All([], null));
+    }
+
+    async Task<(PlayerView Player, Window Window, string Path)> OpenTerminalRecording(string name, double width = 1000)
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, $"{Guid.NewGuid():N}.orrec");
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Terminal, publicKey))
+        {
+            writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(new RecordingInfo(name, "SSH", DateTimeOffset.Now)));
+            writer.Append(RecordingEventType.Output, TimeSpan.Zero, "deploy started\r\n"u8);
+            writer.Append(RecordingEventType.Marker, TimeSpan.FromMilliseconds(500), "Reconnected"u8);
+            writer.Append(RecordingEventType.Output, TimeSpan.FromSeconds(1), "deploy done\r\n"u8);
+            writer.Complete(TimeSpan.FromSeconds(1));
+        }
+
+        var service = new RecordingService(_location, _settings, _credentials);
+        var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Terminal, null, null);
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = width, Height = 600 };
+        window.Show();
+        await WaitFor(() => player.GetVisualDescendants().OfType<TerminalView>().Any());
+        return (player, window, path);
+    }
+
+    static void Press(PlayerView player, Key key, KeyModifiers modifiers = KeyModifiers.None, string? symbol = null)
+    {
+        player.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key, KeyModifiers = modifiers, KeySymbol = symbol });
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    static Button PlayButton(PlayerView player) =>
+        player.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("accent"));
+
+    [AvaloniaFact]
+    public async Task A_long_name_in_the_player_ends_before_the_find_box_and_buttons()
+    {
+        const string name = "inxe-vmh-01 · management console for the production cluster in the east data center";
+        var (player, window, _) = await OpenTerminalRecording(name, width: 760);
+        Dispatcher.UIThread.RunJobs();
+
+        double Left(Control c) => c.TranslatePoint(new Point(0, 0), player)!.Value.X;
+        double Right(Control c) => c.TranslatePoint(new Point(c.Bounds.Width, 0), player)!.Value.X;
+        var title = player.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == name);
+        var subtitle = player.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text?.StartsWith("Recorded ") == true);
+        var find = player.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "Find in output");
+        var export = player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "Export");
+
+        // The name and subtitle share a clipped panel that ends before Find.
+        var heading = (Control)subtitle.Parent!;
+        Assert.True(heading.ClipToBounds);
+        Assert.True(Right(title) <= Left(subtitle) + 0.5, $"The name ends at {Right(title)}, past the subtitle at {Left(subtitle)}.");
+        Assert.True(Right(title) <= Left(find), $"The name ends at {Right(title)}, past Find at {Left(find)}.");
+        Assert.True(Right(heading) <= Left(find), $"The heading ends at {Right(heading)}, past Find at {Left(find)}.");
+        Assert.Contains("…", title.TextLayout.TextLines.SelectMany(l => l.TextRuns).Select(r => r.Text.ToString()).Aggregate("", (a, b) => a + b));
+        Assert.True(Right(find) <= Left(export));
+        Assert.True(Right(export) <= player.Bounds.Width);
+        player.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Loop_is_off_at_first_and_plays_the_recording_again_when_on()
+    {
+        var (player, window, _) = await OpenTerminalRecording("web-01");
+        var loop = player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "Loop");
+        try
+        {
+            Assert.False(player.Loops);
+            Assert.DoesNotContain("selected", loop.Classes);
+            var speed = player.GetVisualDescendants().OfType<ComboBox>().Single(c => AutomationProperties.GetName(c) == "Playback speed");
+            speed.SelectedIndex = 4; // 8×: the second plays in an eighth
+
+            // Off: it stops at the end and says so, and Play plays it again.
+            await WaitFor(() => AutomationProperties.GetName(PlayButton(player)) == "Play again");
+            Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.StartsWith("End of recording") == true);
+
+            Press(player, Key.L);
+            Assert.True(player.Loops);
+            Assert.Contains("selected", loop.Classes);
+            PlayButton(player).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.DoesNotContain(player.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.StartsWith("End of recording") == true);
+
+            // On: several times round, it's still playing.
+            for (int i = 0; i < 40; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10);
+                Assert.Equal("Pause", AutomationProperties.GetName(PlayButton(player)));
+            }
+        }
+        finally
+        {
+            if (player.Loops)
+            {
+                Press(player, Key.L); // Loop is kept for the run; leave it off for the other tests
+            }
+
+            player.Dispose();
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Shortcuts_show_with_question_mark_and_delete_and_markers_have_keys()
+    {
+        var (player, window, _) = await OpenTerminalRecording("web-01");
+        Press(player, Key.Space); // pause
+
+        Press(player, Key.OemQuestion, KeyModifiers.Shift, "?");
+        var card = player.GetVisualDescendants().OfType<Border>().Single(b => AutomationProperties.GetName(b) == "Keyboard shortcuts");
+        Assert.True(card.IsEffectivelyVisible);
+        Assert.Contains(card.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Find in output");
+        Assert.DoesNotContain(card.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Mute"); // no sound in this one
+        Press(player, Key.Escape);
+        Assert.False(card.IsEffectivelyVisible);
+
+        // Shift+Right goes to the marker, half a second in.
+        Press(player, Key.Home);
+        Press(player, Key.Right, KeyModifiers.Shift);
+        var timeline = player.GetVisualDescendants().OfType<Slider>().Single(s => AutomationProperties.GetName(s) == "Position");
+        Assert.InRange(timeline.Value, 0.45, 0.55);
+
+        // Find's matches show on the timeline.
+        player.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "Find in output").Text = "deploy";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, player.GetVisualDescendants().OfType<Border>().Count(b => AutomationProperties.GetName(b)?.StartsWith("Match at ") == true));
+
+        bool deleteAsked = false;
+        player.DeleteRequested += (_, _) => deleteAsked = true;
+        Press(player, Key.Delete);
+        Assert.True(deleteAsked);
+        player.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Recordings_play_with_the_viewers_color_correction()
+    {
+        _settings.Save(new AppSettings { ColorVision = Orrery.Core.Settings.ColorVision.Deuteranopia });
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "red.orrec");
+        var red = new byte[16 * 8 * 3];
+        for (int i = 0; i < red.Length; i += 3)
+        {
+            red[i] = 220;
+            red[i + 1] = 40;
+            red[i + 2] = 40;
+        }
+
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(16, 8));
+            writer.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(red, 16, 8));
+            writer.Complete(TimeSpan.FromSeconds(1));
+        }
+
+        var service = new RecordingService(_location, _settings, _credentials);
+        var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = 1000, Height = 600 };
+        window.Show();
+        await WaitFor(() => player.GetVisualDescendants().OfType<Image>().Any(i => i.Source is not null));
+
+        byte[] FirstPixel() => player.Picture()[..3];
+
+        // The file keeps the colors as they were; they're corrected as they're shown.
+        Assert.NotNull(player.Correction);
+        var corrected = FirstPixel();
+        Assert.Equal(220, corrected[0]); // red-green correction keeps red and moves what is lost into blue
+        Assert.True(corrected[2] > 60, $"Blue is {corrected[2]}.");
+
+        // Turning it off in Settings shows them as recorded.
+        player.SetColors(Orrery.Core.Settings.ColorVision.None, null, TerminalColorScheme.Standard);
+        Assert.Equal(new byte[] { 220, 40, 40 }, FirstPixel());
+        player.Dispose();
+        window.Close();
+
+        // A terminal recording plays with the color-blind palette.
+        var (terminalPlayer, terminalWindow, _) = await OpenTerminalRecording("web-01");
+        Assert.Equal(Orrery.Core.Settings.ColorVision.Deuteranopia, terminalPlayer.GetVisualDescendants().OfType<TerminalView>().Single().ColorVision);
+        terminalPlayer.Dispose();
+        terminalWindow.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_connection_with_correction_off_plays_its_own_colors()
+    {
+        _settings.Save(new AppSettings { ColorVision = Orrery.Core.Settings.ColorVision.Deuteranopia });
+        var (player, window) = await OpenRedScreen(new RecordingInfo("desk", "RDP", DateTimeOffset.Now, ColorCorrection: false));
+        Assert.Null(player.Correction);
+        Assert.Equal(new byte[] { 220, 40, 40 }, player.Picture()[..3]);
+        player.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_web_page_recorded_corrected_is_not_corrected_again()
+    {
+        // The page was shown, so recorded, with the viewer's own correction: it plays as recorded.
+        _settings.Save(new AppSettings { ColorVision = Orrery.Core.Settings.ColorVision.Deuteranopia });
+        var recordedWith = ColorCorrection.For(Orrery.Core.Settings.ColorVision.Deuteranopia, 100)!;
+        var shown = recordedWith.Apply(220, 40, 40);
+        var info = new RecordingInfo("router", "HTTPS", DateTimeOffset.Now, ColorCorrection: true,
+            CorrectedFor: Orrery.Core.Settings.ColorVision.Deuteranopia, CorrectedStrength: 100);
+        var (player, window) = await OpenRedScreen(info, (shown.R, shown.G, shown.B));
+        Assert.Null(player.Correction);
+        Assert.Equal(new byte[] { shown.R, shown.G, shown.B }, player.Picture()[..3]);
+
+        // A viewer with no correction sees the page's own colors again, within rounding.
+        player.SetColors(Orrery.Core.Settings.ColorVision.None, null, TerminalColorScheme.Standard);
+        Assert.NotNull(player.Correction);
+        var native = player.Picture()[..3];
+        Assert.InRange(native[0], 218, 222);
+        Assert.InRange(native[1], 38, 42);
+        Assert.InRange(native[2], 38, 42);
+        player.Dispose();
+        window.Close();
+
+        // An export has the page's own colors too, as every other recording's are.
+        var undo = RecordingExport.NativeColors(Path.Combine(_root, "red.orrec"), (await RecordingKeys.PrivateKeyAsync(_credentials))!)!;
+        byte[] pixel = [shown.R, shown.G, shown.B];
+        undo(pixel);
+        Assert.InRange(pixel[0], 218, 222);
+        Assert.InRange(pixel[1], 38, 42);
+    }
+
+    /// <summary>A one-picture screen recording of a single color, red unless said, in a player.</summary>
+    async Task<(PlayerView Player, Window Window)> OpenRedScreen(RecordingInfo info, (byte R, byte G, byte B)? color = null)
+    {
+        var (r, g, b) = color ?? ((byte)220, (byte)40, (byte)40);
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "red.orrec");
+        var pixels = new byte[16 * 8 * 3];
+        for (int i = 0; i < pixels.Length; i += 3)
+        {
+            (pixels[i], pixels[i + 1], pixels[i + 2]) = (r, g, b);
+        }
+
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(info));
+            writer.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(16, 8));
+            writer.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(pixels, 16, 8));
+            writer.Complete(TimeSpan.FromSeconds(1));
+        }
+
+        var service = new RecordingService(_location, _settings, _credentials);
+        var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = 1000, Height = 600 };
+        window.Show();
+        await WaitFor(() => player.GetVisualDescendants().OfType<Image>().Any(i => i.Source is not null));
+        return (player, window);
     }
 
     static async Task WaitFor(Func<bool> condition)

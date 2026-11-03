@@ -50,6 +50,12 @@ public sealed record ResolvedSettings(
     public required Resolved<SerialStopBits> StopBits { get; init; }
     public required Resolved<SerialFlowControl> FlowControl { get; init; }
     public required Resolved<bool> RecordSessions { get; init; }
+
+    /// <summary>Where web pages open, as the tree sets it; null leaves it to the app setting, see <see cref="InOrrery"/>.</summary>
+    public required Resolved<bool?> WebPagesInOrrery { get; init; }
+
+    /// <summary>Whether web pages open in an Orrery tab: the tree's value, else <paramref name="appSetting"/>.</summary>
+    public bool InOrrery(bool appSetting) => WebPagesInOrrery.Value ?? appSetting;
 }
 
 public static class SettingsResolver
@@ -120,6 +126,10 @@ public static class SettingsResolver
             Flag(nameof(InheritableSettings.ColorCorrection), s => s.ColorCorrection, true))
         {
             RemoteAudio = Value(nameof(InheritableSettings.RemoteAudio), s => s.RemoteAudio, Connections.RemoteAudio.PlayHere),
+            // No Orrery default here either: the app's "Open web pages in" setting fills in, see ResolvedSettings.InOrrery.
+            WebPagesInOrrery = Find(node, includeSelf, nameof(InheritableSettings.WebPagesInOrrery), s => s.WebPagesInOrrery) is { } web
+                ? new Resolved<bool?>(web.Value, web.Source)
+                : new Resolved<bool?>(null, null),
             ShareAllDrives = Flag(nameof(InheritableSettings.ShareAllDrives), s => s.ShareAllDrives, false),
             SharedFolders = shared,
             FullScreen = fullScreen,

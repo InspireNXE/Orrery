@@ -30,8 +30,10 @@ public static class ScreenExport
     /// Whether each frame's sound runs on, in silence where none was recorded, to two frames past it. ffmpeg reads its
     /// inputs in step, so a sound track that stops while the picture goes on would leave both waiting on each other.
     /// </param>
+    /// <param name="recolor">Changes each frame's RGB pixels in place once drawn, as undoing a web page's color correction.</param>
     public static IEnumerable<ExportFrame> Frames(RecordingReader reader, int framesPerSecond, int width, int height, bool skipIdle,
-        CancellationToken cancel = default, SoundFormat? sound = null, bool steadySound = false)
+        CancellationToken cancel = default, SoundFormat? sound = null, bool steadySound = false,
+        Action<byte[]>? recolor = null)
     {
         byte[] Sound(SoundTrack? track, TimeSpan at)
         {
@@ -75,6 +77,7 @@ public static class ScreenExport
                 if (changed)
                 {
                     Render(decoder, output, width, height);
+                    recolor?.Invoke(output);
                 }
 
                 yield return new ExportFrame(next, width, height, output, changed) { Sound = Sound(track, next + step + step) };
@@ -98,6 +101,7 @@ public static class ScreenExport
         if (any)
         {
             Render(decoder, output, width, height);
+            recolor?.Invoke(output);
             yield return new ExportFrame(next, width, height, output, true) { Sound = Sound(track, next + step + step) };
         }
     }
