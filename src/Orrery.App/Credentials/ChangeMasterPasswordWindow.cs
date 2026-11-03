@@ -10,12 +10,11 @@ namespace Orrery.App.Credentials;
 /// <summary>Changes the vault's master password. Closes with true once the vault is re-keyed.</summary>
 sealed class ChangeMasterPasswordWindow : Window
 {
-    const int MinimumPasswordLength = 8;
-
     readonly VaultFileStore _vault;
     readonly TextBox _current = new PasswordBox();
     readonly TextBox _new = new PasswordBox();
     readonly TextBox _confirm = new PasswordBox();
+    readonly PasswordMeter _meter;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
 
@@ -45,6 +44,7 @@ sealed class ChangeMasterPasswordWindow : Window
                 new Notice(NoticeKind.Warning, "Your saved credentials stay as they are. If you forget the new password, there is no way to recover the vault."),
                 Dialogs.Field("Current master password", _current),
                 Dialogs.Field("New master password", _new),
+                (_meter = new PasswordMeter(_new, "vault", "master")),
                 Dialogs.Field("Confirm new master password", _confirm),
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, _ok } },
@@ -63,9 +63,9 @@ sealed class ChangeMasterPasswordWindow : Window
             return;
         }
 
-        if (password.Length < MinimumPasswordLength)
+        if (_meter.Check().Problem is { } problem)
         {
-            ShowError($"Use at least {MinimumPasswordLength} characters. A short phrase is easier to remember than a complex word.");
+            ShowError(problem);
             return;
         }
 
