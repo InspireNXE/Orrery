@@ -136,6 +136,12 @@
       </Setter>
     </Style>
 
+    <!-- The window frame Avalonia 12 draws: its title text would sit over the title bar's own logo and name, and its
+         full-screen button isn't one Windows windows have. -->
+    <Style Selector="WindowDrawnDecorations Panel#PART_TitleTextPanel > TextBlock, WindowDrawnDecorations Button#PART_FullScreenButton">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
     <Style Selector="TextBlock.section">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="FontWeight" Value="SemiBold" />
