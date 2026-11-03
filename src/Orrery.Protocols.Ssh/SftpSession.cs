@@ -96,7 +96,12 @@ public sealed class SftpSession : IConnectionSession
                 _client = client;
             }
 
-            hostKey.Connect(client);
+            hostKey.Connect(client, () =>
+            {
+                SshTunnel? tunnel;
+                lock (_lock) tunnel = _tunnel;
+                tunnel?.AllowRetry(port);
+            });
             HomeDirectory = client.WorkingDirectory;
             SetState(SessionState.Connected);
         }
@@ -436,8 +441,14 @@ public sealed class SftpSession : IConnectionSession
 
     public async ValueTask DisposeAsync() => await DisconnectAsync();
 
+    /// <summary>Ends the session as failed, unless it's being closed on purpose: that ends in Disconnected.</summary>
     void Fail(string message, Exception? error = null)
     {
+        lock (_lock)
+        {
+            if (_closing) return;
+        }
+
         if (State is SessionState.Disconnected or SessionState.Failed) return;
         SetState(SessionState.Failed, message, error);
     }

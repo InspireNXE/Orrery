@@ -52,6 +52,36 @@ public class TelnetRouteTests
     }
 
     [Fact]
+    public async Task A_route_whose_port_closes_before_the_server_says_anything_fails_the_session()
+    {
+        // What a jump host's forward does when it can't open a channel to the server: accepts, then closes.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var route = new FakeRoute(((IPEndPoint)listener.LocalEndpoint).Port);
+            var accepted = listener.AcceptTcpClientAsync();
+            var ended = new TaskCompletionSource<SessionStateChangedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var session = TelnetSession.Start(new ConnectionTarget("switch.internal", 23, null, null), 80, 24, route);
+            session.StateChanged += (_, e) =>
+            {
+                if (e.State is SessionState.Failed or SessionState.Disconnected) ended.TrySetResult(e);
+            };
+
+            (await accepted.WaitAsync(Wait)).Dispose();
+
+            var end = await ended.Task.WaitAsync(Wait);
+            Assert.Equal(SessionState.Failed, end.State);
+            Assert.Equal("Couldn't reach switch.internal:23 through the jump host.", end.Message);
+            await session.DisposeAsync();
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
     public async Task A_route_that_cant_open_fails_the_session_with_its_message()
     {
         var route = new FakeRoute(1) { Failure = "Jump host bastion: The username or password was rejected." };

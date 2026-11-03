@@ -147,7 +147,20 @@ public sealed class SshSession : ITerminalSession
             // Closed event (raised on another thread) can't promise.
             var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
                 (message, error) => Fail(message, error is null ? null : Recognize(error)));
-            lock (_lock) (_shell, _pump) = (shell, pump);
+            bool resized;
+            lock (_lock)
+            {
+                (_shell, _pump) = (shell, pump);
+                resized = (_columns, _rows) != (columns, rows);
+                (columns, rows) = (_columns, _rows);
+            }
+
+            // A resize that came while the shell was being opened only changed the size wanted.
+            if (resized)
+            {
+                shell.ChangeWindowSize((uint)columns, (uint)rows, 0, 0);
+            }
+
             SetState(SessionState.Connected);
             pump.Start();
         }
@@ -184,7 +197,12 @@ public sealed class SshSession : ITerminalSession
                 _client = client;
             }
 
-            hostKey.Connect(client);
+            hostKey.Connect(client, () =>
+            {
+                SshTunnel? tunnel;
+                lock (_lock) tunnel = _tunnel;
+                tunnel?.AllowRetry(port);
+            });
             return client;
         }
         catch (SshConnectionException e) when (hostKey?.Rejected == true)
@@ -477,8 +495,14 @@ public sealed class SshSession : ITerminalSession
         }
     }
 
+    /// <summary>Ends the session as failed, unless it's being closed on purpose: that ends in Disconnected.</summary>
     void Fail(string message, Exception? error = null)
     {
+        lock (_lock)
+        {
+            if (_closing) return;
+        }
+
         if (State is SessionState.Disconnected or SessionState.Failed) return;
         SetState(SessionState.Failed, message, error);
     }

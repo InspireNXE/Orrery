@@ -85,8 +85,11 @@ internal sealed class HostKeyCheck
         return true;
     }
 
-    /// <summary>Connects <paramref name="client"/>, once more if the first try ran out of time while the user decided.</summary>
-    public void Connect(BaseClient client)
+    /// <summary>
+    /// Connects <paramref name="client"/>, once more if the first try ran out of time while the user decided.
+    /// <paramref name="beforeRetry"/> runs just before that second try, so a jump host's forward lets it in.
+    /// </summary>
+    public void Connect(BaseClient client, Action? beforeRetry = null)
     {
         try
         {
@@ -95,6 +98,7 @@ internal sealed class HostKeyCheck
         catch (Exception e) when (RetryAfter(e))
         {
             Logger.LogInformation("{Host}:{Port} timed out while the host key was being checked; connecting again", Target.Host, Target.Port);
+            beforeRetry?.Invoke();
             client.Connect();
         }
 
