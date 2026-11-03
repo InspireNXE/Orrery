@@ -291,7 +291,15 @@ sealed class PropertiesPanel : UserControl
         _save = new Button { Content = "Save", Margin = new Thickness(8, 0, 0, 0) };
         _save.Click += (_, _) => TrySave();
         var revert = new Button { Content = "Revert" };
-        revert.Click += async (_, _) => { if (_node is not null) await ShowAsync(_node); };
+        revert.Click += async (_, _) =>
+        {
+            if (_node is not null)
+            {
+                // Throws the edits away, so showing the node again doesn't apply them first.
+                _dirty = false;
+                await ShowAsync(_node);
+            }
+        };
         _connect = new Button { Content = "Connect", Height = 36, CornerRadius = new CornerRadius(8), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
         _connect.Classes.Add("accent");
         _connect.Click += (_, _) =>
@@ -514,11 +522,15 @@ sealed class PropertiesPanel : UserControl
         AutomationProperties.SetName(_sessionTab, changes switch { 0 => "This session", 1 => "This session, 1 change", _ => $"This session, {changes} changes" });
     }
 
-    public async Task ShowAsync(ConnectionNode? node)
+    /// <summary>
+    /// Shows <paramref name="node"/>, or the node shown again, applying the edits not yet saved first. False, with the
+    /// problem showing and the edits still in the pane, if they don't validate: the pane stays as it was.
+    /// </summary>
+    public async Task<bool> ShowAsync(ConnectionNode? node)
     {
-        if (_dirty && _node is not null && _node != node)
+        if (!TrySave())
         {
-            TrySave();
+            return false;
         }
 
         _node = node;
@@ -527,7 +539,7 @@ sealed class PropertiesPanel : UserControl
         if (node is null)
         {
             Content = _empty;
-            return;
+            return true;
         }
 
         _loading = true;
@@ -561,7 +573,7 @@ sealed class PropertiesPanel : UserControl
             if (version != _showVersion)
             {
                 // Another node was selected while the credential list loaded; that call owns the panel.
-                return;
+                return true;
             }
 
             _usernameRow.Load(own.Username is null, Describe(inherited.Username));
@@ -656,6 +668,7 @@ sealed class PropertiesPanel : UserControl
             Content = _root;
             CountSetHere();
             UpdateTabs();
+            return true;
         }
         finally
         {
@@ -679,7 +692,7 @@ sealed class PropertiesPanel : UserControl
     /// connecting): the credential row shows the node's choice and the list has the new one. Other edits not
     /// yet applied are kept. Without this, applying them would put the old credential back.
     /// </summary>
-    public async Task CredentialsChangedAsync(ConnectionNode changed)
+    public async Task CredentialsChangedAsync(ConnectionNode? changed)
     {
         if (_node is null || Content != _root)
         {
@@ -713,15 +726,16 @@ sealed class PropertiesPanel : UserControl
         }
     }
 
-    /// <summary>Applies the edits to the node. False, with a message shown, if something is invalid.</summary>
+    /// <summary>Lists the credentials again, as after a lock, keeping the one chosen and the edits not yet applied.</summary>
+    public Task RefreshCredentialsAsync() => CredentialsChangedAsync(null);
+
+    /// <summary>Forgets the edits not yet applied, for a node about to be deleted.</summary>
+    public void DiscardEdits() => _dirty = false;
+
+    /// <summary>Applies the edits to the node. True when none are left unsaved; false, with a message shown, if something is invalid.</summary>
     public bool TrySave()
     {
-        if (_node is null)
-        {
-            return false;
-        }
-
-        if (!_dirty)
+        if (_node is null || !_dirty)
         {
             return true;
         }
