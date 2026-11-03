@@ -340,7 +340,7 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel, over the sessions unless it's pinned; the mode stays as it is |
-| Ctrl+Alt+B | Show or hide the properties pane, the same way |
+| Ctrl+Alt+B | Show or hide the properties pane, the same way. On Windows layouts where AltGr+B types a character, such as `{` on Czech, the character goes to the session instead |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (changeable in Settings) |
 | Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back |
 | Ctrl+Alt+End (Ctrl+Cmd+End on macOS) | In a remote desktop: send Ctrl+Alt+Del |

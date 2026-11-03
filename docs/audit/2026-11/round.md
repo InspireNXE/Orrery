@@ -21,8 +21,9 @@ owner asked ("fix any security issues found that aren't compromising to the feat
 | Pass | Finders | Findings (M/L) | Bugs | Fixed | Open |
 |---|---|---|---|---|---|
 | Security + correctness | 6 (web, RDP channels and the fork's drive backend, recording, import and secrets, supply chain, UI) | 9 / 20 | 7 | 22 | 14 |
+| Bugs (after the fixes above) | 5 (RDP, recording, main window, Core and import, other protocols and the terminal) + 1 over the fixes | – | 32 | 32 | 0 |
 
-Findings: `findings-security.md`.
+Findings: `findings-security.md`; the bug pass, `findings-bugs.md`.
 
 ## After the fixes
 
@@ -44,3 +45,8 @@ The owner asked for all four items that were waiting on them ("Build all four"):
 `dotnet build Orrery.sln`: 0 errors. `dotnet test Orrery.sln`: all passed (Core 943 and 6 skipped, App 496, RDP 76,
 SSH 106, VNC 25, Serial 10, Local 12, Telnet 11). Not checked on a real machine: clearing web data while WebView2 holds
 it, and the import prompt.
+
+## Bug pass
+
+See `findings-bugs.md`. `dotnet build Orrery.sln`: 0 errors. `dotnet test Orrery.sln`: all passed (Core 960 and 6
+skipped, App 508, RDP 84, SSH 107, VNC 25, Serial 10, Local 12, Telnet 12).
