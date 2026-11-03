@@ -16,6 +16,9 @@
     -Version builds them as another version than <Version> in Directory.Build.props: the app reports it and the
     files are named for it (build/New-TestRelease.ps1 uses this).
 
+    -RezipOnly builds nothing: it zips the folders an earlier run left in artifacts/ again, after files in them
+    were replaced with signed ones (GitHub Actions does this for a release).
+
 .EXAMPLE
     ./build/package.ps1                       # every platform
     ./build/package.ps1 -Runtimes win-x64     # just Windows x64
@@ -24,7 +27,8 @@
 param(
     [string[]] $Runtimes = @('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-arm64', 'osx-x64'),
     [string] $Configuration = 'Release',
-    [string] $Version
+    [string] $Version,
+    [switch] $RezipOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +39,35 @@ $version = if ($Version) { $Version } else { ([xml](Get-Content (Join-Path $root
 if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3 or 1.2.3-preview.1." }
 
 New-Item -ItemType Directory -Force $artifacts | Out-Null
+
+# Zip archives keep no Unix permissions from Windows, so on Linux and macOS: chmod +x Orrery after unzipping.
+# Not Compress-Archive: Windows PowerShell 5.1's writes backslashes into entry names, which macOS and Linux
+# unpack as one file per path rather than folders.
+function Write-Zip([string] $Stage, [string] $Zip) {
+    Remove-Item -Force $Zip -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::Open($Zip, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($file in Get-ChildItem -Recurse -File $Stage) {
+            $entry = $file.FullName.Substring($Stage.Length + 1).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entry) | Out-Null
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+    Write-Host "   $Zip" -ForegroundColor Green
+}
+
+if ($RezipOnly) {
+    foreach ($rid in $Runtimes) {
+        $name = "Orrery-$version-$($rid -replace '^osx-', 'macos-')-portable"
+        $stage = Join-Path $artifacts $name
+        if (-not (Test-Path $stage)) { throw "$stage is missing: run this script without -RezipOnly first." }
+        Write-Zip $stage (Join-Path $artifacts "$name.zip")
+    }
+    return
+}
 
 foreach ($rid in $Runtimes) {
     # .NET calls macOS osx; the file people download says macos.
@@ -101,21 +134,7 @@ foreach ($rid in $Runtimes) {
     # Empty: portable mode, with the data location still to choose on first launch.
     New-Item -ItemType File (Join-Path $stage 'orrery.portable.json') | Out-Null
 
-    # Zip archives keep no Unix permissions from Windows, so on Linux and macOS: chmod +x Orrery after unzipping.
-    # Not Compress-Archive: Windows PowerShell 5.1's writes backslashes into entry names, which macOS and Linux
-    # unpack as one file per path rather than folders.
-    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-    $archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
-    try {
-        foreach ($file in Get-ChildItem -Recurse -File $stage) {
-            $entry = $file.FullName.Substring($stage.Length + 1).Replace('\', '/')
-            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entry) | Out-Null
-        }
-    }
-    finally {
-        $archive.Dispose()
-    }
-    Write-Host "   $zip" -ForegroundColor Green
+    Write-Zip $stage $zip
 }
 
 Remove-Item -Recurse -Force (Join-Path $artifacts 'publish') -ErrorAction SilentlyContinue

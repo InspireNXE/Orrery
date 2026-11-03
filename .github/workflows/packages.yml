@@ -75,6 +75,10 @@ jobs:
     name: Windows
     needs: [preflight]
     runs-on: windows-2025
+    permissions:
+      contents: read
+      # SignPath reads the job's details and downloads the artifact it's asked to sign with this token.
+      actions: read
 
     steps:
       - name: Check out Orrery
@@ -116,10 +120,113 @@ jobs:
           "iscc=$Iscc" >> $Env:GITHUB_OUTPUT
         shell: pwsh
 
+      # A release is signed through SignPath Foundation once the repository has the SIGNPATH_ORGANIZATION_ID and
+      # SIGNPATH_PROJECT_SLUG variables and the SIGNPATH_API_TOKEN secret (docs/code-signing.md). Only tags are signed,
+      # since each request is approved by hand; everything else is built unsigned, as before.
+      - name: Signing
+        id: signing
+        env:
+          ORGANIZATION: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          $Sign = $Env:IS_TAG -eq 'true' -and -not [string]::IsNullOrEmpty($Env:ORGANIZATION)
+          "sign=$($Sign.ToString().ToLowerInvariant())" >> $Env:GITHUB_OUTPUT
+          if ($Env:IS_TAG -eq 'true' -and -not $Sign) { Write-Host "::warning::SignPath isn't set up, so this release's Windows files are unsigned." }
+        shell: pwsh
+
+      # Orrery's own files only: the portable executables, and in the installer's publish Orrery.exe and Orrery's
+      # DLLs. Third-party DLLs keep their own signatures, or none.
+      - name: Gather the files to sign
+        if: steps.signing.outputs.sign == 'true'
+        run: |
+          ./build/Build-Installer.ps1 -PublishOnly
+          $Version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $ToSign = 'artifacts/to-sign'
+          foreach ($Arch in 'x64', 'arm64') {
+            New-Item -ItemType Directory -Force "$ToSign/portable-win-$Arch" | Out-Null
+            Copy-Item "artifacts/Orrery-$Version-win-$Arch-portable/Orrery.exe" "$ToSign/portable-win-$Arch/"
+          }
+          New-Item -ItemType Directory -Force "$ToSign/installed" | Out-Null
+          Copy-Item artifacts/installer-publish/Orrery.exe, artifacts/installer-publish/Orrery.dll, artifacts/installer-publish/Orrery.*.dll "$ToSign/installed/"
+          Get-ChildItem -Recurse -File $ToSign | ForEach-Object { $_.FullName }
+        shell: pwsh
+
+      - name: Upload the files to sign
+        id: upload-to-sign
+        if: steps.signing.outputs.sign == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signpath-windows-files
+          path: artifacts/to-sign/
+          if-no-files-found: error
+
+      - name: Sign the files
+        if: steps.signing.outputs.sign == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: files
+          github-artifact-id: ${{ steps.upload-to-sign.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: artifacts/signed
+
+      # The signed files go back where they came from, and the portable zips are made again around them.
+      - name: Use the signed files
+        if: steps.signing.outputs.sign == 'true'
+        run: |
+          $Version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          foreach ($Arch in 'x64', 'arm64') {
+            Copy-Item -Force "artifacts/signed/portable-win-$Arch/Orrery.exe" "artifacts/Orrery-$Version-win-$Arch-portable/"
+          }
+          Copy-Item -Force artifacts/signed/installed/* artifacts/installer-publish/
+          $Unsigned = @(Get-ChildItem artifacts/Orrery-*-win-*-portable/Orrery.exe, artifacts/installer-publish/Orrery.exe, artifacts/installer-publish/Orrery.dll, artifacts/installer-publish/Orrery.*.dll |
+            Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' })
+          if ($Unsigned) { throw "Not signed: $($Unsigned.FullName -join ', ')" }
+          ./build/package.ps1 -Runtimes win-x64,win-arm64 -RezipOnly
+        shell: pwsh
+
       - name: Installer
         env:
           ISCC_PATH: ${{ steps.inno.outputs.iscc }}
-        run: ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH
+          SIGNED: ${{ steps.signing.outputs.sign }}
+        run: |
+          # Signed, the setup is built from the publish whose files were just signed.
+          if ($Env:SIGNED -eq 'true') { ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH -SkipPublish }
+          else { ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH }
+        shell: pwsh
+
+      - name: Upload the setup to sign
+        id: upload-setup
+        if: steps.signing.outputs.sign == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signpath-windows-setup
+          path: artifacts/installer/*.exe
+          if-no-files-found: error
+
+      - name: Sign the setup
+        if: steps.signing.outputs.sign == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: setup
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: artifacts/signed-setup
+
+      - name: Use the signed setup
+        if: steps.signing.outputs.sign == 'true'
+        run: |
+          $Setup = Get-ChildItem artifacts/signed-setup -Filter 'Orrery-Setup-*.exe' -Recurse | Select-Object -First 1
+          if (-not $Setup) { throw 'SignPath returned no Orrery-Setup-*.exe.' }
+          if ((Get-AuthenticodeSignature $Setup.FullName).Status -ne 'Valid') { throw "$($Setup.Name) isn't validly signed." }
+          Copy-Item -Force $Setup.FullName artifacts/installer/
         shell: pwsh
 
       - name: Upload portable zips
@@ -191,6 +298,25 @@ jobs:
           "runtimes=$Tools" >> $Env:GITHUB_OUTPUT
         shell: pwsh
 
+      # The .deb and .rpm are signed when the repository has the LINUX_SIGNING_KEY secret (an ASCII-armored OpenPGP
+      # secret key) and LINUX_SIGNING_PASSPHRASE; build/linux-signing-key.asc is its public half. Without them they're
+      # built unsigned, as before (docs/code-signing.md).
+      - name: Signing key
+        id: signing
+        env:
+          KEY: ${{ secrets.LINUX_SIGNING_KEY }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEY" ]; then
+            if [ "$IS_TAG" = true ]; then echo "::warning::No LINUX_SIGNING_KEY, so this release's .deb and .rpm are unsigned."; fi
+            exit 0
+          fi
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/linux-signing-key.asc"
+          echo "key=$RUNNER_TEMP/linux-signing-key.asc" >> "$GITHUB_OUTPUT"
+        shell: bash
+
       # The runner has no FUSE for mounting appimagetool's own image, so it unpacks itself and runs from there.
       - name: Linux packages
         env:
@@ -198,8 +324,41 @@ jobs:
           NFPM_PATH: ${{ steps.tools.outputs.nfpm }}
           APPIMAGETOOL_PATH: ${{ steps.tools.outputs.appimagetool }}
           APPIMAGE_RUNTIME_DIR: ${{ steps.tools.outputs.runtimes }}
-        run: ./build/Build-LinuxPackages.ps1 -NfpmPath $Env:NFPM_PATH -AppImageToolPath $Env:APPIMAGETOOL_PATH -AppImageRuntimeDir $Env:APPIMAGE_RUNTIME_DIR
+          SIGNING_KEY: ${{ steps.signing.outputs.key }}
+          NFPM_PASSPHRASE: ${{ secrets.LINUX_SIGNING_PASSPHRASE }}
+        run: |
+          $Sign = if ($Env:SIGNING_KEY) { @{ SigningKey = $Env:SIGNING_KEY } } else { @{} }
+          ./build/Build-LinuxPackages.ps1 -NfpmPath $Env:NFPM_PATH -AppImageToolPath $Env:APPIMAGETOOL_PATH -AppImageRuntimeDir $Env:APPIMAGE_RUNTIME_DIR @Sign
         shell: pwsh
+
+      # Checked against the public key in the repository, the one users import, so a wrong key or a missing signature
+      # fails here rather than on someone's machine. The key then goes with the packages, for the release.
+      - name: Check the signatures
+        if: steps.signing.outputs.key != ''
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/linux-signing-key.asc"
+          public="$PWD/build/linux-signing-key.asc"
+          if [ ! -f "$public" ]; then echo "::error::build/linux-signing-key.asc is missing: commit the signing key's public half."; exit 1; fi
+          command -v rpm > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends rpm; }
+          export GNUPGHOME="$(mktemp -d)"
+          gpg --batch --quiet --import "$public"
+          for deb in "$PWD"/artifacts/linux/*.deb; do
+            parts="$(mktemp -d)"
+            (cd "$parts" && ar x "$deb")
+            if [ ! -f "$parts/_gpgorigin" ]; then echo "::error::$(basename "$deb") isn't signed."; exit 1; fi
+            cat "$parts/debian-binary" "$parts"/control.tar.* "$parts"/data.tar.* | gpg --batch --verify "$parts/_gpgorigin" -
+            echo "$(basename "$deb"): signature OK"
+          done
+          db="$(mktemp -d)"
+          rpm --dbpath "$db" --import "$public"
+          for package in artifacts/linux/*.rpm; do
+            result="$(rpm --dbpath "$db" -K "$package")"
+            echo "$result"
+            case "$result" in *"signatures OK"*) ;; *) echo "::error::$(basename "$package") isn't signed with this key."; exit 1 ;; esac
+          done
+          cp "$public" artifacts/linux/orrery-linux-signing-key.asc
+        shell: bash
 
       - name: Upload portable zips
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -216,6 +375,7 @@ jobs:
             artifacts/linux/*.deb
             artifacts/linux/*.rpm
             artifacts/linux/*.AppImage
+            artifacts/linux/*.asc
           if-no-files-found: error
 
   macos:
