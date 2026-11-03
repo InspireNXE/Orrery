@@ -1,4 +1,5 @@
 using System.Text;
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -492,6 +493,37 @@ public sealed class RecordingUiTests : IDisposable
         panel.Filter = "nothing like it";
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(panel.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("No recordings match") == true);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_long_recording_name_is_cut_short_before_its_badge()
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var service = new RecordingService(_location, _settings, _credentials);
+        Directory.CreateDirectory(service.Folder);
+        const string name = "2026-11-02 23.15.20 inxe-vmh-01 - management console";
+        var path = Path.Combine(service.Folder, "long.orrec");
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(new RecordingInfo(name, "Screen", DateTimeOffset.Now)));
+            writer.Complete(TimeSpan.FromMinutes(1));
+        }
+
+        var panel = new RecordingsPanel(service);
+        var window = new Window { Content = panel, Width = 260, Height = 400 };
+        window.Show();
+        panel.Refresh();
+        var list = panel.GetVisualDescendants().OfType<ListBox>().Single();
+        await WaitFor(() => list.ItemCount == 1);
+        Dispatcher.UIThread.RunJobs();
+
+        var title = list.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == name);
+        var badge = list.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "SCREEN");
+        double titleRight = title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X;
+        double badgeLeft = badge.TranslatePoint(new Point(0, 0), window)!.Value.X;
+        Assert.True(titleRight <= badgeLeft, $"The name ends at {titleRight} but the badge starts at {badgeLeft}.");
+        Assert.True(titleRight <= window.Width);
         window.Close();
     }
 
