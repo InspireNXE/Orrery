@@ -291,7 +291,7 @@ public class SetupWizardTests : IDisposable
         Assert.True(saved.SetupDone);
         Assert.Equal(CredentialStoreKind.VaultFile, saved.CredentialStore);
         Assert.Equal(UpdateAction.Download, saved.WhenUpdateFound);
-        Assert.True(saved.UpdatePreviews);
+        Assert.True(saved.OffersPreviewUpdates);
         Assert.False(saved.HostStatusChecks);
         Assert.False(saved.WebPagesInOrrery);
         Assert.Null(saved.UpdateChecks);

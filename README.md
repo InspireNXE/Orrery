@@ -296,7 +296,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   Ctrl+K *Check for updates*), sending only its version, and shows a bar above the tabs when one is out. Windows
   copies and the AppImage download it, check it against the release's `SHA256SUMS`, and restart as the new version,
   reopening the sessions that were open; *When I quit* waits instead. The .deb, .rpm and macOS copies point you to
-  the release. Later, Skip this version, previews and downloading in the background are in Settings.
+  the release. Later, Skip this version, previews and downloading in the background are in Settings. A preview
+  copy is offered the next preview unless you turn previews off.
 - Orrery remembers the window and open tabs and can reopen them at start: ask, always or never. Quick-connect hosts
   come back by address and ask for their login again. Never also stops saving the tab list and deletes the saved
   one; window size, position and panes are still kept.
