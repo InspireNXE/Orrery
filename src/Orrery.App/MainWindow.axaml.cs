@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     readonly AppSettingsStore _settingsStore;
     readonly string? _movedFrom;
     readonly string? _openOnStart;
+    readonly IReadOnlyList<string>? _importOnStart;
     readonly ConnectionStore _connectionStore;
     readonly ConnectionTree _tree;
     readonly ICredentialStore _credentials;
@@ -127,12 +128,17 @@ public partial class MainWindow : Window
 
     /// <param name="movedFrom">The previous data folder, when Orrery restarted after Move data.</param>
     /// <param name="openOnStart">A Remote Desktop (.rdp) file given on the command line, connected to once the window opens.</param>
-    public MainWindow(DataLocation location, string? movedFrom = null, string? openOnStart = null)
+    /// <param name="importOnStart">
+    /// Files first-launch setup chose to import, each through the usual preview once the window opens. Given at all, even
+    /// empty, it stands in for the offer to import mRemoteNG's connections, which setup has already made.
+    /// </param>
+    public MainWindow(DataLocation location, string? movedFrom = null, string? openOnStart = null, IReadOnlyList<string>? importOnStart = null)
     {
         AvaloniaXamlLoader.Load(this);
         _location = location;
         _movedFrom = movedFrom;
         _openOnStart = openOnStart;
+        _importOnStart = importOnStart;
         _settingsStore = AppSettingsStore.In(location);
         Palette.Use(_settingsStore.Load().InterfaceColorScheme);
 
@@ -330,6 +336,10 @@ public partial class MainWindow : Window
             else if (_movedFrom is not null)
             {
                 await OfferToDeleteOldCopyAsync(_movedFrom, pendingCleanup);
+            }
+            else if (_importOnStart is not null)
+            {
+                await ImportFilesAsync(_importOnStart);
             }
             else if (_openOnStart is null)
             {
@@ -3510,6 +3520,9 @@ public partial class MainWindow : Window
     /// <summary>An SSH config has no extension of its own, so anything that isn't one of the other formats is read as one.</summary>
     static bool IsSshConfig(string path) => ConnectionExporter.FormatFor(path) is null && !RdpFileImporter.IsRdpFile(path);
 
+    /// <summary>A file Import can read, chosen by hand: any of the formats, or anything else read as an SSH config.</summary>
+    internal static bool CanImport(string path) => IsImportFile(path) || IsSshConfig(path);
+
     async void OnOpenRdpFileClick(object? sender, RoutedEventArgs e)
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -3577,23 +3590,26 @@ public partial class MainWindow : Window
 
     async void OnImportMenuClick(object? sender, RoutedEventArgs e) => await ChooseImportFileAsync();
 
+    /// <summary>The kinds of file Import offers to open, for its file picker and first-launch setup's.</summary>
+    internal static readonly IReadOnlyList<FilePickerFileType> ImportFileTypes =
+    [
+        new FilePickerFileType("Connection files") { Patterns = ["*.xml", "*.json", "*.rdp"] },
+        new FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
+        new FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
+        new FilePickerFileType("Remote Desktop file") { Patterns = ["*.rdp"] },
+        new FilePickerFileType("OpenSSH config") { Patterns = ["config", "*.conf", "*"] },
+    ];
+
     async Task ChooseImportFileAsync()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Import connections",
             AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new Avalonia.Platform.Storage.FilePickerFileType("Connection files") { Patterns = ["*.xml", "*.json", "*.rdp"] },
-                new Avalonia.Platform.Storage.FilePickerFileType("mRemoteNG connections") { Patterns = ["*.xml"] },
-                new Avalonia.Platform.Storage.FilePickerFileType("Orrery export") { Patterns = ["*.json"] },
-                new Avalonia.Platform.Storage.FilePickerFileType("Remote Desktop file") { Patterns = ["*.rdp"] },
-                new Avalonia.Platform.Storage.FilePickerFileType("OpenSSH config") { Patterns = ["config", "*.conf", "*"] },
-            ],
+            FileTypeFilter = ImportFileTypes,
         });
 
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && (IsImportFile(path) || IsSshConfig(path)))
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && CanImport(path))
         {
             await ImportAsync(path);
         }
@@ -3611,6 +3627,15 @@ public partial class MainWindow : Window
         {
             await Dialogs.ShowMessageAsync(this, "No SSH config found",
                 $"Orrery looked for:\n{path}\n\nIf your config is somewhere else, use Import and choose the file.");
+        }
+    }
+
+    /// <summary>Imports each file in turn, each through its own preview, as if chosen with Import.</summary>
+    internal async Task ImportFilesAsync(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            await ImportAsync(path);
         }
     }
 

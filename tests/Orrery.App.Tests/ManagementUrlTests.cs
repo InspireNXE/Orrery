@@ -4,7 +4,6 @@ using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
-using Orrery.App.Storage;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Storage;

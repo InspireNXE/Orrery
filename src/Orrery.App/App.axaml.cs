@@ -12,8 +12,10 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Logging;
-using Orrery.App.Storage;
+using Orrery.App.Setup;
+using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
+using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 
 namespace Orrery.App;
@@ -62,27 +64,56 @@ public partial class App : Application
             var appDirectory = DataLocationResolver.AppDirectory(AppContext.BaseDirectory);
             var folders = PlatformFolders.ForCurrentOs();
 
-            switch (DataLocationResolver.Resolve(appDirectory, folders))
-            {
-                case StartupStorage.Ready ready:
-                    desktop.MainWindow = OpenMainWindow(ready.Location);
-                    break;
-
-                case StartupStorage.NeedsPortableChoice:
-                    var setup = new PortableSetupWindow(appDirectory, folders);
-                    setup.Completed += location =>
-                    {
-                        // Swap the main window before closing setup, or closing it would end the app.
-                        desktop.MainWindow = OpenMainWindow(location);
-                        desktop.MainWindow.Show();
-                        setup.Close();
-                    };
-                    desktop.MainWindow = setup;
-                    break;
-            }
+            var storage = DataLocationResolver.Resolve(appDirectory, folders);
+            desktop.MainWindow = FirstLaunch.Decide(storage) == SetupKind.None && storage is StartupStorage.Ready ready
+                ? OpenMainWindow(ready.Location)
+                : SetupWindow(desktop, storage, appDirectory, folders);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// First-launch setup, which opens the main window when it's done. Closing it early while a portable copy has no data
+    /// folder yet ends the app, as it always has; once the folder is known, closing takes the defaults and carries on, so
+    /// setup isn't asked again.
+    /// </summary>
+    Window SetupWindow(IClassicDesktopStyleApplicationLifetime desktop, StartupStorage storage, string appDirectory, PlatformFolders folders)
+    {
+        var known = (storage as StartupStorage.Ready)?.Location;
+        var wizard = new SetupWizard(
+            known is null ? new PortableSetup(appDirectory, folders) : null,
+            known is not null && CredentialStores.CanUseOsKeychain(known) ? CredentialStores.OsKeychain!.Name : null,
+            ImportSources.OnThisComputer());
+
+        bool started = false;
+        void Start(DataLocation location, SetupChoices choices, IReadOnlyList<string>? imports)
+        {
+            // Swap the main window before closing setup, or closing it would end the app.
+            started = true;
+            desktop.MainWindow = OpenMainWindow(location, choices, imports);
+            desktop.MainWindow.Show();
+        }
+
+        wizard.Completed += result =>
+        {
+            Start(result.Location ?? known!, result.Choices, result.Choices.Imports);
+            wizard.Close();
+        };
+
+        if (known is not null)
+        {
+            // The defaults, but nothing imported unasked: the main window's usual offer of mRemoteNG's connections still comes.
+            wizard.Closing += (_, e) =>
+            {
+                if (!started && e.CloseReason == WindowCloseReason.WindowClosing)
+                {
+                    Start(known, new SetupChoices(), imports: null);
+                }
+            };
+        }
+
+        return wizard;
     }
 
     internal static void LeaveTextFieldOnClickOutside(Window window, PointerPressedEventArgs e)
@@ -127,7 +158,9 @@ public partial class App : Application
         }
     }
 
-    Window OpenMainWindow(DataLocation location)
+    /// <param name="setup">What first-launch setup chose, saved to the settings before the window reads them.</param>
+    /// <param name="importOnStart">Files to import once the window opens; see <see cref="MainWindow"/>.</param>
+    Window OpenMainWindow(DataLocation location, SetupChoices? setup = null, IReadOnlyList<string>? importOnStart = null)
     {
         try
         {
@@ -155,11 +188,31 @@ public partial class App : Application
 
         AppLog.Start(location);
         Orrery.Protocols.Rdp.IronRdpLog.StartIfAsked(location.LogDir);
+        if (setup is not null)
+        {
+            SaveSetup(location, setup);
+        }
+
         int moved = Array.IndexOf(_args, MovedFromFlag);
 
         // "Orrery file.rdp", as Windows runs it for a .rdp file opened with Orrery: connected to once the window opens.
         var rdpFile = _args.FirstOrDefault(a => Orrery.Core.Import.RdpFileImporter.IsRdpFile(a) && File.Exists(a));
-        return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null, openOnStart: rdpFile);
+        return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null, openOnStart: rdpFile,
+            importOnStart: importOnStart);
+    }
+
+    /// <summary>Saves setup's choices, once the data folder is this copy's. If they can't be saved, setup comes again next time.</summary>
+    internal static void SaveSetup(DataLocation location, SetupChoices setup)
+    {
+        try
+        {
+            var store = AppSettingsStore.In(location);
+            store.Save(setup.ApplyTo(store.Load()));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.For("App").LogError(e, "Couldn't save the setup choices in {DataDir}", location.DataDir);
+        }
     }
 
     /// <summary>
