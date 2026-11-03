@@ -95,9 +95,10 @@ public static class DataMover
     }
 
     /// <summary>
-    /// Deletes Orrery's files (<see cref="DataFolderFiles"/>) from the old folder, then its own folders and the
-    /// old folder itself if they're left empty. Everything else stays: the installed-mode pointer, files and
-    /// folders the user added, a nested <c>Portable</c> folder, and any link, which is never followed.
+    /// Deletes Orrery's files (<see cref="DataFolderFiles"/>) and the web tabs' data (<see cref="WebData"/>, which
+    /// isn't copied) from the old folder, then its own folders and the old folder itself if they're left empty.
+    /// Everything else stays: the installed-mode pointer, files and folders the user added, a nested
+    /// <c>Portable</c> folder, and any link, which is never followed.
     /// </summary>
     /// <returns>What was left in place that isn't Orrery's, relative to <paramref name="oldDataDir"/>.</returns>
     public static IReadOnlyList<string> DeleteOldCopy(string oldDataDir)
@@ -107,6 +108,8 @@ public static class DataMover
             throw new IOException("Orrery won't delete files from the top of a drive.");
         }
 
+        // The old copy's cookies and sign-ins would otherwise stay behind, wherever that folder goes.
+        WebData.Clear(oldDataDir);
         var (owned, others) = Sort(oldDataDir, copying: false);
         foreach (var file in owned)
         {

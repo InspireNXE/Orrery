@@ -48,6 +48,14 @@ public sealed record ProbeTarget(Guid Id, string Host, int Port)
             return null;
         }
 
+        if (!resolved.CheckHostStatus.Value)
+        {
+            whyNot = resolved.CheckHostStatus.Source is { } source && source != entry
+                ? $"turned off for \"{source.Name}\""
+                : "turned off for this connection";
+            return null;
+        }
+
         // A web page's host can have a path after it, which isn't part of what's checked.
         var address = ProtocolInfo.IsWeb(resolved.Protocol.Value) && entry.Host is { } web ? WebAddress.HostOf(web) : entry.Host;
         if (!HostAddress.TryParse(address, resolved.Port.Value, out var host, out var port))

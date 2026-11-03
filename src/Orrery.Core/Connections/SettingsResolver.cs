@@ -54,6 +54,9 @@ public sealed record ResolvedSettings(
     /// <summary>Where web pages open, as the tree sets it; null leaves it to the app setting, see <see cref="InOrrery"/>.</summary>
     public required Resolved<bool?> WebPagesInOrrery { get; init; }
 
+    /// <summary>Whether the tree checks the host is up, when Settings has host checks on.</summary>
+    public required Resolved<bool> CheckHostStatus { get; init; }
+
     /// <summary>Whether web pages open in an Orrery tab: the tree's value, else <paramref name="appSetting"/>.</summary>
     public bool InOrrery(bool appSetting) => WebPagesInOrrery.Value ?? appSetting;
 }
@@ -144,6 +147,7 @@ public static class SettingsResolver
             StopBits = Value(nameof(InheritableSettings.StopBits), s => s.StopBits, SerialStopBits.One),
             FlowControl = Value(nameof(InheritableSettings.FlowControl), s => s.FlowControl, SerialFlowControl.None),
             RecordSessions = Flag(nameof(InheritableSettings.RecordSessions), s => s.RecordSessions, false),
+            CheckHostStatus = Flag(nameof(InheritableSettings.CheckHostStatus), s => s.CheckHostStatus, true),
         };
     }
 

@@ -64,7 +64,8 @@ sealed class ExportSecretsWindow : Window
                         ? "Some of these connections use saved credentials. The export can include their passwords and keys. "
                             + "The whole file is then encrypted with a password you choose, and Orrery asks for it when the file is imported."
                         : "Some of these connections use saved credentials. The export can include their passwords, protected by a master "
-                            + "password you choose, which mRemoteNG asks for when it opens the file. mRemoteNG has no place for SSH keys, so those stay out.",
+                            + "password you choose, which mRemoteNG asks for when it opens the file. mRemoteNG has no place for SSH keys, so those stay out. "
+                            + "mRemoteNG's protection is weaker against guessing than an Orrery export's, so use a long password, or export as Orrery if it's going to Orrery.",
                     TextWrapping = TextWrapping.Wrap,
                 },
                 _include,

@@ -120,6 +120,25 @@ public class HostStatusTests
         Assert.Contains("jump host", why);
     }
 
+    [Fact]
+    public void A_folder_with_host_checks_off_stops_them_for_everything_under_it_unless_one_turns_them_back_on()
+    {
+        var tree = ConnectionTree.Empty();
+        var imported = new ConnectionFolder { Name = "From Sam", Settings = { CheckHostStatus = false } };
+        var host = new ConnectionEntry { Name = "hv", Host = "hv.example" };
+        var guest = new ConnectionEntry { Name = "vm", Host = "vm.example" };
+        var mine = new ConnectionEntry { Name = "mine", Host = "mine.example", Settings = { CheckHostStatus = true } };
+        tree.Add(imported, tree.Root);
+        tree.Add(host, imported);
+        tree.Add(mine, imported);
+        tree.AddGuest(guest, host);
+
+        Assert.Null(ProbeTarget.For(host, out var why));
+        Assert.Contains("From Sam", why);
+        Assert.Null(ProbeTarget.For(guest, out _));
+        Assert.NotNull(ProbeTarget.For(mine, out _));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("two words")]

@@ -32,9 +32,15 @@ SSH 105, VNC 25, Serial 10, Local 12, Telnet 11).
 Not checked on a real machine: the web fixes (S-1, S-10, S-11 need a live WebView2), the vault lock closing the
 player (S-7), the pane widths on a small screen (B-1), and the Unix clipboard folder (S-16, Windows here).
 
-## Waiting on the owner
+## Built after the round
 
-- S-4: jump-host and forward listeners on loopback accept other local users. Needs a design.
-- S-13: Move data and the web profile, and a "clear web data" action.
-- S-20: host checks probing hosts from an import before the user connects to one.
-- S-22: the mRemoteNG export's PBKDF2 count.
+The owner asked for all four items that were waiting on them ("Build all four"):
+
+- S-4: a jump host's forwarded port takes one connection, and refuses and logs the rest.
+- S-13: deleting Move data's old copy removes the web folder, and Settings > Web pages can clear web data.
+- S-20: host checks are a per-folder setting, and an import asks before checking the hosts it adds.
+- S-22: mRemoteNG exports with passwords use 50,000 PBKDF2 rounds.
+
+`dotnet build Orrery.sln`: 0 errors. `dotnet test Orrery.sln`: all passed (Core 943 and 6 skipped, App 496, RDP 76,
+SSH 106, VNC 25, Serial 10, Local 12, Telnet 11). Not checked on a real machine: clearing web data while WebView2 holds
+it, and the import prompt.

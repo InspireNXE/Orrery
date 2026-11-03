@@ -87,6 +87,23 @@ public class DataMoverTests : IDisposable
     }
 
     [Fact]
+    public void Web_data_isnt_copied_and_is_deleted_with_the_old_copy_but_not_what_else_is_in_its_folder()
+    {
+        var web = Path.Combine(_source, WebData.FolderName);
+        Directory.CreateDirectory(Path.Combine(web, "EBWebView", "Default", "Network"));
+        File.WriteAllText(Path.Combine(web, "EBWebView", "Default", "Network", "Cookies"), "session=1");
+        File.WriteAllText(Path.Combine(web, "notes.txt"), "mine");
+        var target = Path.Combine(_root, "moved");
+
+        DataMover.Copy(_source, target);
+        Assert.False(Directory.Exists(Path.Combine(target, WebData.FolderName)));
+
+        DataMover.DeleteOldCopy(_source);
+        Assert.False(Directory.Exists(Path.Combine(web, "EBWebView")));
+        Assert.True(File.Exists(Path.Combine(web, "notes.txt")));
+    }
+
+    [Fact]
     public void Installed_mode_follows_the_pointer_after_a_move()
     {
         var folders = new PlatformFolders(Path.Combine(_root, "config"), Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));

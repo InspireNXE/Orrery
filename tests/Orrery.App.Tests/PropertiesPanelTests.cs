@@ -201,7 +201,7 @@ public class PropertiesPanelTests
     [InlineData(Protocol.Vnc, new[] { "DISPLAY", "VNC" }, new[] { "RDP", "SSH", "SERIAL LINE" })]
     [InlineData(Protocol.Ssh, new[] { "SSH", "SSH TUNNELS", "CREDENTIALS" }, new[] { "RDP", "VNC", "SERIAL LINE", "DISPLAY" })]
     [InlineData(Protocol.Serial, new[] { "SERIAL LINE" }, new[] { "RDP", "VNC", "SSH", "CREDENTIALS", "SSH TUNNELS", "WAKE ON LAN" })]
-    [InlineData(Protocol.Https, new[] { "WAKE ON LAN", "DISPLAY" }, new[] { "RDP", "VNC", "SSH", "SERIAL LINE", "CREDENTIALS", "SESSION", "SSH TUNNELS" })]
+    [InlineData(Protocol.Https, new[] { "WAKE ON LAN", "DISPLAY", "SESSION" }, new[] { "RDP", "VNC", "SSH", "SERIAL LINE", "CREDENTIALS", "SSH TUNNELS" })]
     public async Task A_connection_shows_only_its_own_protocols_sections(Protocol protocol, string[] shown, string[] hidden)
     {
         var tree = ConnectionTree.Empty();

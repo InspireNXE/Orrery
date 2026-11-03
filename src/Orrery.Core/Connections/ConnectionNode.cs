@@ -148,6 +148,12 @@ public sealed class InheritableSettings
     /// </summary>
     public bool? WebPagesInOrrery { get; set; }
 
+    /// <summary>
+    /// Whether the tree checks this connection's host is up, when Settings has host checks on. Null inherits; on by
+    /// default. An import from someone else's file can turn it off for what it brought in.
+    /// </summary>
+    public bool? CheckHostStatus { get; set; }
+
     /// <summary>RDP, VNC: how the remote desktop trades looks for speed. Null inherits; balanced by default.</summary>
     public DisplayQuality? DisplayQuality { get; set; }
 
@@ -262,6 +268,7 @@ public sealed class InheritableSettings
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(WebPagesInOrrery),
+        nameof(CheckHostStatus),
     };
 
     /// <summary>
@@ -273,6 +280,7 @@ public sealed class InheritableSettings
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(RecordSessions), nameof(WebPagesInOrrery),
+        nameof(CheckHostStatus),
     };
 
     /// <summary>Whether this sets anything Orrery 0.1 can't keep: a setting added since, or a protocol added since.</summary>

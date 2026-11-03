@@ -214,6 +214,12 @@ public partial class MainWindow : Window
             prompt => Dispatcher.UIThread.InvokeAsync(
                 () => AskAndRefocusAsync(new HostKeyPromptWindow(prompt))));
 
+        // Before any page engine opens it.
+        if (WebData.ClearIfAsked(location.DataDir))
+        {
+            StorageLog.LogInformation("Cleared the web pages' data, as Settings asked");
+        }
+
         _credentials = CredentialStores.For(location, _settingsStore.Load());
         _recordings = new Recording.RecordingService(location, _settingsStore, _credentials);
         StorageLog.LogInformation("Credentials are kept in {Store}", (_credentials as KeychainCredentialStore)?.BackendName ?? "the vault file");
@@ -2144,7 +2150,7 @@ public partial class MainWindow : Window
     void OpenWebTab(SessionOrigin origin, Uri url, ConnectionTarget target, bool? allowsCorrection = null)
     {
         var settings = _settingsStore.Load();
-        var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"))
+        var view = new WebPageView(url, WebData.FolderIn(_location.DataDir))
         {
             AllowsColorCorrection = allowsCorrection ?? AllowsColorCorrection(origin),
             Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
@@ -3544,6 +3550,7 @@ public partial class MainWindow : Window
         _properties.TrySave();
         _filter.Text = string.Empty;
         var importedFolder = result.Root;
+        await AskToCheckImportedHostsAsync(importedFolder, choice.IntoNewFolder);
         _tree.AddFrom(importedFolder, _tree.Root, choice.IntoNewFolder);
         SaveNow();
         if (choice.IntoNewFolder)
@@ -3556,6 +3563,48 @@ public partial class MainWindow : Window
         var reportPath = WriteImportReport(result.Report);
         await Dialogs.ShowMessageAsync(this, $"Imported {result.Report.Connections} connection{(result.Report.Connections == 1 ? "" : "s")}",
             reportPath is null ? "The import is complete." : $"A summary of what was and wasn't imported is saved at:\n{reportPath}");
+    }
+
+    /// <summary>
+    /// Host checks contact every host a file names as soon as its folder is open, so a file from someone else could use
+    /// them to see this computer's address or to reach ports on its network. Asked once; no turns them off for what
+    /// was imported, which its properties can turn back on.
+    /// </summary>
+    async Task AskToCheckImportedHostsAsync(ConnectionFolder imported, bool intoNewFolder)
+    {
+        int count = imported.Descendants().OfType<ConnectionEntry>().Count(e => ProbeTarget.For(e, out _) is not null);
+        if (count == 0 || !_settingsStore.Load().ChecksHostStatus)
+        {
+            return;
+        }
+
+        if (await Dialogs.AskAsync(this, "Check whether these hosts are up?",
+                $"Orrery can show whether the {(count == 1 ? "host" : $"{count} hosts")} in this file {(count == 1 ? "is" : "are")} up, by "
+                + "briefly contacting each one while its folder is open. If the file came from someone else, you may want to wait "
+                + "until you've looked through it. Either way, the imported folder's properties can change this later.",
+                "Check them", "Don't check"))
+        {
+            return;
+        }
+
+        // Off where the import lands: on its new folder, or on each thing it adds at the top. Nothing below may turn it back on.
+        foreach (var node in imported.Descendants())
+        {
+            node.Settings.CheckHostStatus = null;
+        }
+
+        if (intoNewFolder)
+        {
+            imported.Settings.CheckHostStatus = false;
+        }
+        else
+        {
+            // Guests of a host at the top count too: they inherit from the host's folder, which is where these land.
+            foreach (var node in imported.Descendants().Where(n => n.Parent == imported))
+            {
+                node.Settings.CheckHostStatus = false;
+            }
+        }
     }
 
     string? WriteImportReport(ImportReport report)

@@ -45,6 +45,25 @@ static class Dialogs
         return window.ShowDialog<bool>(owner);
     }
 
+    /// <summary>
+    /// Asks a choice between two ordinary answers, neither destructive. <paramref name="noLabel"/> is the default, and
+    /// closing the window answers it too.
+    /// </summary>
+    public static async Task<bool> AskAsync(Window owner, string title, string body, string yesLabel, string noLabel)
+    {
+        var no = new Button { Content = noLabel, IsDefault = true, IsCancel = true };
+        var yes = new Button { Content = yesLabel };
+        yes.Classes.Add("accent");
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { no, yes } };
+
+        var window = Shell(title, buttons);
+        AutomationProperties.SetHelpText(window, body);
+        ((StackPanel)window.Content!).Children.Insert(1, new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap });
+        no.Click += (_, _) => window.Close(false);
+        yes.Click += (_, _) => window.Close(true);
+        return await window.ShowDialog<bool?>(owner) == true;
+    }
+
     /// <summary>Asks for a password. Null if canceled.</summary>
     public static Task<string?> PromptPasswordAsync(Window owner, string title, string body, string? error = null) =>
         PromptPasswordAsync(owner, title, body, error, check: null);

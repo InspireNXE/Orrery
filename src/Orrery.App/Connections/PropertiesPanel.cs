@@ -50,6 +50,7 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
     readonly ToggleSwitch _autoReconnect = Switch("AutoReconnect");
     readonly ToggleSwitch _record = Switch("RecordSessions");
+    readonly ToggleSwitch _checkHost = Switch("CheckHostStatus");
     readonly ToggleSwitch _enlarge = Switch("EnlargeRemoteDesktop");
     readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "Fit the window" };
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -84,7 +85,7 @@ sealed class PropertiesPanel : UserControl
     readonly Button _choosePort = new() { Content = "Ports…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0, IsVisible = false };
     readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
 
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _checkHostRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
     readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
         _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
@@ -187,6 +188,9 @@ sealed class PropertiesPanel : UserControl
         _recordRow = new InheritRow("Record sessions", _record, () => ShowInherited(r => _record.IsChecked = r.RecordSessions.Value));
         _recordRow.Tip("Records each session from when it connects: what a terminal printed (never what's typed), or what a remote desktop showed. "
             + "Recordings are encrypted and play in Orrery; the remote side isn't told. A tab's menu can also start or stop one.");
+        _checkHostRow = new InheritRow("Check whether the host is up", _checkHost, () => ShowInherited(r => _checkHost.IsChecked = r.CheckHostStatus.Value));
+        _checkHostRow.Tip("The dot beside the protocol in the tree, from a quick TCP connection or ping, when host checks are on in Settings. "
+            + "Off, Orrery doesn't contact the host until you connect.");
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
         _sshAgentRow.Tip("SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
         _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value));
@@ -306,7 +310,7 @@ sealed class PropertiesPanel : UserControl
             {
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View), _managementUrlField),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
-                (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View)),
+                (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View, _checkHostRow.View)),
                 (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
                 (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
@@ -390,6 +394,7 @@ sealed class PropertiesPanel : UserControl
         _jumpHost.SelectionChanged += (_, _) => MarkDirty();
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _record.IsCheckedChanged += (_, _) => MarkDirty();
+        _checkHost.IsCheckedChanged += (_, _) => MarkDirty();
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
         _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
@@ -406,7 +411,7 @@ sealed class PropertiesPanel : UserControl
 
         foreach (var row in new[]
                  {
-                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow,
+                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _checkHostRow,
                      _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
                      _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
                  })
@@ -597,6 +602,9 @@ sealed class PropertiesPanel : UserControl
 
             _recordRow.Load(own.RecordSessions is null, Describe(inherited.RecordSessions));
             _record.IsChecked = own.RecordSessions ?? inherited.RecordSessions.Value;
+
+            _checkHostRow.Load(own.CheckHostStatus is null, Describe(inherited.CheckHostStatus));
+            _checkHost.IsChecked = own.CheckHostStatus ?? inherited.CheckHostStatus.Value;
 
             _remoteAudioRow.Load(own.RemoteAudio is null, Describe(inherited.RemoteAudio));
             Choose(_remoteAudio, own.RemoteAudio ?? inherited.RemoteAudio.Value);
@@ -876,6 +884,7 @@ sealed class PropertiesPanel : UserControl
             ColorCorrection = _colorCorrectionRow.Inheriting ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inheriting ? null : _autoReconnect.IsChecked == true,
             RecordSessions = _recordRow.Inheriting ? null : _record.IsChecked == true,
+            CheckHostStatus = _checkHostRow.Inheriting ? null : _checkHost.IsChecked == true,
             JumpHostId = _jumpHostRow.Inheriting ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
             RemoteAudio = _remoteAudioRow.Inheriting ? null : Chosen<RemoteAudio>(_remoteAudio),
             ShareAllDrives = _shareAllDrivesRow.Inheriting ? null : _shareAllDrives.IsChecked == true,
@@ -941,7 +950,8 @@ sealed class PropertiesPanel : UserControl
         _clipboardRow.View.IsVisible = rdp || vnc || host;
         _autoReconnectRow.View.IsVisible = !web || host;
         _recordRow.View.IsVisible = !web || host;
-        _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible;
+        _checkHostRow.View.IsVisible = network;
+        _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible || _checkHostRow.View.IsVisible;
         // A web page has only the color correction of them.
         _displaySection.IsVisible = rdp || vnc || web;
         _desktopSizeRow.View.IsVisible = rdp;

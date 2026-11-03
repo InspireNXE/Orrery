@@ -144,7 +144,7 @@ public class SecretExportTests
         Assert.Equal(1, export.Secrets);
         Assert.Contains(export.Warnings, w => w.Contains("SSH keys"));
         Assert.DoesNotContain("s3cret!", export.Content);
-        Assert.Contains("KdfIterations=\"10000\"", export.Content);
+        Assert.Contains("KdfIterations=\"50000\"", export.Content);
 
         using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(export.Content)))
         {
