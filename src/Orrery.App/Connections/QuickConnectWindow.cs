@@ -21,6 +21,9 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
     /// <summary>Switch to this open session tab instead.</summary>
     public int? SessionIndex { get; init; }
 
+    /// <summary>Run this command instead, once the palette has closed.</summary>
+    public PaletteCommand? Command { get; init; }
+
     static readonly (string Scheme, Protocol Protocol)[] Schemes =
     [
         ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet),
@@ -122,12 +125,15 @@ sealed record OpenSession(string Title, string Address, Protocol Protocol, strin
 
 /// <summary>
 /// The Ctrl+K palette: type to find an open session or a saved connection, enter <c>host[:port]</c> to connect
-/// directly, or make a new connection. Enter opens the highlighted row and Alt+Enter a saved connection's
-/// settings; arrows move; Esc or clicking elsewhere closes it.
+/// directly, make a new connection, or run a command (<see cref="PaletteCommand"/>); a query starting with &gt; lists
+/// only commands. Enter opens the highlighted row and Alt+Enter a saved connection's settings; arrows move; Esc or
+/// clicking elsewhere closes it.
 /// </summary>
 sealed class QuickConnectWindow : Window
 {
     const int MaxResults = 8;
+    const int MaxCommands = 5;
+    const char CommandsOnly = '>';
     const double TopOffset = 96;
 
     static readonly IBrush PanelBrush = Brush("#181B21");
@@ -138,9 +144,10 @@ sealed class QuickConnectWindow : Window
 
     readonly ConnectionTree _tree;
     readonly IReadOnlyList<OpenSession> _sessions;
+    readonly IReadOnlyList<PaletteCommand> _commands;
     readonly TextBox _query = new()
     {
-        PlaceholderText = "Search connections, or type host, user@host, ssh://host:port, https://site",
+        PlaceholderText = "Search connections or commands, or type host, user@host, ssh://host:port, https://site",
         FontSize = 15,
         BorderThickness = new Thickness(0),
         Background = Brushes.Transparent,
@@ -157,10 +164,11 @@ sealed class QuickConnectWindow : Window
     bool _closing;
     QuickConnectChoice? _choice;
 
-    public QuickConnectWindow(ConnectionTree tree, IReadOnlyList<OpenSession>? sessions = null)
+    public QuickConnectWindow(ConnectionTree tree, IReadOnlyList<OpenSession>? sessions = null, IReadOnlyList<PaletteCommand>? commands = null)
     {
         _tree = tree;
         _sessions = sessions ?? [];
+        _commands = commands ?? [];
 
         Title = "Quick connect";
         Width = 620;
@@ -180,7 +188,7 @@ sealed class QuickConnectWindow : Window
 
         Avalonia.Automation.AutomationProperties.SetName(_query, "Quick connect");
         Avalonia.Automation.AutomationProperties.SetHelpText(_query,
-            "Search saved connections or type a host. Up and down arrows move through the results, Enter opens one, Alt+Enter opens its settings, Esc closes.");
+            "Search saved connections and commands, or type a host. Start with > for commands only. Up and down arrows move through the results, Enter opens one, Alt+Enter opens its settings, Esc closes.");
         _query.TextChanged += (_, _) => Refresh();
         _query.KeyDown += OnQueryKeyDown;
 
@@ -205,6 +213,7 @@ sealed class QuickConnectWindow : Window
                 Hint("↵", "open"),
                 Hint("Alt+↵", "settings"),
                 Hint("Esc", "close"),
+                Hint(">", "commands"),
                 Hint("ssh:// rdp:// vnc:// telnet://", "pick a protocol"),
             },
         };
@@ -285,6 +294,12 @@ sealed class QuickConnectWindow : Window
         _list.Children.Clear();
         _items.Clear();
 
+        if (query.StartsWith(CommandsOnly))
+        {
+            ShowCommandsOnly(query[1..].Trim());
+            return;
+        }
+
         // Already open: switching to it is likelier than opening it again.
         if (query.Length > 0)
         {
@@ -318,6 +333,15 @@ sealed class QuickConnectWindow : Window
 
         bool exactHostSaved = saved.Any(e => string.Equals(e.Host, query, StringComparison.OrdinalIgnoreCase));
         IReadOnlyList<QuickConnectChoice> direct = exactHostSaved ? [] : QuickConnectChoice.Candidates(query);
+        var commands = RankCommands(query).Take(MaxCommands).ToList();
+
+        // A bare word like "settings" is likelier a command than a host; one with a dot, colon, @ or slash is an address.
+        bool looksLikeAddress = query.IndexOfAny(['.', ':', '@', '/']) >= 0;
+        if (!looksLikeAddress)
+        {
+            AddCommands(commands);
+        }
+
         if (direct.Count > 0)
         {
             AddHeader("Connect directly");
@@ -325,6 +349,11 @@ sealed class QuickConnectWindow : Window
             {
                 AddItem(DirectRow(choice), choice, "Without saving", DirectText(choice));
             }
+        }
+
+        if (looksLikeAddress)
+        {
+            AddCommands(commands);
         }
 
         if (query.Length > 0)
@@ -348,6 +377,54 @@ sealed class QuickConnectWindow : Window
 
         Select(_items.Count > 0 ? 0 : -1);
     }
+
+    /// <summary>After &gt;: every command under its heading, or those the rest of the query finds, best first.</summary>
+    void ShowCommandsOnly(string query)
+    {
+        var found = query.Length == 0 ? _commands : RankCommands(query).ToList();
+        foreach (var group in found.GroupBy(c => c.Group))
+        {
+            AddHeader(group.Key);
+            foreach (var command in group)
+            {
+                AddCommand(command);
+            }
+        }
+
+        if (_items.Count == 0)
+        {
+            const string none = "No command matches.";
+            _list.Children.Add(new TextBlock { Text = none, Foreground = Dialogs.MutedBrush, Margin = new Thickness(10, 8) });
+            _spoken.Say(none);
+        }
+
+        Select(_items.Count > 0 ? 0 : -1);
+    }
+
+    IEnumerable<PaletteCommand> RankCommands(string query) => query.Length == 0 ? [] : _commands
+        .Select((command, order) => (Command: command, Score: command.Score(query), Order: order))
+        .Where(x => x.Score > 0)
+        .OrderByDescending(x => x.Score)
+        .ThenBy(x => x.Order)
+        .Select(x => x.Command);
+
+    void AddCommands(IReadOnlyList<PaletteCommand> commands)
+    {
+        if (commands.Count == 0)
+        {
+            return;
+        }
+
+        AddHeader("Commands");
+        foreach (var command in commands)
+        {
+            AddCommand(command);
+        }
+    }
+
+    void AddCommand(PaletteCommand command) =>
+        AddItem(CommandRow(command), new QuickConnectChoice(null, null, 0) { Command = command }, "Run",
+            command.Shortcut is { } shortcut ? $"{command.Title}, {command.Group}, {shortcut}" : $"{command.Title}, {command.Group}");
 
     static string DirectText(QuickConnectChoice choice) => $"{DirectVerb(choice)}{DirectAddress(choice)}";
 
@@ -494,6 +571,26 @@ sealed class QuickConnectWindow : Window
                 text,
             },
         };
+    }
+
+    static Control CommandRow(PaletteCommand command)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Children =
+            {
+                new StrokeIcon { Data = Geometry.Parse(Icons.Forward), StrokeThickness = 2, Foreground = SoftBrush, VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = command.Title, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 380 },
+            },
+        };
+        if (command.Shortcut is { } shortcut)
+        {
+            row.Children.Add(Chip(shortcut));
+        }
+
+        return row;
     }
 
     static Control ActionRow(string label) => new StackPanel

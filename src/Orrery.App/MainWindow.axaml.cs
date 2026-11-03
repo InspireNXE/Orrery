@@ -1646,6 +1646,27 @@ public partial class MainWindow : Window
 
     async void OnQuickConnectClick(object? sender, RoutedEventArgs e) => await OpenQuickConnectAsync();
 
+    /// <summary>A connection's settings, ready to change, without connecting.</summary>
+    void EditEntry(ConnectionEntry entry)
+    {
+        _filter.Text = string.Empty;
+        if (_side != "connections")
+        {
+            OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
+        }
+
+        RevealSidePanel();
+        RevealInspector();
+        foreach (var folder in entry.Ancestors())
+        {
+            folder.Expanded = true;
+        }
+
+        RebuildTree();
+        Select(entry.Id);
+        Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
+    }
+
     async Task OpenQuickConnectAsync()
     {
         if (_dimmer.IsVisible)
@@ -1658,7 +1679,7 @@ public partial class MainWindow : Window
         try
         {
             var open = _tabs.Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol, t.Origin.Label)).ToList();
-            choice = await new QuickConnectWindow(_tree, open).ShowOver(this);
+            choice = await new QuickConnectWindow(_tree, open, PaletteCommands()).ShowOver(this);
         }
         finally
         {
@@ -1672,25 +1693,13 @@ public partial class MainWindow : Window
                 SelectTab(_tabs[index]);
             }
         }
+        else if (choice?.Command is { } command)
+        {
+            await command.Run();
+        }
         else if (choice is { Edit: true, Entry: { } toEdit })
         {
-            // Its settings, ready to change, without connecting.
-            _filter.Text = string.Empty;
-            if (_side != "connections")
-            {
-                OnRailClick(_sides["connections"].RailButton, new RoutedEventArgs());
-            }
-
-            RevealSidePanel();
-            RevealInspector();
-            foreach (var folder in toEdit.Ancestors())
-            {
-                folder.Expanded = true;
-            }
-
-            RebuildTree();
-            Select(toEdit.Id);
-            Dispatcher.UIThread.Post(_properties.FocusName, DispatcherPriority.Background);
+            EditEntry(toEdit);
         }
         else if (choice?.NewName is { } name)
         {

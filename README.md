@@ -98,7 +98,7 @@ machine yet, hence the 🧪.
 [^webkit]: Pages in a tab need WebKitGTK (libwebkit2gtk-4.1), which the .deb and .rpm recommend; without it they open in your browser. Like the rest of Orrery's window, they're drawn through XWayland.
 [^files]: Remote files download when copied, up to 1 GB, into a private folder removed when the session ends.
 
-Further out: actions in quick connect, browser access through a tray agent, and scripted connect. See the
+Further out: browser access through a tray agent, and scripted connect. See the
 [roadmap](docs/roadmap.md).
 
 ## Features
@@ -123,6 +123,12 @@ Further out: actions in quick connect, browser access through a tray agent, and 
 </p>
 
 Quick connect (Ctrl+K) searches saved connections and open sessions as you type, or connects straight to a host.
+It runs commands too: start with `>` to list them all, or type a few words ("disc prod", "copy pass web").
+
+- **Commands** in quick connect: everything in the current session's menu (Send keys, Save as PDF, Start
+  recording…), reconnect or disconnect every session, connect or disconnect everything in a folder, and for a saved
+  connection edit, wake, open its management page, browse its files, or copy its address or password. A copied
+  password is cleared from the clipboard after 30 seconds, and on Windows kept out of clipboard history.
 
 - **Jump hosts** work for every protocol, like `ssh -J`; RDP, VNC and Telnet go through an SSH tunnel. Web pages
   can't, in a tab or the browser: give the jump host a SOCKS proxy instead.
@@ -323,7 +329,7 @@ On macOS, Cmd takes the place of Ctrl.
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+K | Quick connect |
+| Ctrl+K | Quick connect; `>` for commands |
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
