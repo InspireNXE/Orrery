@@ -426,9 +426,10 @@ public partial class MainWindow : Window
 
         _treeView.SelectionChanged += async (_, _) =>
         {
-            if (!_rebuilding)
+            if (!_rebuilding && !await _properties.ShowAsync(SelectedNode) && SelectedNode != _properties.Node)
             {
-                await _properties.ShowAsync(SelectedNode);
+                // The edits don't validate, so the selection goes back to their node, the problem showing, rather than losing them.
+                Dispatcher.UIThread.Post(SelectEdited);
             }
         };
 
@@ -584,7 +585,11 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                _properties.TrySave();
+                if (!SaveEdits())
+                {
+                    return;
+                }
+
                 if (plan.Host is { } host)
                 {
                     host.GuestsCollapsed = false;
@@ -703,7 +708,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        _properties.TrySave();
+        // The credentials editor takes the inspector's place, so edits that don't validate keep it until they're fixed.
+        if (!_properties.TrySave() && side == "credentials")
+        {
+            RevealInspector();
+            return;
+        }
+
         _side = side;
         ShowRecordingsHost(side == "recordings");
         foreach (var (name, (_, view)) in _sides)
@@ -1314,6 +1325,47 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Applies the inspector's edits before something that changes the tree or covers the inspector. False if they don't
+    /// validate, with the inspector shown saying why, so that waits rather than the edits being lost.
+    /// </summary>
+    bool SaveEdits()
+    {
+        if (_properties.TrySave())
+        {
+            return true;
+        }
+
+        RevealInspector();
+        return false;
+    }
+
+    /// <summary>Selects the row the inspector is editing (none for the defaults), without showing it again.</summary>
+    void SelectEdited()
+    {
+        if (_properties.Node is not { } node || SelectedNode == node)
+        {
+            return;
+        }
+
+        _rebuilding = true;
+        try
+        {
+            if (node == _tree.Root)
+            {
+                _treeView.SelectedItems.Clear();
+            }
+            else
+            {
+                Select([node.Id]);
+            }
+        }
+        finally
+        {
+            _rebuilding = false;
+        }
+    }
+
     /// <summary>New items go in the selected folder, or beside the selected connection.</summary>
     ConnectionFolder TargetFolder() => SelectedNode switch
     {
@@ -1339,7 +1391,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        _properties.TrySave();
+        if (!SaveEdits())
+        {
+            return;
+        }
+
         parent.Expanded = true;
         _filter.Text = string.Empty;
         _tree.Add(node, parent);
@@ -1503,7 +1559,11 @@ public partial class MainWindow : Window
 
     async void OnEditDefaultsClick(object? sender, RoutedEventArgs e)
     {
-        _properties.TrySave();
+        if (!SaveEdits())
+        {
+            return;
+        }
+
         _treeView.SelectedItem = null;
         await _properties.ShowAsync(_tree.Root);
     }
@@ -1516,7 +1576,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        _properties.TrySave();
+        if (!SaveEdits())
+        {
+            return;
+        }
+
         _filter.Text = string.Empty;
         host.GuestsCollapsed = false;
         var guest = new ConnectionEntry { Name = "New guest" };
@@ -1527,9 +1591,8 @@ public partial class MainWindow : Window
 
     void OnMoveOutOfHostMenuClick(object? sender, RoutedEventArgs e)
     {
-        if (SelectedNode is ConnectionEntry { GuestOf: not null } guest)
+        if (SelectedNode is ConnectionEntry { GuestOf: not null } guest && SaveEdits())
         {
-            _properties.TrySave();
             _tree.MoveOutOfHost(guest);
             Select(guest.Id);
         }
@@ -1546,7 +1609,11 @@ public partial class MainWindow : Window
     /// <summary>Copies the node beside the original and selects the copy, ready to rename.</summary>
     void Duplicate(ConnectionNode node)
     {
-        _properties.TrySave();
+        if (!SaveEdits())
+        {
+            return;
+        }
+
         _filter.Text = string.Empty;
         var copy = _tree.Duplicate(node);
         Select(copy.Id);
@@ -1581,12 +1648,13 @@ public partial class MainWindow : Window
             _ => 0,
         });
         string body = $"{nodes.Count} items will be deleted" + (inside > 0 ? $", with the {inside} items in them." : ".");
-        if (await Dialogs.ConfirmAsync(this, $"Delete {nodes.Count} items?", body, "Delete"))
+        bool editedGoes = EditedGoesWith(nodes, withGuests: true);
+        if ((editedGoes || SaveEdits()) && await Dialogs.ConfirmAsync(this, $"Delete {nodes.Count} items?", body, "Delete"))
         {
-            await _properties.ShowAsync(null);
+            await ClearInspectorForDelete(editedGoes);
             foreach (var node in nodes)
             {
-                _tree.Remove(node);
+                Remove(node);
             }
         }
     }
@@ -1596,19 +1664,21 @@ public partial class MainWindow : Window
         if (node is ConnectionEntry { IsHost: true } host)
         {
             var choice = await new HostDeleteWindow(host, _tree).ShowDialog<HostDeleteChoice?>(this);
-            if (choice is null)
+            bool hostEditedGoes = choice is not null && EditedGoesWith([host], withGuests: choice.KeepGuestsIn is null);
+            if (choice is null || (!hostEditedGoes && !SaveEdits()))
             {
                 return;
             }
 
-            await _properties.ShowAsync(null);
+            await ClearInspectorForDelete(hostEditedGoes);
             if (choice.KeepGuestsIn is { } destination)
             {
+                KeepInheritedSettings(host, withGuests: false);
                 _tree.RemoveKeepingGuests(host, destination);
             }
             else
             {
-                _tree.Remove(host);
+                Remove(host);
             }
 
             return;
@@ -1617,14 +1687,89 @@ public partial class MainWindow : Window
         string body = node is ConnectionFolder folder && folder.Children.Count > 0
             ? $"\"{node.Name}\" and the {folder.Descendants().Count()} items in it will be deleted."
             : $"\"{node.Name}\" will be deleted.";
-        if (await Dialogs.ConfirmAsync(this, $"Delete {(node is ConnectionFolder ? "folder" : "connection")}?", body, "Delete"))
+        bool editedGoes = EditedGoesWith([node], withGuests: true);
+        if ((editedGoes || SaveEdits()) && await Dialogs.ConfirmAsync(this, $"Delete {(node is ConnectionFolder ? "folder" : "connection")}?", body, "Delete"))
         {
-            await _properties.ShowAsync(null);
-            _tree.Remove(node);
+            await ClearInspectorForDelete(editedGoes);
+            Remove(node);
+        }
+    }
+
+    /// <summary>Whether the inspector's node goes with <paramref name="deleted"/>: one of them, in one, or a guest of one.</summary>
+    bool EditedGoesWith(IEnumerable<ConnectionNode> deleted, bool withGuests) =>
+        _properties.Node is { } edited && deleted.Any(node => node == edited
+            || (node is ConnectionFolder folder && edited.Ancestors().Contains(folder))
+            || (withGuests && edited is ConnectionEntry { GuestOf: { } host } && host == node));
+
+    /// <summary>Empties the inspector before a delete; the edits there are dropped only if their node is going.</summary>
+    async Task ClearInspectorForDelete(bool editedGoes)
+    {
+        if (editedGoes)
+        {
+            _properties.DiscardEdits();
+        }
+
+        await _properties.ShowAsync(null);
+    }
+
+    /// <summary>Deletes <paramref name="node"/> with everything in it, after <see cref="KeepInheritedSettings"/>.</summary>
+    void Remove(ConnectionNode node)
+    {
+        KeepInheritedSettings(node, withGuests: true);
+        _tree.Remove(node);
+    }
+
+    /// <summary>
+    /// Gives each connection about to be deleted with <paramref name="node"/> the settings it inherits from its host and
+    /// folders, as its own. An open tab's Reconnect and Duplicate session then still go through the same jump host, as
+    /// the same user, rather than straight to the host once the folders are gone.
+    /// </summary>
+    internal static void KeepInheritedSettings(ConnectionNode node, bool withGuests)
+    {
+        IEnumerable<ConnectionEntry> going = node switch
+        {
+            ConnectionFolder folder => folder.Descendants().OfType<ConnectionEntry>(),
+            ConnectionEntry entry when withGuests => entry.Guests.Prepend(entry),
+            ConnectionEntry entry => [entry],
+            _ => [],
+        };
+        foreach (var entry in going.ToList())
+        {
+            if (entry.GuestOf is { } host)
+            {
+                Fill(entry.Settings, host.Settings, InheritableSettings.PassedToGuests);
+            }
+
+            foreach (var folder in entry.Ancestors())
+            {
+                Fill(entry.Settings, folder.Settings);
+            }
+        }
+
+        // The two full-screen settings are one choice, so a node that makes it takes neither from further up.
+        static void Fill(InheritableSettings settings, InheritableSettings from, IReadOnlySet<string>? only = null)
+        {
+            var (chosen, every) = (settings.ChosenDisplays, settings.UseAllMonitors);
+            settings.FillFrom(from, only);
+            if (chosen is not null || every is not null)
+            {
+                (settings.ChosenDisplays, settings.UseAllMonitors) = (chosen, every);
+            }
+            else if (settings.ChosenDisplays is { } taken)
+            {
+                // Its own copy, so the two never share one.
+                settings.ChosenDisplays = taken.ToList();
+            }
         }
     }
 
     // ---- Connecting ----
+
+    /// <summary>
+    /// Whether Ctrl+Alt with the key is AltGr typing a character on this keyboard, which the Ctrl+Alt shortcut then leaves
+    /// to the session or page. Ctrl+Alt+B is the only one on a key that can type: the rest are on Enter, Home, End and Page keys.
+    /// </summary>
+    internal Func<Key, bool> TypesWithAltGr { get; set; } = Input.AltGr.TypesCharacter;
 
     void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
@@ -1645,7 +1790,7 @@ public partial class MainWindow : Window
             e.Handled = true;
             ToggleSidePanel();
         }
-        else if (e.Key == Key.B && e.KeyModifiers == (modifier | KeyModifiers.Alt))
+        else if (e.Key == Key.B && e.KeyModifiers == (modifier | KeyModifiers.Alt) && !(modifier == KeyModifiers.Control && TypesWithAltGr(e.Key)))
         {
             e.Handled = true;
             ToggleInspector();
@@ -3447,6 +3592,11 @@ public partial class MainWindow : Window
 
     async Task ImportAsync(string path)
     {
+        if (!SaveEdits())
+        {
+            return;
+        }
+
         ImportResult? result = null;
         Exception? failure = null;
         bool orrery = ConnectionExporter.FormatFor(path) == ExportFormat.Orrery;
@@ -3633,7 +3783,11 @@ public partial class MainWindow : Window
     /// <summary>Saves <paramref name="node"/> (the root for everything) as an Orrery, mRemoteNG or CSV file, chosen by its type.</summary>
     async Task ExportAsync(ConnectionNode node)
     {
-        _properties.TrySave();
+        if (!SaveEdits())
+        {
+            return;
+        }
+
         bool everything = node.Parent is null;
         var name = everything ? "Orrery connections" : string.Join("_", node.Name.Split(Path.GetInvalidFileNameChars())).Trim();
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
@@ -3773,11 +3927,11 @@ public partial class MainWindow : Window
         _recordingsPanel?.Stage.Close();
         _recordingsPanel?.Refresh();
 
-        // Keep the inspector's edits, then rebuild it so the credential picker stops listing names.
-        _properties?.TrySave();
-        if (_properties is not null)
+        // Keep the inspector's edits, then rebuild it so the credential picker stops listing names. Edits that don't
+        // validate can't wait for a lock on idle, so they stay in the pane and only the credential list is redrawn.
+        if (_properties is not null && !await _properties.ShowAsync(_properties.Node))
         {
-            await _properties.ShowAsync(_properties.Node);
+            await _properties.RefreshCredentialsAsync();
         }
     }
 
@@ -3821,9 +3975,9 @@ public partial class MainWindow : Window
     /// <summary>Shows the settings page over the sessions and the inspector.</summary>
     void OpenSettings()
     {
-        if (!_settingsHost.IsVisible)
+        // Settings covers the inspector, so edits that don't validate keep it until they're fixed.
+        if (!_settingsHost.IsVisible && SaveEdits())
         {
-            _properties.TrySave();
             var view = new SettingsView(_location, _settingsStore, _credentials, () =>
             {
                 _properties.TrySave();
@@ -3835,6 +3989,8 @@ public partial class MainWindow : Window
             view.ShowRecordAllSessions(_tree.Root.Settings.RecordSessions == true);
             view.RecordAllSessionsChanged += async (_, on) =>
             {
+                // Edits to the defaults go in first, so saving them later doesn't put the old choice back.
+                _properties.TrySave();
                 _tree.Root.Settings.RecordSessions = on ? true : null;
                 SaveNow();
                 if (_properties.Node == _tree.Root)

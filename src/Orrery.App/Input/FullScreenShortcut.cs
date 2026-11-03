@@ -153,7 +153,7 @@ public static class FullScreenShortcut
     static bool IsModifier(Key key) => key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
         or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.None;
 
-    static bool TypesACharacter(Key key) => key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9
+    internal static bool TypesACharacter(Key key) => key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9
         or Key.OemSemicolon or Key.OemPlus or Key.OemComma or Key.OemMinus or Key.OemPeriod or Key.OemQuestion
         or Key.OemTilde or Key.OemOpenBrackets or Key.OemPipe or Key.OemCloseBrackets or Key.OemQuotes or Key.OemBackslash
         or Key.Space;

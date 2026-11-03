@@ -276,6 +276,42 @@ public class PropertiesPanelTests
         Assert.Equal(15, folder.Settings.KeepAliveSeconds);
     }
 
+    [AvaloniaFact]
+    public async Task Edits_that_dont_validate_keep_the_pane_on_their_node_and_valid_ones_are_saved_before_it_moves()
+    {
+        var tree = ConnectionTree.Empty();
+        var first = new ConnectionEntry { Name = "one", Host = "one.example" };
+        var second = new ConnectionEntry { Name = "two", Host = "two.example" };
+        tree.Add(first, tree.Root);
+        tree.Add(second, tree.Root);
+
+        var (panel, window) = await Show(tree, first);
+        var port = window.GetVisualDescendants().OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "Port");
+        port.Text = "abc";
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(await panel.ShowAsync(second));
+        Assert.Same(first, panel.Node);
+        Assert.Equal("abc", port.Text);
+        Assert.True(VaultAutoLockTests.Private<Notice>(panel, "_error").IsVisible);
+
+        // Showing the same node again, as a vault lock does, applies valid edits rather than dropping them.
+        port.Text = "2222";
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(await panel.ShowAsync(first));
+        Assert.Equal(2222, first.Settings.Port);
+
+        // Revert still throws edits away.
+        port.Text = "3333";
+        Dispatcher.UIThread.RunJobs();
+        window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Revert")).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("2222", port.Text);
+        Assert.Equal(2222, first.Settings.Port);
+
+        Assert.True(await panel.ShowAsync(second));
+        Assert.Same(second, panel.Node);
+    }
+
     /// <summary>Clicks "Use that instead" in the row of <paramref name="editor"/>, going back to the inherited value.</summary>
     static void UseInherited(Control editor)
     {
