@@ -24,6 +24,9 @@ static class RecordingExport
 
     const int JpegQuality = 85;
 
+    // How long a stopped ffmpeg, and what it says, are waited for.
+    static readonly TimeSpan StopWait = TimeSpan.FromSeconds(5);
+
     public const string Warning = "The exported copy isn't encrypted: anyone who has the file can watch it. "
         + "Everything the session showed is in it, and any sound it played.";
 
@@ -78,7 +81,7 @@ static class RecordingExport
         {
             { System: { } codec } when OperatingSystem.IsWindows() => ExportSystemMp4(path, privateKey, codec, output, framesPerSecond, choice.SkipIdle, progress),
             { Ffmpeg: { } codec } => ExportMp4(path, privateKey, ffmpeg!, codec, output, framesPerSecond, choice.SkipIdle, progress),
-            _ => ExportAvi(path, privateKey, output, framesPerSecond, choice.SkipIdle, progress),
+            _ => ExportAvi(path, privateKey, output, framesPerSecond, choice.SkipIdle, progress.Report, progress.Token),
         });
         var shown = progress.ShowDialog(owner);
         string? problem;
@@ -152,9 +155,11 @@ static class RecordingExport
     }
 
     // Each returns a problem to show, or null; a canceled export deletes what it wrote.
-    static string? ExportAvi(string path, byte[] privateKey, string output, int framesPerSecond, bool skipIdle, ExportProgressWindow progress)
+    internal static string? ExportAvi(string path, byte[] privateKey, string output, int framesPerSecond, bool skipIdle, Action<TimeSpan> report,
+        CancellationToken cancel)
     {
         var parts = new List<string>();
+        Stream? stream = null;
         try
         {
             using var reader = RecordingReader.Open(path, privateKey);
@@ -163,8 +168,7 @@ static class RecordingExport
                 return "This recording has no picture in it.";
             }
 
-            var sound = SoundFormat.Of(reader, progress.Token);
-            Stream? stream = null;
+            var sound = SoundFormat.Of(reader, cancel);
             AviWriter? avi = null;
             void NextPart()
             {
@@ -182,7 +186,7 @@ static class RecordingExport
             var rgba = new byte[width * height * 4];
             byte[]? lastJpeg = null;
             int index = 0;
-            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound, recolor: NativeColors(path, privateKey)))
+            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, cancel, sound, recolor: NativeColors(path, privateKey)))
             {
                 if (avi!.IsFull)
                 {
@@ -204,7 +208,7 @@ static class RecordingExport
 
                 if (++index % 25 == 0)
                 {
-                    progress.Report(frame.Time);
+                    report(frame.Time);
                 }
             }
 
@@ -214,11 +218,14 @@ static class RecordingExport
         }
         catch (OperationCanceledException)
         {
+            // The part being written is closed first: Windows won't delete a file that's open.
+            Close(stream);
             DeleteAll(parts);
             throw;
         }
         catch (Exception e) when (e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException)
         {
+            Close(stream);
             DeleteAll(parts);
             return e.Message;
         }
@@ -279,7 +286,17 @@ static class RecordingExport
                 foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound, steadySound: true,
                     recolor: NativeColors(path, privateKey)))
                 {
-                    input.Write(frame.Rgb);
+                    try
+                    {
+                        input.Write(frame.Rgb);
+                    }
+                    catch (IOException)
+                    {
+                        // ffmpeg stopped reading: its own message below says why. A failure reading the recording isn't
+                        // caught here, and goes to the catches below.
+                        break;
+                    }
+
                     soundPipe?.Write(frame.Sound);
                     if (++index % 25 == 0)
                     {
@@ -288,18 +305,23 @@ static class RecordingExport
                 }
 
                 soundPipe?.Complete();
-                input.Close();
             }
-            catch (IOException)
+            finally
             {
-                // ffmpeg stopped reading: its own message below says why.
+                // Always closed, so ffmpeg finishes or gives up rather than waiting for more.
+                Close(input);
             }
 
-            process.WaitForExit();
+            // Waited for in steps, so Cancel still stops it while it finishes the video.
+            while (!process.WaitForExit(250))
+            {
+                progress.Token.ThrowIfCancellationRequested();
+            }
+
             if (process.ExitCode != 0)
             {
                 TryDelete(output);
-                var message = errors.Result.Trim();
+                var message = errors.Wait(StopWait) ? errors.Result.Trim() : string.Empty;
                 return $"ffmpeg couldn't make the video{(message.Length > 0 ? ": " + message.Split('\n')[^1] : ".")}";
             }
 
@@ -307,17 +329,13 @@ static class RecordingExport
         }
         catch (OperationCanceledException)
         {
-            if (process is { HasExited: false })
-            {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit();
-            }
-
+            Stop(process);
             TryDelete(output);
             throw;
         }
         catch (Exception e) when (e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
+            Stop(process);
             TryDelete(output);
             return e.Message;
         }
@@ -351,6 +369,35 @@ static class RecordingExport
         finally
         {
             pinned.Free();
+        }
+    }
+
+    /// <summary>Ends an ffmpeg that's still running, waiting a moment at most for it to go.</summary>
+    static void Stop(Process? process)
+    {
+        try
+        {
+            if (process is { HasExited: false })
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(StopWait);
+            }
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // It had already gone.
+        }
+    }
+
+    /// <summary>Closes a stream being given up on; what it couldn't write doesn't matter now.</summary>
+    static void Close(Stream? stream)
+    {
+        try
+        {
+            stream?.Dispose();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
         }
     }
 

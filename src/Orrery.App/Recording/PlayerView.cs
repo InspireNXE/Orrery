@@ -259,7 +259,16 @@ sealed partial class PlayerView : DockPanel, IDisposable
                 return;
             }
 
-            await RecordingExport.ExportAsync(owner, _service, _item.Path, _privateKey, System.IO.Path.GetFileNameWithoutExtension(_item.Path));
+            // The export's own copy of the key: closing the player, as locking the vault does, clears the player's.
+            var key = (byte[])_privateKey.Clone();
+            try
+            {
+                await RecordingExport.ExportAsync(owner, _service, _item.Path, key, System.IO.Path.GetFileNameWithoutExtension(_item.Path));
+            }
+            finally
+            {
+                System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
+            }
         };
 
         Button more = null!;
@@ -492,6 +501,12 @@ sealed partial class PlayerView : DockPanel, IDisposable
     {
         _skipIdleOn = on;
         SetOn(_skipIdle, on);
+        if (!_loaded)
+        {
+            // The timeline is still being read, and is mapped with this once it has been.
+            return;
+        }
+
         var recorded = RecordedAt(_position);
         MapTimes();
         PlaceTicks();
@@ -610,6 +625,12 @@ sealed partial class PlayerView : DockPanel, IDisposable
     /// <summary>Jumps to the marker before or after where it's playing.</summary>
     void JumpToMarker(int by)
     {
+        if (!_loaded)
+        {
+            // The timeline is still being read on another thread.
+            return;
+        }
+
         var times = _entries.Where(e => e.Type == RecordingEventType.Marker).Select(e => e.Played).ToList();
         var to = by > 0
             ? times.Where(t => t > _position + TimeSpan.FromMilliseconds(250)).Cast<TimeSpan?>().FirstOrDefault()
@@ -739,7 +760,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
         }
         catch (Exception e) when (CantRead(e))
         {
-            ShowLoadError(e);
+            ShowLoadError(e.Message);
             return;
         }
 
@@ -766,6 +787,13 @@ sealed partial class PlayerView : DockPanel, IDisposable
             _ => string.Empty,
         };
         _banner.IsVisible = !string.IsNullOrEmpty(_banner.Text);
+        if (_entries.Count == 0)
+        {
+            // Only the header was written, as when Orrery stopped before anything was saved: there's nothing to play.
+            ShowLoadError("There's nothing in this recording to play: Orrery stopped before any of it was saved.");
+            return;
+        }
+
         if (_kind == RecordingKind.Terminal)
         {
             BuildText();
@@ -779,7 +807,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
             }
             catch (Exception e) when (CantRead(e))
             {
-                ShowLoadError(e);
+                ShowLoadError(e.Message);
                 return;
             }
         }
@@ -793,10 +821,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
     static bool CantRead(Exception e) => e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException;
 
-    void ShowLoadError(Exception e)
+    void ShowLoadError(string problem)
     {
         _stage.Children.Clear();
-        _stage.Children.Add(new Notice(NoticeKind.Error, e.Message) { MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+        _stage.Children.Add(new Notice(NoticeKind.Error, problem) { MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
     }
 
     (RecordingKind, RecordingEnding) ReadTimeline()

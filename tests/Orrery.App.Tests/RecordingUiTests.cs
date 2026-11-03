@@ -327,6 +327,50 @@ public sealed class RecordingUiTests : IDisposable
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task A_screen_recording_with_nothing_in_it_says_so_rather_than_playing()
+    {
+        // Only the header was written, as when Orrery stops before the first flush.
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "empty.orrec");
+        RecordingWriter.Create(path, RecordingKind.Screen, publicKey).Dispose();
+
+        var service = new RecordingService(_location, _settings, _credentials);
+        var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = 1000, Height = 720 };
+        window.Show();
+        await WaitFor(() => player.GetVisualDescendants().OfType<Notice>().Any(n => n.IsVisible));
+
+        Press(player, Key.Space);
+        Press(player, Key.End);
+        Press(player, Key.Right, KeyModifiers.Shift);
+        Assert.Equal("Play", AutomationProperties.GetName(PlayButton(player)));
+        player.Dispose();
+        window.Close();
+    }
+
+    [Fact]
+    public async Task A_canceled_avi_export_leaves_no_file_behind()
+    {
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "long.orrec");
+        var pixels = new byte[16 * 8 * 3];
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(16, 8));
+            writer.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(pixels, 16, 8));
+            writer.Complete(TimeSpan.FromSeconds(4));
+        }
+
+        // Canceled partway, once the first part is open and being written.
+        var output = Path.Combine(_root, "out.avi");
+        var key = (await RecordingKeys.PrivateKeyAsync(_credentials))!;
+        using var cancel = new CancellationTokenSource();
+        Assert.Throws<OperationCanceledException>(() => RecordingExport.ExportAvi(path, key, output, 25, skipIdle: false, _ => cancel.Cancel(), cancel.Token));
+        Assert.False(File.Exists(output));
+    }
+
     [AvaloniaTheory]
     [InlineData(2, 0.35, 0.55)] // twice as fast: about half as much sound, at the same pitch
     [InlineData(8, 0, 0)] // too fast to follow: none

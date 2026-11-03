@@ -54,8 +54,9 @@ sealed class RecordingsPanel : DockPanel
     readonly Button _unlock = new() { Content = "Unlock", FontSize = 12, MinHeight = 0, Height = 26, Padding = new Thickness(10, 0), HorizontalAlignment = HorizontalAlignment.Left };
     readonly StackPanel _locked;
 
-    // What each file says, kept while the file is unchanged, so refreshing doesn't decrypt every one again.
-    readonly Dictionary<string, RecordingItem> _described = new(StringComparer.OrdinalIgnoreCase);
+    // What each file says, kept while the file is unchanged, so refreshing doesn't decrypt every one again. Concurrent:
+    // it's filled on pool threads and cleared on the UI thread.
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, RecordingItem> _described = new(StringComparer.OrdinalIgnoreCase);
     List<RecordingItem> _items = [];
     int _loading;
 
@@ -357,11 +358,7 @@ sealed class RecordingsPanel : DockPanel
             item = new RecordingItem(file.FullName, file.Length, modified, null, null, "not a recording Orrery can read");
         }
 
-        lock (_described)
-        {
-            _described[file.FullName] = item;
-        }
-
+        _described[file.FullName] = item;
         return item;
     }
 
