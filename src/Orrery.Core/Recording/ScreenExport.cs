@@ -26,9 +26,28 @@ public static class ScreenExport
     /// <param name="width">The video's size: every frame is drawn at it, a screen of another size centered on black.</param>
     /// <remarks>Each frame's pixels are the same buffer, drawn again for the next one: use them before moving on.</remarks>
     /// <param name="sound">The sound track's format, from <see cref="SoundFormat.Of"/>; null leaves sound out.</param>
+    /// <param name="steadySound">
+    /// Whether each frame's sound runs on, in silence where none was recorded, to two frames past it. ffmpeg reads its
+    /// inputs in step, so a sound track that stops while the picture goes on would leave both waiting on each other.
+    /// </param>
     public static IEnumerable<ExportFrame> Frames(RecordingReader reader, int framesPerSecond, int width, int height, bool skipIdle,
-        CancellationToken cancel = default, SoundFormat? sound = null)
+        CancellationToken cancel = default, SoundFormat? sound = null, bool steadySound = false)
     {
+        byte[] Sound(SoundTrack? track, TimeSpan at)
+        {
+            if (track is null)
+            {
+                return [];
+            }
+
+            if (steadySound)
+            {
+                track.PadTo(at);
+            }
+
+            return track.Take();
+        }
+
         var track = sound is null ? null : new SoundTrack(sound);
         var decoder = new ScreenDecoder();
         var step = TimeSpan.FromSeconds(1.0 / Math.Max(1, framesPerSecond));
@@ -58,7 +77,7 @@ public static class ScreenExport
                     Render(decoder, output, width, height);
                 }
 
-                yield return new ExportFrame(next, width, height, output, changed) { Sound = track?.Take() ?? [] };
+                yield return new ExportFrame(next, width, height, output, changed) { Sound = Sound(track, next + step + step) };
                 changed = false;
                 next += step;
             }
@@ -79,7 +98,7 @@ public static class ScreenExport
         if (any)
         {
             Render(decoder, output, width, height);
-            yield return new ExportFrame(next, width, height, output, true) { Sound = track?.Take() ?? [] };
+            yield return new ExportFrame(next, width, height, output, true) { Sound = Sound(track, next + step + step) };
         }
     }
 
@@ -222,9 +241,15 @@ public static class Ffmpeg
             .OfType<FfmpegCodec>().ToList();
     }
 
-    /// <summary>How ffmpeg is started to read raw RGB frames from standard input and write <paramref name="output"/>.</summary>
-    public static ProcessStartInfo ExportStart(string ffmpeg, FfmpegCodec codec, int width, int height, int framesPerSecond, string output)
+    /// <summary>
+    /// How ffmpeg is started to read raw RGB frames from standard input and write <paramref name="output"/>; with
+    /// <paramref name="sound"/>, it also reads 16-bit PCM from <paramref name="soundInput"/> (a <see cref="SoundPipe"/>)
+    /// and encodes it as AAC.
+    /// </summary>
+    public static ProcessStartInfo ExportStart(string ffmpeg, FfmpegCodec codec, int width, int height, int framesPerSecond, string output,
+        SoundFormat? sound = null, string? soundInput = null)
     {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
         // A full path never starts with "-", so ffmpeg can't take the file name for an option.
         output = System.IO.Path.GetFullPath(output);
         var start = new ProcessStartInfo(ffmpeg)
@@ -235,14 +260,20 @@ public static class Ffmpeg
             RedirectStandardOutput = true,
             CreateNoWindow = true,
         };
+        bool withSound = sound is not null && soundInput is not null;
         string[] arguments =
         [
             "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", $"{width}x{height}", "-r", framesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", $"{width}x{height}", "-r", framesPerSecond.ToString(culture),
             "-i", "pipe:0",
+            .. withSound
+                ? (string[])["-f", "s16le", "-ar", sound!.SampleRate.ToString(culture), "-ac", sound.Channels.ToString(culture), "-i", soundInput!]
+                : [],
             // yuv420p, which every player takes, needs an even width and height.
             "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-c:v", codec.Encoder, "-pix_fmt", "yuv420p",
+            // AAC at 192 kbit/s, as Windows' own MP4 export makes; every build of ffmpeg has this encoder.
+            .. withSound ? (string[])["-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "192k"] : [],
             "-movflags", "+faststart",
             output,
         ];
@@ -291,4 +322,129 @@ public static class Ffmpeg
             return null;
         }
     }
+}
+
+/// <summary>
+/// The pipe an ffmpeg export reads its sound from, alongside the picture on standard input: a named pipe only this
+/// user can open on Windows, or a FIFO in a private folder elsewhere, so the sound never touches the disk. Sound is
+/// queued with <see cref="Write"/> and written on its own task, so the picture never waits on it.
+/// </summary>
+public sealed class SoundPipe : IDisposable
+{
+    readonly System.Threading.Channels.Channel<byte[]> _queue = System.Threading.Channels.Channel.CreateUnbounded<byte[]>(new() { SingleReader = true });
+    readonly CancellationTokenSource _stop = new();
+    readonly System.IO.Pipes.NamedPipeServerStream? _server;
+    readonly string? _folder;
+    Task? _writing;
+
+    /// <summary>What to give ffmpeg as the input's file name.</summary>
+    public string Path { get; }
+
+    public SoundPipe()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var name = $"orrery-sound-{Guid.NewGuid():N}";
+            _server = new System.IO.Pipes.NamedPipeServerStream(name, System.IO.Pipes.PipeDirection.Out, 1,
+                System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+            Path = $@"\\.\pipe\{name}";
+        }
+        else
+        {
+            // A new temp subfolder is made readable by this user only.
+            _folder = Directory.CreateTempSubdirectory("orrery-sound-").FullName;
+            Path = System.IO.Path.Combine(_folder, "sound");
+            if (MakeFifo(Path, 0b110_000_000) != 0)
+            {
+                var error = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+                Directory.Delete(_folder, recursive: true);
+                throw new IOException($"Couldn't make a pipe for the sound (error {error}).");
+            }
+        }
+    }
+
+    /// <summary>Starts writing what's queued, once ffmpeg opens the pipe; call it after ffmpeg has started.</summary>
+    public void Start() => _writing = Task.Run(WriteAllAsync);
+
+    /// <summary>Queues sound to write; empty sound is skipped.</summary>
+    public void Write(byte[] pcm)
+    {
+        if (pcm.Length > 0)
+        {
+            _queue.Writer.TryWrite(pcm);
+        }
+    }
+
+    /// <summary>Ends the sound: what's queued is still written, then ffmpeg reads the end of it.</summary>
+    public void Complete() => _queue.Writer.TryComplete();
+
+    async Task WriteAllAsync()
+    {
+        try
+        {
+            Stream stream;
+            if (_server is not null)
+            {
+                await _server.WaitForConnectionAsync(_stop.Token);
+                stream = _server;
+            }
+            else
+            {
+                // Opening a FIFO to write waits until ffmpeg opens it to read.
+                stream = await Task.Run(() => new FileStream(Path, FileMode.Open, FileAccess.Write, FileShare.Read), _stop.Token);
+            }
+
+            await using (stream)
+            {
+                await foreach (var pcm in _queue.Reader.ReadAllAsync(_stop.Token))
+                {
+                    await stream.WriteAsync(pcm, _stop.Token);
+                }
+            }
+        }
+        catch (Exception e) when (e is OperationCanceledException or IOException or ObjectDisposedException)
+        {
+            // ffmpeg went away, or the export was stopped: its own exit says what happened.
+        }
+    }
+
+    /// <summary>Stops writing, waiting at most a moment, once ffmpeg has exited.</summary>
+    public void Dispose()
+    {
+        _queue.Writer.TryComplete();
+        _stop.Cancel();
+        if (_folder is not null)
+        {
+            // A writer still waiting to open the FIFO is let go by opening the other end, without waiting for one.
+            int reader = Open(Path, OperatingSystem.IsMacOS() ? 0x4 : 0x800); // O_RDONLY | O_NONBLOCK
+            if (reader >= 0)
+            {
+                Close(reader);
+            }
+        }
+
+        _writing?.Wait(TimeSpan.FromSeconds(5));
+        _server?.Dispose();
+        if (_folder is not null)
+        {
+            try
+            {
+                Directory.Delete(_folder, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        _stop.Dispose();
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "mkfifo", SetLastError = true)]
+    static extern int MakeFifo(string path, uint mode);
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    static extern int Open(string path, int flags);
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "close")]
+    static extern int Close(int descriptor);
 }

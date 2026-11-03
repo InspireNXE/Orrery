@@ -65,6 +65,16 @@ public sealed class SoundTrack(SoundFormat format)
         _pending.Write(converted);
     }
 
+    /// <summary>Lays silence up to <paramref name="at"/> on the export's clock, where the sound laid stops short of it.</summary>
+    public void PadTo(TimeSpan at)
+    {
+        long gap = (long)(at.TotalSeconds * Format.SampleRate) - Length;
+        if (gap > 0)
+        {
+            _pending.Write(new byte[gap * Format.BlockAlign]);
+        }
+    }
+
     /// <summary>The sound laid since the last call, in order; empty when there's none.</summary>
     public byte[] Take()
     {

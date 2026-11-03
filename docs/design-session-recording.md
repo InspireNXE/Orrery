@@ -191,8 +191,11 @@ readable by anyone who has the file, then writes it where the user chooses:
   with any of H.264, H.265 or AV1 that Windows can't make, each listed only if that ffmpeg has an encoder for it
   (`ffmpeg -encoders`, read once). This is how macOS and Linux make MP4. Orrery starts ffmpeg by its full path with arguments as a list (no shell), pipes raw RGB frames to its standard
   input, and writes nothing to disk unencrypted except ffmpeg's output file. ffmpeg is never searched for on `PATH`,
-  downloaded or bundled: the user picks the file, and Settings shows its version line. It gets no sound: that would
-  need a second pipe, and the choice says "no sound".
+  downloaded or bundled: the user picks the file, and Settings shows its version line. Sound goes to it through a
+  second pipe, so it never touches the disk either: a named pipe only this user can open on Windows, or a FIFO in a
+  private temporary folder elsewhere. ffmpeg encodes it as AAC at 192 kbit/s. ffmpeg reads its inputs in step, so a
+  sound track that stopped while the picture went on would leave both waiting: the sound runs on in silence to two
+  frames past each picture.
 
 **Sound in exports.** The sound track is 44.1 or 48 kHz as recorded (other rates are resampled to 48 kHz), mono or
 stereo (more channels mixed down to two). Blocks are laid end to end on the export's clock; one stamped up to 120 ms
@@ -320,7 +323,6 @@ Playing:
 ## 7. Later
 
 - MP4 export without ffmpeg on macOS, through AVFoundation's `AVAssetWriter`. It needs a Mac to build and test on.
-- Sound through the ffmpeg export.
 - Recording the remote pointer's shape.
 
 ---
