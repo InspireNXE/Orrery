@@ -59,6 +59,9 @@ sealed class RecordingsPanel : DockPanel
     List<RecordingItem> _items = [];
     int _loading;
 
+    /// <summary>The header row, which the main window adds its pin button to.</summary>
+    public DockPanel Header { get; }
+
     public RecordingsPanel(RecordingService service)
     {
         _service = service;
@@ -123,7 +126,7 @@ sealed class RecordingsPanel : DockPanel
             },
         };
 
-        Children.Add(Pane.Docked(new DockPanel
+        Children.Add(Pane.Docked(Header = new DockPanel
         {
             Margin = new Thickness(14, 10, 10, 6),
             Height = 28,

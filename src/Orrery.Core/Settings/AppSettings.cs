@@ -24,7 +24,7 @@ public enum PaneMode
     /// <summary>Only its icons; it opens over the sessions when one is clicked, so a remote desktop keeps its size.</summary>
     Collapsed,
 
-    /// <summary>Expanded while no session is showing, collapsed while one is.</summary>
+    /// <summary>No longer offered: it moved the panes as the first tab opened and the last closed. Read as Collapsed.</summary>
     Auto,
 
     /// <summary>Nothing on screen; its shortcut or the window's edge opens it over the sessions.</summary>
@@ -116,11 +116,19 @@ public sealed record AppSettings
 
     /// <summary>The side panel's mode: a closed panel from before modes kept its rail, which Collapsed is.</summary>
     [JsonIgnore]
-    public PaneMode SidePanel => SidePanelMode ?? (SidePanelOpen == false ? PaneMode.Collapsed : PaneMode.Expanded);
+    public PaneMode SidePanel => Offered(SidePanelMode ?? (SidePanelOpen == false ? PaneMode.Collapsed : PaneMode.Expanded));
 
     /// <summary>The right-hand pane's mode: a closed pane from before modes left nothing on screen, which Hidden is.</summary>
     [JsonIgnore]
-    public PaneMode Inspector => InspectorMode ?? (InspectorOpen == false ? PaneMode.Hidden : PaneMode.Expanded);
+    public PaneMode Inspector => Offered(InspectorMode ?? (InspectorOpen == false ? PaneMode.Hidden : PaneMode.Expanded));
+
+    static PaneMode Offered(PaneMode mode) => mode == PaneMode.Auto ? PaneMode.Collapsed : mode;
+
+    /// <summary>The side panel's width as last dragged, in device-independent units. Null is the default.</summary>
+    public double? SidePanelWidth { get; init; }
+
+    /// <summary>The right-hand pane's width as last dragged. Null is the default.</summary>
+    public double? InspectorWidth { get; init; }
 
     /// <summary>
     /// Check from time to time whether the connections on screen are up, the way <see cref="HostStatusMethod"/> says.

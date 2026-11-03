@@ -262,7 +262,8 @@ public partial class MainWindow : Window
             await CloseTabAsync(tab.Session);
             await tab.Origin.Reconnect();
         };
-        _propertiesHost.Child = _properties;
+        _inspectorContent.Content = _properties;
+        _propertiesHost.Child = new Panel { Children = { _inspectorContent } };
 
         _credentialsView = new CredentialsView(_credentials, async () =>
         {
@@ -714,7 +715,7 @@ public partial class MainWindow : Window
 
         RevealSidePanel();
 
-        _propertiesHost.Child = side == "credentials" ? _credentialsView.Editor : _properties;
+        _inspectorContent.Content = side == "credentials" ? _credentialsView.Editor : _properties;
         switch (side)
         {
             case "credentials":

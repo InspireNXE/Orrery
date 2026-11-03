@@ -129,7 +129,7 @@
             <ContentControl x:Name="RecordingsSide" IsVisible="False" />
             <DockPanel x:Name="ConnectionsSide">
               <DockPanel DockPanel.Dock="Top" Margin="14,10,10,6">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                <StackPanel x:Name="ConnectionsHeaderButtons" DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
                   <Button x:Name="NewFolderButton" Classes="icon" Width="28" Height="28" Click="OnNewFolderClick"
                           ToolTip.Tip="New folder" AutomationProperties.Name="New folder">
                     <c:StrokeIcon Data="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M12 10v6 M9 13h6" />

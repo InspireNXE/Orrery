@@ -57,7 +57,7 @@ sealed class RecentPanel : DockPanel
         ToolTip.SetTip(_clear, "Clear the recent list");
         _clear.Click += (_, _) => _recent.Clear();
 
-        Children.Add(Pane.Docked(new DockPanel
+        Children.Add(Pane.Docked(Header = new DockPanel
         {
             Margin = new Thickness(14, 10, 10, 6),
             Height = 28,
@@ -72,6 +72,9 @@ sealed class RecentPanel : DockPanel
         _recent.Changed += (_, _) => Refresh();
         Refresh();
     }
+
+    /// <summary>The header row, which the main window adds its pin button to.</summary>
+    public DockPanel Header { get; }
 
     /// <summary>Raised when a row is opened.</summary>
     public event EventHandler<RecentConnection>? OpenRequested;
