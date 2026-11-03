@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -24,6 +25,9 @@ static class RdpConnector
 
     /// <summary>The largest single CredSSP reply accepted.</summary>
     const int MaxCredsspReply = 64 * 1024;
+
+    /// <summary>The largest Kerberos reply accepted from a KDC, which can be large with many group memberships.</summary>
+    internal const int MaxKdcReply = 1024 * 1024;
 
     /// <summary>Fingers the input channel tracks at once, as Windows' own client offers; more are ignored until one lifts.</summary>
     internal const ushort MaxTouchContacts = 10;
@@ -384,31 +388,72 @@ static class RdpConnector
             var payload = new byte[data.Size];
             data.Fill(payload);
             await kdcStream.WriteAsync(payload, token);
-
-            var buffer = new byte[8192];
-            int read = await kdcStream.ReadAsync(buffer, token);
-            state = generator.Resume(buffer[..read]);
+            state = generator.Resume(await ReadKdcReplyAsync(kdcStream, token));
         }
+    }
+
+    /// <summary>
+    /// Reads one Kerberos reply over TCP: a 4-byte big-endian length, then that many bytes, which may come in several
+    /// reads. Returned whole, length included, as the request was written with its own.
+    /// </summary>
+    internal static async Task<byte[]> ReadKdcReplyAsync(Stream stream, CancellationToken token)
+    {
+        var prefix = new byte[4];
+        await stream.ReadExactlyAsync(prefix, token);
+        uint length = BinaryPrimitives.ReadUInt32BigEndian(prefix);
+        if (length > MaxKdcReply)
+        {
+            throw new InvalidDataException("The Kerberos server's reply was too large.");
+        }
+
+        var reply = new byte[4 + length];
+        prefix.CopyTo(reply, 0);
+        await stream.ReadExactlyAsync(reply.AsMemory(4), token);
+        return reply;
     }
 
     static async Task<TcpClient> OpenTcpAsync(string host, int port, CancellationToken token)
     {
-        if (!IPAddress.TryParse(host, out var address))
+        IPAddress[] addresses = IPAddress.TryParse(host, out var address)
+            ? [address]
+            : (await Dns.GetHostEntryAsync(host, token).WaitAsync(TimeSpan.FromSeconds(10), token)).AddressList;
+        return await ConnectAnyAsync(host, addresses, port, token);
+    }
+
+    /// <summary>
+    /// Connects to the first of the name's addresses that answers, trying each in turn: a name can have several, such
+    /// as an IPv6 one the network can't reach and an IPv4 one it can. When none answers, the last one's error is thrown.
+    /// </summary>
+    internal static async Task<TcpClient> ConnectAnyAsync(string host, IReadOnlyList<IPAddress> addresses, int port, CancellationToken token)
+    {
+        if (addresses.Count == 0)
         {
-            var entry = await Dns.GetHostEntryAsync(host, token).WaitAsync(TimeSpan.FromSeconds(10), token);
-            address = entry.AddressList[0];
+            throw new SessionFailureException(FailureKind.NameNotFound, $"Couldn't find a computer called {host}.");
         }
 
-        var client = new TcpClient(address.AddressFamily);
-        try
+        SocketException? last = null;
+        foreach (var address in addresses)
         {
-            await client.ConnectAsync(new IPEndPoint(address, port), token);
-            return client;
+            token.ThrowIfCancellationRequested();
+            var client = new TcpClient(address.AddressFamily);
+            try
+            {
+                await client.ConnectAsync(new IPEndPoint(address, port), token);
+                return client;
+            }
+            catch (SocketException e)
+            {
+                client.Dispose();
+                Logger.LogDebug("Couldn't connect to {Host} at {Address}: {Message}", host, address, e.Message);
+                last = e;
+            }
+            catch
+            {
+                client.Dispose();
+                throw;
+            }
         }
-        catch
-        {
-            client.Dispose();
-            throw;
-        }
+
+        throw last!;
     }
 }
