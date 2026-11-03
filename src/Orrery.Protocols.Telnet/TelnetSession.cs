@@ -63,6 +63,7 @@ public sealed class TelnetSession : ITerminalSession
     async Task RunAsync()
     {
         var token = _cts.Token;
+        bool heard = false;
         try
         {
             var (host, port) = await _route.DialAsync(Target, token);
@@ -88,6 +89,7 @@ public sealed class TelnetSession : ITerminalSession
                     break;
                 }
 
+                heard = true;
                 var (data, replies) = parser.Feed(buffer.AsSpan(0, read));
                 if (replies.Length > 0)
                 {
@@ -98,6 +100,12 @@ public sealed class TelnetSession : ITerminalSession
                 {
                     DataReceived?.Invoke(data);
                 }
+            }
+
+            if (Unreached(heard, token) is { } unreached)
+            {
+                SetState(SessionState.Failed, unreached, new RouteException(unreached));
+                return;
             }
 
             SetState(SessionState.Disconnected);
@@ -119,6 +127,12 @@ public sealed class TelnetSession : ITerminalSession
             // Once connected, an error ends the session rather than failing it: some servers reset the connection
             // when you log out, and that mustn't look like a drop to reconnect after.
             Log.For("Telnet").LogWarning("Telnet session to {Host} ended: {Message}", Target.Host, e.Message);
+            if (State == SessionState.Connected && Unreached(heard, token) is { } unreached)
+            {
+                SetState(SessionState.Failed, unreached, new RouteException(unreached, e));
+                return;
+            }
+
             SetState(State == SessionState.Connected ? SessionState.Disconnected : SessionState.Failed, e.Message, e);
         }
         catch (Exception e)
@@ -127,6 +141,23 @@ public sealed class TelnetSession : ITerminalSession
             Log.For("Telnet").LogError(e, "Telnet session to {Host} failed", Target.Host);
             SetState(SessionState.Failed, "The Telnet session stopped because of an internal error.", e);
         }
+    }
+
+    /// <summary>
+    /// Through a route, the connection to its local port always opens, and only ends at once when the far side
+    /// couldn't be reached. So one that ends before the server said anything is a failure to get there, not a
+    /// logout. Says so, or null when it's a plain end: no route, something was heard, or the session is being closed.
+    /// </summary>
+    string? Unreached(bool heard, CancellationToken token)
+    {
+        if (_route is null || heard || token.IsCancellationRequested)
+        {
+            return null;
+        }
+
+        var message = $"Couldn't reach {Target.Host}:{Target.Port} through the jump host.";
+        Log.For("Telnet").LogWarning("Telnet session to {Host}: {Message}", Target.Host, message);
+        return message;
     }
 
     /// <summary>

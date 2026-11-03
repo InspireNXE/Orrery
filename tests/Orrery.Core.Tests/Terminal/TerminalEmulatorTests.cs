@@ -156,6 +156,19 @@ public class TerminalEmulatorTests
     }
 
     [Fact]
+    public void Ignores_csi_with_a_less_than_or_equals_prefix()
+    {
+        var t = Term();
+        var replies = new List<string>();
+        t.Reply += replies.Add;
+
+        // Kitty keyboard push, pop and set, and DA3: none moves the cursor or gets an answer.
+        t.Feed($"{Esc}[1;1H{Esc}[s{Esc}[2;5H{Esc}[>1u{Esc}[<u{Esc}[=5u{Esc}[=c");
+        Assert.Equal((4, 1), (t.CursorX, t.CursorY));
+        Assert.Empty(replies);
+    }
+
+    [Fact]
     public void Osc_sets_the_title_with_either_terminator()
     {
         var t = Term();

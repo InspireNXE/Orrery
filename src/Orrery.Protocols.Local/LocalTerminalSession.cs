@@ -59,9 +59,9 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
     async Task RunAsync()
     {
         IPseudoTerminal pty;
+        int columns, rows;
         try
         {
-            int columns, rows;
             lock (_lock) (columns, rows) = (_columns, _rows);
             pty = OperatingSystem.IsWindows()
                 ? WindowsPseudoTerminal.Start(Shell, columns, rows, _workingDirectory)
@@ -80,6 +80,12 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
             _pty = pty;
             ProcessId = pty.ProcessId;
             endedAlready = _ending;
+
+            // A resize that came while the shell was starting only changed the size wanted.
+            if (!endedAlready && (_columns, _rows) != (columns, rows))
+            {
+                pty.Resize(_columns, _rows);
+            }
         }
 
         Logger.LogInformation("Started {Shell} ({Program}) as process {ProcessId} in {Folder}", Shell.Name, Shell.Program, pty.ProcessId, _workingDirectory);

@@ -19,6 +19,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
 {
     readonly object _lock = new();
     readonly List<SshClient> _clients = [];
+    readonly Dictionary<int, Action> _allowAnother = [];
     bool _closed;
 
     public IReadOnlyList<SshHop> Hops { get; } = hops.Count > 0 ? hops : throw new ArgumentException("A tunnel needs at least one jump host.", nameof(hops));
@@ -47,13 +48,24 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
         foreach (var hop in Hops)
         {
             var (hopHost, hopPort) = through is null ? (hop.Target.Host, hop.Target.Port) : Forward(through, hop.Target.Host, hop.Target.Port);
-            through = Connect(hop, hopHost, hopPort);
+            through = Connect(hop, hopHost, hopPort, () => AllowRetry(hopPort));
         }
 
         return Forward(through!, host, port);
     }
 
-    SshClient Connect(SshHop hop, string host, int port)
+    /// <summary>
+    /// Lets this tunnel's forward on loopback <paramref name="port"/> take one more connection, for a connect trying
+    /// again after its first try timed out over the host key. Does nothing for a port that isn't one of its forwards.
+    /// </summary>
+    internal void AllowRetry(int port)
+    {
+        Action? allow;
+        lock (_lock) _allowAnother.TryGetValue(port, out allow);
+        allow?.Invoke();
+    }
+
+    SshClient Connect(SshHop hop, string host, int port, Action beforeRetry)
     {
         string where = $"Jump host {hop.Target.Host}: ";
         HostKeyCheck? hostKey = null;
@@ -75,7 +87,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
                 _clients.Add(client);
             }
 
-            hostKey.Connect(client);
+            hostKey.Connect(client, beforeRetry);
             return client;
         }
         catch (Exception) when (IsClosed)
@@ -108,12 +120,13 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
     }
 
     /// <summary>A loopback port on this computer that reaches <paramref name="host"/>:<paramref name="port"/> from <paramref name="through"/>.</summary>
-    internal static (string Host, int Port) Forward(SshClient through, string host, int port)
+    (string Host, int Port) Forward(SshClient through, string host, int port)
     {
         var forward = new ForwardedPortLocal(PortForward.Loopback, 0, host, (uint)port);
-        AcceptOnlyOne(forward);
+        var allowAnother = AcceptOnlyOne(forward);
         through.AddForwardedPort(forward);
         forward.Start();
+        lock (_lock) _allowAnother[(int)forward.BoundPort] = allowAnother;
         return (PortForward.Loopback, (int)forward.BoundPort);
     }
 
@@ -121,20 +134,33 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
     /// Lets <paramref name="forward"/> carry one connection, the one the session (or the next hop) makes straight
     /// after opening it, and refuses the rest. Loopback is open to every user of this computer, so on a shared one
     /// another user could otherwise ride the jump host's login to whatever the tunnel reaches. A connection that gets
-    /// in first makes the session's own fail, which says so, rather than letting it through unseen.
+    /// in first makes the session's own fail, which says so, rather than letting it through unseen. Returns what lets
+    /// exactly one more in, for a connect trying again after its first try timed out over the host key.
     /// </summary>
-    internal static void AcceptOnlyOne(ForwardedPort forward)
+    internal static Action AcceptOnlyOne(ForwardedPort forward)
     {
-        int connections = 0;
+        var gate = new object();
+        int left = 1;
         forward.RequestReceived += (_, e) =>
         {
-            if (Interlocked.Increment(ref connections) > 1)
+            lock (gate)
             {
-                Log.For("JumpHost").LogWarning("Refused another connection to a tunnel's port, from {Host}:{Port}", e.OriginatorHost, e.OriginatorPort);
-
-                // SSH.NET closes this socket and keeps listening.
-                throw new InvalidOperationException("A tunnel's port takes one connection.");
+                if (left > 0)
+                {
+                    left--;
+                    return;
+                }
             }
+
+            Log.For("JumpHost").LogWarning("Refused another connection to a tunnel's port, from {Host}:{Port}", e.OriginatorHost, e.OriginatorPort);
+
+            // SSH.NET closes this socket and keeps listening.
+            throw new InvalidOperationException("A tunnel's port takes one connection.");
+        };
+
+        return () =>
+        {
+            lock (gate) left = 1;
         };
     }
 
@@ -146,6 +172,7 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
             _closed = true;
             clients = [.. _clients];
             _clients.Clear();
+            _allowAnother.Clear();
         }
 
         // Innermost first: each one runs through the one before it.

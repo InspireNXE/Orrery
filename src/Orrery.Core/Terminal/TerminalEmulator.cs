@@ -480,6 +480,11 @@ public sealed class TerminalEmulator
             return;
         }
 
+        if (_prefix is '<' or '=')
+        {
+            return; // The kitty keyboard protocol (ESC[<u, ESC[=5u) and DA3 (ESC[=c): not supported, so ignored.
+        }
+
         if (intermediate == "!" && final == 'p')
         {
             SoftReset();

@@ -27,6 +27,22 @@ public class SshTunnelTests : IDisposable
     }
 
     [Fact]
+    public void A_retry_after_a_slow_host_key_answer_gets_exactly_one_more_connection()
+    {
+        var forward = new ForwardedPortLocal("127.0.0.1", 0, "db.lab", 5432);
+        var allowAnother = SshTunnel.AcceptOnlyOne(forward);
+
+        var raise = typeof(ForwardedPort).GetMethod("RaiseRequestReceived", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        raise.Invoke(forward, ["127.0.0.1", 50000u]);
+        Assert.Throws<System.Reflection.TargetInvocationException>(() => raise.Invoke(forward, ["127.0.0.1", 50001u]));
+
+        // Still one, however often a stranger tried before the retry asked.
+        allowAnother();
+        raise.Invoke(forward, ["127.0.0.1", 50002u]);
+        Assert.Throws<System.Reflection.TargetInvocationException>(() => raise.Invoke(forward, ["127.0.0.1", 50003u]));
+    }
+
+    [Fact]
     public void Needs_at_least_one_jump_host() =>
         Assert.Throws<ArgumentException>(() => new SshTunnel([], Validator()));
 
