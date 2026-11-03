@@ -172,9 +172,41 @@ public sealed class RecordingExportTests : IDisposable
             Assert.True(laid >= (long)((frame.Time.TotalSeconds + 0.2) * format.SampleRate) - 1, $"short at {frame.Time}");
         }
 
+        // Without it, a quiet stretch is laid only once it's over a second long, and never ahead of the picture.
         using var again = RecordingReader.Open(path, _privateKey);
-        long plain = ScreenExport.Frames(again, 10, 4, 4, skipIdle: false, sound: format).Sum(f => (long)f.Sound.Length / format.BlockAlign);
-        Assert.Equal(4_800, plain); // without it, silence after the last sound isn't laid
+        long plain = 0;
+        var end = TimeSpan.Zero;
+        foreach (var frame in ScreenExport.Frames(again, 10, 4, 4, skipIdle: false, sound: format))
+        {
+            plain += frame.Sound.Length / format.BlockAlign;
+            end = frame.Time;
+            Assert.True(plain <= Math.Max(4_800, (long)(frame.Time.TotalSeconds * format.SampleRate)), $"ahead at {frame.Time}");
+        }
+
+        Assert.True(plain >= (long)((end.TotalSeconds - 1.1) * format.SampleRate), $"{plain} short of {end}");
+    }
+
+    [Fact]
+    public void An_hour_between_sounds_goes_out_a_second_at_a_time()
+    {
+        var beep = new byte[480 * 2]; // 10 ms of mono at 48 kHz
+        var path = Make(RecordingKind.Screen, w =>
+        {
+            w.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(4, 4));
+            w.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(new byte[4 * 4 * 3], 4, 4));
+            w.Append(RecordingEventType.Audio, TimeSpan.Zero, RecordingFile.AudioPayload(48_000, 1, beep));
+            w.Append(RecordingEventType.Audio, TimeSpan.FromHours(1), RecordingFile.AudioPayload(48_000, 1, beep));
+        });
+
+        var format = new SoundFormat(48_000, 1);
+        using var reader = RecordingReader.Open(path, _privateKey);
+        int largest = 0;
+        foreach (var frame in ScreenExport.Frames(reader, 1, 4, 4, skipIdle: false, sound: format))
+        {
+            largest = Math.Max(largest, frame.Sound.Length);
+        }
+
+        Assert.True(largest <= 3 * format.BytesPerSecond, $"{largest:N0} bytes in one frame");
     }
 
     [FfmpegFact]

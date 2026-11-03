@@ -172,8 +172,9 @@ static class RecordingExport
                 stream?.Dispose();
                 var name = parts.Count == 0 ? output
                     : Path.Combine(Path.GetDirectoryName(output)!, $"{Path.GetFileNameWithoutExtension(output)} (part {parts.Count + 1}){Path.GetExtension(output)}");
+                // Only the first file was asked about in the save dialog, so a later part never replaces a file there.
+                stream = new FileStream(name, parts.Count == 0 ? FileMode.Create : FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
                 parts.Add(name);
-                stream = new FileStream(name, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
                 avi = new AviWriter(stream, width, height, framesPerSecond, sound);
             }
 

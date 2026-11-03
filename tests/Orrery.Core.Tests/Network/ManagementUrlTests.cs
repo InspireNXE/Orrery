@@ -31,6 +31,8 @@ public class ManagementUrlTests
     [InlineData("ms-settings://display")]
     [InlineData("https://")]
     [InlineData("https://has space.lan")]
+    [InlineData("https://admin.corp.local@evil.example/login")]
+    [InlineData("admin:secret@10.20.0.1:8443")]
     public void Anything_but_an_http_or_https_address_is_refused(string? text)
     {
         Assert.False(ManagementUrl.TryNormalize(text, out _));

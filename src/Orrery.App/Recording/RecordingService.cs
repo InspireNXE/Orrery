@@ -109,7 +109,7 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
         SessionRecorder recorder;
         try
         {
-            Directory.CreateDirectory(Folder);
+            PrivateStorage.CreateDirectory(Folder);
             var path = NewPath(tab.Origin.Title, started, settings.PutsNamesInRecordingFiles);
             if (tab.View is TerminalView terminal)
             {
@@ -184,23 +184,36 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
     async Task<byte[]?> PublicKeyAsync(Window owner)
     {
         var settings = Settings;
+        byte[]? key = null;
         if (settings.RecordingPublicKey is { } saved)
         {
-            var key = new byte[RecordingKeys.KeySize];
-            if (Convert.TryFromBase64String(saved, key, out int written) && written == RecordingKeys.KeySize)
+            key = new byte[RecordingKeys.KeySize];
+            if (!Convert.TryFromBase64String(saved, key, out int written) || written != RecordingKeys.KeySize)
             {
-                return key;
+                key = null;
             }
         }
 
-        // First recording, or the setting was lost: the key comes from the store, made there if it isn't yet.
+        // While the store is locked the saved key is all there is, which is why recording never needs it open.
+        if (key is not null && credentials.IsLocked)
+        {
+            return key;
+        }
+
+        // First recording, or the setting was lost: the key comes from the store, made there if it isn't yet. With
+        // the store open, the saved key is checked against it too: one that's been changed, or that belongs to a
+        // private key since lost, would seal recordings nobody here can open.
         if (credentials.IsLocked && !await VaultUnlockWindow.EnsureUnlockedAsync(credentials, owner))
         {
             return null;
         }
 
         var publicKey = await RecordingKeys.EnsureAsync(credentials);
-        settingsStore.Save(Settings with { RecordingPublicKey = Convert.ToBase64String(publicKey) });
+        if (key is null || !publicKey.AsSpan().SequenceEqual(key))
+        {
+            settingsStore.Save(Settings with { RecordingPublicKey = Convert.ToBase64String(publicKey) });
+        }
+
         return publicKey;
     }
 

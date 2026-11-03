@@ -26,6 +26,9 @@ public partial class MainWindow
     static readonly BoxShadows FloatingShadow = BoxShadows.Parse("0 0 28 0 #99000000");
     const double DefaultSideWidth = 280, DefaultInspectorWidth = 320, MinPaneWidth = 220, MaxPaneWidth = 640;
 
+    /// <summary>What the sessions keep at least, beside pinned panes, however wide those were set on a bigger screen.</summary>
+    const double MinSessionWidth = 360;
+
     PaneMode _sideMode, _inspectorMode;
     bool _sideFloating, _inspectorFloating;
 
@@ -73,6 +76,7 @@ public partial class MainWindow
         _propertiesHost.Width = Math.Clamp(settings.InspectorWidth ?? DefaultInspectorWidth, MinPaneWidth, MaxPaneWidth);
         ((Panel)_sidePanel.Child!).Children.Add(ResizeGrip(_sidePanel, onLeft: false, DefaultSideWidth, (s, width) => s with { SidePanelWidth = width }));
         inspectorPanel.Children.Add(ResizeGrip(_propertiesHost, onLeft: true, DefaultInspectorWidth, (s, width) => s with { InspectorWidth = width }));
+        SizeChanged += (_, _) => FitPanes();
 
         _leftEdge.PointerEntered += (_, _) => FloatSidePanel(hovered: true);
         _rightEdge.PointerEntered += (_, _) => FloatInspector(hovered: true);
@@ -143,6 +147,28 @@ public partial class MainWindow
 
         ToolTip.SetTip(_sidePanelToggle, Tip("side panel", "Ctrl+B", _sideMode, _sidePanel.IsVisible));
         ToolTip.SetTip(_inspectorToggle, Tip("settings pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
+        FitPanes();
+    }
+
+    /// <summary>The room pinned panes have together: the window less the rail and what the sessions keep.</summary>
+    double PaneRoom => Bounds.Width - (_rail.IsVisible ? _rail.Bounds.Width : 0) - MinSessionWidth;
+
+    /// <summary>
+    /// Narrows pinned panes, both in proportion, when together they'd leave the sessions less than
+    /// <see cref="MinSessionWidth"/>, as when widths saved on a big screen open on a small one. The widths themselves
+    /// are kept, for when the window is wide again.
+    /// </summary>
+    void FitPanes()
+    {
+        if (Bounds.Width <= 0)
+        {
+            return;
+        }
+
+        double side = SideDocked ? _sidePanel.Width : 0, inspector = InspectorDocked ? _propertiesHost.Width : 0;
+        double scale = side + inspector > PaneRoom ? Math.Max(0, PaneRoom) / (side + inspector) : 1;
+        _sidePanel.MaxWidth = scale < 1 ? Math.Max(MinPaneWidth, side * scale) : double.PositiveInfinity;
+        _propertiesHost.MaxWidth = scale < 1 ? Math.Max(MinPaneWidth, inspector * scale) : double.PositiveInfinity;
     }
 
     static string Tip(string pane, string keys, PaneMode mode, bool shown) =>
@@ -251,7 +277,11 @@ public partial class MainWindow
             if (dragging)
             {
                 double moved = e.GetPosition(this).X - startX;
-                pane.Width = Math.Clamp(startWidth + (onLeft ? -moved : moved), MinPaneWidth, Math.Max(MinPaneWidth, Math.Min(MaxPaneWidth, Bounds.Width * 0.45)));
+                // The other pane, when it's pinned too, keeps its width: this one gets what's left of the room.
+                var other = pane == _sidePanel ? (InspectorDocked ? _propertiesHost.Bounds.Width : 0) : (SideDocked ? _sidePanel.Bounds.Width : 0);
+                double most = Math.Min(Math.Min(MaxPaneWidth, Bounds.Width * 0.45), PaneRoom - other);
+                pane.Width = Math.Clamp(startWidth + (onLeft ? -moved : moved), MinPaneWidth, Math.Max(MinPaneWidth, most));
+                FitPanes();
             }
         };
         grip.PointerReleased += (_, e) =>

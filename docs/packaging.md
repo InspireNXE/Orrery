@@ -198,8 +198,8 @@ dotnet restore Orrery.sln --force-evaluate
 ```
 
 Ordinary restores update the lock files as needed. Builds with `-p:OrreryLockedRestore=true` (the packaging scripts
-pass it) or `ContinuousIntegrationBuild=true` restore in locked mode and fail with NU1004 if the packages no longer
-match the lock files. To check by hand: `dotnet restore Orrery.sln --locked-mode`.
+pass it, and the workflow sets it for every step) or `ContinuousIntegrationBuild=true` restore in locked mode and
+fail with NU1004 if the packages no longer match the lock files. To check by hand: `dotnet restore Orrery.sln --locked-mode`.
 
 ## Icons and wizard art
 

@@ -95,10 +95,9 @@ sealed class WebPageView : Panel
             if (e.Request is { Scheme: NewTabScheme } tab)
             {
                 e.Cancel = true;
-                if (Uri.TryCreate(Uri.UnescapeDataString(tab.OriginalString[(NewTabScheme.Length + 1)..]), UriKind.Absolute, out var link)
-                    && (link.Scheme == Uri.UriSchemeHttp || link.Scheme == Uri.UriSchemeHttps))
+                if (Uri.TryCreate(Uri.UnescapeDataString(tab.OriginalString[(NewTabScheme.Length + 1)..]), UriKind.Absolute, out var link))
                 {
-                    NewWindowRequested?.Invoke(this, link);
+                    OpenNewTab(link);
                 }
 
                 return;
@@ -141,7 +140,7 @@ sealed class WebPageView : Panel
             e.Handled = true;
             if (e.Request is { } request)
             {
-                NewWindowRequested?.Invoke(this, request);
+                OpenNewTab(request);
             }
         };
         if (OperatingSystem.IsWindows())
@@ -166,6 +165,37 @@ sealed class WebPageView : Panel
         _web.Source = url;
         Children.Add(_web);
     }
+
+    /// <summary>
+    /// Passes on a new tab the page asked for. Only web addresses: a tab opened this way is a navigation the engine
+    /// starts itself, which would otherwise reach file: and the like that a page can't open. And only a few at a
+    /// time, since a script can ask without a click, over and over.
+    /// </summary>
+    void OpenNewTab(Uri address)
+    {
+        if (address.Scheme != Uri.UriSchemeHttp && address.Scheme != Uri.UriSchemeHttps)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        while (_newTabs.Count > 0 && now - _newTabs.Peek() > NewTabWindow)
+        {
+            _newTabs.Dequeue();
+        }
+
+        if (_newTabs.Count >= MaxNewTabs)
+        {
+            return;
+        }
+
+        _newTabs.Enqueue(now);
+        NewWindowRequested?.Invoke(this, address);
+    }
+
+    const int MaxNewTabs = 5;
+    static readonly TimeSpan NewTabWindow = TimeSpan.FromSeconds(10);
+    readonly Queue<DateTime> _newTabs = new();
 
     /// <summary>The page's picture, for recording it (Windows).</summary>
     public WebFrames Frames { get; } = new();

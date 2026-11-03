@@ -796,7 +796,7 @@ sealed class SettingsView : UserControl
         var open = new Button { Content = "Open the recordings folder" };
         open.Click += (_, _) =>
         {
-            Directory.CreateDirectory(folder);
+            PrivateStorage.CreateDirectory(folder);
             OpenFolder(folder);
         };
 

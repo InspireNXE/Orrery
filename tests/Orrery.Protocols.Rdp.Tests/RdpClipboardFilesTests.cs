@@ -166,7 +166,7 @@ public sealed class RdpClipboardFilesTests : IDisposable
     public async Task Raises_the_servers_png_as_it_came_and_its_dib_as_a_bmp_file()
     {
         await RemoteFormats((0xC010, "PNG"));
-        await Handle(new(RdpClipboardEventKind.FormatDataResponse, Format: 0xC010, Data: [1, 2, 3]));
+        await Handle(new(RdpClipboardEventKind.FormatDataResponse, Format: 0xC010, Data: Png(2, 2)));
         await RemoteFormats((CfDib, null));
         var dib = RdpDib.FromBgra(2, 2, Image().Bgra);
         await Handle(new(RdpClipboardEventKind.FormatDataResponse, Format: CfDib, Data: dib));
@@ -174,8 +174,31 @@ public sealed class RdpClipboardFilesTests : IDisposable
         await Handle(new(RdpClipboardEventKind.FormatDataResponse, Format: CfDib, Data: dib[..20]));
 
         Assert.Equal(2, _images.Count);
-        Assert.Equal([1, 2, 3], _images[0]);
+        Assert.Equal(Png(2, 2), _images[0]);
         Assert.Equal(RdpDib.ToBmpFile(dib), _images[1]);
+    }
+
+    /// <summary>A PNG's signature and IHDR header, which is all the size check reads.</summary>
+    static byte[] Png(uint width, uint height)
+    {
+        var png = new byte[33];
+        new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(png, 0);
+        BinaryPrimitives.WriteUInt32BigEndian(png.AsSpan(8), 13);
+        "IHDR"u8.CopyTo(png.AsSpan(12));
+        BinaryPrimitives.WriteUInt32BigEndian(png.AsSpan(16), width);
+        BinaryPrimitives.WriteUInt32BigEndian(png.AsSpan(20), height);
+        return png;
+    }
+
+    [Fact]
+    public async Task Leaves_out_a_png_whose_header_claims_too_many_pixels_or_that_isnt_a_png()
+    {
+        await RemoteFormats((0xC010, "PNG"));
+        await Handle(new(RdpClipboardEventKind.FormatDataResponse, Format: 0xC010, Data: Png(20000, 20000)));
+        await RemoteFormats((0xC010, "PNG"));
+        await Handle(new(RdpClipboardEventKind.FormatDataResponse, Format: 0xC010, Data: [1, 2, 3]));
+
+        Assert.Empty(_images);
     }
 
     [Fact]
@@ -286,6 +309,45 @@ public sealed class RdpClipboardFilesTests : IDisposable
 
         Assert.Empty(_channel.FileRequests);
         Assert.Contains("over 1 GB", Assert.Single(_refused));
+    }
+
+    [Fact]
+    public async Task Refuses_sizes_that_would_wrap_the_total_around()
+    {
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList) { Files = [new("a", "", long.MaxValue, false), new("b", "", long.MaxValue, false)] });
+        Assert.Empty(_channel.FileRequests);
+
+        // Sizes the list leaves out are asked for, and an answer near 2^64 is refused too.
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList) { Files = [new("c", "", 1, false), new("d", "", null, false)] });
+        for (int answered = 0; answered < _channel.FileRequests.Count && answered < 10; answered++)
+        {
+            var request = _channel.FileRequests[answered];
+            byte[] data = request.Size ? BitConverter.GetBytes(ulong.MaxValue) : "c"u8.ToArray();
+            await Handle(new(RdpClipboardEventKind.FileContentsResponse, Data: data) { StreamId = request.StreamId });
+        }
+
+        Assert.Single(_channel.FileRequests, r => r.Size);
+        Assert.Empty(_files);
+
+        Assert.Equal(2, _refused.Count);
+        Assert.All(_refused, r => Assert.Contains("over 1 GB", r));
+    }
+
+    [Fact]
+    public async Task Stops_serving_offered_files_once_the_clipboard_holds_something_else()
+    {
+        var file = Path.Combine(_local, "secret.txt");
+        File.WriteAllText(file, "secret");
+        _bridge.SetLocalFiles([file]);
+        await Handle(new(RdpClipboardEventKind.FormatListRequested));
+        _bridge.SetLocalText("hello");
+        await Handle(new(RdpClipboardEventKind.FormatListRequested));
+
+        await Handle(new(RdpClipboardEventKind.FileContentsRequested) { FileRequest = new(1, 0, true, 0, 8, null) });
+
+        Assert.Equal((1u, null, null), ((uint, byte[]?, long?))Assert.Single(_channel.FileAnswers));
     }
 
     [Fact]

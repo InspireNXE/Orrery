@@ -229,7 +229,10 @@ public static class OrreryImporter
             }
         }
 
-        copy.ImportSourceId = node.ImportSourceId ?? SourcePrefix + node.Id;
+        // An .rdp file's id isn't taken from a file: opening that .rdp later would connect to whatever entry carries it.
+        copy.ImportSourceId = node.ImportSourceId is { } id && !id.StartsWith(RdpFileImporter.SourcePrefix, StringComparison.Ordinal)
+            ? id
+            : SourcePrefix + node.Id;
         copy.Settings = node.Settings?.Clone() ?? new InheritableSettings();
 
         // Only a path, which isn't read until the connection is used; a value that can't be one is left out.

@@ -17,6 +17,24 @@ static class RdpDib
     /// <summary>The most pixels an image may have either way, a little over an 8K screen.</summary>
     internal const long MaxPixels = 40_000_000;
 
+    /// <summary>
+    /// Whether <paramref name="png"/> is a PNG whose header claims no more than <see cref="MaxPixels"/>, read before
+    /// anything decodes it.
+    /// </summary>
+    public static bool PngWithinLimit(ReadOnlySpan<byte> png)
+    {
+        // The signature, then the IHDR chunk first: its length, its type, and the width and height.
+        ReadOnlySpan<byte> signature = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        if (png.Length < 24 || !png[..8].SequenceEqual(signature) || !png[12..16].SequenceEqual("IHDR"u8))
+        {
+            return false;
+        }
+
+        uint width = BinaryPrimitives.ReadUInt32BigEndian(png[16..]);
+        uint height = BinaryPrimitives.ReadUInt32BigEndian(png[20..]);
+        return width > 0 && height > 0 && (long)width * height <= MaxPixels;
+    }
+
     /// <summary>A 32-bit CF_DIB of BGRA pixels given top row first.</summary>
     public static byte[] FromBgra(int width, int height, ReadOnlySpan<byte> bgra)
     {
