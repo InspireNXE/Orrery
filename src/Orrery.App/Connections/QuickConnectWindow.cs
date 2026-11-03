@@ -133,7 +133,6 @@ sealed class QuickConnectWindow : Window
     static readonly IBrush PanelBrush = Brush("#181B21");
     static readonly IBrush LineBrush = Brush("#262A33");
     static readonly IBrush OutlineBrush = Brush("#2F3540");
-    static readonly IBrush HighlightBrush = Brush("#252B36");
     static IBrush AccentBrush => Palette.Accent;
     static readonly IBrush SoftBrush = Brush("#C3C9D3");
 
@@ -403,15 +402,20 @@ sealed class QuickConnectWindow : Window
     void AddItem(Control content, QuickConnectChoice choice, string hint, string spoken)
     {
         var hintText = new TextBlock { Text = $"{hint}  ↵", FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+        // The shared row from App.axaml: the selected fill and marker on the highlighted result.
         var row = new Border
         {
+            Classes = { "row" },
             Height = 40,
-            Padding = new Thickness(8, 0, 10, 0),
-            CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(2, 0, 0, 0),
-            Background = Brushes.Transparent,
             Cursor = new Cursor(StandardCursorType.Hand),
-            Child = new DockPanel { Children = { Docked(hintText, Dock.Right), content } },
+            Child = new Panel
+            {
+                Children =
+                {
+                    new DockPanel { Margin = new Thickness(14, 0, 10, 0), Children = { Docked(hintText, Dock.Right), content } },
+                    new Border { Classes = { "marker" } },
+                },
+            },
         };
 
         var item = new Item(row, hintText, choice, $"{spoken}. {hint}");
@@ -627,8 +631,7 @@ sealed class QuickConnectWindow : Window
     {
         public void Show(bool selected)
         {
-            Row.Background = selected ? HighlightBrush : Brushes.Transparent;
-            Row.BorderBrush = selected ? AccentBrush : Brushes.Transparent;
+            Row.Classes.Set("selected", selected);
             Hint.IsVisible = selected;
         }
     }

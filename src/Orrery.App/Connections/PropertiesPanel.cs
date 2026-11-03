@@ -320,11 +320,9 @@ sealed class PropertiesPanel : UserControl
         Grid.SetColumn(_sessionTab, 1);
         _tabStrip = new Border
         {
-            Background = new SolidColorBrush(Color.Parse("#0E1116")),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(3),
+            Classes = { "segments" },
             IsVisible = false,
-            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 3, Children = { _savedTab, _sessionTab } },
+            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 4, Children = { _savedTab, _sessionTab } },
         };
         _root = new DockPanel
         {

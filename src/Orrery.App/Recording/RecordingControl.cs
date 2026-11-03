@@ -83,7 +83,7 @@ static class RecordingControl
 
         if (recorder is ScreenRecorder screen)
         {
-            var rates = new Grid { ColumnDefinitions = new ColumnDefinitions(string.Join(",", FrameRates.Select(_ => "*"))), ColumnSpacing = 3 };
+            var rates = new Grid { ColumnDefinitions = new ColumnDefinitions(string.Join(",", FrameRates.Select(_ => "*"))), ColumnSpacing = 4 };
             var buttons = new List<Button>();
             foreach (var (rate, i) in FrameRates.Select((r, i) => (r, i)))
             {
@@ -104,13 +104,7 @@ static class RecordingControl
             }
 
             ToolTip.SetTip(rates, FrameRateNote);
-            panel.Children.Add(Labeled("Frames a second, at most", new Border
-            {
-                Background = new SolidColorBrush(Color.Parse("#0E1116")),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(3),
-                Child = rates,
-            }));
+            panel.Children.Add(Labeled("Frames a second, at most", new Border { Classes = { "segments" }, Child = rates }));
 
             if (screen.CanRecordSound)
             {

@@ -42,17 +42,8 @@ sealed class SessionTab
 {
 
     readonly StateGlyph _state = new() { VerticalAlignment = VerticalAlignment.Center };
-    // The current tab's top edge: drawn over the tab's own outline (hence the -1 margin) so it
-    // follows the rounded corners instead of sitting inside them.
-    readonly Border _accent = new()
-    {
-        Margin = new Thickness(-1, -1, -1, 0),
-        BorderThickness = new Thickness(0, 2, 0, 0),
-        CornerRadius = new CornerRadius(8, 8, 0, 0),
-        BorderBrush = Palette.Accent,
-        IsHitTestVisible = false,
-        IsVisible = false,
-    };
+    // The current tab's marker, along its top over the outline; App.axaml shows it on the selected tab.
+    readonly Border _marker = new() { Classes = { "marker", "top" } };
 
     public SessionTab(IConnectionSession session, Control view, SessionOrigin origin)
     {
@@ -92,7 +83,7 @@ sealed class SessionTab
             {
                 Children =
                 {
-                    _accent,
+                    _marker,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
@@ -771,7 +762,6 @@ sealed class SessionTab
         {
             Header.Classes.Set("selected", value);
             Header.IsCurrent = value;
-            _accent.IsVisible = value;
             Host.IsVisible = value;
         }
     }

@@ -252,7 +252,7 @@
           </Border>
 
           <Border DockPanel.Dock="Top" x:Name="SessionToolbar" IsVisible="False" Padding="14,7"
-                  BorderBrush="#1C2027" BorderThickness="0,0,0,1">
+                  BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1">
             <DockPanel>
               <StackPanel x:Name="SessionActions" DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" />
               <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
