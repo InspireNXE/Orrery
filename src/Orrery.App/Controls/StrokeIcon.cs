@@ -113,4 +113,7 @@ static class Icons
     public const string Loop = "M17 2l3 3-3 3 M4 11V9a4 4 0 0 1 4-4h12 M7 22l-3-3 3-3 M20 13v2a4 4 0 0 1-4 4H4";
     public const string SkipIdle = "M4 6v12 M8 12h12 M16 8l4 4-4 4";
     public const string Keyboard = "M4.5 6h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z M6.5 10h.01 M10 10h.01 M14 10h.01 M17.5 10h.01 M8 14h8";
+    public const string Lock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4";
+    public const string Check = "M5 12.5l4.5 4.5L19 7.5";
+    public const string Pulse = "M3 12h4l3-7 4 14 3-7h4";
 }

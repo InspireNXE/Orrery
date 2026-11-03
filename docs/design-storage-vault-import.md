@@ -50,13 +50,16 @@ Relative `customPath` is deliberate: a USB stick mounts as `E:` on one machine a
 
 ### 2.2 Portable first launch
 
-When `dataLocation` is absent, show a dialog before the main window:
+When `dataLocation` is absent, first-launch setup (`src/Orrery.App/Setup/SetupWizard.cs`) asks this as its first step, before the main window:
 
 | Option | Data goes to | When to choose it |
 |---|---|---|
-| **With the app** (default) | `<app dir>/data/` | Carry everything on a USB stick |
-| **This computer's user profile** | Per-OS user path (§2.3) under a `Portable` profile | App runs from anywhere, data stays on this machine |
-| **Custom folder…** | Picked folder | e.g. a synced or network drive |
+| **Beside Orrery** (default) | `<app dir>/data/` | Carry everything on a USB stick |
+| **Somewhere else…** | Picked folder | e.g. a synced or network drive |
+
+Setup no longer offers **This computer's user profile** (`dataLocation: "user"`), but a marker that already says so is still honored.
+
+The same setup runs, without this step, for any data folder with no `settings.json` and no `connections.json` yet (a fresh install, or `ORRERY_HOME` pointing at an empty folder). Its other steps pick the credential store (installed copies with an OS keychain only), connection files to import (mRemoteNG's `confCons.xml`, `~/.ssh/config`, or one chosen; each through the usual import preview once the main window opens), update checks, and host status and web page settings. Start saves them with `setupDone: true`.
 
 Rules:
 - Before accepting "With the app" or a custom folder, **probe write access** (create and delete a temp file). It fails on read-only media, `Program Files`, and macOS App Translocation (an app run straight from a downloaded, quarantined location). Explain the failure and offer the other options.

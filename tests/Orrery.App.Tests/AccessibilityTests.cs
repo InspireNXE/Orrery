@@ -18,7 +18,6 @@ using Orrery.App.Input;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.App.Settings;
-using Orrery.App.Storage;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Export;
@@ -302,7 +301,7 @@ public class AccessibilityTests : IDisposable
                 new ImportReport("confCons.xml", 1, 2, 0, 0, new Dictionary<string, int> { ["RDP"] = 2 }, ["raw1: RAW isn't supported"], [], [])), 0, "the vault file"),
             "certificate" => new CertificatePromptWindow(new CertificatePrompt(CertificatePromptKind.Changed, "rdp.example", 3389, "CN=rdp", "CN=ca", DateTime.Now, DateTime.Now.AddYears(1), "AB12", "CD34", [])),
             "hostkey" => new HostKeyPromptWindow(new HostKeyPrompt(CertificatePromptKind.Changed, "ssh.example", 22, "ssh-ed25519", "SHA256:abc", "SHA256:def")),
-            "portable" => new PortableSetupWindow(_dir, PlatformFolders.ForCurrentOs()),
+            "portable" => new Orrery.App.Setup.SetupWizard(new Orrery.App.Setup.PortableSetup(_dir, PlatformFolders.ForCurrentOs()), "Windows Credential Manager", []),
             "quick" => new QuickConnectWindow(ConnectionTree.Empty()),
             "hostdelete" => HostDelete(),
             _ => null!,
