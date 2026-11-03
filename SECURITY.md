@@ -22,3 +22,6 @@ Orrery is at version 0.1.0, and only the latest commit on `main` gets fixes.
 ## Past audits
 
 [docs/audit/2026-10](docs/audit/2026-10) holds a security audit from October 2026 and the fixes for what it found.
+[docs/audit/2026-11](docs/audit/2026-11) covers what came after it: web tabs, session recording, the RDP clipboard and
+shared folders, imports and the CI build. Both were run with AI assistance (see the README's
+[How it's made](README.md#how-its-made)), and what they left open is listed in each round's `round.md`.

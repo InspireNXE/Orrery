@@ -33,7 +33,7 @@ Orrery is built on Avalonia and .NET 10. It takes its cue from [mRemoteNG](https
 
 **Contents:** [Platform support](#platform-support) · [Features](#features) · [Accessibility](#accessibility) ·
 [Keyboard shortcuts](#keyboard-shortcuts) · [Where your data lives](#where-your-data-lives) · [Building](#building) ·
-[Status](#status) · [License and credits](#license-and-credits)
+[Status](#status) · [Security](#security) · [How it's made](#how-its-made) · [License and credits](#license-and-credits)
 
 ## Platform support
 
@@ -84,7 +84,7 @@ machine yet, hence the 🧪.
 | A collapsed host showing its guests' sessions | 🗓️ | 🗓️ | 🗓️ |
 | Import mRemoteNG, `.rdp` and `~/.ssh/config`; export | ✅ | 🧪 | 🧪 |
 | **Accessibility** | | | |
-| Screen readers | ✅ Narrator, NVDA, JAWS | 🧪 VoiceOver | ➖ [^orca] |
+| Screen readers | ✅ Narrator, NVDA, JAWS | 🧪 VoiceOver | 🧪 Orca [^orca] |
 | Color-blind colors and desktop correction | ✅ | 🧪 | 🧪 |
 | **Packages** | | | |
 | Installer | ✅ | 🔸 app bundle, not signed | 🧪 .deb, .rpm, AppImage |
@@ -93,7 +93,7 @@ machine yet, hence the 🧪.
 
 [^spaces]: macOS gives each display its own full-screen space.
 [^wayland]: Wayland doesn't let a window place itself or span displays. X11 sessions aren't supported.
-[^orca]: Avalonia has no screen reader support on Linux yet.
+[^orca]: Avalonia 12 reads to screen readers through AT-SPI, under XWayland. Orca hasn't been tried with Orrery yet.
 [^webkit]: Pages in a tab need WebKitGTK (libwebkit2gtk-4.1), which the .deb and .rpm recommend; without it they open in your browser. Like the rest of Orrery's window, they're drawn through XWayland.
 [^files]: Remote files download when copied, up to 1 GB, into a private folder removed when the session ends.
 
@@ -118,7 +118,7 @@ Further out: browser access through a tray agent, and scripted connect. See the
 
 <p align="center">
   <img src="docs/images/quick-connect.png" width="720"
-       alt="Quick connect open over the dimmed main window, with web typed in. It lists the open web-01 session first with Switch to, then the saved connections web-01 and web-02 from Production, then RDP to web and SSH to web to connect directly, and an action to make a new connection named web. A footer lists the keys: arrows to move, Enter to open, Alt+Enter for settings, Esc to close, and ssh://, rdp://, vnc:// or telnet:// to pick a protocol.">
+       alt="Quick connect open over the dimmed main window, with web typed in. It lists the open web-01 session first with Switch to, then the saved connections web-01 and web-02 from Production, then RDP to web and SSH to web to connect directly, and an action to make a new connection named web. A footer lists the keys: arrows to move, Enter to open, Alt+Enter for settings, Esc to close, > for commands, and ssh://, rdp://, vnc:// or telnet:// to pick a protocol.">
 </p>
 
 Quick connect (Ctrl+K) searches saved connections and open sessions as you type, or connects straight to a host.
@@ -172,7 +172,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Web tabs** have back, forward and reload, and Print and Save as PDF under More. Links meant for a new window open
   in a tab beside the page; a page's own pop-up, such as a sign-in, opens as a pop-up. An untrusted certificate shows
   the engine's warning, with a way past it, and the tab says the page didn't load. The lock before the address is
-  closed only for HTTPS (and SSH and RDP); plain HTTP, Telnet and VNC show it open, in amber.
+  closed only for HTTPS (and SSH and RDP); plain HTTP, Telnet and VNC show it open, in amber. A page opens only web
+  addresses in new tabs, a few at a time, and Open in browser takes only web addresses.
 
 <p align="center">
   <img src="docs/images/connection-lost.png" width="720"
@@ -210,9 +211,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   but needs a signed build. See [the design notes](docs/design-biometric-unlock.md).
 - **Import:** mRemoteNG `confCons.xml`, Orrery `.json`, `.rdp` files, and `~/.ssh/config` with `Include` files,
   `Host *` defaults and `ProxyJump` chains (as jump hosts). Nothing in an SSH config runs, and key files aren't
-  opened.
-- **Export:** Orrery `.json`, mRemoteNG `confCons.xml` or CSV. Passwords are encrypted under a password you choose;
-  CSV never gets them. Serial connections are left out of `confCons.xml`, which has none, and the export says so.
+  opened. The preview names every connection that shares drives or folders, or opens a port forward or proxy beyond
+  this computer, so a file from someone else can't set those up unseen.
+- **Export:** Orrery `.json`, mRemoteNG `confCons.xml` or CSV. Passwords are encrypted under a password you choose,
+  at least 12 characters and not a common one (as for a new vault); CSV never gets them. Serial connections are left out of `confCons.xml`, which has none, and the export says so.
 - The credential editor hides a private key until you press Show; pasting still works.
 
 ### Display and color
@@ -249,8 +251,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Starting:** the *Record sessions* setting (inherited, so a folder can record everything in it), *Record every
   session* in Settings, or the tab's menu. A red dot on the tab and a *REC* pill show it's on; the pill changes the
   frame rate and sound, or stops. A reconnect carries on in the same file.
-- **Encrypted,** sealed to a key kept with your saved credentials: recording never asks for the vault, playing does.
-  Recordings live in `recordings/` in the data folder; old ones are deleted by age and total size.
+- **Encrypted,** sealed to a key kept with your saved credentials: recording never asks for the vault, playing does,
+  and locking the vault closes the player. Recordings live in `recordings/` in the data folder, readable only by
+  you; old ones are deleted by age and total size.
 - **Playback** in the *Recordings* panel: ½× to 8×, sound at its pitch up to 4×, Skip idle, Loop, 10-second skips,
   markers for drops and reconnects, volume, Find for terminals with its matches on the timeline, keyboard shortcuts
   (? lists them), and your color correction.
@@ -261,7 +264,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 
 <p align="center">
   <img src="docs/images/recording-playback.png" width="720"
-       alt="The Recordings section. The side panel lists one recording, web-01, SSH, 11 seconds, 1 KB. The player shows that recording paused at 0:08 of 0:11, with the deploy output on screen, Find in output and Export at the top, and play, 10-second skips, Skip idle and a 1× speed menu at the bottom.">
+       alt="The Recordings section. The side panel lists one recording, web-01, SSH, 11 seconds, 1 KB. The player shows that recording paused at 0:08 of 0:11, with the deploy output on screen, Find in output and Export at the top, and play, 10-second skips, Skip idle, Loop and a 1× speed menu at the bottom.">
 </p>
 
 ### Your workspace
@@ -538,6 +541,19 @@ X11-specific code. X11 sessions aren't supported.
 - **Screen readers:** Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried with Orrery yet.
 - **Not yet checked:** all of it on a real machine: the .deb, .rpm and AppImage, arm64, local terminals, the RDP
   clipboard, sound, a serial device and the Secret Service.
+
+## Security
+
+Report a vulnerability privately; see [SECURITY.md](SECURITY.md). Two audits so far, with their fixes:
+[October 2026](docs/audit/2026-10) and [November 2026](docs/audit/2026-11), which covered web tabs, recording, the RDP
+clipboard and shared folders, imports and the build.
+
+## How it's made
+
+Orrery is built with AI assistance. Its code, tests and documentation are written with
+[Claude Code](https://claude.com/claude-code), Anthropic's coding agent, under the maintainer's direction: they
+decide what goes in and try it out. Every commit says so with a `Co-Authored-By: Claude`
+trailer. The security audits above were run the same way.
 
 ## License and credits
 
