@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/InspireNXE/Orrery/actions/workflows/packages.yml"><img alt="Package build status" src="https://github.com/InspireNXE/Orrery/actions/workflows/packages.yml/badge.svg?branch=main"></a>
-  <img alt="Version 0.1.0" src="https://img.shields.io/badge/version-0.1.0-5b6cff">
+  <img alt="Version 0.1.1" src="https://img.shields.io/badge/version-0.1.1-5b6cff">
   <img alt="Windows, Linux and macOS" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-555">
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512bd4">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2e7d32">
@@ -29,7 +29,7 @@
 Orrery is built on Avalonia and .NET 10. It takes its cue from [mRemoteNG](https://mremoteng.org/) and imports its
 `confCons.xml`, but isn't affiliated with that project.
 
-> Version 0.1.0. The protocols work, but much hasn't been tried on real machines yet; see [Status](#status).
+> Version 0.1.1. The protocols work, but much hasn't been tried on real machines yet; see [Status](#status).
 
 **Contents:** [Download](#download) · [Platform support](#platform-support) · [Features](#features) · [Accessibility](#accessibility) ·
 [Keyboard shortcuts](#keyboard-shortcuts) · [Where your data lives](#where-your-data-lives) · [Building](#building) ·
