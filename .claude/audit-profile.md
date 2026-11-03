@@ -7,7 +7,7 @@ connects to, files it imports, other local users and processes, and anyone who g
 ## Basics
 - Rules file: none yet. `docs/design-storage-vault-import.md` is the closest thing to a standard for
   storage, the vault and import (unconfirmed: owner may want a CLAUDE.md written first).
-- Base branch: `main` (no remote; never push)
+- Base branch: `dev`, merged to `main` when the owner says; remote `origin` on GitHub (push only when asked, never open PRs)
 - Output root: `docs/audit`
 - Tooling output: `$LOCALAPPDATA/orrery-audit/<YYYY-MM>/tooling`; gitignore `docs/audit/*/tooling/` as a guard
 - Stack: C# on .NET 10, Avalonia 12.1.5 (Fluent theme), xUnit (v3 for the headless Avalonia UI tests). Protocols:
@@ -18,7 +18,7 @@ connects to, files it imports, other local users and processes, and anyone who g
 - Before building: stop Orrery processes the session started (`taskkill /IM Orrery.exe /F` locks the
   build output otherwise). The owner may have their own Orrery open; say so before killing one you
   didn't start.
-- Shared checkout: no (one session at a time works in `W:\fluentRemote`)
+- Shared checkout: no (one session at a time works in `W:\orrery`)
 - Commits: commit as you go on `main`, one commit per packet (owner's standing rule); never push
 
 ## Status
@@ -104,4 +104,5 @@ connects to, files it imports, other local users and processes, and anyone who g
 - Existing docs to keep in sync: `docs/design-storage-vault-import.md`, `docs/packaging.md`
 
 ## Previous rounds
-None.
+- `docs/audit/2026-10`: security, 34 findings, 19 packets.
+- `docs/audit/2026-11`: security and correctness over web tabs, recording, RDP channels, imports and CI; fixed in session.
