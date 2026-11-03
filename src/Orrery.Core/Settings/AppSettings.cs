@@ -15,6 +15,15 @@ public enum CredentialStoreKind
     VaultFile,
 }
 
+/// <summary>What Orrery does when it finds a newer release.</summary>
+public enum UpdateAction
+{
+    /// <summary>Says so, and downloads nothing until asked.</summary>
+    Ask,
+    /// <summary>Downloads and checks it in the background, then says it's ready.</summary>
+    Download,
+}
+
 /// <summary>How one of the window's side panes shows beside the sessions.</summary>
 public enum PaneMode
 {
@@ -297,6 +306,39 @@ public sealed record AppSettings
 
     /// <summary>The note about what recordings hold has been shown and accepted.</summary>
     public bool? RecordingNoteShown { get; init; }
+
+    /// <summary>
+    /// The first-launch setup has been gone through, or skipped with its defaults. Null on a data folder that already
+    /// had settings before setup existed, which counts as done: only a folder with no settings at all gets it.
+    /// </summary>
+    public bool? SetupDone { get; init; }
+
+    /// <summary>
+    /// Ask GitHub from time to time whether there's a newer release. Null is on. Off sends nothing; checking by hand
+    /// still works.
+    /// </summary>
+    public bool? UpdateChecks { get; init; }
+
+    [JsonIgnore]
+    public bool ChecksForUpdates => UpdateChecks ?? true;
+
+    /// <summary>What happens when a newer release is found. Null is <see cref="UpdateAction.Ask"/>.</summary>
+    public UpdateAction? WhenUpdateFound { get; init; }
+
+    [JsonIgnore]
+    public UpdateAction UpdateAction => WhenUpdateFound ?? UpdateAction.Ask;
+
+    /// <summary>Offer preview releases (GitHub's pre-releases) as well. Null is off.</summary>
+    public bool? UpdatePreviews { get; init; }
+
+    [JsonIgnore]
+    public bool OffersPreviewUpdates => UpdatePreviews ?? false;
+
+    /// <summary>A release the user chose to skip, by version: it isn't offered again, a later one is.</summary>
+    public string? SkippedUpdateVersion { get; init; }
+
+    /// <summary>When the last automatic check for updates ran, so the next waits a day.</summary>
+    public DateTimeOffset? LastUpdateCheck { get; init; }
 
     [JsonIgnore]
     public TimeSpan? RecordingKeepFor => (RecordingKeepDays ?? DefaultRecordingKeepDays) is > 0 and var days ? TimeSpan.FromDays(days) : null;
