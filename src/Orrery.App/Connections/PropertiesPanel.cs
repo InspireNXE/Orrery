@@ -174,7 +174,7 @@ sealed class PropertiesPanel : UserControl
         _colorCorrection.Items.Add(new ComboBoxItem { Content = "Use app setting", Tag = true });
         _colorCorrection.Items.Add(new ComboBoxItem { Content = "Off", Tag = false });
         _colorCorrectionRow = new InheritRow("Color correction", _colorCorrection, () => ShowInherited(r => SelectColorCorrection(r.ColorCorrection.Value)));
-        _colorCorrectionRow.Tip("RDP and VNC: Use app setting corrects the remote desktop's colors for the color vision chosen in Settings, if any. "
+        _colorCorrectionRow.Tip("RDP, VNC and web pages: Use app setting corrects the remote desktop's or page's colors for the color vision chosen in Settings, if any. "
             + "Off shows its colors unchanged, for design or photo work. Applies to new connections.");
         _webPages.Items.Add(new ComboBoxItem { Content = "An Orrery tab", Tag = true });
         _webPages.Items.Add(new ComboBoxItem { Content = "The default browser", Tag = false });
@@ -307,7 +307,7 @@ sealed class PropertiesPanel : UserControl
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View), _managementUrlField),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View)),
-                (_displaySection = Pane.RowSection("Display (RDP and VNC)", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
                 (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
@@ -942,8 +942,10 @@ sealed class PropertiesPanel : UserControl
         _autoReconnectRow.View.IsVisible = !web || host;
         _recordRow.View.IsVisible = !web || host;
         _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible;
-        _displaySection.IsVisible = rdp || vnc;
+        // A web page has only the color correction of them.
+        _displaySection.IsVisible = rdp || vnc || web;
         _desktopSizeRow.View.IsVisible = rdp;
+        _enlargeRow.View.IsVisible = _scalingRow.View.IsVisible = _fullScreenRow.View.IsVisible = _qualityRow.View.IsVisible = rdp || vnc;
         _rdpSection.IsVisible = rdp;
         _vncSection.IsVisible = vnc;
         _sshSection.IsVisible = ssh;

@@ -65,6 +65,17 @@ public sealed class RecordingFileTests : IDisposable
     }
 
     [Fact]
+    public void How_a_recording_is_colored_is_kept_and_older_ones_read_without_it()
+    {
+        var info = new RecordingInfo("router", "HTTPS", DateTimeOffset.Parse("2026-11-03T09:00:00Z"), ColorCorrection: true,
+            CorrectedFor: Orrery.Core.Settings.ColorVision.Deuteranopia, CorrectedStrength: 70);
+        Assert.Equal(info, RecordingFile.ReadInfo(RecordingFile.InfoPayload(info)));
+
+        var older = RecordingFile.ReadInfo("""{"name":"web-01","protocol":"SSH","started":"2026-11-01T14:02:33+00:00"}"""u8.ToArray());
+        Assert.Equal(new RecordingInfo("web-01", "SSH", DateTimeOffset.Parse("2026-11-01T14:02:33Z")), older);
+    }
+
+    [Fact]
     public void Events_larger_than_a_chunk_cross_chunks_and_can_be_resumed_from()
     {
         var big = Enumerable.Range(0, RecordingFile.ChunkSize * 3 + 17).Select(i => (byte)i).ToArray();

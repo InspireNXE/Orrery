@@ -765,6 +765,77 @@ public sealed class RecordingUiTests : IDisposable
         terminalWindow.Close();
     }
 
+    [AvaloniaFact]
+    public async Task A_connection_with_correction_off_plays_its_own_colors()
+    {
+        _settings.Save(new AppSettings { ColorVision = Orrery.Core.Settings.ColorVision.Deuteranopia });
+        var (player, window) = await OpenRedScreen(new RecordingInfo("desk", "RDP", DateTimeOffset.Now, ColorCorrection: false));
+        Assert.Null(player.Correction);
+        Assert.Equal(new byte[] { 220, 40, 40 }, player.Picture()[..3]);
+        player.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_web_page_recorded_corrected_is_not_corrected_again()
+    {
+        // The page was shown, so recorded, with the viewer's own correction: it plays as recorded.
+        _settings.Save(new AppSettings { ColorVision = Orrery.Core.Settings.ColorVision.Deuteranopia });
+        var recordedWith = ColorCorrection.For(Orrery.Core.Settings.ColorVision.Deuteranopia, 100)!;
+        var shown = recordedWith.Apply(220, 40, 40);
+        var info = new RecordingInfo("router", "HTTPS", DateTimeOffset.Now, ColorCorrection: true,
+            CorrectedFor: Orrery.Core.Settings.ColorVision.Deuteranopia, CorrectedStrength: 100);
+        var (player, window) = await OpenRedScreen(info, (shown.R, shown.G, shown.B));
+        Assert.Null(player.Correction);
+        Assert.Equal(new byte[] { shown.R, shown.G, shown.B }, player.Picture()[..3]);
+
+        // A viewer with no correction sees the page's own colors again, within rounding.
+        player.SetColors(Orrery.Core.Settings.ColorVision.None, null, TerminalColorScheme.Standard);
+        Assert.NotNull(player.Correction);
+        var native = player.Picture()[..3];
+        Assert.InRange(native[0], 218, 222);
+        Assert.InRange(native[1], 38, 42);
+        Assert.InRange(native[2], 38, 42);
+        player.Dispose();
+        window.Close();
+
+        // An export has the page's own colors too, as every other recording's are.
+        var undo = RecordingExport.NativeColors(Path.Combine(_root, "red.orrec"), (await RecordingKeys.PrivateKeyAsync(_credentials))!)!;
+        byte[] pixel = [shown.R, shown.G, shown.B];
+        undo(pixel);
+        Assert.InRange(pixel[0], 218, 222);
+        Assert.InRange(pixel[1], 38, 42);
+    }
+
+    /// <summary>A one-picture screen recording of a single color, red unless said, in a player.</summary>
+    async Task<(PlayerView Player, Window Window)> OpenRedScreen(RecordingInfo info, (byte R, byte G, byte B)? color = null)
+    {
+        var (r, g, b) = color ?? ((byte)220, (byte)40, (byte)40);
+        var publicKey = await RecordingKeys.EnsureAsync(_credentials);
+        var path = Path.Combine(_root, "red.orrec");
+        var pixels = new byte[16 * 8 * 3];
+        for (int i = 0; i < pixels.Length; i += 3)
+        {
+            (pixels[i], pixels[i + 1], pixels[i + 2]) = (r, g, b);
+        }
+
+        using (var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey))
+        {
+            writer.Append(RecordingEventType.Info, TimeSpan.Zero, RecordingFile.InfoPayload(info));
+            writer.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(16, 8));
+            writer.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(pixels, 16, 8));
+            writer.Complete(TimeSpan.FromSeconds(1));
+        }
+
+        var service = new RecordingService(_location, _settings, _credentials);
+        var item = new RecordingItem(path, new FileInfo(path).Length, DateTime.UtcNow, RecordingKind.Screen, null, null);
+        var player = new PlayerView(service, item, (await RecordingKeys.PrivateKeyAsync(_credentials))!);
+        var window = new Window { Content = player, Width = 1000, Height = 600 };
+        window.Show();
+        await WaitFor(() => player.GetVisualDescendants().OfType<Image>().Any(i => i.Source is not null));
+        return (player, window);
+    }
+
     static async Task WaitFor(Func<bool> condition)
     {
         for (int i = 0; i < 200 && !condition(); i++)

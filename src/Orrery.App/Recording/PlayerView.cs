@@ -117,6 +117,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
     TerminalColorScheme _scheme;
     ColorCorrection? _correction;
 
+    // What a screen is drawn with: the viewer's correction, unless the connection turned it off, after undoing any
+    // the pictures were recorded with (a web page's).
+    ColorCorrection? _drawWith;
+
     RecordingKind _kind;
     RecordingEnding _ending;
     RecordingInfo? _info;
@@ -180,6 +184,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _vision = settings.Vision;
         _scheme = settings.TerminalColors ?? TerminalColorScheme.Standard;
         _correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength);
+        ChooseCorrection();
         Background = Dialogs.PanelBrush;
         Focusable = true;
         ShowWhat();
@@ -704,6 +709,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
         _vision = vision;
         _correction = correction;
         _scheme = scheme;
+        ChooseCorrection();
         if (_terminal is not null)
         {
             _terminal.ColorVision = vision;
@@ -714,7 +720,14 @@ sealed partial class PlayerView : DockPanel, IDisposable
     }
 
     /// <summary>The correction screens are drawn with; tests read it.</summary>
-    internal ColorCorrection? Correction => _correction;
+    internal ColorCorrection? Correction => _drawWith;
+
+    void ChooseCorrection()
+    {
+        var wanted = _info?.ColorCorrection == false ? null : _correction;
+        var recordedWith = _info?.CorrectedFor is { } vision ? ColorCorrection.For(vision, _info.CorrectedStrength ?? 100) : null;
+        _drawWith = ColorCorrection.Between(recordedWith, wanted);
+    }
 
     // ---- Loading ----
 
@@ -743,6 +756,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
         MapTimes();
         ShowWhat();
+        ChooseCorrection();
         PlaceTicks();
         _findBar.IsVisible = _kind == RecordingKind.Terminal;
         _sound.IsVisible = _entries.Any(e => e.Type == RecordingEventType.Audio);
@@ -1344,11 +1358,11 @@ sealed partial class PlayerView : DockPanel, IDisposable
     unsafe void Paint(Span<byte> pixels, int width, int height)
     {
         _decoder.CopyRgba(pixels);
-        if (_correction is not null)
+        if (_drawWith is not null)
         {
             fixed (byte* start = pixels)
             {
-                _correction.Apply((IntPtr)start, width * 4, width, height, new FrameRect(0, 0, width, height));
+                _drawWith.Apply((IntPtr)start, width * 4, width, height, new FrameRect(0, 0, width, height));
             }
         }
 
