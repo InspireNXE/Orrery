@@ -28,7 +28,14 @@ enum SetupStep
 sealed record PortableSetup(string AppDirectory, PlatformFolders Folders);
 
 /// <summary>What setup ends with: the choices, and for a portable copy the data folder it chose and checked.</summary>
-sealed record SetupResult(SetupChoices Choices, DataLocation? Location);
+sealed record SetupResult(SetupChoices Choices, DataLocation? Location)
+{
+    /// <summary>
+    /// The master password for a new vault, made as the main window opens; null to make it when first needed. Internal,
+    /// so the record's ToString leaves it out.
+    /// </summary>
+    internal string? VaultPassword { get; init; }
+}
 
 /// <summary>
 /// First-launch setup, shown once before the main window: a step at a time, each with Orrery's defaults already
@@ -58,6 +65,10 @@ sealed class SetupWizard : Window
 
     readonly RadioButton _keychain = new() { GroupName = "Passwords", IsChecked = true };
     readonly RadioButton _vault = new() { GroupName = "Passwords" };
+    readonly TextBox _vaultPassword = new PasswordBox { Name = "SetupVaultPassword" };
+    readonly TextBox _vaultConfirm = new PasswordBox { Name = "SetupVaultConfirm" };
+    readonly StackPanel _vaultFields = new() { Spacing = 10 };
+    PasswordMeter _vaultMeter = null!;
 
     readonly List<(FoundImport File, ToggleSwitch Toggle, bool Found)> _imports = [];
     readonly StackPanel _importRows = new() { Spacing = 12 };
@@ -83,7 +94,10 @@ sealed class SetupWizard : Window
     string? _acceptedOpenFolder;
 
     /// <param name="portable">Set for a portable copy still to choose its data folder; null leaves out the Data step.</param>
-    /// <param name="keychainName">The OS keychain's name where it's on offer (installed copies); null leaves out the Passwords step.</param>
+    /// <param name="keychainName">
+    /// The OS keychain's name where it's on offer (installed copies); null for the vault alone, whose password is then all
+    /// the Passwords step asks.
+    /// </param>
     /// <param name="found">Connection files found on this computer, each offered for import and on by default.</param>
     public SetupWizard(PortableSetup? portable, string? keychainName, IReadOnlyList<FoundImport> found)
     {
@@ -102,10 +116,7 @@ sealed class SetupWizard : Window
             Add(SetupStep.Data, DataPage(portable));
         }
 
-        if (keychainName is not null)
-        {
-            Add(SetupStep.Passwords, PasswordsPage(keychainName));
-        }
+        Add(SetupStep.Passwords, PasswordsPage(keychainName));
 
         Add(SetupStep.Import, ImportPage(found));
         Add(SetupStep.Updates, UpdatesPage());
@@ -258,7 +269,7 @@ sealed class SetupWizard : Window
     (string Title, string? Subtitle) Heading(SetupStep step) => step switch
     {
         SetupStep.Data => ("Where to keep your data", "Connections, settings and saved passwords go in one folder."),
-        SetupStep.Passwords => ("Saved passwords", null),
+        SetupStep.Passwords => _keychainName is null ? ("Master password", "Saved passwords are kept in an encrypted vault.") : ("Saved passwords", null),
         SetupStep.Import => ("Import connections", _imports.Any(i => i.Found) ? "Found on this computer:" : "Nothing found on this computer."),
         SetupStep.Updates => ("Updates", "Checks GitHub. Sends only your version."),
         SetupStep.Network => ("Network", null),
@@ -325,6 +336,12 @@ sealed class SetupWizard : Window
             return;
         }
 
+        if (_current == SetupStep.Passwords && VaultPasswordProblem() is { } problem)
+        {
+            ShowMessage(problem, NoticeKind.Error);
+            return;
+        }
+
         GoTo(_steps[_steps.IndexOf(_current) + 1]);
     }
 
@@ -332,6 +349,7 @@ sealed class SetupWizard : Window
     internal void UseDefaults()
     {
         _besideApp.IsChecked = true;
+        _vaultPassword.Text = _vaultConfirm.Text = string.Empty;
         SetOptions(new SetupChoices { Imports = [.. _imports.Where(i => i.Found).Select(i => i.File.Path)] });
         GoTo(SetupStep.Done);
     }
@@ -356,6 +374,14 @@ sealed class SetupWizard : Window
 
     async Task StartAsync()
     {
+        // The step list can skip past the Passwords step's own check.
+        if (VaultPasswordProblem() is { } problem)
+        {
+            GoTo(SetupStep.Passwords);
+            ShowMessage(problem, NoticeKind.Error);
+            return;
+        }
+
         DataLocation? location = null;
         if (_portable is not null)
         {
@@ -375,7 +401,9 @@ sealed class SetupWizard : Window
             }
         }
 
-        Completed?.Invoke(new SetupResult(Choices, location));
+        var result = new SetupResult(Choices, location) { VaultPassword = VaultPassword };
+        _vaultPassword.Text = _vaultConfirm.Text = string.Empty;
+        Completed?.Invoke(result);
     }
 
     async Task<T> Busy<T>(Func<Task<T>> work)
@@ -523,17 +551,76 @@ sealed class SetupWizard : Window
         _message.IsVisible = true;
     }
 
-    // ---- Passwords (installed copies with a keychain) ----
+    // ---- Passwords ----
 
-    Control PasswordsPage(string keychainName) => Card(new StackPanel
+    /// <summary>
+    /// The keychain or the vault where there's a keychain; the vault's master password, which can be left until a
+    /// password is first saved, when the vault is chosen or is the only store.
+    /// </summary>
+    Control PasswordsPage(string? keychainName)
     {
-        Spacing = 12,
-        Children =
+        AutomationProperties.SetName(_vaultPassword, "Master password");
+        AutomationProperties.SetName(_vaultConfirm, "Confirm master password");
+        _vaultMeter = new PasswordMeter(_vaultPassword, "vault", "master");
+        _vaultFields.Children.AddRange(
+        [
+            Dialogs.Field("Master password", _vaultPassword),
+            _vaultMeter,
+            Dialogs.Field("Confirm", _vaultConfirm),
+            Note(VaultLaterNote),
+            new Notice(NoticeKind.Warning, "It can't be recovered if you forget it."),
+        ]);
+
+        if (keychainName is null)
         {
-            Option(_keychain, KeychainTitle(keychainName), "Unlocks when you sign in"),
-            Option(_vault, "Encrypted vault", "Master password, travels with your data"),
-        },
-    });
+            return Card(_vaultFields);
+        }
+
+        var vaultCard = Card(_vaultFields);
+        vaultCard.IsVisible = false;
+        _vault.IsCheckedChanged += (_, _) => vaultCard.IsVisible = _vault.IsChecked == true;
+        return new StackPanel
+        {
+            Spacing = 14,
+            Children =
+            {
+                Card(new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        Option(_keychain, KeychainTitle(keychainName), "Unlocks when you sign in"),
+                        Option(_vault, "Encrypted vault", "Master password, travels with your data"),
+                    },
+                }),
+                vaultCard,
+            },
+        };
+    }
+
+    internal const string VaultLaterNote = "Leave it empty to set it when you first save a password.";
+
+    /// <summary>The vault is the store chosen: there's no keychain, or the vault was picked over it.</summary>
+    bool UsesVault => _keychainName is null || _vault.IsChecked == true;
+
+    /// <summary>The master password typed for a new vault; null when the vault isn't chosen or it was left empty.</summary>
+    internal string? VaultPassword => UsesVault && !string.IsNullOrEmpty(_vaultPassword.Text) ? _vaultPassword.Text : null;
+
+    /// <summary>Why the typed master password can't be used; null when it can, or when none was typed.</summary>
+    string? VaultPasswordProblem()
+    {
+        if (!UsesVault || (string.IsNullOrEmpty(_vaultPassword.Text) && string.IsNullOrEmpty(_vaultConfirm.Text)))
+        {
+            return null;
+        }
+
+        if (_vaultMeter.Check().Problem is { } problem)
+        {
+            return problem;
+        }
+
+        return _vaultPassword.Text == _vaultConfirm.Text ? null : "The passwords don't match.";
+    }
 
     /// <summary>"Windows Credential Manager", "macOS Keychain": the backend's name without its "the".</summary>
     static string KeychainTitle(string name)
@@ -696,7 +783,8 @@ sealed class SetupWizard : Window
                 : string.IsNullOrWhiteSpace(_customPath.Text) ? "Somewhere else, still to choose" : _customPath.Text.Trim()));
         }
 
-        rows.Add(("Passwords", choices.Passwords == CredentialStoreKind.OsKeychain ? KeychainTitle(_keychainName!) : "Encrypted vault"));
+        rows.Add(("Passwords", choices.Passwords == CredentialStoreKind.OsKeychain ? KeychainTitle(_keychainName!)
+            : VaultPassword is not null ? "Encrypted vault, master password set" : "Encrypted vault, master password when first needed"));
         var imports = _imports.Where(i => i.Toggle.IsChecked == true)
             .Select(i => _needsPassword.Contains(i.File.Path) ? $"{i.File.Kind} (needs its password)" : i.File.Kind).ToList();
         rows.Add(("Import", imports.Count > 0 ? string.Join(", ", imports) : "Nothing"));
