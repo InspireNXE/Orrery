@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
@@ -42,6 +43,7 @@ sealed class WebPageView : Panel
 
     readonly NativeWebView _web = new() { Background = new SolidColorBrush(Color.Parse("#0B0D10")) };
     bool _covered;
+    IDisposable? _keys;
     static bool? _engineAvailable;
 
     /// <summary>
@@ -136,6 +138,23 @@ sealed class WebPageView : Panel
                 NewWindowRequested?.Invoke(this, request);
             }
         };
+        if (OperatingSystem.IsWindows())
+        {
+            _web.AdapterCreated += (_, e) =>
+            {
+                if (e.TryGetPlatformHandle() is IWindowsWebView2PlatformHandle handle)
+                {
+                    _keys?.Dispose();
+                    _keys = WebView2Keys.Watch(handle.CoreWebView2Controller, Offer);
+                }
+            };
+            _web.AdapterDestroyed += (_, _) =>
+            {
+                _keys?.Dispose();
+                _keys = null;
+            };
+        }
+
         _web.Source = url;
         Children.Add(_web);
     }
@@ -173,6 +192,17 @@ sealed class WebPageView : Panel
             _covered = value;
             _web.IsVisible = !value || DrawnInOrrery;
         }
+    }
+
+    /// <summary>
+    /// A shortcut key pressed in the page, offered to Orrery as if pressed on this view: the window's shortcuts see it
+    /// on the way down and up. True when one of them used it, so the page doesn't get it too.
+    /// </summary>
+    bool Offer(Key key, KeyModifiers modifiers)
+    {
+        var e = new KeyEventArgs { RoutedEvent = KeyDownEvent, Key = key, KeyModifiers = modifiers, Source = this };
+        RaiseEvent(e);
+        return e.Handled;
     }
 
     public void GoBack() => _web.GoBack();
