@@ -169,6 +169,16 @@
       <Setter Property="RenderTransform" Value="scale(0.625)" />
     </Style>
 
+    <!-- The tree's expand arrow, likewise: Fluent's sits large and bright beside 13 px names, so it's scaled and given
+         the submenu arrow's gray, lighter under the pointer. The button around it, what's clicked, keeps its size. -->
+    <Style Selector="TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron /template/ Path#ChevronPath">
+      <Setter Property="RenderTransform" Value="scale(0.75)" />
+      <Setter Property="Fill" Value="{DynamicResource MenuFlyoutSubItemChevron}" />
+    </Style>
+    <Style Selector="TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron:pointerover /template/ Path#ChevronPath">
+      <Setter Property="Fill" Value="{DynamicResource MenuFlyoutSubItemChevronPointerOver}" />
+    </Style>
+
     <!-- Menus and flyouts (context menus, the session toolbar's More menu): the panel's surface with rounded corners,
          rows inset from its edge that light up as rounded pills, and quieter shortcuts and separators. -->
     <Style Selector=":is(ContextMenu), MenuFlyoutPresenter">
