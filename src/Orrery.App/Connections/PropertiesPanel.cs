@@ -205,7 +205,7 @@ sealed class PropertiesPanel : UserControl
         _remoteAudioRow.Tip("RDP: play the remote computer's sound here, or not at all. Applies to new connections.");
         _shareAllDrivesRow = new InheritRow("Share every drive", _shareAllDrives, () => ShowInherited(r => _shareAllDrives.IsChecked = r.ShareAllDrives.Value));
         _shareAllDrivesRow.Tip("RDP: every drive on this computer shows on the remote one, under This PC, and the remote computer can read and change their files. "
-            + "Linux and macOS can share only one folder, so there it's your home folder.");
+            + "On Linux and macOS it's your home folder.");
         var browseFolder = new Button { Content = "Add folder…", MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Left };
         browseFolder.Click += async (_, _) => await AddSharedFolderAsync();
         AutomationProperties.SetName(browseFolder, "Add a shared folder");
@@ -213,7 +213,7 @@ sealed class PropertiesPanel : UserControl
         _sharedFoldersRow = new InheritRow("Shared folders", new StackPanel { Spacing = 6, Children = { _sharedFolders, browseFolder } },
             () => ShowInherited(r => _sharedFolders.Text = string.Join("\n", r.SharedFolders.Value)));
         _sharedFoldersRow.Tip("RDP: folders on this computer to show on the remote one as drives, one per line; ~ means your home folder. "
-            + "The remote computer can read and change their files. Leave it empty to share none. Linux and macOS share only the first.");
+            + "The remote computer can read and change their files. Leave it empty to share none.");
         _fullScreenRow = new InheritRow("Full screen on", new StackPanel { Spacing = 8, Children = { _fullScreenOn, _displayPicker } },
             () => ShowInherited(r => ShowFullScreen(r.FullScreen.Value)), describe: DescribeFullScreen);
         _fullScreenRow.Tip("RDP and VNC: the displays full screen fills. Every display, or several chosen ones, make one remote desktop with a "
