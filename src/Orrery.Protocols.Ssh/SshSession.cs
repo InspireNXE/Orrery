@@ -147,18 +147,16 @@ public sealed class SshSession : ITerminalSession
             // Closed event (raised on another thread) can't promise.
             var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
                 (message, error) => Fail(message, error is null ? null : Recognize(error)));
-            bool resized;
             lock (_lock)
             {
                 (_shell, _pump) = (shell, pump);
-                resized = (_columns, _rows) != (columns, rows);
-                (columns, rows) = (_columns, _rows);
-            }
 
-            // A resize that came while the shell was being opened only changed the size wanted.
-            if (resized)
-            {
-                shell.ChangeWindowSize((uint)columns, (uint)rows, 0, 0);
+                // A resize that came while the shell was being opened only changed the size wanted. Sent under the
+                // lock, as Resize sends, so an older size can't land after a newer one.
+                if ((_columns, _rows) != (columns, rows))
+                {
+                    shell.ChangeWindowSize((uint)_columns, (uint)_rows, 0, 0);
+                }
             }
 
             SetState(SessionState.Connected);
@@ -430,16 +428,14 @@ public sealed class SshSession : ITerminalSession
 
     public void Resize(int columns, int rows)
     {
-        ShellStream? shell;
-        lock (_lock)
-        {
-            (_columns, _rows) = (columns, rows);
-            shell = _shell;
-        }
-
         try
         {
-            shell?.ChangeWindowSize((uint)columns, (uint)rows, 0, 0);
+            // Under the lock, so sizes reach the server in the order they were asked for.
+            lock (_lock)
+            {
+                (_columns, _rows) = (columns, rows);
+                _shell?.ChangeWindowSize((uint)columns, (uint)rows, 0, 0);
+            }
         }
         catch (Exception e) when (e is ObjectDisposedException or SshException)
         {

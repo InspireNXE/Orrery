@@ -19,6 +19,10 @@ public sealed class TelnetSession : ITerminalSession
     const byte TerminalTypeIs = 0, TerminalTypeSend = 1;
     const string TerminalType = "XTERM-256COLOR";
     static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>How soon a connection through a route has to end, with nothing heard, to count as the far side unreachable.</summary>
+    static readonly TimeSpan UnreachedWithin = TimeSpan.FromSeconds(5);
+
     // We only answer TTYPE and NAWS, which are a few bytes; a longer subnegotiation is dropped.
     const int MaxSubnegotiation = 4 * 1024;
 
@@ -64,6 +68,7 @@ public sealed class TelnetSession : ITerminalSession
     {
         var token = _cts.Token;
         bool heard = false;
+        var connected = new System.Diagnostics.Stopwatch();
         try
         {
             var (host, port) = await _route.DialAsync(Target, token);
@@ -78,6 +83,7 @@ public sealed class TelnetSession : ITerminalSession
             var stream = client.GetStream();
             lock (_lock) _stream = stream;
             SetState(SessionState.Connected);
+            connected.Start();
 
             var buffer = new byte[16 * 1024];
             var parser = new Parser(this);
@@ -102,7 +108,7 @@ public sealed class TelnetSession : ITerminalSession
                 }
             }
 
-            if (Unreached(heard, token) is { } unreached)
+            if (Unreached(heard, connected.Elapsed, token) is { } unreached)
             {
                 SetState(SessionState.Failed, unreached, new RouteException(unreached));
                 return;
@@ -127,7 +133,7 @@ public sealed class TelnetSession : ITerminalSession
             // Once connected, an error ends the session rather than failing it: some servers reset the connection
             // when you log out, and that mustn't look like a drop to reconnect after.
             Log.For("Telnet").LogWarning("Telnet session to {Host} ended: {Message}", Target.Host, e.Message);
-            if (State == SessionState.Connected && Unreached(heard, token) is { } unreached)
+            if (State == SessionState.Connected && Unreached(heard, connected.Elapsed, token) is { } unreached)
             {
                 SetState(SessionState.Failed, unreached, new RouteException(unreached, e));
                 return;
@@ -145,12 +151,13 @@ public sealed class TelnetSession : ITerminalSession
 
     /// <summary>
     /// Through a route, the connection to its local port always opens, and only ends at once when the far side
-    /// couldn't be reached. So one that ends before the server said anything is a failure to get there, not a
-    /// logout. Says so, or null when it's a plain end: no route, something was heard, or the session is being closed.
+    /// couldn't be reached. So one that ends straight away, before the server said anything, is a failure to get
+    /// there, not a logout. Says so, or null when it's a plain end: no route, something was heard, it lasted longer
+    /// than that (a quiet service closing an idle connection), or the session is being closed.
     /// </summary>
-    string? Unreached(bool heard, CancellationToken token)
+    string? Unreached(bool heard, TimeSpan lasted, CancellationToken token)
     {
-        if (_route is null || heard || token.IsCancellationRequested)
+        if (_route is null || heard || lasted > UnreachedWithin || token.IsCancellationRequested)
         {
             return null;
         }

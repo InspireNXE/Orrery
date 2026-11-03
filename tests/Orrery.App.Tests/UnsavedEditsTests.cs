@@ -83,6 +83,36 @@ public class UnsavedEditsTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void A_filter_that_hides_a_row_with_bad_edits_is_cleared_so_the_row_can_be_fixed()
+    {
+        var window = Open();
+        try
+        {
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var panel = VaultAutoLockTests.Private<PropertiesPanel>(window, "_properties");
+            var filter = VaultAutoLockTests.Private<TextBox>(window, "_filter");
+            var first = new ConnectionEntry { Name = "one", Host = "one.example" };
+            tree.Add(first, tree.Root);
+            tree.Add(new ConnectionEntry { Name = "two", Host = "two.example" }, tree.Root);
+            SelectRow(window, first);
+
+            PortBox(panel).Text = "abc";
+            Dispatcher.UIThread.RunJobs();
+            filter.Text = "two";
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(string.Empty, filter.Text);
+            Assert.Same(first, SelectedRow(window));
+            Assert.Same(first, panel.Node);
+            Assert.Equal("abc", PortBox(panel).Text);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public async Task A_vault_lock_saves_valid_edits_and_leaves_ones_that_dont_validate_in_the_pane()
     {
         var window = Open();

@@ -426,10 +426,9 @@ public partial class MainWindow : Window
 
         _treeView.SelectionChanged += async (_, _) =>
         {
-            if (!_rebuilding && !await _properties.ShowAsync(SelectedNode) && SelectedNode != _properties.Node)
+            if (!_rebuilding)
             {
-                // The edits don't validate, so the selection goes back to their node, the problem showing, rather than losing them.
-                Dispatcher.UIThread.Post(SelectEdited);
+                await ShowSelectedAsync();
             }
         };
 
@@ -475,8 +474,16 @@ public partial class MainWindow : Window
         };
 
         // With several rows selected, Connect and Delete take them all; the rest need a single row.
-        _treeView.ContextMenu!.Opening += (_, _) =>
+        _treeView.ContextMenu!.Opening += (_, e) =>
         {
+            // A right-click selects its row, but edits that don't validate put the selection back on theirs: the menu
+            // would act on that one instead. It stays shut, and the inspector says what's wrong.
+            if (!_properties.TrySave())
+            {
+                e.Cancel = true;
+                return;
+            }
+
             var nodes = SelectedNodes();
             int connections = nodes.OfType<ConnectionEntry>().Count();
             _connectMenuItem.IsEnabled = connections > 0;
@@ -1284,7 +1291,16 @@ public partial class MainWindow : Window
         _hostStatus.Refresh();
         if (SelectedNode != _properties.Node)
         {
-            _ = _properties.ShowAsync(SelectedNode);
+            _ = ShowSelectedAsync();
+        }
+    }
+
+    /// <summary>Shows the selected node in the inspector, or, when the edits there don't validate, goes back to their node, the problem showing, rather than losing them.</summary>
+    async Task ShowSelectedAsync()
+    {
+        if (!await _properties.ShowAsync(SelectedNode) && SelectedNode != _properties.Node)
+        {
+            Dispatcher.UIThread.Post(SelectEdited);
         }
     }
 
@@ -1354,6 +1370,14 @@ public partial class MainWindow : Window
             if (node == _tree.Root)
             {
                 _treeView.SelectedItems.Clear();
+            }
+            else if (FindRow(node.Id) is null && !string.IsNullOrEmpty(_filter.Text))
+            {
+                // The filter hides it, so no row could be chosen until the edits are fixed: the filter goes, which
+                // brings this back here with the row showing.
+                _rebuilding = false;
+                _filter.Text = string.Empty;
+                return;
             }
             else
             {
