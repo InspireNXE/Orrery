@@ -48,6 +48,8 @@
     <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#5B6372" />
     <!-- The window buttons Avalonia draws: minimize and maximize light up in the app's hover color, and pressed,
          Fluent's light gray would hide their white glyphs. Close keeps its red. -->
+    <!-- As tall as the title bar (ExtendClientAreaTitleBarHeightHint), so a button's hover fills its corner as on Windows. -->
+    <x:Double x:Key="CaptionButtonHeight">44</x:Double>
     <SolidColorBrush x:Key="CaptionButtonBackground" Color="{StaticResource OrreryHoverColor}" />
     <SolidColorBrush x:Key="CaptionButtonBorderBrush" Color="{StaticResource OrrerySelectedColor}" />
     <SolidColorBrush x:Key="AccentButtonBackground" Color="#5B9DFF" />
@@ -140,6 +142,10 @@
          full-screen button isn't one Windows windows have. -->
     <Style Selector="WindowDrawnDecorations Panel#PART_TitleTextPanel > TextBlock, WindowDrawnDecorations Button#PART_FullScreenButton">
       <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <!-- Side by side with no gap, as Windows draws them. (Activated, so it outranks the template's own spacing.) -->
+    <Style Selector="WindowDrawnDecorations StackPanel#PART_OverlayPanel:not(.spaced)">
+      <Setter Property="Spacing" Value="0" />
     </Style>
 
     <Style Selector="TextBlock.section">
