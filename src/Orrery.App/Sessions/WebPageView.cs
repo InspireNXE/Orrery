@@ -146,18 +146,23 @@ sealed class WebPageView : Panel
                 {
                     _keys?.Dispose();
                     _keys = WebView2Keys.Watch(handle.CoreWebView2Controller, Offer);
+                    Frames.Connect(handle.CoreWebView2);
                 }
             };
             _web.AdapterDestroyed += (_, _) =>
             {
                 _keys?.Dispose();
                 _keys = null;
+                Frames.Disconnect();
             };
         }
 
         _web.Source = url;
         Children.Add(_web);
     }
+
+    /// <summary>The page's picture, for recording it (Windows).</summary>
+    public WebFrames Frames { get; } = new();
 
     /// <summary>The page showing now, which links and redirects change.</summary>
     public Uri Address { get; private set; }
@@ -225,10 +230,13 @@ sealed class WebPageView : Panel
 
 /// <summary>
 /// The session behind a web page's tab. There's no connection to keep: it's open until its tab closes, and the
-/// page itself does any connecting.
+/// page itself does any connecting. It offers the page's picture as a screen, so a recording takes it as it takes a
+/// remote desktop's; there's no input to send, since the page takes its own.
 /// </summary>
-sealed class WebSession(ConnectionTarget target) : IConnectionSession
+sealed class WebSession(ConnectionTarget target, WebFrames? frames = null) : IFrameBufferSession
 {
+    readonly WebFrames _frames = frames ?? new WebFrames();
+
     SessionStateChangedEventArgs? _last = new(SessionState.Connected, null);
 
     public ConnectionTarget Target { get; } = target;
@@ -252,4 +260,40 @@ sealed class WebSession(ConnectionTarget target) : IConnectionSession
     }
 
     public ValueTask DisposeAsync() => new(DisconnectAsync());
+
+    public int Width => _frames.Width;
+
+    public int Height => _frames.Height;
+
+    public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated
+    {
+        add => _frames.FrameUpdated += value;
+        remove => _frames.FrameUpdated -= value;
+    }
+
+    public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) => _frames.CopyRegion(region, destination, destinationStride);
+
+    public void SendKey(ushort scancode, bool pressed)
+    {
+    }
+
+    public void ReleaseAllKeys()
+    {
+    }
+
+    public void SendPointerMove(int x, int y)
+    {
+    }
+
+    public void SendPointerButton(PointerButton button, bool pressed)
+    {
+    }
+
+    public void SendWheel(int units, bool horizontal)
+    {
+    }
+
+    public void RequestResize(int width, int height)
+    {
+    }
 }

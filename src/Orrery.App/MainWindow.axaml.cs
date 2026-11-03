@@ -2124,7 +2124,7 @@ public partial class MainWindow : Window
     {
         var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"));
         view.NewWindowRequested += (_, address) => OpenPopUpTab(address);
-        AddTab(view, new WebSession(target), origin);
+        AddTab(view, new WebSession(target, view.Frames), origin);
     }
 
     /// <summary>
@@ -2796,6 +2796,12 @@ public partial class MainWindow : Window
             _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Back, "Back", web.GoBack, web.CanGoBack));
             _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Forward, "Forward", web.GoForward, web.CanGoForward));
             _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Refresh, "Reload", web.Reload));
+            if (Recording.RecordingService.Recordable(web)
+                && Recording.RecordingControl.For(tab, async () => await StartRecordingAsync(tab), () => StopRecording(tab), () => ShowRecordings()) is { } webRecording)
+            {
+                _sessionActions.Children.Add(webRecording);
+            }
+
             _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.External, "Open in the default browser", async () =>
             {
                 if (OpenInBrowser(web.Address) is { } problem)
@@ -3027,7 +3033,7 @@ public partial class MainWindow : Window
                 : MenuItemFor("Browse files (SFTP)", async () => await ConnectAsync(entry, files: true));
         }
 
-        if (tab.View is TerminalView or RemoteFrameView)
+        if (Recording.RecordingService.Recordable(tab.View))
         {
             yield return tab.IsRecording
                 ? MenuItemFor("Stop recording", () => StopRecording(tab))
@@ -3053,9 +3059,11 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Whether the connection a tab opened says to record it; a quick connection follows the defaults for all
-    /// connections. A local shell or a file browser isn't recorded by a setting.
+    /// connections. A local shell, a file browser, a management page or a page's pop-up isn't recorded by a setting,
+    /// nor a web page where pages can't be recorded (Linux and macOS).
     /// </summary>
-    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false, ManagementPage: false } && !ProtocolInfo.IsWeb(origin.Protocol)
+    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false, ManagementPage: false }
+        && (!ProtocolInfo.IsWeb(origin.Protocol) || WebFrames.Supported)
         && (origin.EntryId is { } id && _tree.Find(id) is { } node
             ? SettingsResolver.Resolve(node).RecordSessions.Value
             : _tree.Root.Settings.RecordSessions == true);
