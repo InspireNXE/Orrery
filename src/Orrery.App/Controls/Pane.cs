@@ -65,8 +65,12 @@ static class Pane
     {
         var lines = new StackPanel { Spacing = 2, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { title, subtitle } };
         lines.Children.AddRange(more);
-        return new DockPanel { Children = { Docked(tile, Dock.Left), lines } };
+        // The right-hand pane's pin button sits in its top corner, beside this.
+        return new DockPanel { Margin = new Thickness(0, 0, 28, 0), Children = { Docked(tile, Dock.Left), lines } };
     }
+
+    /// <summary>Puts <paramref name="button"/> in a side panel's header row, left of the buttons it has already.</summary>
+    public static void AddHeaderButton(DockPanel header, Control button) => header.Children.Insert(header.Children.Count - 1, Docked(button, Dock.Right));
 
     /// <summary>A 36 px tile holding an 18 px icon.</summary>
     public static Border Tile(StrokeIcon icon)

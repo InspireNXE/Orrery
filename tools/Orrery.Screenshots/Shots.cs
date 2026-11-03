@@ -353,7 +353,7 @@ static class Shots
     static void Save(Bitmap image, string output, string name)
     {
         var path = Path.Combine(output, name);
-        image.Save(path);
+        image.Save(path, PngBitmapEncoderOptions.Default);
         Console.WriteLine($"{path}: {image.PixelSize.Width}x{image.PixelSize.Height}, {new FileInfo(path).Length / 1024} KB");
     }
 }

@@ -3,7 +3,6 @@ using Avalonia.Media;
 using Orrery.App.Sessions;
 using Orrery.Core.Settings;
 using Xunit;
-using Xunit.Abstractions;
 using Vision = Orrery.Core.Settings.ColorVision;
 
 namespace Orrery.App.Tests;

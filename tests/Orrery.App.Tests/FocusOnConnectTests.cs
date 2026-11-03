@@ -78,7 +78,7 @@ public class FocusOnConnectTests
         }
         else
         {
-            window.FocusManager!.ClearFocus();
+            window.FocusManager!.Focus(null);
         }
 
         return (window, box);

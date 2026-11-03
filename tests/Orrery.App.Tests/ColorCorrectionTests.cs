@@ -8,7 +8,6 @@ using Orrery.App.Sessions;
 using Orrery.Core.Sessions;
 using Vision = Orrery.Core.Settings.ColorVision;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Orrery.App.Tests;
 
@@ -87,6 +86,76 @@ public class ColorCorrectionTests(ITestOutputHelper output)
         // Green for tritanopia loses 0.41 of red, below zero.
         Assert.True(ColorCorrection.MatrixFor(Vision.Tritanopia, 1)[0, 1] < -0.4);
         Assert.Equal(0, ColorCorrection.For(Vision.Tritanopia, 100)!.Apply(0, 255, 0).R);
+    }
+
+    [Fact]
+    public void Between_undoes_one_correction_and_applies_another()
+    {
+        var deutan = ColorCorrection.For(Vision.Deuteranopia, 100)!;
+        var protan = ColorCorrection.For(Vision.Protanopia, 60)!;
+        Assert.Null(ColorCorrection.Between(null, null));
+        Assert.Same(deutan, ColorCorrection.Between(null, deutan));
+        Assert.Null(ColorCorrection.Between(deutan, ColorCorrection.For(Vision.Deuteranopia, 100)));
+
+        // Colors well inside what the screen shows come back within rounding.
+        var undo = ColorCorrection.Between(deutan, null)!;
+        var swap = ColorCorrection.Between(deutan, protan)!;
+        foreach (var (r, g, b) in new (byte, byte, byte)[] { (180, 90, 80), (90, 140, 100), (120, 110, 160), (128, 128, 128) })
+        {
+            var shown = deutan.Apply(r, g, b);
+            var back = undo.Apply(shown.R, shown.G, shown.B);
+            Assert.InRange(back.R, r - 2, r + 2);
+            Assert.InRange(back.G, g - 2, g + 2);
+            Assert.InRange(back.B, b - 2, b + 2);
+
+            var wanted = protan.Apply(r, g, b);
+            var swapped = swap.Apply(shown.R, shown.G, shown.B);
+            Assert.InRange(swapped.R, wanted.R - 2, wanted.R + 2);
+            Assert.InRange(swapped.G, wanted.G - 2, wanted.G + 2);
+            Assert.InRange(swapped.B, wanted.B - 2, wanted.B + 2);
+        }
+    }
+
+    [Fact]
+    public void Packed_rgb_is_corrected_as_single_pixels_are()
+    {
+        var correction = ColorCorrection.For(Vision.Tritanopia, 80)!;
+        byte[] rgb = [220, 40, 40, 30, 200, 90, 10, 20, 230];
+        var expected = new List<byte>();
+        for (int p = 0; p < rgb.Length; p += 3)
+        {
+            var (r, g, b) = correction.Apply(rgb[p], rgb[p + 1], rgb[p + 2]);
+            expected.AddRange([r, g, b]);
+        }
+
+        correction.ApplyRgb(rgb);
+        Assert.Equal(expected, rgb);
+    }
+
+    [Fact]
+    public void A_web_page_is_given_the_same_matrix_as_a_filter()
+    {
+        var correction = ColorCorrection.For(Vision.Protanopia, 100)!;
+        var values = correction.FilterValues.Split(' ').Select(v => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        Assert.Equal(20, values.Length);
+        for (int row = 0; row < 3; row++)
+        {
+            for (int column = 0; column < 3; column++)
+            {
+                Assert.Equal(correction.Matrix[row, column], values[row * 5 + column], 5);
+            }
+
+            Assert.Equal(0, values[row * 5 + 3]);
+            Assert.Equal(0, values[row * 5 + 4]);
+        }
+
+        Assert.Equal([0, 0, 0, 1, 0], values[15..]);
+
+        // The script carries the values, and none to take the correction off; the filter works in linear light.
+        var script = WebPageView.ColorScript(correction);
+        Assert.Contains(correction.FilterValues, script);
+        Assert.Contains("linearRGB", script);
+        Assert.Contains("window.__orreryColors = \"\";", WebPageView.ColorScript(null));
     }
 
     [Fact]

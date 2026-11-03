@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
@@ -13,7 +14,7 @@ namespace Orrery.App.Tests;
 
 public class ManagementUrlTests : IDisposable
 {
-    const string Watermark = "https://10.20.0.1:8443";
+    const string PlaceholderText = "https://10.20.0.1:8443";
     readonly string _dir = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
 
     public void Dispose()
@@ -47,7 +48,7 @@ public class ManagementUrlTests : IDisposable
         return (panel, window);
     }
 
-    static TextBox Field(Window window) => window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == Watermark);
+    static TextBox Field(Window window) => window.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == PlaceholderText);
 
     [AvaloniaFact]
     public async Task A_connection_saves_its_management_url_and_clearing_it_removes_it()

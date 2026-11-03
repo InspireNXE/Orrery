@@ -35,7 +35,9 @@ public class PaneModeTests : IDisposable
         Assert.Equal(PaneMode.Collapsed, new AppSettings { SidePanelOpen = false }.SidePanel);
         Assert.Equal(PaneMode.Hidden, new AppSettings { InspectorOpen = false }.Inspector);
         Assert.Equal(PaneMode.Expanded, new AppSettings().SidePanel);
-        Assert.Equal(PaneMode.Auto, new AppSettings { SidePanelOpen = false, SidePanelMode = PaneMode.Auto }.SidePanel);
+        // Auto is no longer offered; it reads as opening over the session.
+        Assert.Equal(PaneMode.Collapsed, new AppSettings { SidePanelOpen = false, SidePanelMode = PaneMode.Auto }.SidePanel);
+        Assert.Equal(PaneMode.Collapsed, new AppSettings { InspectorMode = PaneMode.Auto }.Inspector);
     }
 
     [AvaloniaFact]
@@ -89,18 +91,40 @@ public class PaneModeTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Auto_docks_both_panes_while_no_session_is_open()
+    public void Unpinning_leaves_the_pane_open_over_the_sessions_and_pinning_docks_it_again()
     {
-        var window = Open(new AppSettings { SidePanelMode = PaneMode.Auto, InspectorMode = PaneMode.Auto });
+        var window = Open(new AppSettings());
         try
         {
             var side = VaultAutoLockTests.Private<Border>(window, "_sidePanel");
-            var inspector = VaultAutoLockTests.Private<Border>(window, "_propertiesHost");
-            Assert.True(side.IsVisible);
+            var pin = VaultAutoLockTests.Private<List<Button>>(window, "_sidePins").First(b => b.IsEffectivelyVisible);
             Assert.Equal(1, Grid.GetColumn(side));
-            Assert.True(inspector.IsVisible);
-            Assert.Equal(4, Grid.GetColumn(inspector));
-            Assert.False(window.FindControl<Border>("InspectorStrip")!.IsVisible);
+
+            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(side.IsVisible);
+            Assert.Equal(2, Grid.GetColumn(side));
+            Assert.Equal(PaneMode.Collapsed, AppSettingsStore.In(Location).Load().SidePanelMode);
+
+            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(1, Grid.GetColumn(side));
+            Assert.Equal(PaneMode.Expanded, AppSettingsStore.In(Location).Load().SidePanelMode);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Panes_open_at_the_width_they_were_dragged_to()
+    {
+        var window = Open(new AppSettings { SidePanelWidth = 400, InspectorWidth = 5000 });
+        try
+        {
+            Assert.Equal(400, VaultAutoLockTests.Private<Border>(window, "_sidePanel").Width);
+            Assert.Equal(640, VaultAutoLockTests.Private<Border>(window, "_propertiesHost").Width);
         }
         finally
         {
@@ -134,14 +158,19 @@ public class PaneModeTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void The_toggle_collapses_an_expanded_pane_and_remembers_it()
+    public void The_toggle_hides_a_pinned_pane_and_shows_it_again_without_changing_its_mode()
     {
         var window = Open(new AppSettings());
         try
         {
+            var side = VaultAutoLockTests.Private<Border>(window, "_sidePanel");
             Click(window, "SidePanelToggle");
-            Assert.False(VaultAutoLockTests.Private<Border>(window, "_sidePanel").IsVisible);
-            Assert.Equal(PaneMode.Collapsed, AppSettingsStore.In(Location).Load().SidePanelMode);
+            Assert.False(side.IsVisible);
+            Assert.Null(AppSettingsStore.In(Location).Load().SidePanelMode);
+
+            Click(window, "SidePanelToggle");
+            Assert.True(side.IsVisible);
+            Assert.Equal(1, Grid.GetColumn(side));
         }
         finally
         {

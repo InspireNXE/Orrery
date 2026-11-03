@@ -9,9 +9,7 @@ namespace Orrery.App.Tests;
 
 public class PopupMenuTests
 {
-    static MenuFlyoutPresenter Presenter(PopupFlyoutBase flyout) =>
-        (MenuFlyoutPresenter)((Popup)typeof(PopupFlyoutBase).GetProperty("Popup",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(flyout)!).Child!;
+    static MenuFlyoutPresenter Presenter(PopupFlyoutBase flyout) => (MenuFlyoutPresenter)flyout.Popup.Child!;
 
     static List<Control> Items(string last) =>
         [new MenuItem { Header = "View only" }, new Separator(), new MenuItem { Header = last }];

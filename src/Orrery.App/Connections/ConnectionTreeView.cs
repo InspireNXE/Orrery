@@ -9,8 +9,8 @@ using Avalonia.LogicalTree;
 namespace Orrery.App.Connections;
 
 /// <summary>
-/// The connection tree. Avalonia 11.3's tree rows tell a screen reader neither their name nor whether they're open
-/// or selected, so its rows are <see cref="ConnectionTreeItem"/>s, which do.
+/// The connection tree. Avalonia's tree rows tell a screen reader neither their name nor whether they're selected,
+/// so its rows are <see cref="ConnectionTreeItem"/>s, which do.
 /// </summary>
 sealed class ConnectionTreeView : TreeView
 {
@@ -34,7 +34,7 @@ sealed class ConnectionTreeItem : TreeViewItem
 /// <summary>
 /// A tree row as a screen reader sees it: named after its node, with what it is (protocol and host, or how many
 /// connections a folder holds) as its description, the open session's state as its status, and expand, collapse and
-/// select.
+/// select. Avalonia's own peer reports whether the row is open; this one adds the rest.
 /// </summary>
 sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollapseProvider, ISelectionItemProvider
 {
@@ -45,11 +45,7 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
     {
         owner.PropertyChanged += (_, e) =>
         {
-            if (e.Property == TreeViewItem.IsExpandedProperty)
-            {
-                RaisePropertyChangedEvent(ExpandCollapsePatternIdentifiers.ExpandCollapseStateProperty, State((bool)e.OldValue!), State((bool)e.NewValue!));
-            }
-            else if (e.Property == TreeViewItem.IsSelectedProperty)
+            if (e.Property == TreeViewItem.IsSelectedProperty)
             {
                 RaisePropertyChangedEvent(SelectionItemPatternIdentifiers.IsSelectedProperty, e.OldValue, e.NewValue);
             }
@@ -62,11 +58,9 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
         Watch(owner.DataContext as NodeViewModel);
     }
 
-    new TreeViewItem Owner => (TreeViewItem)base.Owner;
-
     NodeViewModel? Row => Owner.DataContext as NodeViewModel;
 
-    /// <summary>How deep the row is: 0 at the top. Avalonia 11.3 doesn't pass this on to UI Automation; readers work it out from the nesting.</summary>
+    /// <summary>How deep the row is: 0 at the top. Avalonia doesn't pass this on to UI Automation; readers work it out from the nesting.</summary>
     public int Level => Owner.Level;
 
     void Watch(NodeViewModel? row)
@@ -99,20 +93,14 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
 
     // ---- Expand and collapse ----
 
-    public ExpandCollapseState ExpandCollapseState => State(Owner.IsExpanded);
-
-    public bool ShowsMenu => false;
-
-    ExpandCollapseState State(bool expanded) =>
-        Owner.ItemCount == 0 ? ExpandCollapseState.LeafNode : expanded ? ExpandCollapseState.Expanded : ExpandCollapseState.Collapsed;
-
-    public void Expand()
+    // Unlike Avalonia's, these don't throw on a connection, which has nothing to open.
+    public new void Expand()
     {
         EnsureEnabled();
         Owner.IsExpanded = true;
     }
 
-    public void Collapse()
+    public new void Collapse()
     {
         EnsureEnabled();
         Owner.IsExpanded = false;
@@ -120,13 +108,9 @@ sealed class ConnectionTreeItemPeer : TreeViewItemAutomationPeer, IExpandCollaps
 
     // ---- Selection ----
 
-    public bool IsSelected => Owner.IsSelected;
-
-    public ISelectionProvider? SelectionContainer => null;
-
     TreeView? Tree => Owner.FindLogicalAncestorOfType<TreeView>();
 
-    public void Select()
+    public new void Select()
     {
         EnsureEnabled();
         if (Tree is { } tree)

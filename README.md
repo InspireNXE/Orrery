@@ -54,7 +54,7 @@ machine yet, hence the 🧪.
 | Telnet | ✅ | 🧪 | 🧪 |
 | Serial consoles | 🧪 | 🧪 | 🧪 |
 | Local terminal | ✅ PowerShell, cmd, WSL | 🧪 login shell | 🧪 login shell |
-| Web pages, in your browser | ✅ | 🧪 | 🧪 |
+| Web pages, in a tab or your browser | ✅ | 🧪 | 🧪 [^webkit] |
 | Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
 | **Remote desktops** | | | |
@@ -68,6 +68,7 @@ machine yet, hence the 🧪.
 | Touch and pen, console session, broker redirection | 🧪 | 🧪 | 🧪 |
 | **Recording** | | | |
 | Record terminals and remote desktops, with sound | ✅ | 🧪 | 🧪 |
+| Record web pages in a tab | ✅ | ➖ | ➖ |
 | Play back, with speed, skip idle and Find | ✅ | 🧪 | 🧪 |
 | Export `.cast` and `.avi` | 🧪 | 🧪 | 🧪 |
 | Export MP4, with sound | 🧪 built in | 🔸 through ffmpeg | 🔸 through ffmpeg |
@@ -93,9 +94,10 @@ machine yet, hence the 🧪.
 [^spaces]: macOS gives each display its own full-screen space.
 [^wayland]: Wayland doesn't let a window place itself or span displays. X11 sessions aren't supported.
 [^orca]: Avalonia has no screen reader support on Linux yet.
+[^webkit]: Pages in a tab need WebKitGTK (libwebkit2gtk-4.1), which the .deb and .rpm recommend; without it they open in your browser. Like the rest of Orrery's window, they're drawn through XWayland.
 [^files]: Remote files download when copied, up to 1 GB, into a private folder removed when the session ends.
 
-Further out: actions in quick connect, browser access through a tray agent, and scripted connect. See the
+Further out: browser access through a tray agent, and scripted connect. See the
 [roadmap](docs/roadmap.md).
 
 ## Features
@@ -109,7 +111,7 @@ Further out: actions in quick connect, browser access through a tray agent, and 
 | VNC | [MarcusW.VncClient](https://github.com/MarcusWichelmann/MarcusW.VncClient) | Text clipboard, view only, fill, shrink to fit or actual size |
 | Telnet | Built in | |
 | Serial | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports) | COM ports and `/dev/tty*`, with speed, data bits, parity, stop bits and flow control |
-| Web (HTTP, HTTPS) | Your browser | Keeps admin pages in the tree beside the rest; opens in your default browser |
+| Web (HTTP, HTTPS) | [Avalonia.Controls.WebView](https://www.nuget.org/packages/Avalonia.Controls.WebView): WebView2, WebKit or WebKitGTK | Keeps admin pages in the tree beside the rest; opens in a tab, or your default browser if you choose |
 | Local terminal | Built in | PowerShell, cmd or WSL on Windows; your login shell on Linux and macOS |
 
 ### Connecting
@@ -120,12 +122,18 @@ Further out: actions in quick connect, browser access through a tray agent, and 
 </p>
 
 Quick connect (Ctrl+K) searches saved connections and open sessions as you type, or connects straight to a host.
+It runs commands too: start with `>` to list them all, or type a few words ("disc prod", "copy pass web").
+
+- **Commands** in quick connect: everything in the current session's menu (Send keys, Save as PDF, Start
+  recording…), reconnect or disconnect every session, connect or disconnect everything in a folder, and for a saved
+  connection edit, wake, open its management page, browse its files, or copy its address or password. A copied
+  password is cleared from the clipboard after 30 seconds, and on Windows kept out of clipboard history.
 
 - **Jump hosts** work for every protocol, like `ssh -J`; RDP, VNC and Telnet go through an SSH tunnel. Web pages
-  can't, since the browser wouldn't use it: give the jump host a SOCKS proxy instead.
+  can't, in a tab or the browser: give the jump host a SOCKS proxy instead.
 - **Folders** can give every SSH connection inside a SOCKS proxy (like its own `D 1080`) and a keep-alive interval
   (30 seconds by default; 0 for none).
-- **Quick connect** also takes `http://` and `https://` addresses, which open in your browser, and serial ports:
+- **Quick connect** also takes `http://` and `https://` addresses, which open in a tab like other web pages, and serial ports:
   `COM3`, `/dev/ttyUSB0` or `serial://<port>`.
 - **`.rdp` files** open from the tree's right-click menu or the command line (`Orrery server.rdp`) without being
   saved; Import adds them to the tree. Saved passwords aren't imported (Windows encrypts them per user and
@@ -160,7 +168,11 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
   returns. A refused login or an untrusted host key or certificate is never retried.
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
-  *Open management page* opens it in the browser. Folders don't pass it on.
+  *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.
+- **Web tabs** have back, forward and reload, and Print and Save as PDF under More. Links meant for a new window open
+  in a tab beside the page; a page's own pop-up, such as a sign-in, opens as a pop-up. An untrusted certificate shows
+  the engine's warning, with a way past it, and the tab says the page didn't load. The lock before the address is
+  closed only for HTTPS (and SSH and RDP); plain HTTP, Telnet and VNC show it open, in amber.
 
 <p align="center">
   <img src="docs/images/connection-lost.png" width="720"
@@ -183,9 +195,10 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
 - **This session tab:** while a remote desktop is open, Scaling, View only and Color correction change it at once,
   until it closes; Keep for next time saves the change. Settings that need a reconnect are listed with a Reconnect
   button.
-- **Pane layouts** (Settings › General), for the side panel and the properties pane: Expanded docks it; Collapsed
-  leaves a strip and opens over the sessions; Auto docks it unless a session is showing; Hidden leaves no strip
-  (the window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop.
+- **Pane layouts** (Settings › General, or the pin in each pane's header), for the side panel and the properties
+  pane: Pinned docks it; Over the session leaves a strip and opens over the sessions; Hidden leaves no strip (the
+  window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; on
+  Linux and macOS it opens beside a web page, since nothing can be drawn over the page there. Drag a pane's inner edge to resize it.
 - **Last connected** shows in the properties pane ("3 days ago", exact time on hover), with a newer failed attempt
   if there was one.
 
@@ -213,8 +226,8 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
 - **Interface colors:** Standard, Clearer (easier to tell apart for most color blindness) and Color-blind
   (Okabe-Ito). The terminal has its own color-blind scheme.
 - **Color vision:** pick protanopia, deuteranopia or tritanopia, and Orrery switches to color-blind colors, tunes the
-  terminal, and shifts RDP and VNC colors you'd confuse, at a strength you pick. A connection or folder can turn
-  that off for design or photo work.
+  terminal, and shifts the colors you'd confuse in RDP, VNC and web pages, at a strength you pick. A connection or
+  folder can turn that off for design or photo work.
 - Session states, host status, warnings and errors each have a shape, icon or word as well as a color.
 - HDR isn't possible over RDP or VNC.
 
@@ -231,14 +244,16 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
 </p>
 
 - **What's recorded:** what a terminal printed (never what's typed), or what a remote desktop showed, at up to 60
-  frames a second, taken only when the screen changes, with RDP sound.
+  frames a second, taken only when the screen changes, with RDP sound. On Windows, a web page in a tab is recorded
+  the same way, from the engine's own picture of the page (no sound); WebKit on Linux and macOS can't give one.
 - **Starting:** the *Record sessions* setting (inherited, so a folder can record everything in it), *Record every
   session* in Settings, or the tab's menu. A red dot on the tab and a *REC* pill show it's on; the pill changes the
   frame rate and sound, or stops. A reconnect carries on in the same file.
 - **Encrypted,** sealed to a key kept with your saved credentials: recording never asks for the vault, playing does.
   Recordings live in `recordings/` in the data folder; old ones are deleted by age and total size.
-- **Playback** in the *Recordings* panel: ½× to 8×, sound at its pitch up to 4×, Skip idle, 10-second skips, markers
-  for drops and reconnects, volume, and Find for terminals.
+- **Playback** in the *Recordings* panel: ½× to 8×, sound at its pitch up to 4×, Skip idle, Loop, 10-second skips,
+  markers for drops and reconnects, volume, Find for terminals with its matches on the timeline, keyboard shortcuts
+  (? lists them), and your color correction.
 - **Export** an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
   in Settings. Orrery never downloads or bundles ffmpeg. See
@@ -304,7 +319,8 @@ Narrator, NVDA and JAWS on Windows.
 - Avalonia doesn't let screen readers move through a terminal by line or word yet; they get one block of text.
 - Tree rows don't report their level or "2 of 5". Password fields aren't marked as such, so a reader that echoes
   typing will read a password aloud; turn that echo off while typing one.
-- VoiceOver is untested. On Linux, Avalonia has no screen reader support yet, so Orca can't read Orrery.
+- VoiceOver is untested. On Linux, Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried
+  with Orrery yet.
 
 ## Keyboard shortcuts
 
@@ -312,12 +328,12 @@ On macOS, Cmd takes the place of Ctrl.
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+K | Quick connect |
+| Ctrl+K | Quick connect; `>` for commands |
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
-| Ctrl+B | Show or hide the side panel (or open it over the sessions when not docked) |
-| Ctrl+Alt+B | Show or hide the properties pane (or open it over the sessions when not docked) |
+| Ctrl+B | Show or hide the side panel, over the sessions unless it's pinned; the mode stays as it is |
+| Ctrl+Alt+B | Show or hide the properties pane, the same way |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (changeable in Settings) |
 | Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back |
 | Ctrl+Alt+End (Ctrl+Cmd+End on macOS) | In a remote desktop: send Ctrl+Alt+Del |
@@ -506,7 +522,7 @@ Not yet checked on real machines:
 
 ### Linux (Wayland only)
 
-Wayland sessions only. Avalonia 11.3 has no Wayland backend yet, so Orrery runs under XWayland, but it has no
+Wayland sessions only. Avalonia 12.1's Wayland backend is experimental, so Orrery runs under XWayland, but it has no
 X11-specific code. X11 sessions aren't supported.
 
 - **Needs:** XWayland, fontconfig and ICU, which most desktops have. The ALSA library (`libasound.so.2`, from
@@ -519,7 +535,7 @@ X11-specific code. X11 sessions aren't supported.
 - **Full screen** is on the window's display: Wayland doesn't let windows place themselves or span displays. Orrery
   says so when a connection is set to several.
 - **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
-- **Screen readers:** Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
+- **Screen readers:** Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried with Orrery yet.
 - **Not yet checked:** all of it on a real machine: the .deb, .rpm and AppImage, arm64, local terminals, the RDP
   clipboard, sound, a serial device and the Secret Service.
 

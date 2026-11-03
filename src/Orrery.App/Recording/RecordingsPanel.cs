@@ -47,7 +47,7 @@ sealed class RecordingsPanel : DockPanel
 
     readonly RecordingService _service;
     readonly ListBox _list = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
-    readonly TextBox _filter = new() { Watermark = "Filter", FontSize = 12, MinHeight = 30, Margin = new Thickness(12, 0, 12, 10) };
+    readonly TextBox _filter = new() { PlaceholderText = "Filter", FontSize = 12, MinHeight = 30, Margin = new Thickness(12, 0, 12, 10) };
     readonly TextBlock _empty = Pane.EmptyText(EmptyNote, side: true);
     readonly TextBlock _total = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, Margin = new Thickness(14, 6, 14, 10) };
     readonly Notice _status = new(NoticeKind.Info) { Margin = new Thickness(14, 0, 14, 8), IsVisible = false };
@@ -59,6 +59,9 @@ sealed class RecordingsPanel : DockPanel
     List<RecordingItem> _items = [];
     int _loading;
 
+    /// <summary>The header row, which the main window adds its pin button to.</summary>
+    public DockPanel Header { get; }
+
     public RecordingsPanel(RecordingService service)
     {
         _service = service;
@@ -67,6 +70,7 @@ sealed class RecordingsPanel : DockPanel
         _filter.InnerLeftContent = new StrokeIcon { Data = Geometry.Parse("M4 6h16 M7 12h10 M10 18h4"), Width = 13, Height = 13, StrokeThickness = 2, Margin = new Thickness(10, 0, 0, 0), Foreground = Dialogs.MutedBrush };
         _filter.TextChanged += (_, _) => Show();
 
+        ScrollViewer.SetHorizontalScrollBarVisibility(_list, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
         _list.ItemTemplate = new FuncDataTemplate<RecordingItem>((r, _) => r is null ? new Panel() : Row(r));
         _list.Tapped += async (_, _) => await PlayAsync();
         _list.KeyDown += async (_, e) =>
@@ -98,6 +102,15 @@ sealed class RecordingsPanel : DockPanel
             play.IsEnabled = export.IsEnabled = Selected is { Problem: null };
         };
 
+        Stage.ShowInFolderRequested += path => Reveal(path, select: true);
+        Stage.DeleteRequested += async path =>
+        {
+            if (_items.FirstOrDefault(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase)) is { } item)
+            {
+                await DeleteAsync(item);
+            }
+        };
+
         var folder = new Button { Content = StrokeIcon.Create(Icons.Folder, 16), Width = 28, Height = 28 };
         folder.Classes.Add("icon");
         ToolTip.SetTip(folder, "Open the recordings folder");
@@ -123,7 +136,7 @@ sealed class RecordingsPanel : DockPanel
             },
         };
 
-        Children.Add(Pane.Docked(new DockPanel
+        Children.Add(Pane.Docked(Header = new DockPanel
         {
             Margin = new Thickness(14, 10, 10, 6),
             Height = 28,
@@ -257,17 +270,16 @@ sealed class RecordingsPanel : DockPanel
             detail.Add(r.Problem);
         }
 
-        var title = new StackPanel
+        // A dock panel, not a horizontal stack, so the name gets only the room left of the badge and ends in "…".
+        var title = new DockPanel
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
             Children = { new TextBlock { Text = r.Title, TextTrimming = TextTrimming.CharacterEllipsis } },
         };
         if (recording)
         {
-            var dot = new Ellipse { Width = 7, Height = 7, Fill = SessionTab.RecordingBrush, VerticalAlignment = VerticalAlignment.Center };
+            var dot = new Ellipse { Width = 7, Height = 7, Fill = SessionTab.RecordingBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
             ToolTip.SetTip(dot, "Being recorded now");
-            title.Children.Insert(0, dot);
+            title.Children.Insert(0, Pane.Docked(dot, Dock.Left));
         }
 
         return new DockPanel
@@ -416,7 +428,15 @@ sealed class RecordingsPanel : DockPanel
 
     async Task DeleteAsync()
     {
-        if (Selected is not { } item || Owner is not { } owner)
+        if (Selected is { } item)
+        {
+            await DeleteAsync(item);
+        }
+    }
+
+    async Task DeleteAsync(RecordingItem item)
+    {
+        if (Owner is not { } owner)
         {
             return;
         }

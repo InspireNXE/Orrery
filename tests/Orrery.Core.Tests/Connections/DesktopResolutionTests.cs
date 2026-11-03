@@ -77,6 +77,27 @@ public class DesktopResolutionTests
     }
 
     [Fact]
+    public void Where_web_pages_open_follows_the_app_setting_until_a_folder_or_connection_chooses()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Network" };
+        var entry = new ConnectionEntry { Name = "router", Host = "router.lan", Settings = { Protocol = Protocol.Https } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        Assert.True(SettingsResolver.Resolve(entry).WebPagesInOrrery.IsDefault);
+        Assert.True(SettingsResolver.Resolve(entry).InOrrery(appSetting: true));
+        Assert.False(SettingsResolver.Resolve(entry).InOrrery(appSetting: false));
+
+        folder.Settings.WebPagesInOrrery = false;
+        Assert.False(SettingsResolver.Resolve(entry).InOrrery(appSetting: true));
+        Assert.Same(folder, SettingsResolver.Resolve(entry).WebPagesInOrrery.Source);
+
+        entry.Settings.WebPagesInOrrery = true;
+        Assert.True(SettingsResolver.Resolve(entry).InOrrery(appSetting: false));
+    }
+
+    [Fact]
     public void Color_correction_follows_the_app_setting_until_a_folder_or_connection_turns_it_off()
     {
         var tree = ConnectionTree.Empty();

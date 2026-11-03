@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Microsoft.Extensions.Logging;
 using Orrery.Core.Diagnostics;
+using Orrery.App.Sessions;
 using Orrery.Core.Recording;
 using SkiaSharp;
 
@@ -134,6 +135,22 @@ static class RecordingExport
         }
     }
 
+    /// <summary>
+    /// For a recording whose pictures carry a color correction already (a web page's, recorded as shown), what puts
+    /// them back to the page's own colors, so an export has them as every other recording does; else null.
+    /// </summary>
+    internal static Action<byte[]>? NativeColors(string path, byte[] privateKey)
+    {
+        using var reader = RecordingReader.Open(path, privateKey);
+        var info = reader.Events().Take(4).FirstOrDefault(e => e.Type == RecordingEventType.Info) is { } e ? RecordingFile.ReadInfo(e.Payload) : null;
+        if (info?.CorrectedFor is not { } vision || ColorCorrection.Between(ColorCorrection.For(vision, info.CorrectedStrength ?? 100), null) is not { } undo)
+        {
+            return null;
+        }
+
+        return rgb => undo.ApplyRgb(rgb);
+    }
+
     // Each returns a problem to show, or null; a canceled export deletes what it wrote.
     static string? ExportAvi(string path, byte[] privateKey, string output, int framesPerSecond, bool skipIdle, ExportProgressWindow progress)
     {
@@ -164,7 +181,7 @@ static class RecordingExport
             var rgba = new byte[width * height * 4];
             byte[]? lastJpeg = null;
             int index = 0;
-            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound))
+            foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound, recolor: NativeColors(path, privateKey)))
             {
                 if (avi!.IsFull)
                 {
@@ -213,7 +230,7 @@ static class RecordingExport
         try
         {
             using var reader = RecordingReader.Open(path, privateKey);
-            MediaFoundation.Export(reader, codec, output, framesPerSecond, skipIdle, progress.Report, progress.Token);
+            MediaFoundation.Export(reader, codec, output, framesPerSecond, skipIdle, progress.Report, progress.Token, NativeColors(path, privateKey));
             return reader.Ending == RecordingEnding.Damaged ? "Part of the recording couldn't be read, so the video stops where that part starts." : null;
         }
         catch (VideoEncoderException e)
@@ -258,7 +275,8 @@ static class RecordingExport
             int index = 0;
             try
             {
-                foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound, steadySound: true))
+                foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound, steadySound: true,
+                    recolor: NativeColors(path, privateKey)))
                 {
                     input.Write(frame.Rgb);
                     soundPipe?.Write(frame.Sound);
