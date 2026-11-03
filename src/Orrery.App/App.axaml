@@ -123,6 +123,19 @@
       </FluentTheme.Palettes>
     </FluentTheme>
 
+    <!-- Keyboard focus: a 2 px blue ring just outside the control (rounded for the usual 6 px corners), apart from any selection fill or marker. Fluent's is a
+         square white box on the control's own edge, which covers the edge of its text. -->
+    <Style Selector="AdornerLayer">
+      <Setter Property="DefaultFocusAdorner">
+        <FocusAdornerTemplate>
+          <!-- In a panel: the layer sizes the panel to the control, and the ring reaches 3 px past it, unclipped. -->
+          <Panel AdornerLayer.IsClipEnabled="False">
+            <Border BorderThickness="2" BorderBrush="{DynamicResource OrreryAccent}" CornerRadius="9" Margin="-3" />
+          </Panel>
+        </FocusAdornerTemplate>
+      </Setter>
+    </Style>
+
     <Style Selector="TextBlock.section">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="FontWeight" Value="SemiBold" />
@@ -289,6 +302,16 @@
             <Border Name="PART_Marker" Classes="marker" Margin="0" />
           </Panel>
         </ControlTemplate>
+      </Setter>
+    </Style>
+    <!-- The focus ring, 3 px out from the button's 8 px corners. -->
+    <Style Selector="Button.rail">
+      <Setter Property="FocusAdorner">
+        <FocusAdornerTemplate>
+          <Panel AdornerLayer.IsClipEnabled="False">
+            <Border BorderThickness="2" BorderBrush="{DynamicResource OrreryAccent}" CornerRadius="11" Margin="-3" />
+          </Panel>
+        </FocusAdornerTemplate>
       </Setter>
     </Style>
     <Style Selector="Button.rail.active">
