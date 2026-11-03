@@ -99,10 +99,11 @@ public partial class MainWindow
     bool InspectorDocked => _inspectorMode == PaneMode.Expanded && !_inspectorHiddenForNow;
 
     /// <summary>
-    /// A web page is showing. It's drawn in a window of its own that nothing of Orrery's can be drawn over, so a pane
-    /// opened over it would only blank it; panes open beside it instead, and the page narrows to fit.
+    /// A web page is showing that's drawn in a window of its own, which nothing of Orrery's can be drawn over (Linux
+    /// and macOS), so a pane opened over it would only blank it; panes open beside it instead, and the page narrows to
+    /// fit. On Windows the page is part of Orrery's picture and panes open over it as over any session.
     /// </summary>
-    bool WebPageShowing => _currentTab?.View is WebPageView && !_recordingsShown;
+    bool WebPageShowing => _currentTab?.View is WebPageView && !WebPageView.DrawnInOrrery && !_recordingsShown;
 
     /// <summary>Puts each pane where its mode and the sessions say: beside them, over them, or away.</summary>
     void ApplyPanes()

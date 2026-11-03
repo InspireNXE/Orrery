@@ -164,6 +164,10 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
   *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.
+- **Web tabs** have back, forward and reload, and Print and Save as PDF under More. Links meant for a new window open
+  in a tab beside the page; a page's own pop-up, such as a sign-in, opens as a pop-up. An untrusted certificate shows
+  the engine's warning, with a way past it, and the tab says the page didn't load. The lock before the address is
+  closed only for HTTPS (and SSH and RDP); plain HTTP, Telnet and VNC show it open, in amber.
 
 <p align="center">
   <img src="docs/images/connection-lost.png" width="720"
@@ -188,8 +192,8 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
   button.
 - **Pane layouts** (Settings › General, or the pin in each pane's header), for the side panel and the properties
   pane: Pinned docks it; Over the session leaves a strip and opens over the sessions; Hidden leaves no strip (the
-  window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; over
-  a web page it opens beside it, since nothing can be drawn over the page. Drag a pane's inner edge to resize it.
+  window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; on
+  Linux and macOS it opens beside a web page, since nothing can be drawn over the page there. Drag a pane's inner edge to resize it.
 - **Last connected** shows in the properties pane ("3 days ago", exact time on hover), with a newer failed attempt
   if there was one.
 

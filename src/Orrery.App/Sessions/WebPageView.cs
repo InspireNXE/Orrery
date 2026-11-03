@@ -15,6 +15,31 @@ namespace Orrery.App.Sessions;
 /// </summary>
 sealed class WebPageView : Panel
 {
+    /// <summary>The made-up address a link meant for a new tab is sent to, so the page can be told apart from it.</summary>
+    internal const string NewTabScheme = "orrery-tab";
+
+    /// <summary>
+    /// Drawn in Orrery's picture, WebView2 doesn't pass on its requests for new windows and opens them as windows of its
+    /// own. That suits a script's pop-up, such as a sign-in that reports back to the page that opened it, but not a
+    /// link: a link meant for a new tab (target=_blank, or a Ctrl- or middle-click) is sent to <see cref="NewTabScheme"/>
+    /// instead, which is turned back into a tab here.
+    /// </summary>
+    const string NewTabLinks = """
+        if (!window.__orreryTabs) {
+          window.__orreryTabs = true;
+          const open = (e, always) => {
+            if (e.defaultPrevented) return;
+            const a = e.target && e.target.closest && e.target.closest('a[href]');
+            if (!a || !/^https?:/.test(a.href)) return;
+            if (!always && !/^_(blank|new)$/i.test(a.target || '')) return;
+            e.preventDefault();
+            location.href = 'orrery-tab:' + encodeURIComponent(a.href);
+          };
+          window.addEventListener('click', e => { if (e.button === 0) open(e, e.ctrlKey || e.metaKey); });
+          window.addEventListener('auxclick', e => { if (e.button === 1) open(e, true); });
+        }
+        """;
+
     readonly NativeWebView _web = new() { Background = new SolidColorBrush(Color.Parse("#0B0D10")) };
     bool _covered;
     static bool? _engineAvailable;
@@ -32,6 +57,12 @@ sealed class WebPageView : Panel
         return true;
     }
 
+    /// <summary>
+    /// Whether the page is drawn as part of Orrery's window, as on Windows, rather than as a window of its own laid
+    /// over it. A page drawn over Orrery has to be hidden whenever Orrery draws something on top of it.
+    /// </summary>
+    public static bool DrawnInOrrery => OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("ORRERY_WEB_OFFSCREEN") != "0";
+
     /// <param name="dataFolder">Where the engine keeps cookies, sign-ins and its cache.</param>
     public WebPageView(Uri url, string dataFolder)
     {
@@ -45,6 +76,9 @@ sealed class WebPageView : Panel
                     // By default WebView2 keeps its data beside the program, which for a portable copy means
                     // writing into the app's own folder.
                     windows.UserDataFolder = dataFolder;
+                    // Drawn into Orrery's own picture rather than as a window over it, so menus, Settings and panes
+                    // opened over the session draw on top of the page instead of the page stepping aside for them.
+                    windows.ExperimentalOffscreen = DrawnInOrrery;
                     break;
                 case GtkWebViewEnvironmentRequestedEventArgs gtk:
                     gtk.BaseDataDirectory = Path.Combine(dataFolder, "data");
@@ -56,6 +90,18 @@ sealed class WebPageView : Panel
         };
         _web.NavigationStarted += (_, e) =>
         {
+            if (e.Request is { Scheme: NewTabScheme } tab)
+            {
+                e.Cancel = true;
+                if (Uri.TryCreate(Uri.UnescapeDataString(tab.OriginalString[(NewTabScheme.Length + 1)..]), UriKind.Absolute, out var link)
+                    && (link.Scheme == Uri.UriSchemeHttp || link.Scheme == Uri.UriSchemeHttps))
+                {
+                    NewWindowRequested?.Invoke(this, link);
+                }
+
+                return;
+            }
+
             if (e.Request is { } request)
             {
                 Address = request;
@@ -72,15 +118,22 @@ sealed class WebPageView : Panel
             }
 
             Loading = false;
+            Failed = !e.IsSuccess;
             Changed?.Invoke(this, EventArgs.Empty);
+            if (DrawnInOrrery && e.IsSuccess)
+            {
+                // A page that's gone by the time it runs is no loss.
+                _web.InvokeScript(NewTabLinks).ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            }
         };
-        // A link that asks for a new window opens here instead: a tab of its own would have no connection behind it.
+        // A link or script that asks for a new window gets a tab of its own, as in a browser, rather than a bare
+        // window outside Orrery.
         _web.NewWindowRequested += (_, e) =>
         {
             e.Handled = true;
             if (e.Request is { } request)
             {
-                _web.Navigate(request);
+                NewWindowRequested?.Invoke(this, request);
             }
         };
         _web.Source = url;
@@ -92,6 +145,12 @@ sealed class WebPageView : Panel
 
     public bool Loading { get; private set; } = true;
 
+    /// <summary>
+    /// The last page didn't load: the site couldn't be reached, or its certificate isn't trusted. The engine shows
+    /// why in the page, with a way past an untrusted certificate.
+    /// </summary>
+    public bool Failed { get; private set; }
+
     public bool CanGoBack => _web.CanGoBack;
 
     public bool CanGoForward => _web.CanGoForward;
@@ -99,9 +158,12 @@ sealed class WebPageView : Panel
     /// <summary>The page moved, finished loading, or can now go back or forward.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>The page asked to open this address in a new window.</summary>
+    public event EventHandler<Uri>? NewWindowRequested;
+
     /// <summary>
     /// Whether something Orrery draws lies over the page (Settings, a pane opened over the session, quick connect's
-    /// dimming). The engine's view is a window of its own, drawn above everything in Orrery's, so it steps aside.
+    /// dimming). Where the engine's view is a window of its own, drawn above everything in Orrery's, it steps aside.
     /// </summary>
     public bool Covered
     {
@@ -109,13 +171,19 @@ sealed class WebPageView : Panel
         set
         {
             _covered = value;
-            _web.IsVisible = !value;
+            _web.IsVisible = !value || DrawnInOrrery;
         }
     }
 
     public void GoBack() => _web.GoBack();
 
     public void GoForward() => _web.GoForward();
+
+    /// <summary>The engine's own print preview, over the page.</summary>
+    public void Print() => _web.ShowPrintUI();
+
+    /// <summary>The page laid out for printing, as a PDF.</summary>
+    public Task<Stream> PdfAsync() => _web.PrintToPdfStreamAsync();
 
     public void Reload()
     {
