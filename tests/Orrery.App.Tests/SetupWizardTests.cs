@@ -289,6 +289,26 @@ public class SetupWizardTests : IDisposable
         window.Close();
     }
 
+    [AvaloniaFact]
+    public async Task A_password_protected_file_says_its_password_comes_after_setup()
+    {
+        Directory.CreateDirectory(_dir);
+        var sealedFile = Path.Combine(_dir, "sealed.json");
+        var plainFile = Path.Combine(_dir, "plain.json");
+        File.WriteAllText(sealedFile, $$"""{"format":"{{Orrery.Core.Export.SealedExport.FormatName}}"}""");
+        File.WriteAllText(plainFile, "{}");
+        var window = Open(portable: null, keychain: null, found: []);
+        window.GoTo(SetupStep.Import);
+
+        window.AddFile(sealedFile);
+        window.AddFile(plainFile);
+        await window.PasswordChecks;
+
+        Assert.Contains(("Import", "Orrery export (needs its password), Orrery export"), window.Summary());
+        Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == SetupWizard.ProtectedNote);
+        window.Close();
+    }
+
     // ---- When setup runs ----
 
     [Fact]

@@ -62,6 +62,10 @@ sealed class SetupWizard : Window
     readonly List<(FoundImport File, ToggleSwitch Toggle, bool Found)> _imports = [];
     readonly StackPanel _importRows = new() { Spacing = 12 };
 
+    // Files chosen for import that will ask for a password once setup is done, found out in the background.
+    readonly HashSet<string> _needsPassword = new(StringComparer.OrdinalIgnoreCase);
+    readonly List<Task> _passwordChecks = [];
+
     readonly ToggleSwitch _updateChecks = Switch();
     readonly RadioButton _ask = new() { Content = "Ask me", GroupName = "WhenUpdateFound" };
     readonly RadioButton _download = new() { Content = "Download it", GroupName = "WhenUpdateFound" };
@@ -610,15 +614,36 @@ sealed class SetupWizard : Window
         AutomationProperties.SetName(toggle, $"Import {file.Kind}");
         AutomationProperties.SetHelpText(toggle, file.Path);
         _imports.Add((file, toggle, isFound));
+        var described = (StackPanel)Described(file.Kind, file.Path, mono: true);
         _importRows.Children.Add(new DockPanel
         {
             Children =
             {
                 Pane.Docked(toggle, Dock.Right),
-                Described(file.Kind, file.Path, mono: true),
+                described,
             },
         });
+
+        // Only whether it's protected, so the prompt after setup isn't a surprise; the password is asked for there.
+        _passwordChecks.Add(CheckForPasswordAsync(file.Path, described, toggle));
     }
+
+    async Task CheckForPasswordAsync(string path, StackPanel described, ToggleSwitch toggle)
+    {
+        if (!await Task.Run(() => ImportSources.NeedsPassword(path)))
+        {
+            return;
+        }
+
+        _needsPassword.Add(path);
+        described.Children.Add(Note(ProtectedNote));
+        AutomationProperties.SetHelpText(toggle, $"{path}. {ProtectedNote}");
+    }
+
+    internal const string ProtectedNote = "Password-protected. You'll be asked for it after setup.";
+
+    /// <summary>The background checks for password-protected files, for tests to wait on.</summary>
+    internal Task PasswordChecks => Task.WhenAll(_passwordChecks);
 
     // ---- Updates ----
 
@@ -672,7 +697,8 @@ sealed class SetupWizard : Window
         }
 
         rows.Add(("Passwords", choices.Passwords == CredentialStoreKind.OsKeychain ? KeychainTitle(_keychainName!) : "Encrypted vault"));
-        var imports = _imports.Where(i => i.Toggle.IsChecked == true).Select(i => i.File.Kind).ToList();
+        var imports = _imports.Where(i => i.Toggle.IsChecked == true)
+            .Select(i => _needsPassword.Contains(i.File.Path) ? $"{i.File.Kind} (needs its password)" : i.File.Kind).ToList();
         rows.Add(("Import", imports.Count > 0 ? string.Join(", ", imports) : "Nothing"));
         rows.Add(("Updates", !choices.UpdateChecks ? "Not checked automatically"
             : choices.WhenUpdateFound == UpdateAction.Ask ? "Checked daily; ask me" : "Checked daily; download it"));

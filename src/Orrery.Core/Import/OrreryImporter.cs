@@ -24,6 +24,29 @@ public static class OrreryImporter
         return Import(stream, Path.GetFileName(path), password);
     }
 
+    /// <summary>
+    /// Whether the file at <paramref name="path"/> is an export sealed with a password (it holds saved passwords), so
+    /// importing it will ask for one. Nothing is decrypted. False for a file that can't be read or isn't an export.
+    /// </summary>
+    public static bool IsSealedFile(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            if (stream.Length > MaxFileBytes)
+            {
+                return false;
+            }
+
+            using var document = JsonDocument.Parse(stream, DocumentOptions);
+            return SealedExport.IsSealed(document.RootElement);
+        }
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <param name="password">Opens an export sealed because it holds saved passwords and keys (<see cref="SealedExport"/>).</param>
     /// <exception cref="MasterPasswordRequiredException">The file is sealed, and <paramref name="password"/> is missing or wrong.</exception>
     public static ImportResult Import(Stream json, string sourceName, string? password = null)

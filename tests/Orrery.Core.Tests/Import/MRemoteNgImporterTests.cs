@@ -149,6 +149,30 @@ public class MRemoteNgImporterTests
         Assert.Equal(2, result.Report.Protocols["HTTPS"]);
     }
 
+    [Fact]
+    public void Whether_a_file_needs_its_master_password_is_known_without_it()
+    {
+        var dir = Directory.CreateTempSubdirectory("orrery-tests-").FullName;
+        try
+        {
+            string Saved(string name, object content)
+            {
+                var path = Path.Combine(dir, name);
+                System.IO.File.WriteAllText(path, content.ToString());
+                return path;
+            }
+
+            Assert.True(MRemoteNgImporter.NeedsMasterPassword(Saved("own.xml", File(InheritingTree("hunter2"), password: "hunter2"))));
+            Assert.False(MRemoteNgImporter.NeedsMasterPassword(Saved("default.xml", File(InheritingTree()))));
+            Assert.False(MRemoteNgImporter.NeedsMasterPassword(Saved("other.xml", "<Something />")));
+            Assert.False(MRemoteNgImporter.NeedsMasterPassword(Path.Combine(dir, "missing.xml")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     // ---- Generated files ----
 
     static XElement Node(string name, string type, params object[] content) =>
