@@ -51,7 +51,7 @@ public class LocalTerminalLogTests : IDisposable
             };
 
             if (session.State == SessionState.Connected) connected.TrySetResult();
-            await connected.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await connected.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             process = Process.GetProcessById(session.ProcessId!.Value);
             if (OperatingSystem.IsWindows())
             {
@@ -59,9 +59,9 @@ public class LocalTerminalLogTests : IDisposable
             }
 
             session.Send(Encoding.UTF8.GetBytes($"echo {Typed}\r"));
-            await seen.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await seen.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             session.Send("exit 0\r"u8);
-            await ended.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await ended.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
         finally
         {

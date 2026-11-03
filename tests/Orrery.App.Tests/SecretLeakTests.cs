@@ -71,13 +71,13 @@ public class SecretLeakTests : IDisposable
                 vault.Lock();
 
                 // Biometric unlock: turned on (after a wrong password), used, then turned off by the password change.
-                await Assert.ThrowsAsync<WrongVaultPasswordException>(() => biometric.TurnOnAsync(vault, WrongPassword));
-                await biometric.TurnOnAsync(vault, MasterPassword);
-                Assert.Equal(BiometricOutcome.Done, (await biometric.UnlockAsync(vault)).Outcome);
+                await Assert.ThrowsAsync<WrongVaultPasswordException>(() => biometric.TurnOnAsync(vault, WrongPassword, cancel: TestContext.Current.CancellationToken));
+                await biometric.TurnOnAsync(vault, MasterPassword, cancel: TestContext.Current.CancellationToken);
+                Assert.Equal(BiometricOutcome.Done, (await biometric.UnlockAsync(vault, cancel: TestContext.Current.CancellationToken)).Outcome);
                 dataKeys.Add((await vault.DataKeyForAsync(MasterPassword)).DataKey);
                 await vault.ChangePasswordAsync(MasterPassword, NewMasterPassword);
                 vault.Lock();
-                Assert.Equal(BiometricOutcome.TurnedOff, (await biometric.UnlockAsync(vault)).Outcome);
+                Assert.Equal(BiometricOutcome.TurnedOff, (await biometric.UnlockAsync(vault, cancel: TestContext.Current.CancellationToken)).Outcome);
                 dataKeys.Add((await vault.DataKeyForAsync(NewMasterPassword)).DataKey);
             }
 

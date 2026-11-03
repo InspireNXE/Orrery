@@ -111,7 +111,7 @@ public class WorkspaceRestorerTests
         var opened = await WorkspaceRestorer.OpenAllAsync<string>([Tab("a"), Tab("b"), Tab("c")],
             tab => { events.Add("open " + tab.Host); return Task.FromResult<string?>(tab.Host); },
             TimeSpan.FromMilliseconds(400),
-            (span, _) => { events.Add($"wait {span.TotalMilliseconds}"); return Task.CompletedTask; });
+            (span, _) => { events.Add($"wait {span.TotalMilliseconds}"); return Task.CompletedTask; }, TestContext.Current.CancellationToken);
 
         Assert.Equal(["open a", "wait 400", "open b", "wait 400", "open c"], events);
         Assert.Equal<IEnumerable<string?>>(["a", "b", "c"], opened);
@@ -127,7 +127,7 @@ public class WorkspaceRestorerTests
                 "declined" => Task.FromResult<string?>(null),
                 _ => Task.FromResult<string?>(tab.Host),
             },
-            TimeSpan.Zero, (_, _) => Task.CompletedTask);
+            TimeSpan.Zero, (_, _) => Task.CompletedTask, TestContext.Current.CancellationToken);
 
         Assert.Equal<IEnumerable<string?>>(["a", null, null, "d"], opened);
     }

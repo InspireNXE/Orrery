@@ -271,9 +271,9 @@ public class HostStatusUiTests : IDisposable
         AppLog.Start(location);
         try
         {
-            await monitor.CheckAsync(targets, TimeSpan.Zero, default);
+            await monitor.CheckAsync(targets, TimeSpan.Zero, TestContext.Current.CancellationToken);
             AppLog.Detailed = true;
-            await monitor.CheckAsync([new ProbeTarget(Guid.NewGuid(), "loud.example", 22)], TimeSpan.Zero, default);
+            await monitor.CheckAsync([new ProbeTarget(Guid.NewGuid(), "loud.example", 22)], TimeSpan.Zero, TestContext.Current.CancellationToken);
         }
         finally
         {

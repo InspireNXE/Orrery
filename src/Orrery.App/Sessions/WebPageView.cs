@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -149,25 +150,32 @@ sealed class WebPageView : Panel
         };
         if (OperatingSystem.IsWindows())
         {
-            _web.AdapterCreated += (_, e) =>
-            {
-                if (e.TryGetPlatformHandle() is IWindowsWebView2PlatformHandle handle)
-                {
-                    _keys?.Dispose();
-                    _keys = WebView2Keys.Watch(handle.CoreWebView2Controller, Offer);
-                    Frames.Connect(handle.CoreWebView2);
-                }
-            };
-            _web.AdapterDestroyed += (_, _) =>
-            {
-                _keys?.Dispose();
-                _keys = null;
-                Frames.Disconnect();
-            };
+            WatchWebView2();
         }
 
         _web.Source = url;
         Children.Add(_web);
+    }
+
+    /// <summary>Takes WebView2's keys and frames once its controller exists, and lets them go with it.</summary>
+    [SupportedOSPlatform("windows")]
+    void WatchWebView2()
+    {
+        _web.AdapterCreated += (_, e) =>
+        {
+            if (e.TryGetPlatformHandle() is IWindowsWebView2PlatformHandle handle)
+            {
+                _keys?.Dispose();
+                _keys = WebView2Keys.Watch(handle.CoreWebView2Controller, Offer);
+                Frames.Connect(handle.CoreWebView2);
+            }
+        };
+        _web.AdapterDestroyed += (_, _) =>
+        {
+            _keys?.Dispose();
+            _keys = null;
+            Frames.Disconnect();
+        };
     }
 
     /// <summary>
