@@ -1,5 +1,6 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="using:Avalonia.Controls.Converters"
              x:Class="Orrery.App.App"
              RequestedThemeVariant="Dark">
   <Application.Resources>
@@ -10,8 +11,15 @@
     <SolidColorBrush x:Key="OrreryRaised" Color="#181B21" />
     <SolidColorBrush x:Key="OrreryBorder" Color="#23272F" />
     <SolidColorBrush x:Key="OrreryControlBorder" Color="#2A2F38" />
-    <SolidColorBrush x:Key="OrreryHover" Color="#1F232B" />
-    <SolidColorBrush x:Key="OrrerySelected" Color="#232833" />
+    <!-- The three fills a row, rail button, tab or segment can have. Nothing else picks its own gray for these. -->
+    <Color x:Key="OrreryHoverColor">#1C2028</Color>
+    <Color x:Key="OrrerySelectedColor">#232833</Color>
+    <Color x:Key="OrrerySelectedHoverColor">#282E3A</Color>
+    <SolidColorBrush x:Key="OrreryHover" Color="{StaticResource OrreryHoverColor}" />
+    <SolidColorBrush x:Key="OrrerySelected" Color="{StaticResource OrrerySelectedColor}" />
+    <SolidColorBrush x:Key="OrrerySelectedHover" Color="{StaticResource OrrerySelectedHoverColor}" />
+    <!-- The selection marker in a list that doesn't have the focus. -->
+    <SolidColorBrush x:Key="OrreryMarkerIdle" Color="#5B6372" />
     <SolidColorBrush x:Key="OrreryText" Color="#E6E8EC" />
     <SolidColorBrush x:Key="OrrerySoftText" Color="#C3C9D3" />
     <SolidColorBrush x:Key="OrreryMuted" Color="#9AA3B2" />
@@ -40,8 +48,8 @@
     <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#5B6372" />
     <!-- The window buttons Avalonia draws: minimize and maximize light up in the app's hover color, and pressed,
          Fluent's light gray would hide their white glyphs. Close keeps its red. -->
-    <SolidColorBrush x:Key="CaptionButtonBackground" Color="#1F232B" />
-    <SolidColorBrush x:Key="CaptionButtonBorderBrush" Color="#232833" />
+    <SolidColorBrush x:Key="CaptionButtonBackground" Color="{StaticResource OrreryHoverColor}" />
+    <SolidColorBrush x:Key="CaptionButtonBorderBrush" Color="{StaticResource OrrerySelectedColor}" />
     <SolidColorBrush x:Key="AccentButtonBackground" Color="#5B9DFF" />
     <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#76AEFF" />
     <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#4A8AE8" />
@@ -80,7 +88,7 @@
     <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="#9AA3B2" />
     <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#181B21" />
     <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#2F3540" />
-    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="#232833" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="{StaticResource OrrerySelectedColor}" />
     <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="#1E222B" />
     <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="#C3C9D3" />
     <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#E6E8EC" />
@@ -209,20 +217,81 @@
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
-    <Style Selector="Button.icon.active">
-      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
-      <Setter Property="Foreground" Value="{DynamicResource OrreryAccent}" />
-    </Style>
     <!-- Small square icon buttons beside the tabs and in the session toolbar. -->
     <Style Selector="Button.small">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="28" />
       <Setter Property="CornerRadius" Value="6" />
     </Style>
+
+    <!-- Where you are: everything you navigate (the rail, the tree, side lists, settings pages, quick connect, session
+         tabs) shows its current item with the selected fill and this blue marker. The marker's place says "this one"
+         without relying on its color, and it goes gray while its list doesn't have the focus. Toggle groups use
+         Button.segment instead, and never the marker. -->
+    <Style Selector="Border.marker">
+      <Setter Property="Width" Value="3" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="CornerRadius" Value="2" />
+      <Setter Property="Margin" Value="4,0,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource OrreryAccent}" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <!-- On a tab the marker lies along the top, over the tab's outline. -->
+    <Style Selector="Border.marker.top">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="3" />
+      <Setter Property="Margin" Value="0,-1,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <!-- A row built in code (quick connect's results): a Border.row holding a Border.marker. -->
+    <Style Selector="Border.row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Border.row.selected">
+      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
+    </Style>
+    <Style Selector="Border.row.selected Border.marker">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+
+    <!-- The rail: the open panel's button has the selected fill, the marker on its left edge and a blue icon. -->
     <Style Selector="Button.rail">
       <Setter Property="Width" Value="44" />
       <Setter Property="Height" Value="44" />
       <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Background="{TemplateBinding Background}"
+                              BorderBrush="{TemplateBinding BorderBrush}"
+                              BorderThickness="{TemplateBinding BorderThickness}"
+                              CornerRadius="{TemplateBinding CornerRadius}"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+            <Border Name="PART_Marker" Classes="marker" Margin="0" />
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.rail.active">
+      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
+      <Setter Property="Foreground" Value="{DynamicResource OrreryAccent}" />
+    </Style>
+    <Style Selector="Button.rail.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource OrrerySelectedHover}" />
+      <Setter Property="Foreground" Value="{DynamicResource OrreryAccent}" />
+    </Style>
+    <Style Selector="Button.rail.active /template/ Border#PART_Marker">
+      <Setter Property="IsVisible" Value="True" />
     </Style>
 
     <!-- The title bar's quick connect box: a button that looks like a search field. -->
@@ -236,38 +305,42 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Button.search:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#1D2027" />
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
       <Setter Property="BorderBrush" Value="#353B46" />
       <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
     </Style>
 
-    <!-- Session tabs: open on the session below, with an accent line along the top of the current one. -->
+    <!-- Session tabs: open on the session below, with the marker along the top of the current one. Every tab has the
+         same outline and overlap, only drawn on the current one, so choosing a tab moves nothing. -->
     <Style Selector="Button.tab">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1,1,1,0" />
       <Setter Property="CornerRadius" Value="8,8,0,0" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="Height" Value="32" />
+      <Setter Property="Margin" Value="0,0,0,-1" />
       <Setter Property="VerticalAlignment" Value="Bottom" />
       <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
       <Setter Property="FontSize" Value="13" />
     </Style>
     <Style Selector="Button.tab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#191C22" />
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
     </Style>
     <Style Selector="Button.tab.selected">
-      <Setter Property="Height" Value="34" />
       <Setter Property="Background" Value="{StaticResource OrreryBackground}" />
       <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
-      <Setter Property="BorderThickness" Value="1,1,1,0" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
-      <Setter Property="Margin" Value="0,0,0,-1" />
     </Style>
     <Style Selector="Button.tab.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrreryBackground}" />
       <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
+    </Style>
+    <Style Selector="Button.tab.selected Border.marker">
+      <Setter Property="IsVisible" Value="True" />
     </Style>
     <Style Selector="Button.tabclose">
       <Setter Property="Width" Value="20" />
@@ -290,10 +363,18 @@
     <Style Selector="Button.setting:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
-    <!-- The settings pane's tabs: Saved settings and This session, side by side in a dark strip. -->
+    <!-- Which option is on: toggle groups (the settings pane's Saved settings and This session, the frame rates) side by
+         side in a dark strip. The one that's on has the selected fill and a hairline, never the marker, and keeps its
+         weight; the hairline is there, unseen, on every segment so none changes size. -->
+    <Style Selector="Border.segments">
+      <Setter Property="Background" Value="{StaticResource OrreryBackground}" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="3" />
+    </Style>
     <Style Selector="Button.segment">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="MinHeight" Value="28" />
       <Setter Property="Height" Value="28" />
@@ -303,16 +384,18 @@
       <Setter Property="Foreground" Value="{StaticResource OrreryMuted}" />
     </Style>
     <Style Selector="Button.segment:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#191D24" />
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
     <Style Selector="Button.segment.selected">
-      <Setter Property="Background" Value="#222833" />
+      <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="Button.segment.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#222833" />
+      <Setter Property="Background" Value="{StaticResource OrrerySelectedHover}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
     </Style>
     <!-- A text-only action, such as "Use that instead". -->
     <Style Selector="Button.link">
@@ -330,29 +413,78 @@
       <Setter Property="Foreground" Value="#B9D0FF" />
     </Style>
 
-    <!-- Connection tree rows: rounded, with an accent edge on the selected row.
-         Rows have no border. The accent edge and the drop lines are inset shadows, so no state changes a row's
-         size or moves its text. (Avalonia draws shadows only on a border that's even all round.) -->
+    <!-- Connection tree rows: rounded, with the selected fill and the marker on selected rows.
+         Fluent's row, with the marker added at the row's left edge, before the indent. Rows have no border, and the
+         drop lines are inset shadows, so no state changes a row's size or moves its text. (Avalonia draws shadows only
+         on a border that's even all round.) -->
     <Style Selector="TreeView#Tree TreeViewItem">
-      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="MinHeight" Value="32" />
       <Setter Property="FontSize" Value="13" />
       <Setter Property="Padding" Value="0" />
-      <!-- On the item, which the theme's template binds the row's border to; a setter on the row loses to that. -->
+      <!-- On the item, which the template binds the row's border to; a setter on the row loses to that. -->
       <Setter Property="BorderThickness" Value="0" />
-    </Style>
-    <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot">
       <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <StackPanel>
+            <Border Name="PART_LayoutRoot"
+                    Classes="TreeViewItemLayoutRoot"
+                    Focusable="True"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    MinHeight="{TemplateBinding MinHeight}"
+                    TemplatedControl.IsTemplateFocusTarget="True">
+              <Panel>
+                <Grid Name="PART_Header" ColumnDefinitions="Auto, *">
+                  <Grid.Margin>
+                    <MultiBinding Converter="{x:Static converters:TreeViewItemIndentConverter.Instance}">
+                      <Binding Path="Level" RelativeSource="{RelativeSource TemplatedParent}" />
+                      <DynamicResource ResourceKey="TreeViewItemIndent" />
+                    </MultiBinding>
+                  </Grid.Margin>
+                  <Panel Name="PART_ExpandCollapseChevronContainer"
+                         Margin="{StaticResource TreeViewItemExpandCollapseChevronMargin}">
+                    <ToggleButton Name="PART_ExpandCollapseChevron"
+                                  Theme="{StaticResource FluentTreeViewExpandCollapseChevron}"
+                                  Focusable="False"
+                                  IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
+                  </Panel>
+                  <ContentPresenter Name="PART_HeaderPresenter"
+                                    Grid.Column="1"
+                                    Focusable="False"
+                                    Background="Transparent"
+                                    Content="{TemplateBinding Header}"
+                                    ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                    HorizontalAlignment="{TemplateBinding HorizontalAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalAlignment}"
+                                    Margin="{TemplateBinding Padding}" />
+                </Grid>
+                <Border Name="PART_Marker" Classes="marker" />
+              </Panel>
+            </Border>
+            <ItemsPresenter Name="PART_ItemsPresenter"
+                            IsVisible="{TemplateBinding IsExpanded}"
+                            ItemsPanel="{TemplateBinding ItemsPanel}" />
+          </StackPanel>
+        </ControlTemplate>
+      </Setter>
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem /template/ Border#PART_LayoutRoot:pointerover">
-      <Setter Property="Background" Value="#1A1D23" />
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot">
       <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
-      <Setter Property="BoxShadow" Value="inset 2 0 0 0 #5B9DFF" />
     </Style>
     <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_LayoutRoot:pointerover">
-      <Setter Property="Background" Value="#262C38" />
+      <Setter Property="Background" Value="{StaticResource OrrerySelectedHover}" />
+    </Style>
+    <Style Selector="TreeView#Tree TreeViewItem:selected /template/ Border#PART_Marker">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="TreeView#Tree:not(:focus-within) TreeViewItem:selected /template/ Border#PART_Marker">
+      <Setter Property="Background" Value="{StaticResource OrreryMarkerIdle}" />
     </Style>
     <!-- Where a dragged row will land: a line above or below the row, or the row lit up to go into it. -->
     <Style Selector="TreeView#Tree TreeViewItem.drop-before /template/ Border#PART_LayoutRoot">
@@ -378,26 +510,46 @@
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
 
-    <!-- Lists in the side panel (credentials, recent) match the connection tree's rows. -->
+    <!-- Lists in the side panel (credentials, recent, recordings, settings pages) match the connection tree's rows. -->
     <Style Selector="ListBox.side ListBoxItem">
-      <Setter Property="Padding" Value="10,2,8,2" />
-      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="Padding" Value="14,2,8,2" />
+      <Setter Property="MinHeight" Value="32" />
       <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="2,0,0,0" />
       <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Background="{TemplateBinding Background}"
+                              BorderBrush="{TemplateBinding BorderBrush}"
+                              BorderThickness="{TemplateBinding BorderThickness}"
+                              CornerRadius="{TemplateBinding CornerRadius}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Content="{TemplateBinding Content}"
+                              Padding="{TemplateBinding Padding}"
+                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
+            <Border Name="PART_Marker" Classes="marker" />
+          </Panel>
+        </ControlTemplate>
+      </Setter>
     </Style>
     <Style Selector="ListBox.side ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#1A1D23" />
-      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
+      <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
     <Style Selector="ListBox.side ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrrerySelected}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource OrreryAccent}" />
       <Setter Property="Foreground" Value="{StaticResource OrreryText}" />
     </Style>
     <Style Selector="ListBox.side ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="#262C38" />
+      <Setter Property="Background" Value="{StaticResource OrrerySelectedHover}" />
+    </Style>
+    <Style Selector="ListBox.side ListBoxItem:selected /template/ Border#PART_Marker">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="ListBox.side:not(:focus-within) ListBoxItem:selected /template/ Border#PART_Marker">
+      <Setter Property="Background" Value="{StaticResource OrreryMarkerIdle}" />
     </Style>
 
     <!-- The player's volume: a slim slider with a small thumb, so it sits quietly beside the other controls. -->
