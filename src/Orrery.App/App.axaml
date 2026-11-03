@@ -85,6 +85,15 @@
     <SolidColorBrush x:Key="ToggleSwitchFillOnDisabled" Color="#2C4466" />
     <SolidColorBrush x:Key="ToggleSwitchKnobFillOnDisabled" Color="#8AA6CC" />
     <SolidColorBrush x:Key="ToggleSwitchStrokeOff" Color="#5B6372" />
+    <!-- Checked radio buttons and check boxes light up like the accent button, not in Fluent's much paler accent. -->
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPointerOver" Color="#76AEFF" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStrokePointerOver" Color="#76AEFF" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPressed" Color="#4A8AE8" />
+    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStrokePressed" Color="#4A8AE8" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#76AEFF" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" Color="#76AEFF" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPressed" Color="#4A8AE8" />
+    <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" Color="#4A8AE8" />
     <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="#9AA3B2" />
     <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#181B21" />
     <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#2F3540" />
