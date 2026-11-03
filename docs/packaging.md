@@ -151,8 +151,8 @@ The first package (`2026.10.29-orrery.2`) was built by an Orrery workflow run be
 None of the Linux builds has been run on a real machine yet. The .deb and .rpm pull in what they need. For the
 portable zip and the AppImage, the machine needs:
 
-- **A Wayland session with XWayland.** Orrery supports Wayland only. Avalonia 11.3 has no Wayland backend yet and
-  draws through X11, so it runs under XWayland; Orrery itself has no X11-specific code and doesn't rely on X11
+- **A Wayland session with XWayland.** Orrery supports Wayland only. Avalonia 12.1's Wayland backend is experimental, so
+  Orrery draws through X11 and runs under XWayland; Orrery itself has no X11-specific code and doesn't rely on X11
   behavior. X11 sessions aren't supported.
 - **The ALSA library** (`libasound2t64` or `libasound2` on Debian and Ubuntu, `alsa-lib` on Fedora).
   IronRDP's native library links `libasound.so.2` for remote sound and won't load without it, so RDP fails to

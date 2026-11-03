@@ -8,7 +8,6 @@ using Orrery.App.Sessions;
 using Orrery.Core.Sessions;
 using Vision = Orrery.Core.Settings.ColorVision;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Orrery.App.Tests;
 

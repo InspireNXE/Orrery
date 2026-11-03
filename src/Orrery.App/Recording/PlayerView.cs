@@ -61,7 +61,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
     readonly Notice _banner = new(NoticeKind.Warning) { IsVisible = false, Margin = new Thickness(16, 10, 16, 0) };
 
     // Find, for a terminal.
-    readonly TextBox _find = new() { Watermark = "Find in output", Width = 200, VerticalContentAlignment = VerticalAlignment.Center };
+    readonly TextBox _find = new() { PlaceholderText = "Find in output", Width = 200, VerticalContentAlignment = VerticalAlignment.Center };
     readonly TextBlock _matches = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, MinWidth = 64, TextAlignment = TextAlignment.Right };
     readonly Button _findPrevious = IconButton(Icons.Previous, "Previous match (Shift+Enter)");
     readonly Button _findNext = IconButton(Icons.Next, "Next match (Enter)");

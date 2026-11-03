@@ -284,7 +284,7 @@ public sealed class RecordingUiTests : IDisposable
         terminal = player.GetVisualDescendants().OfType<TerminalView>().Single();
         Assert.DoesNotContain("first line", terminal.AllText());
 
-        var find = player.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "Find in output");
+        var find = player.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "Find in output");
         find.Text = "needle";
         Dispatcher.UIThread.RunJobs();
         Assert.Contains(player.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "1 found");

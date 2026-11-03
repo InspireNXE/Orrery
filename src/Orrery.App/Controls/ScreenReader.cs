@@ -11,9 +11,9 @@ namespace Orrery.App.Controls;
 /// new output, the highlighted result in quick connect.
 /// <para>
 /// On Windows it raises a UI Automation notification on the window, which Narrator, NVDA and JAWS read out. Avalonia
-/// 11.3 has no API for that, and its live regions only fire for elements a screen reader has already looked at, so
-/// the notification is raised directly. Elsewhere <see cref="LiveText"/> is a live region, which is as far as
-/// Avalonia goes on macOS; it has no screen reader support on Linux at all.
+/// 12.1 has no API for that, and in 11.3 its live regions only fired for elements a screen reader had already looked
+/// at, so the notification is raised directly. Elsewhere <see cref="LiveText"/> is a live region, which is as far as
+/// Avalonia goes on macOS, and on Linux through AT-SPI.
 /// </para>
 /// </summary>
 static class ScreenReader

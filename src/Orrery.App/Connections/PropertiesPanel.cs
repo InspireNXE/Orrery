@@ -44,37 +44,37 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
     readonly TextBox _username = new(), _domain = new();
-    readonly TextBox _keyFile = new() { FontFamily = Dialogs.MonoFont, Watermark = "~/.ssh/id_ed25519" };
+    readonly TextBox _keyFile = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "~/.ssh/id_ed25519" };
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
     readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
     readonly ToggleSwitch _autoReconnect = Switch("AutoReconnect");
     readonly ToggleSwitch _record = Switch("RecordSessions");
     readonly ToggleSwitch _enlarge = Switch("EnlargeRemoteDesktop");
-    readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, Watermark = "Fit the window" };
+    readonly TextBox _desktopSize = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "Fit the window" };
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _colorCorrection = new() { Name = "ColorCorrection", HorizontalAlignment = HorizontalAlignment.Stretch };
-    readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = "L 8080:db.internal:5432\nD 1080" };
+    readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, PlaceholderText = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
-    readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, Watermark = "00:1A:2B:3C:4D:5E" };
-    readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, Watermark = "255.255.255.255" };
-    readonly TextBox _managementUrl = new() { FontFamily = Dialogs.MonoFont, Watermark = "https://10.20.0.1:8443" };
+    readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "00:1A:2B:3C:4D:5E" };
+    readonly TextBox _broadcast = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "255.255.255.255" };
+    readonly TextBox _managementUrl = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "https://10.20.0.1:8443" };
     readonly Control _managementUrlField;
     readonly Control _wakeSection;
 
     readonly ComboBox _remoteAudio = Choices("RemoteAudio", (RemoteAudio.PlayHere, "Play on this computer"), (RemoteAudio.DoNotPlay, "Don't play"));
     readonly ToggleSwitch _shareAllDrives = Switch("ShareAllDrives");
-    readonly TextBox _sharedFolders = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, Watermark = OperatingSystem.IsWindows() ? "~/Documents\nD:\\Projects" : "~/Documents\n/Volumes/Projects" };
+    readonly TextBox _sharedFolders = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, PlaceholderText = OperatingSystem.IsWindows() ? "~/Documents\nD:\\Projects" : "~/Documents\n/Volumes/Projects" };
     readonly ComboBox _fullScreenOn = Choices("FullScreenOn", (FullScreenOn.ThisDisplay, "The display the window is on"), (FullScreenOn.EveryDisplay, "Every display"),
         (FullScreenOn.ChosenDisplays, "Chosen displays"));
     readonly DisplayPicker _displayPicker;
     readonly ToggleSwitch _adminSession = Switch("AdminSession");
     readonly ToggleSwitch _viewOnly = Switch("ViewOnly");
     readonly ComboBox _scaling = Choices("Scaling", SessionSettingsView.ScalingLabels);
-    readonly TextBox _keepAlive = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultKeepAliveSeconds.ToString(CultureInfo.InvariantCulture) };
-    readonly TextBox _socksProxy = new() { FontFamily = Dialogs.MonoFont, Watermark = "None" };
-    readonly TextBox _baudRate = new() { FontFamily = Dialogs.MonoFont, Watermark = SettingsResolver.DefaultBaudRate.ToString(CultureInfo.InvariantCulture) };
+    readonly TextBox _keepAlive = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = SettingsResolver.DefaultKeepAliveSeconds.ToString(CultureInfo.InvariantCulture) };
+    readonly TextBox _socksProxy = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "None" };
+    readonly TextBox _baudRate = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = SettingsResolver.DefaultBaudRate.ToString(CultureInfo.InvariantCulture) };
     readonly ComboBox _dataBits = Choices("DataBits", (8, "8"), (7, "7"), (6, "6"), (5, "5"));
     readonly ComboBox _parity = Choices("Parity", (SerialParity.None, "None"), (SerialParity.Even, "Even"), (SerialParity.Odd, "Odd"), (SerialParity.Mark, "Mark"), (SerialParity.Space, "Space"));
     readonly ComboBox _stopBits = Choices("StopBits", (SerialStopBits.One, "1"), (SerialStopBits.OnePointFive, "1.5"), (SerialStopBits.Two, "2"));
@@ -942,7 +942,7 @@ sealed class PropertiesPanel : UserControl
         // A serial port is named where a host would be; a web page's host can have a path after it.
         _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";
         AutomationProperties.SetName(_host, _hostLabel.Text);
-        _host.Watermark = protocol == Protocol.Serial ? (OperatingSystem.IsWindows() ? "COM3" : "/dev/ttyUSB0") : ProtocolInfo.IsWeb(protocol) ? "router.lan/admin" : null;
+        _host.PlaceholderText = protocol == Protocol.Serial ? (OperatingSystem.IsWindows() ? "COM3" : "/dev/ttyUSB0") : ProtocolInfo.IsWeb(protocol) ? "router.lan/admin" : null;
         _choosePort.IsVisible = protocol == Protocol.Serial && _node is ConnectionEntry;
     }
 

@@ -47,7 +47,7 @@ sealed class RecordingsPanel : DockPanel
 
     readonly RecordingService _service;
     readonly ListBox _list = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
-    readonly TextBox _filter = new() { Watermark = "Filter", FontSize = 12, MinHeight = 30, Margin = new Thickness(12, 0, 12, 10) };
+    readonly TextBox _filter = new() { PlaceholderText = "Filter", FontSize = 12, MinHeight = 30, Margin = new Thickness(12, 0, 12, 10) };
     readonly TextBlock _empty = Pane.EmptyText(EmptyNote, side: true);
     readonly TextBlock _total = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, Margin = new Thickness(14, 6, 14, 10) };
     readonly Notice _status = new(NoticeKind.Info) { Margin = new Thickness(14, 0, 14, 8), IsVisible = false };

@@ -7,8 +7,9 @@ using Avalonia.Controls;
 namespace Orrery.App.Controls;
 
 /// <summary>
-/// A text box for passwords. Avalonia 11.3 hands a masked text box's real text to UI Automation, so any program
-/// reading the screen (not just a screen reader) could read the password; this one reports a dot per character.
+/// A text box for passwords. Avalonia 11.3 handed a masked text box's real text to UI Automation, so any program
+/// reading the screen (not just a screen reader) could read the password, and 12 still does while the password is
+/// revealed; this one always reports a dot per character.
 /// </summary>
 sealed class PasswordBox : TextBox
 {
