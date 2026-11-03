@@ -47,16 +47,26 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     /// <summary>How often shared drives' file operations that finish later (on Windows) are passed to the server.</summary>
     static readonly TimeSpan DrivesPollInterval = TimeSpan.FromMilliseconds(100);
 
+    /// <summary>How long closing waits for the server to take the shutdown, and then for the loops to end, before closing the connection.</summary>
+    static readonly TimeSpan GracefulShutdownTimeout = TimeSpan.FromSeconds(2);
+
     readonly object _stageLock = new();
     readonly SemaphoreSlim _writeLock = new(1, 1);
     readonly InputDatabase _inputDatabase = InputDatabase.New();
     readonly CancellationTokenSource _cts = new();
 
-    Framed<Stream>? _framed;
+    // The connector's own, kept rather than wrapped again: it holds bytes the server already sent that aren't read yet.
+    Framed<SslStream>? _framed;
     ActiveStage? _activeStage;
     DecodedImage? _image;
     byte[] _frame = [];
     bool _pointerSoftwareRendering;
+
+    // The size asked for before the display-control channel opened, sent once it's ready. Under _stageLock.
+    (int Width, int Height)? _waitingResize;
+
+    // Keyboard and mouse input goes out after the input before it, in the order it was applied. Under _stageLock.
+    Task _inputChain = Task.CompletedTask;
     Task? _readLoop;
     Task? _clipboardLoop;
     Task? _drivesLoop;
@@ -179,7 +189,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         try
         {
             var (result, framed, drivesShared) = await ConnectFollowingRedirectionsAsync(password, desktopWidth, desktopHeight, quality, token);
-            _framed = new Framed<Stream>(framed.GetInner().Item1);
+            _framed = framed;
 
             lock (_stageLock)
             {
@@ -228,8 +238,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             await ReadLoopAsync(token);
             SetState(SessionState.Disconnected);
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (Exception) when (token.IsCancellationRequested)
         {
+            // Closing the session also closes the connection, so a read under way ends with that rather than cancellation.
             SetState(SessionState.Disconnected);
         }
         catch (Exception e) when (e is CertificateRejectedException or RouteException)
@@ -358,12 +369,14 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         {
             var (action, payload) = await _framed!.ReadPdu(token);
             bool resized = false;
+            (int Width, int Height)? waitingResize = null;
             var outputs = WithStageLock(() =>
             {
                 var processed = _activeStage!.Process(_image!, action, payload);
                 try
                 {
                     resized = FollowGraphicsReset();
+                    waitingResize = TakeReadyResize();
                 }
                 catch
                 {
@@ -384,7 +397,45 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             {
                 return;
             }
+
+            if (waitingResize is { } size)
+            {
+                Logger.LogDebug("{Host}: the display control channel is open, asking for the size wanted before it was", Target.Host);
+                RequestResize(size.Width, size.Height);
+            }
         }
+    }
+
+    /// <summary>
+    /// The size asked for before the server opened its display-control channel, once that channel is ready, and
+    /// forgets it. Null while there's none, or the channel isn't ready yet. Caller holds _stageLock.
+    /// </summary>
+    (int Width, int Height)? TakeReadyResize()
+    {
+        if (_waitingResize is not { } size)
+        {
+            return null;
+        }
+
+        bool ready;
+        try
+        {
+            ready = _activeStage!.DisplayControlState == DisplayControlState.Ready;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // A native library that can't say: the size is dropped, as it was before.
+            _waitingResize = null;
+            return null;
+        }
+
+        if (!ready)
+        {
+            return null;
+        }
+
+        _waitingResize = null;
+        return size;
     }
 
     /// <summary>
@@ -1036,10 +1087,16 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         {
             try
             {
-                // Null when the server hasn't opened the display-control channel, i.e. it can't resize.
-                var outputs = WithStageLock(() => _followsDisplayScale
-                    ? _activeStage!.EncodedResizeWithScale((uint)width, (uint)height, (uint)scale)
-                    : _activeStage!.EncodedResize((uint)width, (uint)height));
+                // Null when the server hasn't opened the display-control channel, i.e. it can't resize yet. The size
+                // is kept then, and the read loop asks for it once the channel is ready.
+                var outputs = WithStageLock(() =>
+                {
+                    var encoded = _followsDisplayScale
+                        ? _activeStage!.EncodedResizeWithScale((uint)width, (uint)height, (uint)scale)
+                        : _activeStage!.EncodedResize((uint)width, (uint)height);
+                    _waitingResize = encoded is null ? (width, height) : null;
+                    return encoded;
+                });
                 if (outputs is not null)
                 {
                     _sentScale = scale;
@@ -1048,7 +1105,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 }
                 else
                 {
-                    Logger.LogDebug("{Host}: can't resize, the server has no display control channel", Target.Host);
+                    Logger.LogDebug("{Host}: can't resize yet, the server has no display control channel", Target.Host);
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)
@@ -1137,32 +1194,37 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             return;
         }
 
-        FastPathInputEventIterator fastPath;
         lock (_stageLock)
         {
-            fastPath = _inputDatabase.Apply(operation);
+            // Applied and queued under one lock, so a key's release can't reach the server before its press.
+            var fastPath = _inputDatabase.Apply(operation);
+            _inputChain = InOrder(_inputChain, () => SendFastPathAsync(fastPath));
         }
+    }
 
-        _ = Task.Run(async () =>
+    /// <summary>Starts <paramref name="next"/> on the thread pool once <paramref name="previous"/> has ended, however it ended.</summary>
+    internal static Task InOrder(Task previous, Func<Task> next) =>
+        previous.ContinueWith(_ => next(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+
+    async Task SendFastPathAsync(FastPathInputEventIterator fastPath)
+    {
+        try
         {
-            try
+            if (_pointerSoftwareRendering)
             {
-                if (_pointerSoftwareRendering)
-                {
-                    // The server expects us to draw the pointer, which touches the image.
-                    var outputs = WithStageLock(() => _activeStage!.ProcessFastpathInput(_image!, fastPath));
-                    await HandleOutputsAsync(outputs, _cts.Token);
-                    return;
-                }
+                // The server expects us to draw the pointer, which touches the image.
+                var outputs = WithStageLock(() => _activeStage!.ProcessFastpathInput(_image!, fastPath));
+                await HandleOutputsAsync(outputs, _cts.Token);
+                return;
+            }
 
-                using var frame = fastPath.Encode();
-                await WriteAsync(ToBytes(frame), _cts.Token);
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                Logger.LogError("Sending RDP input failed: {Message}", e.Message);
-            }
-        });
+            using var frame = fastPath.Encode();
+            await WriteAsync(ToBytes(frame), _cts.Token);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Logger.LogError("Sending RDP input failed: {Message}", e.Message);
+        }
     }
 
     public async Task DisconnectAsync()
@@ -1171,8 +1233,13 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         {
             try
             {
+                // Bounded: a write to a connection that died quietly would otherwise wait for TCP to give up.
                 var outputs = WithStageLock(() => _activeStage!.GracefulShutdown());
-                await HandleOutputsAsync(outputs, _cts.Token);
+                await HandleOutputsAsync(outputs, _cts.Token).WaitAsync(GracefulShutdownTimeout);
+            }
+            catch (TimeoutException)
+            {
+                Logger.LogWarning("{Host} didn't take the RDP shutdown in time; closing the connection", Target.Host);
             }
             catch (Exception e)
             {
@@ -1183,11 +1250,36 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         _cts.Cancel();
         _inputFrames.Writer.TryComplete();
         // Each loop has already reported its own outcome, so a fault here is only traced.
-        await AwaitLoopAsync(_readLoop);
-        await AwaitLoopAsync(_clipboardLoop);
-        await AwaitLoopAsync(_inputFrameLoop);
-        await AwaitLoopAsync(_drivesLoop);
+        var loops = Task.WhenAll(AwaitLoopAsync(_readLoop), AwaitLoopAsync(_clipboardLoop), AwaitLoopAsync(_inputFrameLoop), AwaitLoopAsync(_drivesLoop));
+        try
+        {
+            await loops.WaitAsync(GracefulShutdownTimeout);
+        }
+        catch (TimeoutException)
+        {
+            // One is stuck in a write to a dead connection, which takes no token; closing the connection ends it.
+            Logger.LogDebug("{Host}: the RDP session's loops didn't end in time; closing the connection", Target.Host);
+            CloseConnection();
+            await loops;
+        }
+
         _route?.Dispose();
+    }
+
+    /// <summary>
+    /// Closes the TLS stream and the socket under it, which ends a read or write stuck on a dead connection, and the
+    /// loops waiting behind it.
+    /// </summary>
+    void CloseConnection()
+    {
+        try
+        {
+            _framed?.GetInner().Item1.Dispose();
+        }
+        catch (Exception e)
+        {
+            Logger.LogDebug("Closing the RDP connection: {Message}", e.Message);
+        }
     }
 
     static async Task AwaitLoopAsync(Task? loop)
