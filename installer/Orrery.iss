@@ -19,6 +19,12 @@
 #define MyAppPublisher "InspireNXE"
 #define MyAppExe "Orrery.exe"
 #define MyAppId "{{6E1B3F2A-9C47-4D85-B0E6-2F7A1C5D8E93}"
+; Windows' version info takes numbers only, so a preview's "-preview.1" is left off there.
+#if Pos("-", AppVersion) > 0
+  #define NumericVersion Copy(AppVersion, 1, Pos("-", AppVersion) - 1)
+#else
+  #define NumericVersion AppVersion
+#endif
 
 [Setup]
 AppId={#MyAppId}
@@ -27,8 +33,9 @@ AppVersion={#AppVersion}
 AppVerName={#MyAppName} {#AppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=Copyright (c) 2026 InspireNXE
-VersionInfoVersion={#AppVersion}
-VersionInfoProductVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
+VersionInfoProductVersion={#NumericVersion}
+VersionInfoProductTextVersion={#AppVersion}
 VersionInfoDescription={#MyAppName} setup
 DefaultDirName={autopf}\Orrery
 DefaultGroupName=Orrery
@@ -88,9 +95,20 @@ Name: "{autodesktop}\Orrery"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "Start Orrery now"; Flags: nowait postinstall skipifsilent unchecked runasoriginaluser
+; An update from inside Orrery runs setup with /VERYSILENT ... /RELAUNCH=1 (Orrery.Core's UpdateCommand), and this
+; starts Orrery again afterwards, as the user who started setup rather than as administrator. That only works when
+; setup was started without elevation and asked for it itself: an already elevated setup has no original user to go
+; back to. --restarted makes the new Orrery wait for the old one to let go of the data folder.
+Filename: "{app}\{#MyAppExe}"; Parameters: "--restarted"; Flags: nowait skipifnotsilent runasoriginaluser; Check: RelaunchAsked
 
 [Code]
 #include "WizardLayout.iss"
+
+// /RELAUNCH=1 on setup's command line: start Orrery again after a silent install.
+function RelaunchAsked: Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
 
 procedure InitializeWizard;
 begin

@@ -20,6 +20,8 @@
     runtime-aarch64 (as published at https://github.com/AppImage/type2-runtime/releases), which GitHub Actions passes
     so the runtime is a pinned, checked download.
 
+    -Version builds them as another version than <Version> in Directory.Build.props.
+
 .EXAMPLE
     ./build/Build-LinuxPackages.ps1                                       # every format, x64 and arm64
     ./build/Build-LinuxPackages.ps1 -Runtimes linux-x64 -Formats deb,rpm   # just x64 .deb and .rpm
@@ -30,7 +32,8 @@ param(
     [string] $Configuration = 'Release',
     [string] $NfpmPath,
     [string] $AppImageToolPath,
-    [string] $AppImageRuntimeDir
+    [string] $AppImageRuntimeDir,
+    [string] $Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,7 +42,8 @@ $project = Join-Path $root 'src/Orrery.App/Orrery.App.csproj'
 $linux = Join-Path $root 'installer/linux'
 $out = Join-Path $root 'artifacts/linux'
 $work = Join-Path $out 'work'
-$version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+$version = if ($Version) { $Version } else { ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1 }
+if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3 or 1.2.3-preview.1." }
 
 # Package dependencies. Self-contained .NET still needs the C runtime, ICU (globalization isn't invariant) and
 # OpenSSL (TLS and crypto); Avalonia needs X11 (XWayland, on the Wayland sessions Orrery supports) and fontconfig;
@@ -195,7 +199,7 @@ foreach ($rid in $Runtimes) {
     Write-Host "== $rid" -ForegroundColor Cyan
     $publish = Join-Path $work "$rid/publish"
     Remove-Item -Recurse -Force $publish -ErrorAction SilentlyContinue
-    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true
+    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version
     if ($LASTEXITCODE -ne 0) { throw "Publishing $rid failed." }
     & (Join-Path $PSScriptRoot 'Generate-ThirdPartyNotices.ps1') -PublishDir $publish
     # Installed copies must never find a portable marker beside the app.

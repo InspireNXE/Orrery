@@ -6,6 +6,10 @@ self-contained: the .NET runtime ships beside the app, so nothing else needs ins
 `build/Build-All.ps1` runs all three builds below (portable zips, Windows installer, Linux packages). It skips a
 step whose tool is missing, with a warning, and prints what was built and what was skipped.
 
+`build/package.ps1`, `build/Build-Installer.ps1` and `build/Build-LinuxPackages.ps1` build `<Version>` from
+`Directory.Build.props` unless given `-Version 0.1.1` (say): the app then reports that version and the files are
+named for it.
+
 ## Orrery Setup (Windows installer)
 
 Built with Inno Setup, the same way as Prober's desktop setup (`installer\Orrery.iss` is modeled on
@@ -28,6 +32,13 @@ entry and, if ticked, a desktop shortcut, and offers to start Orrery at the end.
 installed mode, so each person's connections, settings and credentials stay in their own profile
 (`%APPDATA%\Orrery`) and survive upgrades and uninstalling. Setup removes any stray `orrery.portable.json` in the
 install folder, which would otherwise switch it to portable mode.
+
+Orrery updates an installed copy by running the new setup with
+`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RELAUNCH=1`. `/RELAUNCH=1` makes setup start Orrery
+again once it has installed (with `--restarted`, so it waits for the old one to let go of the data folder). Setup
+starts it as the user who started setup, not as administrator, which only works when setup was started without
+elevation and asked for it itself: an elevated setup has no other user to go back to. A preview version like
+`0.2.0-preview.1` goes into Windows' version info as `0.2.0`, since that only takes numbers.
 
 ## Portable packages (Windows, Linux, macOS)
 
@@ -90,8 +101,9 @@ since that needs Linux.
 
 `.github/workflows/packages.yml` builds every package above on each push (any branch, and `v*` tags), each pull
 request, and by hand (`workflow_dispatch`). A newer push to the same branch or pull request cancels the older run; tag
-builds always finish. It publishes nothing: the packages are the run's artifacts (`orrery-windows-portable`,
-`orrery-windows-installer`, `orrery-linux-portable`, `orrery-linux-packages`, `orrery-macos-portable`).
+builds always finish. The packages are the run's artifacts (`orrery-windows-portable`, `orrery-windows-installer`,
+`orrery-linux-portable`, `orrery-linux-packages`, `orrery-macos-portable`). A `v*` tag also makes a draft release
+from them (see Releasing below); nothing else is published.
 
 - **IronRDP.** The build jobs download the `Devolutions.IronRdp` that `build/ironrdp-package.json` names, with
   `build/Get-IronRdp.ps1`, which checks its SHA-256. Preflight fails straight away if the json's `version` isn't
@@ -107,7 +119,50 @@ builds always finish. It publishes nothing: the packages are the run's artifacts
   each hash came from), and the .NET SDK by `DOTNET_SDK_VERSION` (written to a `global.json` on the runner only, so
   local builds can use any .NET 10 SDK).
 - **Caches.** NuGet packages are cached per OS as `nuget-<OS>-<hash of the lock files>`, without `Devolutions.IronRdp`.
-- **Permissions.** The workflow's token can only read the repository.
+- **Permissions.** The workflow's token can only read the repository, except in the release job, which runs only for
+  `v*` tags and can write releases (`contents: write`) and make attestations (`id-token: write`,
+  `attestations: write`).
+
+## Releasing
+
+Orrery checks GitHub's releases for updates, so a release has to look the way it expects:
+
+1. Bump `<Version>` in `Directory.Build.props` (`0.2.0`, or `0.2.0-preview.1` for a preview) and commit it.
+2. Tag that commit `v<version>` and push the tag: `git tag v0.2.0` then `git push origin v0.2.0`. Preflight fails at
+   once if the tag isn't `v` plus `<Version>`.
+3. When the run finishes, its release job has made a **draft** release for the tag: every package, a `SHA256SUMS`
+   listing their SHA-256s, notes generated from the commits since the last release, and GitHub artifact attestations
+   for each package (`gh attestation verify <file> --repo InspireNXE/Orrery` checks one). A version with a `-` is
+   marked a pre-release, which Orrery offers only to those who turned previews on.
+4. Look the draft over on GitHub (Releases), edit the notes, and publish it. Orrery never sees drafts.
+
+Every release needs its `SHA256SUMS`: Orrery checks each download against it (and against GitHub's own digest of
+the file) and won't install a file that isn't listed or doesn't match. Don't rename the packages; Orrery picks its
+file by name: `Orrery-Setup-<version>.exe` for an installed Windows copy, `Orrery-<version>-win-<x64|arm64>-portable.zip`
+and `Orrery-<version>-linux-<x64|arm64>-portable.zip` for portable copies, `Orrery-<version>-<x86_64|aarch64>.AppImage`
+for an AppImage. The .deb, .rpm and macOS copies only say there's a release and offer its page.
+
+## Testing updates
+
+`build/New-TestRelease.ps1` builds a release on your machine, so the whole update path can be tried before a real
+release exists. It writes `artifacts/test-release/`: the packages, their `SHA256SUMS`, and `releases.json`, a release
+list in the shape GitHub's API returns, naming the files relative to itself. Setting `ORRERY_UPDATE_FEED` to its path
+makes Orrery read it instead of GitHub (the variable also takes an http(s) URL).
+
+```powershell
+./build/New-TestRelease.ps1 -Version 0.1.1      # this OS's portable zip, as version 0.1.1
+./build/package.ps1 -Runtimes win-x64           # the older copy, at <Version> (0.1.0)
+# Unzip artifacts/Orrery-0.1.0-win-x64-portable.zip into a folder of its own, then from the same shell:
+$env:ORRERY_UPDATE_FEED = "$PWD/artifacts/test-release/releases.json"
+& '<that folder>/Orrery.exe'                     # and check for updates
+```
+
+The script prints these steps with the paths filled in. `-Runtimes` picks other platforms, `-Installer` also builds
+Orrery Setup (Windows, with Inno Setup), `-AppImage` the AppImage (Linux, with appimagetool), `-Prerelease` marks the
+release a pre-release, and `-BreakChecksum` writes wrong checksums, so the download should fail its check and be
+deleted. For an installed copy, install the older setup (`build\Build-Installer.ps1`), set the variable for your user
+(`[Environment]::SetEnvironmentVariable('ORRERY_UPDATE_FEED', '<path>', 'User')`), start Orrery from the Start menu,
+and clear the variable afterwards.
 
 ## A new IronRDP package
 

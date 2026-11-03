@@ -7,7 +7,7 @@
 .DESCRIPTION
     Publishes Orrery for Windows (self-contained, so no .NET install is needed), generates
     THIRD-PARTY-NOTICES.txt into the publish output, and compiles installer\Orrery.iss with ISCC.exe. The version
-    comes from <Version> in Directory.Build.props.
+    comes from <Version> in Directory.Build.props, or -Version (build\New-TestRelease.ps1 uses this).
 
     Needs Inno Setup 7 installed per user (%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe) or for all users under
     either Program Files folder; pass -IsccPath for anywhere else.
@@ -23,7 +23,8 @@ param(
     [string]$OutputDir,
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
-    [string]$IsccPath
+    [string]$IsccPath,
+    [string]$Version
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,8 +55,11 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments, [string]$Descrip
     if ($LASTEXITCODE -ne 0) { throw "$Description failed with exit code $LASTEXITCODE." }
 }
 
-$version = ([xml](Get-Content (Join-Path $repoRoot "Directory.Build.props"))).Project.PropertyGroup.Version |
-    Where-Object { $_ } | Select-Object -First 1
+$version = if ($Version) { $Version } else {
+    ([xml](Get-Content (Join-Path $repoRoot "Directory.Build.props"))).Project.PropertyGroup.Version |
+        Where-Object { $_ } | Select-Object -First 1
+}
+if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3 or 1.2.3-preview.1." }
 Write-Host "Version: $version"
 
 if ([string]::IsNullOrWhiteSpace($PublishDir)) { $PublishDir = Join-Path $repoRoot "artifacts\installer-publish" }
@@ -70,7 +74,7 @@ else {
     Invoke-Native "dotnet" -Description "dotnet publish" -Arguments @(
         "publish", (Join-Path $repoRoot "src\Orrery.App\Orrery.App.csproj"),
         "-c", $Configuration, "-r", $Runtime, "--self-contained", "true",
-        "-p:DebugType=none", "-p:DebugSymbols=false", "-p:OrreryLockedRestore=true", "-o", $PublishDir)
+        "-p:DebugType=none", "-p:DebugSymbols=false", "-p:OrreryLockedRestore=true", "-p:Version=$version", "-o", $PublishDir)
     $PublishDir = (Resolve-Path $PublishDir).Path
 }
 

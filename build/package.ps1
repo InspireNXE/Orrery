@@ -13,20 +13,26 @@
     since the marker belongs next to the bundle, never inside it. The bundle isn't signed or notarized, so
     macOS asks before the first launch.
 
+    -Version builds them as another version than <Version> in Directory.Build.props: the app reports it and the
+    files are named for it (build/New-TestRelease.ps1 uses this).
+
 .EXAMPLE
     ./build/package.ps1                       # every platform
     ./build/package.ps1 -Runtimes win-x64     # just Windows x64
+    ./build/package.ps1 -Runtimes win-x64 -Version 0.1.1
 #>
 param(
     [string[]] $Runtimes = @('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-arm64', 'osx-x64'),
-    [string] $Configuration = 'Release'
+    [string] $Configuration = 'Release',
+    [string] $Version
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $project = Join-Path $root 'src/Orrery.App/Orrery.App.csproj'
 $artifacts = Join-Path $root 'artifacts'
-$version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+$version = if ($Version) { $Version } else { ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1 }
+if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "'$version' isn't a version like 1.2.3 or 1.2.3-preview.1." }
 
 New-Item -ItemType Directory -Force $artifacts | Out-Null
 
@@ -39,7 +45,7 @@ foreach ($rid in $Runtimes) {
 
     Write-Host "== $rid" -ForegroundColor Cyan
     $publish = Join-Path $artifacts "publish/$rid"
-    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true
+    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version
     if ($LASTEXITCODE -ne 0) { throw "Publishing $rid failed." }
     & (Join-Path $PSScriptRoot 'Generate-ThirdPartyNotices.ps1') -PublishDir $publish
 
@@ -50,7 +56,7 @@ foreach ($rid in $Runtimes) {
     # launch. Shipping them beside the executable instead made no difference to Defender's Wacatac.B!ml heuristic.
     if ($rid -notlike 'osx-*') {
         $single = Join-Path $artifacts "publish/$rid-single"
-        dotnet publish $project -c $Configuration -r $rid --self-contained true -o $single -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true `
+        dotnet publish $project -c $Configuration -r $rid --self-contained true -o $single -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version `
             -p:PublishSingleFile=true -p:EnableSingleFileAnalyzer=false -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
         if ($LASTEXITCODE -ne 0) { throw "Publishing $rid as a single file failed." }
         Copy-Item (Join-Path $publish 'THIRD-PARTY-NOTICES.txt') $single
