@@ -87,7 +87,7 @@ public partial class MainWindow : Window
     bool _restoreOfferBeforeFullScreen;
 
     /// <summary>While a remote desktop is spread over every display: its view, and the window as it was before.</summary>
-    (RemoteFrameView View, PixelPoint Position, double Width, double Height, SystemDecorations Decorations, bool Topmost)? _spanned;
+    (RemoteFrameView View, PixelPoint Position, double Width, double Height, WindowDecorations Decorations, bool Topmost)? _spanned;
     readonly Button _settingsRailButton;
     readonly Dictionary<string, (Button RailButton, Control View)> _sides;
     readonly RecentConnections _recent;
@@ -112,6 +112,8 @@ public partial class MainWindow : Window
     bool _rebuilding;
     Point? _dragStart;
     NodeViewModel? _dragRow;
+    // The press a drag starts from: Avalonia starts the drag with it once the pointer has moved far enough.
+    PointerPressedEventArgs? _dragPress;
 
     // A plain press on a row that's part of a multi-selection keeps the selection, so the rows can be dragged
     // together; released without a drag, the press selects just that row.
@@ -492,6 +494,7 @@ public partial class MainWindow : Window
             if (e.GetCurrentPoint(_treeView).Properties.IsLeftButtonPressed)
             {
                 _dragStart = e.GetPosition(_treeView);
+                _dragPress = e;
                 _dragRow = RowAt(e.Source);
                 _pressedInSelection = null;
                 if (_dragRow is { } row && e.KeyModifiers == KeyModifiers.None && e.ClickCount == 1
@@ -507,7 +510,8 @@ public partial class MainWindow : Window
 
         _treeView.AddHandler(PointerMovedEvent, async (_, e) =>
         {
-            if (_dragStart is not { } start || _dragRow is not { } row || !e.GetCurrentPoint(_treeView).Properties.IsLeftButtonPressed)
+            if (_dragStart is not { } start || _dragPress is not { } press || _dragRow is not { } row
+                || !e.GetCurrentPoint(_treeView).Properties.IsLeftButtonPressed)
             {
                 return;
             }
@@ -519,18 +523,20 @@ public partial class MainWindow : Window
             }
 
             _dragStart = null;
+            _dragPress = null;
             _pressedInSelection = null;
 
             // The whole selection when the dragged row is part of it, else just that row.
             var rows = _treeView.SelectedItems.Contains(row) ? SelectedNodes() : [row.Node];
             var data = new DataTransfer();
             data.Add(DataTransferItem.Create(DragFormat, string.Join(",", TreeDrop.Normalize(_tree.Root, rows).Select(n => n.Id))));
-            await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Move);
+            await DragDrop.DoDragDropAsync(press, data, DragDropEffects.Move);
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         _treeView.AddHandler(PointerReleasedEvent, (_, _) =>
         {
             _dragStart = null;
+            _dragPress = null;
             if (_pressedInSelection is { } pressed)
             {
                 _pressedInSelection = null;
@@ -1073,8 +1079,8 @@ public partial class MainWindow : Window
         }
 
         WindowState = WindowState.Normal;
-        _spanned = (desktop, Position, Width, Height, SystemDecorations, Topmost);
-        SystemDecorations = SystemDecorations.None;
+        _spanned = (desktop, Position, Width, Height, WindowDecorations, Topmost);
+        WindowDecorations = WindowDecorations.None;
 
         // Windows hides the taskbar for a window that fills one display, not for one across several, so this stays on top.
         Topmost = true;
@@ -1130,7 +1136,7 @@ public partial class MainWindow : Window
                 SpanningWindow.Limit(this, default, null);
             }
             Topmost = spanned.Topmost;
-            SystemDecorations = spanned.Decorations;
+            WindowDecorations = spanned.Decorations;
             Position = spanned.Position;
             Width = spanned.Width;
             Height = spanned.Height;

@@ -306,7 +306,8 @@ Narrator, NVDA and JAWS on Windows.
 - Avalonia doesn't let screen readers move through a terminal by line or word yet; they get one block of text.
 - Tree rows don't report their level or "2 of 5". Password fields aren't marked as such, so a reader that echoes
   typing will read a password aloud; turn that echo off while typing one.
-- VoiceOver is untested. On Linux, Avalonia has no screen reader support yet, so Orca can't read Orrery.
+- VoiceOver is untested. On Linux, Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried
+  with Orrery yet.
 
 ## Keyboard shortcuts
 
@@ -508,7 +509,7 @@ Not yet checked on real machines:
 
 ### Linux (Wayland only)
 
-Wayland sessions only. Avalonia 11.3 has no Wayland backend yet, so Orrery runs under XWayland, but it has no
+Wayland sessions only. Avalonia 12.1's Wayland backend is experimental, so Orrery runs under XWayland, but it has no
 X11-specific code. X11 sessions aren't supported.
 
 - **Needs:** XWayland, fontconfig and ICU, which most desktops have. The ALSA library (`libasound.so.2`, from
@@ -521,7 +522,7 @@ X11-specific code. X11 sessions aren't supported.
 - **Full screen** is on the window's display: Wayland doesn't let windows place themselves or span displays. Orrery
   says so when a connection is set to several.
 - **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
-- **Screen readers:** Avalonia has no screen reader support on Linux yet, so Orca can't read Orrery.
+- **Screen readers:** Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried with Orrery yet.
 - **Not yet checked:** all of it on a real machine: the .deb, .rpm and AppImage, arm64, local terminals, the RDP
   clipboard, sound, a serial device and the Secret Service.
 

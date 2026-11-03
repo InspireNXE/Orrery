@@ -38,6 +38,10 @@
     <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#E6E8EC" />
     <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#E6E8EC" />
     <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#5B6372" />
+    <!-- The window buttons Avalonia draws: minimize and maximize light up in the app's hover color, and pressed,
+         Fluent's light gray would hide their white glyphs. Close keeps its red. -->
+    <SolidColorBrush x:Key="CaptionButtonBackground" Color="#1F232B" />
+    <SolidColorBrush x:Key="CaptionButtonBorderBrush" Color="#232833" />
     <SolidColorBrush x:Key="AccentButtonBackground" Color="#5B9DFF" />
     <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#76AEFF" />
     <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#4A8AE8" />
@@ -142,12 +146,6 @@
     <Style Selector=":is(ContextMenu) Separator, MenuFlyoutPresenter Separator">
       <Setter Property="Background" Value="#2A2F38" />
       <Setter Property="Margin" Value="6,4" />
-    </Style>
-
-    <!-- Avalonia's window buttons light up light gray whatever the theme, which hid their white glyphs; minimize and
-         maximize take the app's hover color instead. Close keeps its red. -->
-    <Style Selector="CaptionButtons /template/ Button:not(#PART_CloseButton)">
-      <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
 
     <!-- Small bordered buttons, as in the mockup's session toolbar. -->

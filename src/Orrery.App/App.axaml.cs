@@ -99,7 +99,7 @@ public partial class App : Application
             return;
         }
 
-        window.FocusManager.ClearFocus();
+        window.FocusManager?.Focus(null);
     }
 
     void OnUiThreadUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)

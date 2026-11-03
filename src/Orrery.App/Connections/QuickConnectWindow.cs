@@ -141,7 +141,7 @@ sealed class QuickConnectWindow : Window
     readonly IReadOnlyList<OpenSession> _sessions;
     readonly TextBox _query = new()
     {
-        Watermark = "Search connections, or type host, user@host, ssh://host:port, https://site",
+        PlaceholderText = "Search connections, or type host, user@host, ssh://host:port, https://site",
         FontSize = 15,
         BorderThickness = new Thickness(0),
         Background = Brushes.Transparent,
@@ -168,7 +168,7 @@ sealed class QuickConnectWindow : Window
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         ShowInTaskbar = false;
-        SystemDecorations = SystemDecorations.None;
+        WindowDecorations = WindowDecorations.None;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         Background = Brushes.Transparent;
         WindowStartupLocation = WindowStartupLocation.Manual;

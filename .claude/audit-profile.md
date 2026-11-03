@@ -10,7 +10,7 @@ connects to, files it imports, other local users and processes, and anyone who g
 - Base branch: `main` (no remote; never push)
 - Output root: `docs/audit`
 - Tooling output: `$LOCALAPPDATA/orrery-audit/<YYYY-MM>/tooling`; gitignore `docs/audit/*/tooling/` as a guard
-- Stack: C# on .NET 10, Avalonia 11.3.22 (Fluent theme), xUnit with Avalonia.Headless. Protocols:
+- Stack: C# on .NET 10, Avalonia 12.1.5 (Fluent theme), xUnit (v3 for the headless Avalonia UI tests). Protocols:
   Devolutions.IronRdp 2026.10.29 (Rust, native), SSH.NET 2026.0.0, Community.MarcusW.VncClient 2.0.8,
   own Telnet. Crypto: NSec.Cryptography 26.4.0 (libsodium), BouncyCastle.Cryptography 2.6.2.
 - Build: `dotnet build Orrery.sln`

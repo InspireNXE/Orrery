@@ -459,7 +459,7 @@ public class PropertiesPanelTests
     }
 
     static TextBox KeyFileBox(Window window) =>
-        window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "~/.ssh/id_ed25519");
+        window.GetVisualDescendants().OfType<TextBox>().Single(t => t.PlaceholderText == "~/.ssh/id_ed25519");
 
     [AvaloniaFact]
     public async Task The_key_file_shows_what_a_folder_sets_and_a_connections_own_value_is_saved()

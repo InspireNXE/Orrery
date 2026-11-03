@@ -108,7 +108,7 @@ sealed class ConnectPromptWindow : Window
     {
         bool typing = _picker.SelectedId is null;
         _username.IsEnabled = _domain.IsEnabled = _password.IsEnabled = _save.IsVisible = typing;
-        _password.Watermark = typing ? null : "Saved";
+        _password.PlaceholderText = typing ? null : "Saved";
         if (_picker.SelectedSummary is { } summary)
         {
             _username.Text = summary.Username;
