@@ -121,6 +121,34 @@ public class MRemoteNgImporterTests
         Assert.Empty(result.Report.Skipped);
     }
 
+    [Fact]
+    public void A_web_page_whose_host_is_a_full_address_opens_that_address()
+    {
+        var result = Import(File(new[]
+        {
+            Node("App", "Connection", Conn("HTTPS", "443", "https://intranet/app")),
+            Node("Admin", "Connection", Conn("HTTP", "80", "http://router.lan:8080/admin/")),
+            Node("Mixed", "Connection", Conn("HTTP", "80", "https://secure.lan/")),
+        }));
+
+        var app = Entry(result, "App");
+        Assert.Equal("intranet/app", app.Host);
+        Assert.Equal("https://intranet/app", WebAddress.Url(Protocol.Https, app.Host, SettingsResolver.Resolve(app).Port.Value)?.ToString());
+
+        var admin = Entry(result, "Admin");
+        Assert.Equal("router.lan/admin/", admin.Host);
+        Assert.Equal(8080, SettingsResolver.Resolve(admin).Port.Value);
+
+        // The address's scheme decides, as it's what was written.
+        var mixed = Entry(result, "Mixed");
+        var resolved = SettingsResolver.Resolve(mixed);
+        Assert.Equal("secure.lan", mixed.Host);
+        Assert.Equal((Protocol.Https, 443), (resolved.Protocol.Value, resolved.Port.Value));
+        Assert.Contains(result.Report.Warnings, w => w.Contains("Mixed") && w.Contains("HTTPS"));
+        Assert.Equal(1, result.Report.Protocols["HTTP"]);
+        Assert.Equal(2, result.Report.Protocols["HTTPS"]);
+    }
+
     // ---- Generated files ----
 
     static XElement Node(string name, string type, params object[] content) =>

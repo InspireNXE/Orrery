@@ -297,6 +297,30 @@ public class DataMoverTests : IDisposable
     }
 
     [Fact]
+    public void Every_kind_of_import_report_is_copied_and_deleted_but_not_other_files_beside_them()
+    {
+        // As MainWindow.WriteImportReport names them, from each importer's ImportReport.From.
+        string[] reports = ["mremoteng-20261101-090000.md", "orrery-20261101-090000.md", "ssh-config-20261101-090000.md", "remote-desktop-file-20261101-090000.md"];
+        Directory.CreateDirectory(Path.Combine(_source, "import"));
+        foreach (var report in reports)
+        {
+            File.WriteAllText(Path.Combine(_source, "import", report), "# report");
+        }
+
+        File.WriteAllText(Path.Combine(_source, "import", "orrery-notes.md"), "mine");
+        var target = Path.Combine(_root, "moved");
+
+        Assert.Equal(3 + reports.Length, DataMover.Copy(_source, target));
+        Assert.All(reports, r => Assert.True(File.Exists(Path.Combine(target, "import", r)), r));
+        Assert.False(File.Exists(Path.Combine(target, "import", "orrery-notes.md")));
+
+        var left = DataMover.DeleteOldCopy(_source);
+
+        Assert.All(reports, r => Assert.False(File.Exists(Path.Combine(_source, "import", r)), r));
+        Assert.Equal([Path.Combine("import", "orrery-notes.md")], left);
+    }
+
+    [Fact]
     public void An_interrupted_atomic_write_is_deleted_with_the_old_copy_and_never_copied()
     {
         // The temp names AtomicFile uses (name + random + ".tmp"), and the plain name.tmp older versions used.

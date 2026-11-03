@@ -208,7 +208,7 @@ public sealed class ConnectionTree
     /// <summary>
     /// Brings in a detached folder from elsewhere (an import): the folder itself, or just its contents,
     /// under <paramref name="parent"/>. Contents brought in alone take the settings they inherited from the
-    /// source folder. Raises <see cref="Changed"/> once, however many nodes arrive.
+    /// source folder, guests of a host among them included. Raises <see cref="Changed"/> once, however many nodes arrive.
     /// </summary>
     public void AddFrom(ConnectionFolder source, ConnectionFolder parent, bool includeSourceFolder)
     {
@@ -227,6 +227,13 @@ public sealed class ConnectionTree
             {
                 source.ChildList.Remove(child);
                 child.Settings.FillFrom(source.Settings);
+
+                // A guest skips its host for what it keeps, so it takes those from the source folder itself.
+                foreach (var guest in (child as ConnectionEntry)?.Guests ?? [])
+                {
+                    guest.Settings.FillFrom(source.Settings, InheritableSettings.KeptByGuests);
+                }
+
                 Insert(child, parent, null);
             }
         }
@@ -282,6 +289,12 @@ public sealed class ConnectionTree
                 var childCopy = Copy(child);
                 target.ChildList.Add(childCopy);
                 childCopy.Parent = target;
+
+                // A guest sits in its host's folder.
+                foreach (var guest in (childCopy as ConnectionEntry)?.Guests ?? [])
+                {
+                    guest.Parent = target;
+                }
             }
         }
         else if (node is ConnectionEntry { GuestList: { } guests } original && copy is ConnectionEntry host)

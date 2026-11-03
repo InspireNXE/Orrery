@@ -246,6 +246,30 @@ public class ConnectionModelTests : IDisposable
     }
 
     [Fact]
+    public void A_connections_file_with_a_setting_number_orrery_does_not_know_loads_it_as_inherited()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "connections.json");
+        File.WriteAllText(path, """
+            {"schemaVersion":3,"root":{"type":"folder","name":"Connections","id":"00000000-0000-0000-0000-000000000001","settings":{"protocol":99},"children":[
+              {"type":"connection","name":"hv","id":"00000000-0000-0000-0000-000000000002","host":"hv.example","settings":{"protocol":1,"port":2222,"scaling":7,"parity":42},
+               "guests":[{"type":"connection","name":"vm","id":"00000000-0000-0000-0000-000000000003","host":"vm.example","settings":{"displayQuality":9,"remoteAudio":5,"stopBits":8,"flowControl":3}}]}]}}
+            """);
+
+        var tree = new ConnectionStore(path, Path.Combine(_dir, "backups")).Load();
+
+        Assert.Null(tree.Root.Settings.Protocol);
+        var host = Assert.IsType<ConnectionEntry>(tree.Root.Children.Single());
+        Assert.Equal(Protocol.Ssh, host.Settings.Protocol);
+        Assert.Equal(2222, host.Settings.Port);
+        Assert.Null(host.Settings.Scaling);
+        Assert.Null(host.Settings.Parity);
+        var vm = host.Guests.Single();
+        Assert.Equal((null, null, null, null), (vm.Settings.DisplayQuality, vm.Settings.RemoteAudio, vm.Settings.StopBits, vm.Settings.FlowControl));
+        Assert.Equal(3389, SettingsResolver.Resolve(vm).Port.Value);
+    }
+
+    [Fact]
     public void Store_round_trips_folders_nested_60_deep()
     {
         var tree = ConnectionTree.Empty();

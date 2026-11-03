@@ -280,6 +280,88 @@ public class ConnectionExporterTests
     }
 
     [Fact]
+    public void A_host_exported_on_its_own_gives_its_guests_what_they_took_from_its_folders()
+    {
+        var (tree, lab, host, _, _) = HostSample();
+        tree.Root.Settings.Domain = "CORP";
+        lab.Settings.Username = "labuser";
+
+        var orrery = new ConnectionTree(ImportOrrery(ConnectionExporter.Export(host, ExportFormat.Orrery, Credentials, Now).Content).Root);
+        var vmA = SettingsResolver.Resolve(orrery.AllConnections().Single(e => e.Name == "vm-a"));
+        Assert.Equal(("labuser", "CORP"), (vmA.Username.Value, vmA.Domain.Value));
+        Assert.Equal("root", SettingsResolver.Resolve(orrery.AllConnections().Single(e => e.Name == "hv-01")).Username.Value);
+
+        var xml = ConnectionExporter.Export(host, ExportFormat.MRemoteNg, Credentials, Now).Content;
+        var mremoteng = new ConnectionTree(MRemoteNgImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(xml)), "confCons.xml").Root);
+        Assert.Equal("labuser", SettingsResolver.Resolve(mremoteng.AllConnections().Single(e => e.Name == "vm-a")).Username.Value);
+
+        var lines = ConnectionExporter.Export(host, ExportFormat.Csv, Credentials, Now).Content.Split("\r\n");
+        Assert.Contains(lines, l => l.StartsWith("hv-01,vm-a,", StringComparison.Ordinal) && l.Contains(",labuser,CORP,"));
+    }
+
+    [Fact]
+    public void Skipping_what_is_already_there_keeps_a_hosts_new_guests_with_the_host()
+    {
+        var (tree, lab, host, vmA, _) = HostSample();
+        var vmNew = new ConnectionEntry { Name = "vm-new", Host = "vm-new.lab" };
+        tree.AddGuest(vmNew, host);
+        var imported = ImportOrrery(ConnectionExporter.Export(lab, ExportFormat.Orrery, Credentials, Now).Content);
+        tree.Remove(vmNew);
+
+        // hv-01 comes in again, holding only what's new, so it isn't counted as already there.
+        Assert.Equal(2, imported.CountAlreadyIn(tree));
+        var filtered = imported.WithoutAlreadyIn(tree);
+
+        var newLab = Assert.IsType<ConnectionFolder>(Assert.Single(filtered.Root.Children));
+        var newHost = Assert.IsType<ConnectionEntry>(Assert.Single(newLab.Children));
+        Assert.Equal("hv-01", newHost.Name);
+        Assert.Equal(["vm-new"], newHost.Guests.Select(g => g.Name));
+        Assert.DoesNotContain(filtered.Root.Descendants(), n => n.Name == vmA.Name);
+    }
+
+    [Fact]
+    public void Skipping_a_jump_host_already_there_points_the_import_roots_default_at_the_one_in_the_tree()
+    {
+        var (tree, _, bastion, _, _) = Sample();
+        tree.Root.Settings.JumpHostId = bastion.Id;
+        var imported = ImportOrrery(ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, Credentials, Now).Content);
+        Assert.NotEqual(bastion.Id, imported.Root.Settings.JumpHostId);
+
+        var filtered = imported.WithoutAlreadyIn(tree);
+
+        Assert.Equal(bastion.Id, filtered.Root.Settings.JumpHostId);
+    }
+
+    [Theory]
+    [InlineData("\"protocol\":99")]
+    [InlineData("\"displayQuality\":9")]
+    [InlineData("\"remoteAudio\":5")]
+    [InlineData("\"scaling\":7")]
+    [InlineData("\"parity\":42")]
+    [InlineData("\"stopBits\":-1")]
+    [InlineData("\"flowControl\":3")]
+    public void A_setting_number_orrery_does_not_know_is_refused(string setting)
+    {
+        var content = $$$"""
+            {"format":"orrery-connections","schemaVersion":3,"root":{"type":"folder","children":[
+              {"type":"connection","name":"hv","host":"hv.lab","guests":[{"type":"connection","name":"vm","settings":{{{{setting}}}}}]}]}}
+            """;
+
+        Assert.Throws<ImportException>(() => ImportOrrery(content));
+    }
+
+    [Fact]
+    public void A_port_forward_kind_orrery_does_not_know_is_refused()
+    {
+        var content = """
+            {"format":"orrery-connections","schemaVersion":1,"root":{"type":"folder","children":[
+              {"type":"connection","name":"db","host":"db.lab","portForwards":[{"kind":7,"listenPort":5432}]}]}}
+            """;
+
+        Assert.Throws<ImportException>(() => ImportOrrery(content));
+    }
+
+    [Fact]
     public void An_mremoteng_export_writes_a_host_as_a_folder_holding_the_host_and_its_guests()
     {
         var (tree, _, _, _, _) = HostSample();
