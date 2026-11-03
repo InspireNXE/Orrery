@@ -7,7 +7,8 @@
 .DESCRIPTION
     Publishes Orrery for Windows (self-contained, so no .NET install is needed), generates
     THIRD-PARTY-NOTICES.txt into the publish output, and compiles installer\Orrery.iss with ISCC.exe. The version
-    comes from <Version> in Directory.Build.props, or -Version (build\New-TestRelease.ps1 uses this).
+    comes from <Version> in Directory.Build.props, or -Version (GitHub Actions passes it for a preview tag, and
+    build\New-TestRelease.ps1 uses it).
 
     Needs Inno Setup 7 installed per user (%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe) or for all users under
     either Program Files folder; pass -IsccPath for anywhere else.

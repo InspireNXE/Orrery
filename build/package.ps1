@@ -14,7 +14,7 @@
     macOS asks before the first launch.
 
     -Version builds them as another version than <Version> in Directory.Build.props: the app reports it and the
-    files are named for it (build/New-TestRelease.ps1 uses this).
+    files are named for it (GitHub Actions does this for a preview tag, and build/New-TestRelease.ps1).
 
     -RezipOnly builds nothing: it zips the folders an earlier run left in artifacts/ again, after files in them
     were replaced with signed ones (GitHub Actions does this for a release).
@@ -102,6 +102,8 @@ foreach ($rid in $Runtimes) {
         New-Item -ItemType Directory -Force (Join-Path $bundle 'MacOS'), (Join-Path $bundle 'Resources') | Out-Null
         Copy-Item -Recurse (Join-Path $publish '*') (Join-Path $bundle 'MacOS')
         Copy-Item (Join-Path $root 'src/Orrery.App/Assets/orrery.icns') (Join-Path $bundle 'Resources/Orrery.icns')
+        # macOS wants plain numbers here, so a preview's suffix (0.2.0-preview.1) is left off.
+        $bundleVersion = ($version -split '-')[0]
         $plist = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -110,8 +112,8 @@ foreach ($rid in $Runtimes) {
   <key>CFBundleName</key><string>Orrery</string>
   <key>CFBundleDisplayName</key><string>Orrery</string>
   <key>CFBundleIdentifier</key><string>org.inspirenxe.Orrery</string>
-  <key>CFBundleVersion</key><string>$version</string>
-  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$bundleVersion</string>
+  <key>CFBundleShortVersionString</key><string>$bundleVersion</string>
   <key>CFBundleExecutable</key><string>Orrery</string>
   <key>CFBundleIconFile</key><string>Orrery.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>

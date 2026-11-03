@@ -131,14 +131,25 @@ from them (see Releasing below); nothing else is published.
 
 Orrery checks GitHub's releases for updates, so a release has to look the way it expects:
 
-1. Bump `<Version>` in `Directory.Build.props` (`0.2.0`, or `0.2.0-preview.1` for a preview) and commit it.
-2. Tag that commit `v<version>` and push the tag: `git tag v0.2.0` then `git push origin v0.2.0`. Preflight fails at
-   once if the tag isn't `v` plus `<Version>`.
+1. Set `<Version>` in `Directory.Build.props` to the release's version (`0.2.0`) and commit it.
+2. Tag that commit `v<version>` and push the tag: `git tag v0.2.0` then `git push origin v0.2.0`.
 3. When the run finishes, its release job has made a **draft** release for the tag: every package, a `SHA256SUMS`
    listing their SHA-256s, notes generated from the commits since the last release, and GitHub artifact attestations
-   for each package (`gh attestation verify <file> --repo InspireNXE/Orrery` checks one). A version with a `-` is
-   marked a pre-release, which Orrery offers only to those who turned previews on.
+   for each package (`gh attestation verify <file> --repo InspireNXE/Orrery` checks one).
 4. Look the draft over on GitHub (Releases), edit the notes, and publish it. Orrery never sees drafts.
+
+**Previews.** A preview is a tag with a suffix on `<Version>`'s numbers, on whatever commit should go out:
+`git tag v0.2.0-preview.1` then `git push origin v0.2.0-preview.1` while `<Version>` is `0.2.0` (or `0.2.0-dev`, or
+`0.2.0-preview.1` itself). Every package is built as the tag's version, so a preview needs no commit of its own, and
+`0.2.0-preview.1` < `0.2.0-preview.2` < `0.2.0`. The release job marks it a pre-release, and steps 3 and 4 are the
+same. Orrery offers a pre-release to copies that turned previews on (Settings › About › Updates, or the setup), and to
+a copy that's a preview itself unless previews were turned off there, so whoever installs a preview hears of the next
+one. Once `0.2.0` is out, it's offered to them as well, being newer. The .deb and .rpm carry it as `0.2.0~preview.1`,
+which their package managers also sort before `0.2.0`; macOS's Info.plist and Windows' version info get the numbers
+only.
+
+Preflight fails at once if the tag is neither `v` plus `<Version>` nor a preview of `<Version>`'s numbers: a tag for
+another version needs `<Version>` bumped and committed first.
 
 Every release needs its `SHA256SUMS`: Orrery checks each download against it (and against GitHub's own digest of
 the file) and won't install a file that isn't listed or doesn't match. Don't rename the packages; Orrery picks its

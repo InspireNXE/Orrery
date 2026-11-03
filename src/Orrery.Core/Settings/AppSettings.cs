@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Orrery.Core.Network;
 using Orrery.Core.Storage;
+using Orrery.Core.Updates;
 
 namespace Orrery.Core.Settings;
 
@@ -328,11 +329,17 @@ public sealed record AppSettings
     [JsonIgnore]
     public UpdateAction UpdateAction => WhenUpdateFound ?? UpdateAction.Ask;
 
-    /// <summary>Offer preview releases (GitHub's pre-releases) as well. Null is off.</summary>
+    /// <summary>
+    /// Offer preview releases (GitHub's pre-releases) as well. Null follows the running Orrery: on when it's a preview
+    /// itself, so a preview hears of the next one, off otherwise.
+    /// </summary>
     public bool? UpdatePreviews { get; init; }
 
     [JsonIgnore]
-    public bool OffersPreviewUpdates => UpdatePreviews ?? false;
+    public bool OffersPreviewUpdates => OffersPreviewUpdatesTo(ReleaseVersion.Current);
+
+    /// <summary>Whether previews are offered to a copy of this version.</summary>
+    public bool OffersPreviewUpdatesTo(ReleaseVersion current) => UpdatePreviews ?? current.IsPrerelease;
 
     /// <summary>A release the user chose to skip, by version: it isn't offered again, a later one is.</summary>
     public string? SkippedUpdateVersion { get; init; }

@@ -1,3 +1,4 @@
+using Orrery.Core.Settings;
 using Orrery.Core.Updates;
 using Xunit;
 
@@ -134,6 +135,23 @@ public class ReleaseFeedTests
 
         Assert.Equal("v0.2.0", ReleaseFeed.Newest(releases, Current, previews: false, null)!.Tag);
         Assert.Equal("v0.3.0-preview.1", ReleaseFeed.Newest(releases, Current, previews: true, null)!.Tag);
+    }
+
+    [Fact]
+    public void A_preview_is_offered_the_next_preview_unless_previews_were_turned_off()
+    {
+        var preview = ReleaseVersion.Parse("0.2.0-preview.1");
+        Release[] releases = [R("0.2.0-preview.1"), R("0.2.0-preview.2"), R("0.1.9")];
+
+        Assert.True(new AppSettings().OffersPreviewUpdatesTo(preview));
+        Assert.False(new AppSettings().OffersPreviewUpdatesTo(Current));
+        Assert.False(new AppSettings { UpdatePreviews = false }.OffersPreviewUpdatesTo(preview));
+        Assert.True(new AppSettings { UpdatePreviews = true }.OffersPreviewUpdatesTo(Current));
+
+        var offered = ReleaseFeed.Newest(releases, preview, new AppSettings().OffersPreviewUpdatesTo(preview), null);
+        Assert.Equal("v0.2.0-preview.2", offered!.Tag);
+        Assert.Null(ReleaseFeed.Newest(releases, preview, new AppSettings { UpdatePreviews = false }.OffersPreviewUpdatesTo(preview), null));
+        Assert.Equal("v0.2.0", ReleaseFeed.Newest([.. releases, R("0.2.0")], preview, previews: false, null)!.Tag);
     }
 
     [Fact]

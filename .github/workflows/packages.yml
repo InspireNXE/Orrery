@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       ironrdp-url: ${{ steps.published.outputs.ironrdp-url }}
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Check out Orrery
@@ -59,22 +60,37 @@ jobs:
           "ironrdp-url=$($Package.url)" >> $Env:GITHUB_OUTPUT
         shell: pwsh
 
-      # A release's files are named for <Version> and Orrery finds updates by tag, so the two must agree before
-      # anything is built.
-      - name: Check the tag matches the version
-        if: startsWith(github.ref, 'refs/tags/v')
+      # The version every job builds. A release's files are named for it and Orrery finds updates by tag, so a tag
+      # must agree with <Version> before anything is built: v<Version> exactly, or a preview of it. A preview tag
+      # (v0.2.0-preview.1 with <Version> 0.2.0) builds as the tag's version, so a preview needs no commit of its own.
+      # Anything else builds as <Version>.
+      - name: Version
+        id: version
         env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
           TAG: ${{ github.ref_name }}
         run: |
           $Version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          if ($Env:TAG -cne "v$Version") { throw "The tag $($Env:TAG) doesn't match <Version> $Version in Directory.Build.props. Bump the version, commit it, and tag that commit v$Version (docs/packaging.md, Releasing)." }
-          Write-Host "Releasing Orrery $Version"
+          $Pattern = '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+          if ($Version -cnotmatch $Pattern) { throw "<Version> $Version in Directory.Build.props isn't a version like 1.2.3 or 1.2.3-preview.1." }
+          if ($Env:IS_TAG -eq 'true') {
+            $Tagged = $Env:TAG.Substring(1)
+            $Numbers = ($Version -split '-')[0]
+            if ($Tagged -cnotmatch $Pattern -or ($Tagged -cne $Version -and -not $Tagged.StartsWith("$Numbers-"))) {
+              throw "The tag $($Env:TAG) doesn't match <Version> $Version in Directory.Build.props. Tag v$Version, or v$Numbers-preview.<n> for a preview of it; for another version, bump <Version> and commit it first (docs/packaging.md, Releasing)."
+            }
+            $Version = $Tagged
+            Write-Host "Releasing Orrery $Version"
+          }
+          "version=$Version" >> $Env:GITHUB_OUTPUT
         shell: pwsh
 
   windows:
     name: Windows
     needs: [preflight]
     runs-on: windows-2025
+    env:
+      ORRERY_VERSION: ${{ needs.preflight.outputs.version }}
     permissions:
       contents: read
       # SignPath reads the job's details and downloads the artifact it's asked to sign with this token.
@@ -96,7 +112,7 @@ jobs:
         shell: pwsh
 
       - name: Portable zips
-        run: ./build/package.ps1 -Runtimes win-x64,win-arm64
+        run: ./build/package.ps1 -Runtimes win-x64,win-arm64 -Version $Env:ORRERY_VERSION
         shell: pwsh
 
       # Inno Setup 7.1.1 from its GitHub release. jrsoftware publishes no checksums (it signs the installer and
@@ -139,8 +155,8 @@ jobs:
       - name: Gather the files to sign
         if: steps.signing.outputs.sign == 'true'
         run: |
-          ./build/Build-Installer.ps1 -PublishOnly
-          $Version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          ./build/Build-Installer.ps1 -PublishOnly -Version $Env:ORRERY_VERSION
+          $Version = $Env:ORRERY_VERSION
           $ToSign = 'artifacts/to-sign'
           foreach ($Arch in 'x64', 'arm64') {
             New-Item -ItemType Directory -Force "$ToSign/portable-win-$Arch" | Out-Null
@@ -177,7 +193,7 @@ jobs:
       - name: Use the signed files
         if: steps.signing.outputs.sign == 'true'
         run: |
-          $Version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $Version = $Env:ORRERY_VERSION
           foreach ($Arch in 'x64', 'arm64') {
             Copy-Item -Force "artifacts/signed/portable-win-$Arch/Orrery.exe" "artifacts/Orrery-$Version-win-$Arch-portable/"
           }
@@ -185,7 +201,7 @@ jobs:
           $Unsigned = @(Get-ChildItem artifacts/Orrery-*-win-*-portable/Orrery.exe, artifacts/installer-publish/Orrery.exe, artifacts/installer-publish/Orrery.dll, artifacts/installer-publish/Orrery.*.dll |
             Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' })
           if ($Unsigned) { throw "Not signed: $($Unsigned.FullName -join ', ')" }
-          ./build/package.ps1 -Runtimes win-x64,win-arm64 -RezipOnly
+          ./build/package.ps1 -Runtimes win-x64,win-arm64 -RezipOnly -Version $Env:ORRERY_VERSION
         shell: pwsh
 
       - name: Installer
@@ -194,8 +210,8 @@ jobs:
           SIGNED: ${{ steps.signing.outputs.sign }}
         run: |
           # Signed, the setup is built from the publish whose files were just signed.
-          if ($Env:SIGNED -eq 'true') { ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH -SkipPublish }
-          else { ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH }
+          if ($Env:SIGNED -eq 'true') { ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH -Version $Env:ORRERY_VERSION -SkipPublish }
+          else { ./build/Build-Installer.ps1 -IsccPath $Env:ISCC_PATH -Version $Env:ORRERY_VERSION }
         shell: pwsh
 
       - name: Upload the setup to sign
@@ -247,6 +263,8 @@ jobs:
     name: Linux
     needs: [preflight]
     runs-on: ubuntu-24.04
+    env:
+      ORRERY_VERSION: ${{ needs.preflight.outputs.version }}
 
     steps:
       - name: Check out Orrery
@@ -260,7 +278,7 @@ jobs:
           ironrdp-url: ${{ needs.preflight.outputs.ironrdp-url }}
 
       - name: Portable zips
-        run: ./build/package.ps1 -Runtimes linux-x64,linux-arm64
+        run: ./build/package.ps1 -Runtimes linux-x64,linux-arm64 -Version $Env:ORRERY_VERSION
         shell: pwsh
 
       # nfpm's hash is from the checksums.txt in its v2.48.0 release. appimagetool 1.9.1 and type2-runtime 20251108
@@ -328,7 +346,7 @@ jobs:
           NFPM_PASSPHRASE: ${{ secrets.LINUX_SIGNING_PASSPHRASE }}
         run: |
           $Sign = if ($Env:SIGNING_KEY) { @{ SigningKey = $Env:SIGNING_KEY } } else { @{} }
-          ./build/Build-LinuxPackages.ps1 -NfpmPath $Env:NFPM_PATH -AppImageToolPath $Env:APPIMAGETOOL_PATH -AppImageRuntimeDir $Env:APPIMAGE_RUNTIME_DIR @Sign
+          ./build/Build-LinuxPackages.ps1 -Version $Env:ORRERY_VERSION -NfpmPath $Env:NFPM_PATH -AppImageToolPath $Env:APPIMAGETOOL_PATH -AppImageRuntimeDir $Env:APPIMAGE_RUNTIME_DIR @Sign
         shell: pwsh
 
       # Checked against the public key in the repository, the one users import, so a wrong key or a missing signature
@@ -382,6 +400,8 @@ jobs:
     name: macOS
     needs: [preflight]
     runs-on: macos-15
+    env:
+      ORRERY_VERSION: ${{ needs.preflight.outputs.version }}
 
     steps:
       - name: Check out Orrery
@@ -395,7 +415,7 @@ jobs:
           ironrdp-url: ${{ needs.preflight.outputs.ironrdp-url }}
 
       - name: Portable zips
-        run: ./build/package.ps1 -Runtimes osx-arm64,osx-x64
+        run: ./build/package.ps1 -Runtimes osx-arm64,osx-x64 -Version $Env:ORRERY_VERSION
         shell: pwsh
 
       - name: Upload portable zips
