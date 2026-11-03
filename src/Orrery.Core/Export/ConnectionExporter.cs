@@ -254,10 +254,11 @@ public static class ConnectionExporter
     const string MRemoteNgNamespace = "http://mremoteng.org";
     const int MRemoteNgKdfIterations = 1000;
     /// <summary>
-    /// For a file with passwords. mRemoteNG reads the cost from the file and offers up to 50,000 itself; ten
-    /// times its default still opens quickly, and stays inside what Orrery's importer works through.
+    /// For a file with passwords: the most mRemoteNG offers itself, since its PBKDF2 is the only thing slowing a guess at
+    /// the master password. It reads the cost from the file. Each encrypted value pays it, so a file with hundreds of
+    /// passwords opens a few seconds slower, and Orrery's importer takes up to about 4,000 of them.
     /// </summary>
-    const int MRemoteNgProtectedKdfIterations = 10_000;
+    const int MRemoteNgProtectedKdfIterations = 50_000;
 
     /// <summary>
     /// Every attribute a ConfVersion 2.6 node has, with mRemoteNG's defaults, in the order it writes them.

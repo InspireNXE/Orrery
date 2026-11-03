@@ -111,9 +111,31 @@ public sealed class SshTunnel(IReadOnlyList<SshHop> hops, HostKeyValidator hostK
     internal static (string Host, int Port) Forward(SshClient through, string host, int port)
     {
         var forward = new ForwardedPortLocal(PortForward.Loopback, 0, host, (uint)port);
+        AcceptOnlyOne(forward);
         through.AddForwardedPort(forward);
         forward.Start();
         return (PortForward.Loopback, (int)forward.BoundPort);
+    }
+
+    /// <summary>
+    /// Lets <paramref name="forward"/> carry one connection, the one the session (or the next hop) makes straight
+    /// after opening it, and refuses the rest. Loopback is open to every user of this computer, so on a shared one
+    /// another user could otherwise ride the jump host's login to whatever the tunnel reaches. A connection that gets
+    /// in first makes the session's own fail, which says so, rather than letting it through unseen.
+    /// </summary>
+    internal static void AcceptOnlyOne(ForwardedPort forward)
+    {
+        int connections = 0;
+        forward.RequestReceived += (_, e) =>
+        {
+            if (Interlocked.Increment(ref connections) > 1)
+            {
+                Log.For("JumpHost").LogWarning("Refused another connection to a tunnel's port, from {Host}:{Port}", e.OriginatorHost, e.OriginatorPort);
+
+                // SSH.NET closes this socket and keeps listening.
+                throw new InvalidOperationException("A tunnel's port takes one connection.");
+            }
+        };
     }
 
     public void Dispose()

@@ -130,7 +130,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   password is cleared from the clipboard after 30 seconds, and on Windows kept out of clipboard history.
 
 - **Jump hosts** work for every protocol, like `ssh -J`; RDP, VNC and Telnet go through an SSH tunnel. Web pages
-  can't, in a tab or the browser: give the jump host a SOCKS proxy instead.
+  can't, in a tab or the browser: give the jump host a SOCKS proxy instead. The tunnel's port on this computer takes
+  only Orrery's own connection, so another user of a shared machine can't ride it.
 - **Folders** can give every SSH connection inside a SOCKS proxy (like its own `D 1080`) and a keep-alive interval
   (30 seconds by default; 0 for none).
 - **Quick connect** also takes `http://` and `https://` addresses, which open in a tab like other web pages, and serial ports:
@@ -173,7 +174,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   in a tab beside the page; a page's own pop-up, such as a sign-in, opens as a pop-up. An untrusted certificate shows
   the engine's warning, with a way past it, and the tab says the page didn't load. The lock before the address is
   closed only for HTTPS (and SSH and RDP); plain HTTP, Telnet and VNC show it open, in amber. A page opens only web
-  addresses in new tabs, a few at a time, and Open in browser takes only web addresses.
+  addresses in new tabs, a few at a time, and Open in browser takes only web addresses. Their sign-ins and cookies
+  stay in `web/` in the data folder; Settings > Web pages clears them, and Move data leaves them behind.
 
 <p align="center">
   <img src="docs/images/connection-lost.png" width="720"
@@ -190,7 +192,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Host checks** run about once a minute, only for visible connections and never through a jump host. They're a
   plain TCP connect by default, which some networks treat as a port scan; Settings can switch to ping or turn them
   off. Firewalls often block ping, so up hosts may show as down; without ping rights, hosts show the dashed ring.
-  Serial ports aren't checked; web pages are checked at their host and port.
+  Serial ports aren't checked; web pages are checked at their host and port. A folder or connection can turn its
+  checks off, and an import asks first whether to check the hosts it adds.
 - **Properties pane:** one line per setting. A blue dot marks values set here; muted ones are inherited. Click to
   change, or "Use that instead" to inherit again. The footer counts what's set here.
 - **This session tab:** while a remote desktop is open, Scaling, View only and Color correction change it at once,
@@ -214,7 +217,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   opened. The preview names every connection that shares drives or folders, or opens a port forward or proxy beyond
   this computer, so a file from someone else can't set those up unseen.
 - **Export:** Orrery `.json`, mRemoteNG `confCons.xml` or CSV. Passwords are encrypted under a password you choose,
-  at least 12 characters and not a common one (as for a new vault); CSV never gets them. Serial connections are left out of `confCons.xml`, which has none, and the export says so.
+  at least 12 characters and not a common one (as for a new vault); `confCons.xml` uses 50,000 key rounds, the most
+  mRemoteNG offers. CSV never gets them. Serial connections are left out of `confCons.xml`, which has none, and the export says so.
 - The credential editor hides a private key until you press Show; pasting still works.
 
 ### Display and color

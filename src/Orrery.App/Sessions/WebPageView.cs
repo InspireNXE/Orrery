@@ -65,9 +65,13 @@ sealed class WebPageView : Panel
     /// </summary>
     public static bool DrawnInOrrery => OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("ORRERY_WEB_OFFSCREEN") != "0";
 
+    /// <summary>Whether a page engine has started in this run, and so may hold its data folder open until Orrery exits.</summary>
+    public static bool EngineStarted { get; private set; }
+
     /// <param name="dataFolder">Where the engine keeps cookies, sign-ins and its cache.</param>
     public WebPageView(Uri url, string dataFolder)
     {
+        EngineStarted = true;
         Address = url;
         Background = new SolidColorBrush(Color.Parse("#0B0D10"));
         _web.EnvironmentRequested += (_, e) =>

@@ -306,7 +306,7 @@ sealed class SettingsView : UserControl
             ? $"\n\n{_biometric.Name} unlock keeps working with the moved vault. Until you delete the old copy, it opens that one too."
             : string.Empty;
         if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
-                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it.{biometricNote}",
+                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it. Web pages' sign-ins and cookies don't move: you'll sign in to them again.{biometricNote}",
                 "Move and restart"))
         {
             return;
@@ -981,12 +981,51 @@ sealed class SettingsView : UserControl
 
         var choiceList = new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1] } };
         AutomationProperties.SetName(choiceList, "Open web pages");
+
+        var clear = new Button { Content = "Clear web data…", IsEnabled = WebData.Exists(_location.DataDir) };
+        var cleared = Note(string.Empty);
+        cleared.IsVisible = false;
+        clear.Click += async (_, _) =>
+        {
+            if (!await Dialogs.ConfirmAsync(Owner, "Clear web data?",
+                    "This signs you out of every page opened in an Orrery tab, and deletes their cookies, cache and saved site data. "
+                    + "Pages opened in your browser aren't affected.", "Clear web data"))
+            {
+                return;
+            }
+
+            try
+            {
+                // A page engine that's run since Orrery started keeps its files open until Orrery exits.
+                if (Sessions.WebPageView.EngineStarted)
+                {
+                    WebData.ClearAtStart(_location.DataDir);
+                    cleared.Text = "Web data will be cleared when Orrery next starts.";
+                }
+                else
+                {
+                    WebData.Clear(_location.DataDir);
+                    cleared.Text = "Web data cleared.";
+                }
+
+                clear.IsEnabled = false;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                cleared.Text = $"Couldn't clear web data: {e.Message}";
+            }
+
+            cleared.IsVisible = true;
+        };
+
         return Section("Web pages",
             Dialogs.Label("Open web connections and management pages"),
             choiceList,
             Note("An Orrery tab keeps them beside your sessions, with their own sign-ins kept in Orrery's data folder. The default "
                 + "browser is for pages that need its extensions or saved passwords; a tab can also send its page there. "
-                + "A connection or folder can set its own choice in its properties."));
+                + "A connection or folder can set its own choice in its properties."),
+            clear,
+            cleared);
     }
 
     // ---- Local terminal ----

@@ -10,7 +10,8 @@ This round was run lighter than 2026-10, at the owner's request to keep it econo
 Each finding below that's marked Fixed was checked against the code before fixing, and most have a regression
 test. The ones left Open were read but not proven by a failing input.
 
-Counts: 9 Medium, 20 Low, and 7 correctness bugs. 22 fixed, 14 open.
+Counts: 9 Medium, 20 Low, and 7 correctness bugs. 26 fixed, 10 open (S-4, S-13, S-20 and S-22 were built after the
+round, at the owner's word).
 
 ---
 
@@ -39,8 +40,12 @@ reaches into the user's network once they connect.
 Test: `ImportReviewTests.Remote_forwards_and_listeners_beyond_this_computer_are_named_but_loopback_ones_arent`.
 
 ### S-4: Jump-host tunnels and forwards on loopback accept any local user
-Status: Open (needs a design: one connection per listener, or a peer check).
+Status: Fixed after the round. Each forwarded port takes one connection, the one the session or the next hop makes
+straight after opening it, and refuses and logs the rest (`SshTunnel.AcceptOnlyOne`). Every dial opens its own
+forward, so reconnects and RDP redirections still work. A local user who gets in first makes the session fail
+visibly instead of riding it unseen.
 Where: src/Orrery.Protocols.Ssh/SshTunnel.cs `Forward`; SshSession.cs
+Test: `SshTunnelTests` (a second connection to a forward is refused).
 Failure: On a shared machine (an RDS host, a multi-user Linux box), user B connects to user A's ephemeral loopback
 port while A's RDP or VNC goes through a jump host -> B reaches the internal host over A's SSH session.
 
@@ -94,7 +99,11 @@ Status: Fixed. `ManagementUrl.TryNormalize` refuses any with user info, as `WebA
 Test: `ManagementUrlTests` (two new cases).
 
 ### S-13: The web profile isn't covered by Move data, and there's no way to clear it
-Status: Open (Move data is guarded by tests the profile says never to weaken; owner's call).
+Status: Fixed after the round. Move data still doesn't copy the web folder (sign-ins don't move, which its
+confirmation now says), but deleting the old copy removes it. Settings > Web pages has "Clear web data…", which deletes
+the engines' folders at once, or at the next start if a page engine has run since Orrery started. Only the folders the
+engines write are removed, and links aren't followed (`WebData`).
+Test: `WebDataTests`; `DataMoverTests.Web_data_isnt_copied_and_is_deleted_with_the_old_copy_but_not_what_else_is_in_its_folder`.
 Failure: Moving from a portable folder leaves the admin consoles' cookies and cache behind in the old folder.
 
 ### S-14: The Linux web view forces GDK's X11 backend
@@ -123,14 +132,19 @@ to the planted host.
 Test: `ImportReviewTests.An_orrery_file_cant_claim_an_rdp_files_source`.
 
 ### S-20: Host checks probe every host in an imported file
-Status: Open (a behavior choice: on by default today).
+Status: Fixed after the round. Host checks are now a setting a folder or connection can turn off ("Check whether the
+host is up", inherited like the rest). When checks are on and a file names hosts, the import asks once whether to
+check them; "Don't check" turns them off where the import lands and clears any choice the file made below that.
+Test: `HostStatusTests.A_folder_with_host_checks_off_stops_them_for_everything_under_it_unless_one_turns_them_back_on`.
 
 ### S-21: A copied password isn't cleared if Orrery closes within 30 seconds, and has no clipboard-manager hint off Windows
 Status: Open.
 
 ### S-22: mRemoteNG exports with passwords use 10,000 PBKDF2 rounds
-Status: Open (owner's call). Deliberate: mRemoteNG derives a key per value, so 50,000 makes big files slow to open
-and runs into the importer's total cap.
+Status: Fixed after the round, at the owner's word: 50,000 rounds, the most mRemoteNG offers itself. A file with
+hundreds of passwords opens a few seconds slower. The export dialog says mRemoteNG's protection is weaker against
+guessing than an Orrery export's.
+Test: `SecretExportTests` (the file declares `KdfIterations="50000"`).
 
 ### S-23: A `.rdp` file's `selectedmonitors` text went into the warning unshortened
 Status: Fixed. The warning lists the numbers read, at most 16.
