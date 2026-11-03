@@ -68,6 +68,7 @@ machine yet, hence the 🧪.
 | Touch and pen, console session, broker redirection | 🧪 | 🧪 | 🧪 |
 | **Recording** | | | |
 | Record terminals and remote desktops, with sound | ✅ | 🧪 | 🧪 |
+| Record web pages in a tab | ✅ | ➖ | ➖ |
 | Play back, with speed, skip idle and Find | ✅ | 🧪 | 🧪 |
 | Export `.cast` and `.avi` | 🧪 | 🧪 | 🧪 |
 | Export MP4 | 🧪 built in, with sound | 🔸 through ffmpeg, no sound | 🔸 through ffmpeg, no sound |
@@ -239,7 +240,8 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
 </p>
 
 - **What's recorded:** what a terminal printed (never what's typed), or what a remote desktop showed, at up to 60
-  frames a second, taken only when the screen changes, with RDP sound.
+  frames a second, taken only when the screen changes, with RDP sound. On Windows, a web page in a tab is recorded
+  the same way, from the engine's own picture of the page (no sound); WebKit on Linux and macOS can't give one.
 - **Starting:** the *Record sessions* setting (inherited, so a folder can record everything in it), *Record every
   session* in Settings, or the tab's menu. A red dot on the tab and a *REC* pill show it's on; the pill changes the
   frame rate and sound, or stops. A reconnect carries on in the same file.

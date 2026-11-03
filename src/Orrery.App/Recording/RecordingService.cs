@@ -61,11 +61,15 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
     /// the private key in it; after that the public key in settings is enough.
     /// </summary>
     /// <returns>Null when it couldn't start, with why in <paramref name="problem"/>.</returns>
+    /// <summary>Whether a session's view can be recorded: a terminal, a remote desktop, or on Windows a web page.</summary>
+    public static bool Recordable(Control view) => view is TerminalView or RemoteFrameView || (view is WebPageView && WebFrames.Supported);
+
     public async Task<(SessionRecorder? Recorder, string? Problem)> StartAsync(SessionTab tab, Window owner)
     {
-        if (tab.View is not (TerminalView or RemoteFrameView))
+        if (!Recordable(tab.View))
         {
-            return (null, "Only terminals and remote desktops can be recorded.");
+            return (null, WebFrames.Supported ? "Only terminals, remote desktops and web pages can be recorded."
+                : "Only terminals and remote desktops can be recorded.");
         }
 
         byte[] publicKey;
