@@ -70,6 +70,7 @@ sealed class RecordingsPanel : DockPanel
         _filter.InnerLeftContent = new StrokeIcon { Data = Geometry.Parse("M4 6h16 M7 12h10 M10 18h4"), Width = 13, Height = 13, StrokeThickness = 2, Margin = new Thickness(10, 0, 0, 0), Foreground = Dialogs.MutedBrush };
         _filter.TextChanged += (_, _) => Show();
 
+        ScrollViewer.SetHorizontalScrollBarVisibility(_list, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
         _list.ItemTemplate = new FuncDataTemplate<RecordingItem>((r, _) => r is null ? new Panel() : Row(r));
         _list.Tapped += async (_, _) => await PlayAsync();
         _list.KeyDown += async (_, e) =>
@@ -260,17 +261,16 @@ sealed class RecordingsPanel : DockPanel
             detail.Add(r.Problem);
         }
 
-        var title = new StackPanel
+        // A dock panel, not a horizontal stack, so the name gets only the room left of the badge and ends in "…".
+        var title = new DockPanel
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
             Children = { new TextBlock { Text = r.Title, TextTrimming = TextTrimming.CharacterEllipsis } },
         };
         if (recording)
         {
-            var dot = new Ellipse { Width = 7, Height = 7, Fill = SessionTab.RecordingBrush, VerticalAlignment = VerticalAlignment.Center };
+            var dot = new Ellipse { Width = 7, Height = 7, Fill = SessionTab.RecordingBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
             ToolTip.SetTip(dot, "Being recorded now");
-            title.Children.Insert(0, dot);
+            title.Children.Insert(0, Pane.Docked(dot, Dock.Left));
         }
 
         return new DockPanel
