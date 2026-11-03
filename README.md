@@ -186,9 +186,10 @@ Quick connect (Ctrl+K) searches saved connections and open sessions as you type,
 - **This session tab:** while a remote desktop is open, Scaling, View only and Color correction change it at once,
   until it closes; Keep for next time saves the change. Settings that need a reconnect are listed with a Reconnect
   button.
-- **Pane layouts** (Settings › General), for the side panel and the properties pane: Expanded docks it; Collapsed
-  leaves a strip and opens over the sessions; Auto docks it unless a session is showing; Hidden leaves no strip
-  (the window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop.
+- **Pane layouts** (Settings › General, or the pin in each pane's header), for the side panel and the properties
+  pane: Pinned docks it; Over the session leaves a strip and opens over the sessions; Hidden leaves no strip (the
+  window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; over
+  a web page it opens beside it, since nothing can be drawn over the page. Drag a pane's inner edge to resize it.
 - **Last connected** shows in the properties pane ("3 days ago", exact time on hover), with a newer failed attempt
   if there was one.
 
@@ -320,8 +321,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
-| Ctrl+B | Show or hide the side panel (or open it over the sessions when not docked) |
-| Ctrl+Alt+B | Show or hide the properties pane (or open it over the sessions when not docked) |
+| Ctrl+B | Show or hide the side panel, over the sessions unless it's pinned; the mode stays as it is |
+| Ctrl+Alt+B | Show or hide the properties pane, the same way |
 | Ctrl+Alt+Enter (Ctrl+Cmd+F on macOS) | Full screen (changeable in Settings) |
 | Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) | Leave the session for its tab; Enter goes back |
 | Ctrl+Alt+End (Ctrl+Cmd+End on macOS) | In a remote desktop: send Ctrl+Alt+Del |

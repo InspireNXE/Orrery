@@ -108,7 +108,7 @@ sealed class CredentialsView
         {
             Children =
             {
-                Pane.Docked(new DockPanel
+                Pane.Docked(Header = new DockPanel
                 {
                     Margin = new Thickness(14, 10, 10, 6),
                     Children =
@@ -191,6 +191,9 @@ sealed class CredentialsView
 
     /// <summary>The list, for the side panel.</summary>
     public Control List { get; }
+
+    /// <summary>The header row, which the main window adds its pin button to.</summary>
+    public DockPanel Header { get; }
 
     /// <summary>The selected credential's editor, for the right-hand pane.</summary>
     public Control Editor { get; }

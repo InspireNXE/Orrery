@@ -273,7 +273,7 @@ plays it in the main area; the context menu has *Play*, *Export…*, *Show in fo
 key). Deleting the one playing closes the player first. *Show recordings* in Settings opens the section.
 
 While *Recordings* is the open rail item, the main area (over the sessions and the right-hand pane) is the player, or
-"Choose a recording to play" until one is chosen; the side panel stays beside it in Auto. Choosing a session tab,
+"Choose a recording to play" until one is chosen; the side panel stays beside it, whatever its mode. Choosing a session tab,
 another rail item, or *Recordings* again goes back to the sessions and pauses the player; coming back carries on.
 
 Names live inside the encrypted part, so they show only while the credential store is open: when it's locked the

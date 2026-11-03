@@ -7,31 +7,38 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging;
+using Orrery.App.Sessions;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
 
 namespace Orrery.App;
 
 /// <summary>
-/// The side panel and the right-hand pane, each in a <see cref="PaneMode"/>. Docked, a pane sits beside the sessions
-/// and takes room from them; otherwise it opens over them ("floating"), so a remote desktop keeps its size and isn't
-/// asked to resize each time a pane is looked at. A floating pane closes on a click elsewhere or Escape, and one opened
-/// by pointing (at the rail in Auto, or the window's edge when hidden) also closes when the pointer leaves it.
+/// The side panel and the right-hand pane, each in a <see cref="PaneMode"/>. Pinned (Expanded), a pane sits beside
+/// the sessions and takes room from them; otherwise it opens over them ("floating"), so a remote desktop keeps its size
+/// and isn't asked to resize each time a pane is looked at. A floating pane closes on a click elsewhere or Escape, and
+/// one opened by pointing at the window's edge also closes when the pointer leaves it. Ctrl+B and Ctrl+Alt+B only show
+/// or hide a pane; the mode changes with its pin button, Settings, or a right-click on the buttons beside the tabs.
 /// </summary>
 public partial class MainWindow
 {
-    static readonly TimeSpan HoverOpenDelay = TimeSpan.FromMilliseconds(250);
     static readonly TimeSpan HoverCloseDelay = TimeSpan.FromMilliseconds(400);
     static readonly BoxShadows FloatingShadow = BoxShadows.Parse("0 0 28 0 #99000000");
+    const double DefaultSideWidth = 280, DefaultInspectorWidth = 320, MinPaneWidth = 220, MaxPaneWidth = 640;
 
     PaneMode _sideMode, _inspectorMode;
     bool _sideFloating, _inspectorFloating;
+
+    // A pinned pane put away with its shortcut or toggle, until it's shown again. Not saved: the mode stays pinned.
+    bool _sideHiddenForNow, _inspectorHiddenForNow;
 
     // Opened by pointing rather than clicking, so leaving closes them.
     bool _sideHovered, _inspectorHovered;
 
     Border _leftEdge = null!, _rightEdge = null!, _inspectorStrip = null!;
-    readonly DispatcherTimer _railHover = new() { Interval = HoverOpenDelay };
+    readonly ContentControl _inspectorContent = new();
+    readonly List<Button> _sidePins = [];
+    Button? _inspectorPin;
     readonly DispatcherTimer _sideLeave = new() { Interval = HoverCloseDelay };
     readonly DispatcherTimer _inspectorLeave = new() { Interval = HoverCloseDelay };
 
@@ -47,28 +54,28 @@ public partial class MainWindow
         _sidePanelToggle.ContextMenu = ModeMenu("Side panel", () => _sideMode, SetSidePanelMode);
         _inspectorToggle.ContextMenu = ModeMenu("Settings pane", () => _inspectorMode, SetInspectorMode);
 
+        // A pin in each of the side panel's headers, and one in the right-hand pane's top corner.
+        foreach (var header in new[] { _credentialsView.Header, _recentPanel.Header, _recordingsPanel.Header })
+        {
+            Controls.Pane.AddHeaderButton(header, SidePin());
+        }
+
+        this.FindControl<StackPanel>("ConnectionsHeaderButtons")!.Children.Insert(0, SidePin());
+        _inspectorPin = PinButton(() => PinInspector(_inspectorMode != PaneMode.Expanded));
+        _inspectorPin.HorizontalAlignment = HorizontalAlignment.Right;
+        _inspectorPin.VerticalAlignment = VerticalAlignment.Top;
+        _inspectorPin.Margin = new Thickness(0, 12, 10, 0);
+        var inspectorPanel = (Panel)_propertiesHost.Child!;
+        inspectorPanel.Children.Add(_inspectorPin);
+
+        // Dragging a pane's inner edge sets its width, which is remembered.
+        _sidePanel.Width = Math.Clamp(settings.SidePanelWidth ?? DefaultSideWidth, MinPaneWidth, MaxPaneWidth);
+        _propertiesHost.Width = Math.Clamp(settings.InspectorWidth ?? DefaultInspectorWidth, MinPaneWidth, MaxPaneWidth);
+        ((Panel)_sidePanel.Child!).Children.Add(ResizeGrip(_sidePanel, onLeft: false, DefaultSideWidth, (s, width) => s with { SidePanelWidth = width }));
+        inspectorPanel.Children.Add(ResizeGrip(_propertiesHost, onLeft: true, DefaultInspectorWidth, (s, width) => s with { InspectorWidth = width }));
+
         _leftEdge.PointerEntered += (_, _) => FloatSidePanel(hovered: true);
         _rightEdge.PointerEntered += (_, _) => FloatInspector(hovered: true);
-
-        // In Auto, pointing at the rail slides the panel in over the session.
-        _railHover.Tick += (_, _) =>
-        {
-            _railHover.Stop();
-            FloatSidePanel(hovered: true);
-        };
-        _rail.PointerEntered += (_, _) =>
-        {
-            _sideLeave.Stop();
-            if (_sideMode == PaneMode.Auto && !Docked(_sideMode) && !_sideFloating)
-            {
-                _railHover.Start();
-            }
-        };
-        _rail.PointerExited += (_, _) =>
-        {
-            _railHover.Stop();
-            LeaveLater(_sideHovered, _sideLeave);
-        };
 
         _sidePanel.PointerEntered += (_, _) => _sideLeave.Stop();
         _sidePanel.PointerExited += (_, _) => LeaveLater(_sideHovered, _sideLeave);
@@ -83,8 +90,19 @@ public partial class MainWindow
         ApplyPanes();
     }
 
-    /// <summary>Whether a pane in <paramref name="mode"/> sits beside the sessions right now, or beside Recordings' player.</summary>
-    bool Docked(PaneMode mode) => mode == PaneMode.Expanded || (mode == PaneMode.Auto && (_currentTab is null || _recordingsShown));
+    /// <summary>
+    /// Whether the side panel sits beside the sessions: pinned and not put away, or while Recordings shows its player,
+    /// which has nothing under it to keep the size of.
+    /// </summary>
+    bool SideDocked => (_sideMode == PaneMode.Expanded && !_sideHiddenForNow) || _recordingsShown;
+
+    bool InspectorDocked => _inspectorMode == PaneMode.Expanded && !_inspectorHiddenForNow;
+
+    /// <summary>
+    /// A web page is showing. It's drawn in a window of its own that nothing of Orrery's can be drawn over, so a pane
+    /// opened over it would only blank it; panes open beside it instead, and the page narrows to fit.
+    /// </summary>
+    bool WebPageShowing => _currentTab?.View is WebPageView && !_recordingsShown;
 
     /// <summary>Puts each pane where its mode and the sessions say: beside them, over them, or away.</summary>
     void ApplyPanes()
@@ -94,36 +112,41 @@ public partial class MainWindow
             return;
         }
 
-        bool sideDocked = Docked(_sideMode);
+        bool sideDocked = SideDocked;
         _sideFloating &= !sideDocked;
         _rail.IsVisible = _sideMode != PaneMode.Hidden;
         _sidePanel.IsVisible = sideDocked || _sideFloating;
-        Place(_sidePanel, sideDocked ? 1 : null, HorizontalAlignment.Left);
+        Place(_sidePanel, sideDocked || (_sideFloating && WebPageShowing) ? 1 : null, HorizontalAlignment.Left);
         _leftEdge.IsVisible = _sideMode == PaneMode.Hidden && !_sideFloating;
         foreach (var (name, (button, _)) in _sides)
         {
             button.Classes.Set("active", _sidePanel.IsVisible && name == _side && !_settingsHost.IsVisible);
         }
 
-        bool inspectorDocked = Docked(_inspectorMode);
+        bool inspectorDocked = InspectorDocked;
         _inspectorFloating &= !inspectorDocked;
         _propertiesHost.IsVisible = inspectorDocked || _inspectorFloating;
-        Place(_propertiesHost, inspectorDocked ? 4 : null, HorizontalAlignment.Right);
+        Place(_propertiesHost, inspectorDocked || (_inspectorFloating && WebPageShowing) ? 4 : null, HorizontalAlignment.Right);
         _inspectorStrip.IsVisible = !inspectorDocked && _inspectorMode != PaneMode.Hidden;
         _rightEdge.IsVisible = _inspectorMode == PaneMode.Hidden && !_inspectorFloating;
 
-        ToolTip.SetTip(_sidePanelToggle, Tip("side panel", "Ctrl+B", _sideMode, sideDocked));
-        ToolTip.SetTip(_inspectorToggle, Tip("settings pane", "Ctrl+Alt+B", _inspectorMode, inspectorDocked));
+        foreach (var pin in _sidePins)
+        {
+            ShowPin(pin, "side panel", _sideMode == PaneMode.Expanded);
+        }
+
+        if (_inspectorPin is not null)
+        {
+            ShowPin(_inspectorPin, "settings pane", _inspectorMode == PaneMode.Expanded);
+        }
+
+        ToolTip.SetTip(_sidePanelToggle, Tip("side panel", "Ctrl+B", _sideMode, _sidePanel.IsVisible));
+        ToolTip.SetTip(_inspectorToggle, Tip("settings pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
     }
 
-    static string Tip(string pane, string keys, PaneMode mode, bool docked) =>
-        (mode, docked) switch
-        {
-            (PaneMode.Expanded, _) => $"Collapse the {pane} ({keys})",
-            (PaneMode.Collapsed, _) => $"Expand the {pane} ({keys})",
-            (_, true) => $"The {pane} is {mode.ToString().ToLowerInvariant()}",
-            _ => $"Show the {pane} over the session ({keys})",
-        } + ". Right-click to choose how it shows.";
+    static string Tip(string pane, string keys, PaneMode mode, bool shown) =>
+        (shown ? $"Hide the {pane}" : mode == PaneMode.Expanded ? $"Show the {pane}" : $"Show the {pane} over the session")
+        + $" ({keys}). Right-click to choose how it shows.";
 
     /// <summary>Beside the sessions in <paramref name="dockColumn"/>, or over them against one edge when null.</summary>
     static void Place(Border pane, int? dockColumn, HorizontalAlignment edge)
@@ -141,79 +164,189 @@ public partial class MainWindow
         _inspectorStrip.IsVisible = _leftEdge.IsVisible = _rightEdge.IsVisible = false;
     }
 
+    // ---- Pins ----
+
+    Button SidePin()
+    {
+        var pin = PinButton(() => PinSidePanel(_sideMode != PaneMode.Expanded));
+        pin.Width = pin.Height = 28;
+        _sidePins.Add(pin);
+        return pin;
+    }
+
+    static Button PinButton(Action click)
+    {
+        var pin = new Button { Width = 28, Height = 28 };
+        pin.Classes.Add("icon");
+        pin.Click += (_, _) => click();
+        return pin;
+    }
+
+    static void ShowPin(Button pin, string pane, bool pinned)
+    {
+        pin.Content = Controls.StrokeIcon.Create(pinned ? Controls.Icons.Unpin : Controls.Icons.Pin, 15);
+        string tip = pinned ? $"Unpin the {pane}: it opens over the session instead" : $"Pin the {pane} beside the sessions";
+        ToolTip.SetTip(pin, tip);
+        Avalonia.Automation.AutomationProperties.SetName(pin, pinned ? $"Unpin the {pane}" : $"Pin the {pane}");
+    }
+
+    /// <summary>Pins the side panel, or unpins it and leaves it open over the session until a click elsewhere.</summary>
+    void PinSidePanel(bool pin)
+    {
+        SetSidePanelMode(pin ? PaneMode.Expanded : PaneMode.Collapsed);
+        if (!pin)
+        {
+            FloatSidePanel(hovered: false);
+        }
+    }
+
+    void PinInspector(bool pin)
+    {
+        SetInspectorMode(pin ? PaneMode.Expanded : PaneMode.Collapsed);
+        if (!pin)
+        {
+            FloatInspector(hovered: false);
+        }
+    }
+
+    // ---- Width ----
+
+    /// <summary>A strip along a pane's inner edge: drag it to change the pane's width, or double-click for the default.</summary>
+    Border ResizeGrip(Border pane, bool onLeft, double defaultWidth, Func<AppSettings, double?, AppSettings> save)
+    {
+        var grip = new Border
+        {
+            Width = 6,
+            Background = Brushes.Transparent,
+            Cursor = new Cursor(StandardCursorType.SizeWestEast),
+            HorizontalAlignment = onLeft ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+            ZIndex = 1,
+        };
+        ToolTip.SetTip(grip, "Drag to change the width. Double-click for the usual width.");
+        ToolTip.SetShowDelay(grip, 800);
+
+        double startX = 0, startWidth = 0;
+        bool dragging = false;
+        grip.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(grip).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            if (e.ClickCount == 2)
+            {
+                pane.Width = defaultWidth;
+                SaveWidth(null);
+                return;
+            }
+
+            (dragging, startX, startWidth) = (true, e.GetPosition(this).X, pane.Width);
+            e.Pointer.Capture(grip);
+        };
+        grip.PointerMoved += (_, e) =>
+        {
+            if (dragging)
+            {
+                double moved = e.GetPosition(this).X - startX;
+                pane.Width = Math.Clamp(startWidth + (onLeft ? -moved : moved), MinPaneWidth, Math.Max(MinPaneWidth, Math.Min(MaxPaneWidth, Bounds.Width * 0.45)));
+            }
+        };
+        grip.PointerReleased += (_, e) =>
+        {
+            if (dragging)
+            {
+                dragging = false;
+                e.Pointer.Capture(null);
+                SaveWidth(pane.Width == defaultWidth ? null : Math.Round(pane.Width));
+            }
+        };
+        grip.PointerCaptureLost += (_, _) => dragging = false;
+        return grip;
+
+        void SaveWidth(double? width)
+        {
+            try
+            {
+                _settingsStore.Save(save(_settingsStore.Load(), width));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Log.For("App").LogWarning("Couldn't save a pane's width: {Message}", e.Message);
+            }
+        }
+    }
+
     // ---- Opening and closing ----
 
     void OnToggleSidePanelClick(object? sender, RoutedEventArgs e) => ToggleSidePanel();
 
     void OnToggleInspectorClick(object? sender, RoutedEventArgs e) => ToggleInspector();
 
-    /// <summary>Ctrl+B and the toggle beside the tabs: collapse or expand, or show the panel over the session.</summary>
+    /// <summary>
+    /// Ctrl+B and the toggle beside the tabs: hide the side panel, or show it (over the session unless it's pinned).
+    /// The mode stays as it is.
+    /// </summary>
     void ToggleSidePanel()
     {
-        switch (_sideMode)
+        if (_sideMode == PaneMode.Expanded && !_recordingsShown)
         {
-            case PaneMode.Expanded:
-                SetSidePanelMode(PaneMode.Collapsed);
-                break;
-            case PaneMode.Collapsed:
-                SetSidePanelMode(PaneMode.Expanded);
-                break;
-            default:
-                if (_sideFloating)
-                {
-                    CloseFloatingPanes();
-                }
-                else
-                {
-                    FloatSidePanel(hovered: false);
-                }
-
-                break;
+            _sideHiddenForNow = !_sideHiddenForNow;
+            ApplyPanes();
+        }
+        else if (_sideFloating)
+        {
+            CloseFloatingPanes();
+        }
+        else
+        {
+            FloatSidePanel(hovered: false);
         }
     }
 
     /// <summary>Ctrl+Alt+B and its toggle, as <see cref="ToggleSidePanel"/> does for the side panel.</summary>
     void ToggleInspector()
     {
-        switch (_inspectorMode)
+        if (_inspectorMode == PaneMode.Expanded)
         {
-            case PaneMode.Expanded:
-                SetInspectorMode(PaneMode.Collapsed);
-                break;
-            case PaneMode.Collapsed:
-                SetInspectorMode(PaneMode.Expanded);
-                break;
-            default:
-                if (_inspectorFloating)
-                {
-                    CloseFloatingPanes();
-                }
-                else
-                {
-                    FloatInspector(hovered: false);
-                }
+            if (!_inspectorHiddenForNow)
+            {
+                _properties.TrySave();
+            }
 
-                break;
+            _inspectorHiddenForNow = !_inspectorHiddenForNow;
+            ApplyPanes();
+        }
+        else if (_inspectorFloating)
+        {
+            CloseFloatingPanes();
+        }
+        else
+        {
+            FloatInspector(hovered: false);
         }
     }
 
-    /// <summary>The rail's lit item clicked again: closes the panel over the session, or collapses an expanded one.</summary>
+    /// <summary>The rail's lit item clicked again: closes the panel over the session, or puts a pinned one away.</summary>
     void ClickActiveRailItem()
     {
         if (_sideFloating)
         {
             CloseFloatingPanes();
         }
-        else if (_sideMode == PaneMode.Expanded)
+        else if (SideDocked)
         {
-            SetSidePanelMode(PaneMode.Collapsed);
+            _sideHiddenForNow = true;
+            ApplyPanes();
         }
     }
 
-    /// <summary>Makes sure the side panel can be seen: as it is when docked, else over the sessions.</summary>
+    /// <summary>Makes sure the side panel can be seen: beside the sessions when pinned, else over them.</summary>
     void RevealSidePanel()
     {
-        if (!Docked(_sideMode))
+        _sideHiddenForNow = false;
+        if (!SideDocked)
         {
             FloatSidePanel(hovered: false);
         }
@@ -223,12 +356,17 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>Makes sure the right-hand pane can be seen: as it is when docked, else over the sessions.</summary>
+    /// <summary>Makes sure the right-hand pane can be seen: beside the sessions when pinned, else over them.</summary>
     void RevealInspector()
     {
-        if (!Docked(_inspectorMode))
+        _inspectorHiddenForNow = false;
+        if (!InspectorDocked)
         {
             FloatInspector(hovered: false);
+        }
+        else
+        {
+            ApplyPanes();
         }
     }
 
@@ -240,13 +378,13 @@ public partial class MainWindow
         }
         else
         {
-            FloatInspector(hovered: false);
+            RevealInspector();
         }
     }
 
     void FloatSidePanel(bool hovered)
     {
-        if (_fullScreen || Docked(_sideMode))
+        if (_fullScreen || SideDocked)
         {
             return;
         }
@@ -259,7 +397,7 @@ public partial class MainWindow
 
     void FloatInspector(bool hovered)
     {
-        if (_fullScreen || Docked(_inspectorMode))
+        if (_fullScreen || InspectorDocked)
         {
             return;
         }
@@ -271,7 +409,6 @@ public partial class MainWindow
 
     void CloseFloatingPanes()
     {
-        _railHover.Stop();
         _sideLeave.Stop();
         _inspectorLeave.Stop();
         if (!_sideFloating && !_inspectorFloating)
@@ -344,20 +481,20 @@ public partial class MainWindow
     void SetSidePanelMode(PaneMode mode)
     {
         _sideMode = mode;
-        _sideFloating = _sideHovered = false;
+        _sideFloating = _sideHovered = _sideHiddenForNow = false;
         SavePaneModes();
         ApplyPanes();
     }
 
     void SetInspectorMode(PaneMode mode)
     {
-        if (!Docked(mode))
+        if (mode != PaneMode.Expanded)
         {
             _properties.TrySave();
         }
 
         _inspectorMode = mode;
-        _inspectorFloating = _inspectorHovered = false;
+        _inspectorFloating = _inspectorHovered = _inspectorHiddenForNow = false;
         SavePaneModes();
         ApplyPanes();
     }
@@ -366,7 +503,7 @@ public partial class MainWindow
     void FollowPaneModes(PaneMode side, PaneMode inspector)
     {
         (_sideMode, _inspectorMode) = (side, inspector);
-        _sideFloating = _inspectorFloating = _sideHovered = _inspectorHovered = false;
+        _sideFloating = _inspectorFloating = _sideHovered = _inspectorHovered = _sideHiddenForNow = _inspectorHiddenForNow = false;
         ApplyPanes();
     }
 
@@ -382,7 +519,7 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>The toggle's right-click menu: the four modes, the current one checked.</summary>
+    /// <summary>The toggle's right-click menu: the three modes, the current one checked.</summary>
     static ContextMenu ModeMenu(string pane, Func<PaneMode> current, Action<PaneMode> choose)
     {
         var items = PaneModes.All.Select(choice =>
@@ -411,9 +548,8 @@ static class PaneModes
 {
     public static readonly (PaneMode Mode, string Label, string Description)[] All =
     [
-        (PaneMode.Expanded, "Expanded", "Always beside the sessions."),
-        (PaneMode.Collapsed, "Collapsed", "Icons only. Clicking one opens the pane over the session, which keeps its size."),
-        (PaneMode.Auto, "Auto", "Expanded while no session is showing. Collapsed while one is; pointing at the rail opens it over the session."),
+        (PaneMode.Expanded, "Pinned", "Beside the sessions, taking room from them."),
+        (PaneMode.Collapsed, "Over the session", "Icons only. Clicking one opens the pane over the session, which keeps its size."),
         (PaneMode.Hidden, "Hidden", "Nothing on screen. Its shortcut, or pointing at the window's edge, opens it over the session."),
     ];
 }
