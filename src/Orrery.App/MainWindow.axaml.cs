@@ -2123,7 +2123,22 @@ public partial class MainWindow : Window
     void OpenWebTab(SessionOrigin origin, Uri url, ConnectionTarget target)
     {
         var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"));
+        view.NewWindowRequested += (_, address) => OpenPopUpTab(address);
         AddTab(view, new WebSession(target), origin);
+    }
+
+    /// <summary>
+    /// A page's pop-up or new-window link, in a tab beside it. Like a management page it isn't a connection: it isn't
+    /// added to Recent and isn't reopened with the workspace.
+    /// </summary>
+    void OpenPopUpTab(Uri address)
+    {
+        var protocol = address.Scheme == Uri.UriSchemeHttps ? Protocol.Https : Protocol.Http;
+        OpenWebTab(new SessionOrigin(address.Host, protocol, null, () =>
+        {
+            OpenPopUpTab(address);
+            return Task.CompletedTask;
+        }) { ManagementPage = true }, address, new ConnectionTarget(address.Host, address.Port, null, null));
     }
 
     /// <summary>
@@ -2711,13 +2726,52 @@ public partial class MainWindow : Window
         (ILocalSession, SessionState.Disconnected) => "Ended",
         (ILocalSession, SessionState.Failed) => "Couldn't start",
         (ILocalSession, _) => "Running",
-        (WebSession, _) => tab.View is WebPageView { Loading: true } ? "Loading…" : "Loaded",
+        (WebSession, _) => tab.View switch
+        {
+            WebPageView { Loading: true } => "Loading…",
+            WebPageView { Failed: true } => "Didn't load",
+            _ => "Loaded",
+        },
         (_, SessionState.Connecting) => "Connecting…",
         (_, SessionState.Disconnected) => "Disconnected",
         (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
         (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
         _ => "Connected",
     } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+
+    const string ClosedLock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4";
+    const string OpenLock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 7.75-1.4";
+
+    /// <summary>
+    /// Whether what's on the wire is encrypted: SSH, RDP and a page whose address is https are; Telnet, plain HTTP and
+    /// VNC (only its classic security types are offered) aren't. Null for a local shell or serial port, which cross
+    /// no network.
+    /// </summary>
+    internal static bool? Encrypted(SessionTab tab) => tab switch
+    {
+        { Origin.Local: true } or { Origin.Protocol: Protocol.Serial } => null,
+        { View: WebPageView page } => page.Address.Scheme == Uri.UriSchemeHttps,
+        { Origin.Protocol: Protocol.Ssh or Protocol.Rdp } => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// The lock before the address: closed and green only while an encrypted session is connected, open in amber for
+    /// one that isn't encrypted, and not there for a local one.
+    /// </summary>
+    void ShowLock(SessionTab tab)
+    {
+        bool? encrypted = Encrypted(tab);
+        _sessionLock.IsVisible = encrypted is not null;
+        _sessionLock.Data = Geometry.Parse(encrypted == false ? OpenLock : ClosedLock);
+        // A page that didn't load, such as one whose certificate isn't trusted, isn't shown as connected.
+        bool connected = tab.Session.State == SessionState.Connected && tab.View is not WebPageView { Failed: true };
+        _sessionLock.Foreground = encrypted == false ? Palette.Warning
+            : (IBrush?)this.FindResource(connected ? "OrreryConnected" : "OrreryMuted");
+        string said = encrypted == false ? "Not encrypted" : "Encrypted";
+        ToolTip.SetTip(_sessionLock, said);
+        Avalonia.Automation.AutomationProperties.SetName(_sessionLock, said);
+    }
 
     /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
     void UpdateSessionToolbar()
@@ -2733,7 +2787,7 @@ public partial class MainWindow : Window
         var session = tab.Session;
         var state = session.State;
         _sessionAddress.Text = tab.Address;
-        _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
+        ShowLock(tab);
         _sessionDetail.Text = DescribeSession(tab);
 
         // A web page has a browser's buttons and no connection to end: closing the tab is enough.
@@ -2881,6 +2935,21 @@ public partial class MainWindow : Window
             items.Add(new Separator());
             items.Add(MenuItemFor("Save output…", async () => await SaveOutputAsync(tab, terminal)));
             items.Add(MenuItemFor("Clear scrollback", terminal.ClearScrollback));
+        }
+        else if (tab.View is WebPageView page)
+        {
+            items.Add(MenuItemFor("Print…", async () =>
+            {
+                try
+                {
+                    page.Print();
+                }
+                catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
+                {
+                    await Dialogs.ShowMessageAsync(this, "Couldn't print the page", e.Message);
+                }
+            }, enabled: !page.Loading));
+            items.Add(MenuItemFor("Save as PDF…", async () => await SavePdfAsync(tab, page), enabled: !page.Loading));
         }
 
         items.Add(new Separator());
@@ -3096,6 +3165,32 @@ public partial class MainWindow : Window
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             await Dialogs.ShowMessageAsync(this, "Couldn't save the screenshot", e.Message);
+        }
+    }
+
+    async Task SavePdfAsync(SessionTab tab, WebPageView page)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = "Save page as PDF",
+            SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.pdf",
+            DefaultExtension = "pdf",
+            FileTypeChoices = [new Avalonia.Platform.Storage.FilePickerFileType("PDF document") { Patterns = ["*.pdf"] }],
+        });
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var pdf = await page.PdfAsync();
+            await using var stream = await file.OpenWriteAsync();
+            await pdf.CopyToAsync(stream);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or InvalidOperationException)
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't save the page", e.Message);
         }
     }
 

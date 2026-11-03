@@ -1263,7 +1263,7 @@ sealed class SettingsView : UserControl
             Row("Settings pane (connection and credential details)", Choice("Settings pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
             Note(string.Join(" ", PaneModes.All.Select(mode => $"{mode.Label}: {mode.Description}"))),
             Note("A pane that isn't pinned opens over the session rather than beside it, so a remote desktop doesn't resize each time. "
-                + "Over a web page it opens beside it instead, since nothing can be drawn over the page. Ctrl+B and Ctrl+Alt+B show and hide "
+                + "On Linux and macOS it opens beside a web page instead, since nothing can be drawn over the page there. Ctrl+B and Ctrl+Alt+B show and hide "
                 + "the panes without changing this. The pin in each pane's header, or a right-click on the buttons beside the tabs, changes it. "
                 + "Drag a pane's inner edge to change its width."));
     }
