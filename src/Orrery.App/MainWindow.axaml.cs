@@ -21,6 +21,7 @@ using Orrery.Core.Network;
 using Orrery.App.Security;
 using Orrery.App.Sessions;
 using Orrery.App.Settings;
+using Orrery.App.Updates;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Security;
@@ -132,7 +133,9 @@ public partial class MainWindow : Window
     /// Files first-launch setup chose to import, each through the usual preview once the window opens. Given at all, even
     /// empty, it stands in for the offer to import mRemoteNG's connections, which setup has already made.
     /// </param>
-    public MainWindow(DataLocation location, string? movedFrom = null, string? openOnStart = null, IReadOnlyList<string>? importOnStart = null)
+    /// <param name="updates">The update engine, which the window owns from here; null for no update checks at all.</param>
+    internal MainWindow(DataLocation location, string? movedFrom = null, string? openOnStart = null, IReadOnlyList<string>? importOnStart = null,
+        IUpdateService? updates = null)
     {
         AvaloniaXamlLoader.Load(this);
         _location = location;
@@ -314,6 +317,7 @@ public partial class MainWindow : Window
         _workspaceStore = WorkspaceStore.In(location);
         _savedWorkspace = _workspaceStore.Load();
         InitWorkspace();
+        InitUpdates(updates);
         RebuildTree();
         UpdateVaultButton();
         UpdateSessionChrome();
@@ -321,6 +325,9 @@ public partial class MainWindow : Window
         KeyDown += OnWindowKeyDown;
         Opened += async (_, _) =>
         {
+            // A few seconds from now, so it doesn't wait on the offers below.
+            _updates?.Start();
+
             // In the background: a full folder can take a moment, and nothing waits on it.
             _ = Task.Run(_recordings.ApplyRetention);
             FitTitleBarToCaptionButtons();
@@ -370,6 +377,14 @@ public partial class MainWindow : Window
             }
 
             (_credentials as IDisposable)?.Dispose();
+
+            // Last, once everything is saved: an update put off until now, then the engine and anything it was doing.
+            if (!App.Restarting)
+            {
+                _updates?.FinishOnQuit();
+            }
+
+            _updates?.Dispose();
         };
     }
 
@@ -1041,7 +1056,7 @@ public partial class MainWindow : Window
         }
 
         _stateBeforeFullScreen = WindowState;
-        _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = false;
+        _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = _updateBarHost.IsVisible = false;
         HidePanesForFullScreen();
         _sessionToolbar.IsVisible = false;
         _fullScreenHotZone.IsVisible = true;
@@ -1183,7 +1198,7 @@ public partial class MainWindow : Window
         }
 
         _fullScreenHotZone.IsVisible = _fullScreenBar.IsVisible = false;
-        _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = true;
+        _titleBar.IsVisible = _rail.IsVisible = _statusBar.IsVisible = _tabStripBar.IsVisible = _updateBarHost.IsVisible = true;
         ApplyPanes();
 
         // Still offered unless it was withdrawn meanwhile (ReopenWorkspaceAsync, ForgetOpenTabs).
@@ -1492,7 +1507,7 @@ public partial class MainWindow : Window
     /// Hands <paramref name="url"/> to the default browser. Null if it went; what went wrong if not. Only http and https
     /// go: a page can navigate itself to any scheme, and the shell would hand another to whatever program claims it.
     /// </summary>
-    static string? OpenInBrowser(Uri url)
+    internal static string? OpenInBrowser(Uri url)
     {
         if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
         {
@@ -4032,7 +4047,7 @@ public partial class MainWindow : Window
                 _properties.TrySave();
                 SaveNow();
                 return Task.CompletedTask;
-            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), ImportDefaultSshConfigAsync, VaultUnlockWindow.Biometric);
+            }, ChooseImportFileAsync, () => ExportAsync(_tree.Root), ImportDefaultSshConfigAsync, VaultUnlockWindow.Biometric, _updates);
             view.CloseRequested += (_, _) => CloseSettings();
             view.ShowRecordingsRequested += (_, _) => ShowRecordings();
             view.ShowRecordAllSessions(_tree.Root.Settings.RecordSessions == true);

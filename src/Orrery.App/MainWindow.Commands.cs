@@ -235,6 +235,11 @@ public partial class MainWindow
         {
             yield return new PaletteCommand("Lock the vault", group, Run(() => OnLockVaultClick(null, new RoutedEventArgs()))) { Keywords = ["credentials", "passwords"] };
         }
+
+        if (_updates is not null)
+        {
+            yield return new PaletteCommand("Check for updates", group, CheckForUpdatesAsync) { Keywords = ["upgrade", "version", "new", "release"] };
+        }
     }
 
     static Func<Task> Run(Action action) => () =>

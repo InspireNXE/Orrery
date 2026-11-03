@@ -12,11 +12,13 @@ using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.App.Input;
 using Orrery.App.Logging;
+using Orrery.App.Updates;
 using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Network;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Core.Updates;
 using Orrery.Protocols.Local;
 
 namespace Orrery.App.Settings;
@@ -43,6 +45,7 @@ sealed class SettingsView : UserControl
     readonly Func<Task> _import;
     readonly Func<Task> _export;
     readonly Func<Task>? _importSshConfig;
+    readonly UpdateController? _updates;
     readonly ComboBox _storeChoice = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _autoLock = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _autoLockNote = Note(string.Empty);
@@ -63,9 +66,11 @@ sealed class SettingsView : UserControl
     /// <param name="import">Asks for an mRemoteNG file and imports it.</param>
     /// <param name="importSshConfig">Imports the user's OpenSSH config; the button shows only when this is given.</param>
     /// <param name="biometric">Windows Hello or Touch ID, offered for the vault file; null where there's none.</param>
+    /// <param name="updates">The main window's update checks, for Check now; without them the button doesn't show.</param>
     public SettingsView(DataLocation location, AppSettingsStore settingsStore, ICredentialStore credentials, Func<Task> saveEverything, Func<Task> import, Func<Task> export,
-        Func<Task>? importSshConfig = null, BiometricUnlock? biometric = null)
+        Func<Task>? importSshConfig = null, BiometricUnlock? biometric = null, UpdateController? updates = null)
     {
+        _updates = updates;
         _location = location;
         _settingsStore = settingsStore;
         _credentials = credentials;
@@ -122,7 +127,7 @@ sealed class SettingsView : UserControl
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
             ("Sessions", [RemoteDesktopSection(), WebPagesSection(), LocalTerminalSection(), RecordingSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
-            ("About", [LogsSection(), AboutSection()]),
+            ("About", [UpdatesSection(), LogsSection(), AboutSection()]),
         };
         var host = new Panel();
         foreach (var (name, sections) in pages)
@@ -708,12 +713,15 @@ sealed class SettingsView : UserControl
     {
         try
         {
-            // The recordings key and note are saved by recording itself, perhaps while this page is open: keep what's on disk.
+            // The recordings key and note are saved by recording itself, and the last update check and skipped version by
+            // the update checks, perhaps while this page is open: keep what's on disk.
             var saved = _settingsStore.Load();
             _settings = _settings with
             {
                 RecordingPublicKey = saved.RecordingPublicKey ?? _settings.RecordingPublicKey,
                 RecordingNoteShown = saved.RecordingNoteShown ?? _settings.RecordingNoteShown,
+                LastUpdateCheck = saved.LastUpdateCheck,
+                SkippedUpdateVersion = saved.SkippedUpdateVersion,
             };
             _settingsStore.Save(_settings);
             return true;
@@ -1408,6 +1416,133 @@ sealed class SettingsView : UserControl
                 + "Import SSH config reads your ~/.ssh/config: each Host name becomes an SSH connection, with its jump hosts. Nothing in the file is run."),
             Note("Export saves every connection as an Orrery file, an mRemoteNG confCons.xml or a CSV. To export one folder, right-click it. "
                 + "Passwords and keys are left out unless you choose to include them, encrypted with a password you set. CSV never includes them."));
+    }
+
+    // ---- Updates ----
+
+    Control UpdatesSection()
+    {
+        var current = _updates?.CurrentVersion ?? ReleaseVersion.Current;
+        var version = new TextBlock { Text = _updates is { UsesOtherFeed: true } ? $"Orrery {current} (test feed)" : $"Orrery {current}" };
+
+        var automatic = new CheckBox { Content = "Check automatically", IsChecked = _settings.ChecksForUpdates };
+        automatic.IsCheckedChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            _settings = _settings with { UpdateChecks = automatic.IsChecked == true };
+            TrySaveSettings();
+            _updates?.SettingsChanged();
+        };
+
+        var choices = new (string Label, UpdateAction Action)[]
+        {
+            ("Ask me", UpdateAction.Ask),
+            ("Download it", UpdateAction.Download),
+        };
+        var buttons = choices.Select(choice => new RadioButton
+        {
+            Content = choice.Label,
+            GroupName = "WhenUpdateFound",
+            Tag = choice.Action,
+            IsChecked = _settings.UpdateAction == choice.Action,
+        }).ToList();
+        foreach (var button in buttons)
+        {
+            button.IsCheckedChanged += (_, _) =>
+            {
+                if (button.IsChecked == true && !_loading)
+                {
+                    _settings = _settings with { WhenUpdateFound = (UpdateAction)button.Tag! };
+                    TrySaveSettings();
+                }
+            };
+        }
+
+        var whenFound = new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1] } };
+        AutomationProperties.SetName(whenFound, "When one is out");
+
+        var previews = new CheckBox { Content = "Previews", IsChecked = _settings.OffersPreviewUpdates };
+        const string previewsNote = "Previews are offered too: newer versions, less tried.";
+        AutomationProperties.SetHelpText(previews, previewsNote);
+        previews.IsCheckedChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            _settings = _settings with { UpdatePreviews = previews.IsChecked == true };
+            TrySaveSettings();
+        };
+
+        var section = Section("Updates",
+            Row("Version", version),
+            automatic,
+            new TextBlock { Text = "When one is out" },
+            whenFound,
+            previews,
+            Note(previewsNote));
+
+        if (_updates is { } updates)
+        {
+            var check = new Button { Content = "Check now" };
+            var result = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = Dialogs.MutedBrush,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+            };
+            check.Click += async (_, _) => await CheckNowAsync(updates, check, result);
+            section.Children.Add(new DockPanel { Children = { Pane.Docked(check, Dock.Left), result } });
+            UpdateCheckResult = result;
+        }
+
+        section.Children.Add(Note("Checks GitHub. Sends only your version."));
+        return section;
+    }
+
+    /// <summary>What Check now found, beside the button; null without update checks.</summary>
+    internal TextBlock? UpdateCheckResult { get; private set; }
+
+    /// <summary>Checks by hand, says what it found beside the button, and opens a newer release's details.</summary>
+    async Task CheckNowAsync(UpdateController updates, Button check, TextBlock result)
+    {
+        check.IsEnabled = false;
+        result.Foreground = Dialogs.MutedBrush;
+        result.Text = "Checking…";
+        UpdateOffer? offer;
+        try
+        {
+            offer = await updates.CheckNowAsync();
+        }
+        catch (UpdateException e)
+        {
+            result.Foreground = Dialogs.DangerBrush;
+            result.Text = e.Message;
+            ScreenReader.Announce(result, result.Text, "Orrery.Update", ScreenReader.MostRecent);
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            check.IsEnabled = true;
+        }
+
+        result.Text = offer is null ? $"You have the latest version ({updates.CurrentVersion})." : $"{updates.BarText}.";
+        ScreenReader.Announce(result, result.Text, "Orrery.Update", ScreenReader.MostRecent);
+        if (offer is not null)
+        {
+            await updates.ShowDetailsAsync();
+        }
     }
 
     // ---- Logs ----
