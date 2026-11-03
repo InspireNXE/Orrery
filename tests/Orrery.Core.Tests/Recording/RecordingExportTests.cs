@@ -137,6 +137,103 @@ public sealed class RecordingExportTests : IDisposable
     }
 
     [Fact]
+    public void Ffmpeg_takes_sound_from_the_pipe_as_a_second_input()
+    {
+        var start = Ffmpeg.ExportStart(@"C:\Tools\ffmpeg.exe", new FfmpegCodec("H.264", "libx264"), 640, 480, 5, "out.mp4",
+            new SoundFormat(44_100, 2), @"\\.\pipe\orrery-sound-1");
+
+        var arguments = start.ArgumentList.ToList();
+        int second = arguments.LastIndexOf("-i");
+        Assert.Equal(@"\\.\pipe\orrery-sound-1", arguments[second + 1]);
+        Assert.Equal(["-f", "s16le", "-ar", "44100", "-ac", "2"], arguments[(second - 6)..second]);
+        Assert.Contains("1:a", arguments);
+        Assert.Contains("aac", arguments);
+        Assert.True(Path.IsPathFullyQualified(arguments[^1]));
+    }
+
+    [Fact]
+    public void Steady_sound_runs_on_in_silence_two_frames_ahead()
+    {
+        var tone = new byte[4_800 * 2]; // 0.1 s of mono at 48 kHz
+        var path = Make(RecordingKind.Screen, w =>
+        {
+            w.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(4, 4));
+            w.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(new byte[4 * 4 * 3], 4, 4));
+            w.Append(RecordingEventType.Audio, TimeSpan.Zero, RecordingFile.AudioPayload(48_000, 1, tone));
+            w.Append(RecordingEventType.Change, TimeSpan.FromSeconds(3), ScreenFrames.EncodeChange([new(0, 0, 1, 1)], [255, 0, 0]));
+        });
+
+        var format = new SoundFormat(48_000, 1);
+        using var reader = RecordingReader.Open(path, _privateKey);
+        long laid = 0;
+        foreach (var frame in ScreenExport.Frames(reader, 10, 4, 4, skipIdle: false, sound: format, steadySound: true))
+        {
+            laid += frame.Sound.Length / format.BlockAlign;
+            Assert.True(laid >= (long)((frame.Time.TotalSeconds + 0.2) * format.SampleRate) - 1, $"short at {frame.Time}");
+        }
+
+        using var again = RecordingReader.Open(path, _privateKey);
+        long plain = ScreenExport.Frames(again, 10, 4, 4, skipIdle: false, sound: format).Sum(f => (long)f.Sound.Length / format.BlockAlign);
+        Assert.Equal(4_800, plain); // without it, silence after the last sound isn't laid
+    }
+
+    [FfmpegFact]
+    public void An_ffmpeg_export_has_the_sound_through_a_long_silence()
+    {
+        var tone = new byte[4_410 * 4]; // 0.1 s of stereo at 44.1 kHz
+        for (int i = 0; i < tone.Length; i += 2)
+        {
+            BinaryPrimitives.WriteInt16LittleEndian(tone.AsSpan(i), (short)(i % 200 * 100));
+        }
+
+        var path = Make(RecordingKind.Screen, w =>
+        {
+            w.Append(RecordingEventType.Resize, TimeSpan.Zero, RecordingFile.Pair(64, 48));
+            w.Append(RecordingEventType.KeyFrame, TimeSpan.Zero, ScreenFrames.EncodeKeyFrame(new byte[64 * 48 * 3], 64, 48));
+            for (int i = 0; i < 5; i++)
+            {
+                w.Append(RecordingEventType.Audio, TimeSpan.FromMilliseconds(100 * i), RecordingFile.AudioPayload(44_100, 2, tone));
+            }
+
+            w.Append(RecordingEventType.Change, TimeSpan.FromSeconds(8), ScreenFrames.EncodeChange([new(0, 0, 1, 1)], [255, 0, 0]));
+        });
+
+        var output = Path.Combine(_dir, "out.mp4");
+        var ffmpeg = FfmpegFactAttribute.Path!;
+        using var reader = RecordingReader.Open(path, _privateKey);
+        var sound = SoundFormat.Of(reader)!;
+        using var pipe = new SoundPipe();
+        using var process = System.Diagnostics.Process.Start(Ffmpeg.ExportStart(ffmpeg, new FfmpegCodec("MPEG-4", "mpeg4"), 64, 48, 25, output, sound, pipe.Path))!;
+        var errors = process.StandardError.ReadToEndAsync();
+        pipe.Start();
+        try
+        {
+            foreach (var frame in ScreenExport.Frames(reader, 25, 64, 48, skipIdle: false, sound: sound, steadySound: true))
+            {
+                process.StandardInput.BaseStream.Write(frame.Rgb);
+                pipe.Write(frame.Sound);
+            }
+
+            pipe.Complete();
+            process.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // ffmpeg stopped reading: its message is checked below.
+        }
+
+        Assert.True(process.WaitForExit(TimeSpan.FromSeconds(60)), "ffmpeg didn't finish");
+        Assert.True(process.ExitCode == 0, errors.Result);
+
+        var probe = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ffmpeg, ["-hide_banner", "-i", output]) { RedirectStandardError = true })!;
+        var info = probe.StandardError.ReadToEnd();
+        probe.WaitForExit();
+        Assert.Contains("Audio: aac", info);
+        Assert.Contains("44100 Hz, stereo", info);
+        Assert.Contains("Duration: 00:00:10.", info); // the recording ends at 10 s, after 9.5 s of silence
+    }
+
+    [Fact]
     public void Codecs_are_found_in_an_encoders_listing()
     {
         const string Listing = """
@@ -188,5 +285,31 @@ public sealed class RecordingExportTests : IDisposable
     {
         var code = Encoding.ASCII.GetBytes(fourcc);
         return bytes.AsSpan().IndexOf(code);
+    }
+}
+
+/// <summary>Runs where an ffmpeg can be found, from ORRERY_TEST_FFMPEG or on PATH: shows as skipped elsewhere.</summary>
+sealed class FfmpegFactAttribute : FactAttribute
+{
+    public static readonly string? Path = Find();
+
+    public FfmpegFactAttribute()
+    {
+        if (Path is null)
+        {
+            Skip = "No ffmpeg found";
+        }
+    }
+
+    static string? Find()
+    {
+        if (Environment.GetEnvironmentVariable("ORRERY_TEST_FFMPEG") is { Length: > 0 } set && File.Exists(set))
+        {
+            return set;
+        }
+
+        var name = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        return (Environment.GetEnvironmentVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(folder => System.IO.Path.Combine(folder, name)).FirstOrDefault(File.Exists);
     }
 }

@@ -233,6 +233,7 @@ static class RecordingExport
         ExportProgressWindow progress)
     {
         Process? process = null;
+        SoundPipe? soundPipe = null;
         try
         {
             using var reader = RecordingReader.Open(path, privateKey);
@@ -241,11 +242,15 @@ static class RecordingExport
                 return "This recording has no picture in it.";
             }
 
-            process = Process.Start(Ffmpeg.ExportStart(ffmpeg.Path, codec, width, height, framesPerSecond, output));
+            var sound = SoundFormat.Of(reader, progress.Token);
+            soundPipe = sound is null ? null : new SoundPipe();
+            process = Process.Start(Ffmpeg.ExportStart(ffmpeg.Path, codec, width, height, framesPerSecond, output, sound, soundPipe?.Path));
             if (process is null)
             {
                 return "ffmpeg didn't start.";
             }
+
+            soundPipe?.Start();
 
             var errors = process.StandardError.ReadToEndAsync();
             _ = process.StandardOutput.ReadToEndAsync();
@@ -253,15 +258,17 @@ static class RecordingExport
             int index = 0;
             try
             {
-                foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token))
+                foreach (var frame in ScreenExport.Frames(reader, framesPerSecond, width, height, skipIdle, progress.Token, sound, steadySound: true))
                 {
                     input.Write(frame.Rgb);
+                    soundPipe?.Write(frame.Sound);
                     if (++index % 25 == 0)
                     {
                         progress.Report(frame.Time);
                     }
                 }
 
+                soundPipe?.Complete();
                 input.Close();
             }
             catch (IOException)
@@ -297,6 +304,7 @@ static class RecordingExport
         }
         finally
         {
+            soundPipe?.Dispose();
             process?.Dispose();
         }
     }
@@ -350,7 +358,7 @@ static class RecordingExport
 /// <summary>One way to make an MP4: a codec, through Windows' own encoder or an ffmpeg.</summary>
 sealed record Mp4Route(string Name, SystemCodec? System, FfmpegCodec? Ffmpeg)
 {
-    public string Label => $"MP4, {Name}{(System is { HardwareOnly: true } ? " (graphics card)" : Ffmpeg is not null ? " (through ffmpeg, no sound)" : "")}";
+    public string Label => $"MP4, {Name}{(System is { HardwareOnly: true } ? " (graphics card)" : Ffmpeg is not null ? " (through ffmpeg)" : "")}";
 
     /// <summary>Windows' codecs, then any more the ffmpeg has; Windows' encoder wins when both have one.</summary>
     public static IReadOnlyList<Mp4Route> All(IReadOnlyList<SystemCodec> system, FfmpegInfo? ffmpeg)
