@@ -220,6 +220,8 @@
 
         <!-- Sessions -->
         <DockPanel Grid.Column="2">
+          <!-- Says a newer Orrery is out (MainWindow.Updates.cs); never over a session. -->
+          <ContentControl DockPanel.Dock="Top" x:Name="UpdateBarHost" />
           <Border DockPanel.Dock="Top" x:Name="TabStripBar" Background="{StaticResource OrreryPanel}"
                   BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1" Padding="10,8,10,0">
             <DockPanel>

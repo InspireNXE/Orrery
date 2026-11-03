@@ -54,6 +54,12 @@ public sealed record Workspace
     public int Active { get; init; } = -1;
 
     /// <summary>
+    /// Orrery closed to finish an update: the next start reopens <see cref="Tabs"/> without asking, once. Null
+    /// otherwise.
+    /// </summary>
+    public bool? ReopenAtStart { get; init; }
+
+    /// <summary>
     /// The tabs that can still be opened: a saved connection must still exist (and have a host), and a typed one
     /// needs a host. <see cref="Active"/> follows its tab, or the nearest one left if that was deleted.
     /// </summary>

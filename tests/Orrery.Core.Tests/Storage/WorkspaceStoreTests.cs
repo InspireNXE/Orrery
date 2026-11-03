@@ -250,6 +250,21 @@ public class WorkspaceStoreTests : IDisposable
         Assert.Equal(RestoreSessionsMode.Always, store.Load().RestoreMode);
     }
 
+    [Fact]
+    public void Reopening_after_an_update_is_kept_and_left_out_when_not_asked()
+    {
+        var store = new WorkspaceStore(WorkspacePath);
+        store.Save(new Workspace { Tabs = [new WorkspaceTab(null, "jump.example", 22, Protocol.Ssh)] });
+        Assert.Null(store.Load().ReopenAtStart);
+        Assert.DoesNotContain("reopenAtStart", File.ReadAllText(WorkspacePath));
+
+        store.Save(store.Load() with { ReopenAtStart = true });
+        Assert.True(store.Load().ReopenAtStart);
+
+        store.ForgetTabs();
+        Assert.Empty(store.Load().Tabs);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

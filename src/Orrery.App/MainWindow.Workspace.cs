@@ -116,6 +116,15 @@ public partial class MainWindow
     void SaveWorkspace()
     {
         _restoreCancel.Cancel();
+        WriteWorkspace();
+    }
+
+    /// <summary>
+    /// Writes the workspace as it is now. Before a restart for an update, the open tabs are marked to come back at the
+    /// next start without asking.
+    /// </summary>
+    void WriteWorkspace()
+    {
         var workspace = CaptureWorkspace();
 
         // Closing while still reopening last time's tabs, or with the offer to reopen them unanswered, shouldn't
@@ -127,6 +136,11 @@ public partial class MainWindow
         else if (_restoring || (_restoreBar is { IsVisible: true } && _tabs.Count == 0))
         {
             workspace = workspace with { Tabs = _savedWorkspace.Tabs, Active = _savedWorkspace.Active };
+        }
+
+        if (_reopenAfterUpdate && workspace.Tabs.Count > 0)
+        {
+            workspace = workspace with { ReopenAtStart = true };
         }
 
         _workspaceStore.Save(workspace);
@@ -154,6 +168,14 @@ public partial class MainWindow
 
         if (remembered.Tabs.Count == 0 || _restoreBar is null)
         {
+            return;
+        }
+
+        // After a restart to finish an update, the sessions come back as they were, once.
+        if (_savedWorkspace.ReopenAtStart == true)
+        {
+            _workspaceStore.Save(_savedWorkspace with { ReopenAtStart = null });
+            await ReopenWorkspaceAsync();
             return;
         }
 

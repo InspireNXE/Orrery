@@ -157,6 +157,12 @@ $env:ORRERY_UPDATE_FEED = "$PWD/artifacts/test-release/releases.json"
 & '<that folder>/Orrery.exe'                     # and check for updates
 ```
 
+In Orrery, Ctrl+K `> Check for updates` (or Settings › About › Updates › Check now) checks at once; the automatic check
+runs a few seconds after start-up when the last one was a day or more ago. A release found shows in a bar above the
+session tabs, marked "(test feed)" while `ORRERY_UPDATE_FEED` is set. "See what's new" opens its notes, Update downloads
+and checks it, and Orrery restarts as the new version, reopening the sessions that were open. With "When one is out:
+Download it" in Settings, the automatic check downloads it in the background and the bar says it's ready.
+
 The script prints these steps with the paths filled in. `-Runtimes` picks other platforms, `-Installer` also builds
 Orrery Setup (Windows, with Inno Setup), `-AppImage` the AppImage (Linux, with appimagetool), `-Prerelease` marks the
 release a pre-release, and `-BreakChecksum` writes wrong checksums, so the download should fail its check and be

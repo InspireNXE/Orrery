@@ -13,22 +13,27 @@ using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Logging;
 using Orrery.App.Setup;
+using Orrery.App.Updates;
 using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Core.Updates;
 
 namespace Orrery.App;
 
 public partial class App : Application
 {
-    const string RestartedFlag = "--restarted";
+    const string RestartedFlag = UpdateCommand.RestartedFlag;
     const string MovedFromFlag = "--moved-from";
     static readonly TimeSpan RestartLockWait = TimeSpan.FromSeconds(15);
 
     DataFolderLock? _dataLock;
     string[] _args = [];
     bool _errorShown;
+
+    /// <summary>Orrery is closing to start again (<see cref="Restart"/>), not quitting: an update put off until quitting waits.</summary>
+    internal static bool Restarting { get; private set; }
 
     public override void Initialize()
     {
@@ -198,7 +203,36 @@ public partial class App : Application
         // "Orrery file.rdp", as Windows runs it for a .rdp file opened with Orrery: connected to once the window opens.
         var rdpFile = _args.FirstOrDefault(a => Orrery.Core.Import.RdpFileImporter.IsRdpFile(a) && File.Exists(a));
         return new MainWindow(location, movedFrom: moved >= 0 && moved + 1 < _args.Length ? _args[moved + 1] : null, openOnStart: rdpFile,
-            importOnStart: importOnStart);
+            importOnStart: importOnStart, updates: StartUpdates(location));
+    }
+
+    /// <summary>
+    /// The update engine for this copy, once what an earlier update left behind is cleared away (the executable set
+    /// aside, old downloads). Problems are logged, never shown; without an engine Orrery runs on, just without updates.
+    /// </summary>
+    static IUpdateService? StartUpdates(DataLocation location)
+    {
+        EngineUpdateService updates;
+        try
+        {
+            updates = new EngineUpdateService(new Updater(location));
+        }
+        catch (Exception e) when (e is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or UriFormatException)
+        {
+            Log.For("Updates").LogError(e, "Couldn't set up update checks");
+            return null;
+        }
+
+        try
+        {
+            updates.RemoveLeftovers();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.For("Updates").LogWarning(e, "Couldn't clear up after the last update");
+        }
+
+        return updates;
     }
 
     /// <summary>Saves setup's choices, once the data folder is this copy's. If they can't be saved, setup comes again next time.</summary>
@@ -225,6 +259,8 @@ public partial class App : Application
         {
             return;
         }
+
+        Restarting = true;
 
         var start = new ProcessStartInfo(RestartExecutable(exe, Environment.GetEnvironmentVariable("APPIMAGE")));
         if (Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
