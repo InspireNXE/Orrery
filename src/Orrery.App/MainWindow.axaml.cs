@@ -253,7 +253,8 @@ public partial class MainWindow : Window
 
         _history = ConnectionHistory.In(location);
         _tree.Removed += (_, e) => _history.Forget(e.Ids);
-        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history);
+        _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history,
+            webPagesInOrreryByDefault: () => _settingsStore.Load().OpensWebPagesInOrrery);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
         _properties.SessionSettingsApplied += (_, _) => UpdateSessionToolbar();
         _properties.ReconnectRequested += async (_, tab) =>
@@ -280,6 +281,18 @@ public partial class MainWindow : Window
         this.FindControl<ContentControl>("RecordingsSide")!.Content = _recordingsPanel;
         _recordingsHost = this.FindControl<ContentControl>("RecordingsHost")!;
         _recordingsHost.Content = _recordingsPanel.Stage;
+
+        // A web page is drawn in a window of its own above Orrery's, so it hides while anything is opened over it.
+        foreach (var cover in new Control[] { _settingsHost, _dimmer, _recordingsHost, _sidePanel, _propertiesHost })
+        {
+            cover.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty || e.Property == ZIndexProperty)
+                {
+                    CoverWebPages();
+                }
+            };
+        }
 
         _hostStatus = new HostStatusController(() => _treeView.ItemsSource as IEnumerable<NodeViewModel> ?? [],
             () => _sidePanel.IsVisible && _side == "connections" && WindowState != WindowState.Minimized);
@@ -1355,7 +1368,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Opens a connection's management page in the browser, if it's an http or https address.</summary>
+    /// <summary>
+    /// Opens a connection's management page, if it's an http or https address: in a tab, or in the browser if the
+    /// connection or Settings says so.
+    /// </summary>
     async Task OpenManagementPageAsync(ConnectionEntry entry)
     {
         if (!ManagementUrl.TryNormalize(entry.ManagementUrl, out var text) || !Uri.TryCreate(text, UriKind.Absolute, out var url))
@@ -1365,17 +1381,54 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (WebPagesInOrrery(entry.Id))
+        {
+            ConnectLog.LogInformation("Opening the management page of \"{Name}\" in a tab: {Site}", entry.Name, url.GetLeftPart(UriPartial.Authority));
+            var protocol = url.Scheme == Uri.UriSchemeHttps ? Protocol.Https : Protocol.Http;
+            OpenWebTab(new SessionOrigin($"{entry.Name} · management", protocol, entry.Id, () => OpenManagementPageAsync(entry)) { ManagementPage = true },
+                url, new ConnectionTarget(url.Host, url.Port, null, null));
+            return;
+        }
+
         // Only the scheme, host and port: a page's path or query can carry tokens.
         ConnectLog.LogInformation("Opening the management page of \"{Name}\" in the browser: {Site}", entry.Name, url.GetLeftPart(UriPartial.Authority));
+        if (OpenInBrowser(url) is { } problem)
+        {
+            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\"'s management page: {Message}", entry.Name, problem);
+            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
+        }
+    }
+
+    /// <summary>Hands <paramref name="url"/> to the default browser. Null if it went; what went wrong if not.</summary>
+    static string? OpenInBrowser(Uri url)
+    {
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+            return null;
         }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
         {
-            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\"'s management page: {Message}", entry.Name, e.Message);
-            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", e.Message);
+            return e.Message;
         }
+    }
+
+    /// <summary>
+    /// Whether web pages open in a tab for this connection: its own choice or its folders', else Settings'. Where the
+    /// engine is missing they go to the browser instead, with a note saying why.
+    /// </summary>
+    bool WebPagesInOrrery(Guid? entryId)
+    {
+        bool appSetting = _settingsStore.Load().OpensWebPagesInOrrery;
+        bool wanted = entryId is { } id && _tree.Find(id) is { } node ? SettingsResolver.Resolve(node).InOrrery(appSetting) : appSetting;
+        if (wanted && !WebPageView.EngineAvailable)
+        {
+            ConnectLog.LogWarning("WebKitGTK (libwebkit2gtk-4.1) isn't installed, so the page opens in the browser");
+            ShowNotice("Opened in your browser: pages in a tab need WebKitGTK (libwebkit2gtk-4.1)");
+            return false;
+        }
+
+        return wanted;
     }
 
     /// <summary>Sends a wake-up packet for each selected connection that has a MAC address.</summary>
@@ -2012,9 +2065,9 @@ public partial class MainWindow : Window
     });
 
     /// <summary>
-    /// Opens a web connection in the default browser: no tab, no session, nothing to reconnect. Opening it counts as
-    /// connecting in the history and the Recent list. A jump host can't be used, since the browser wouldn't go
-    /// through it, so one set for it stops the page opening rather than going around it.
+    /// Opens a web connection: in a tab, or in the default browser if the connection or Settings says so. Opening it
+    /// counts as connecting in the history and the Recent list. A jump host can't be used, since neither the tab nor
+    /// the browser would go through it, so one set for it stops the page opening rather than going around it.
     /// </summary>
     /// <param name="entryId">The saved connection, or null for one typed into quick connect.</param>
     async Task OpenWebPageAsync(string title, Guid? entryId, Protocol protocol, string host, int port, bool behindJumpHost = false)
@@ -2022,7 +2075,7 @@ public partial class MainWindow : Window
         if (behindJumpHost)
         {
             await Dialogs.ShowMessageAsync(this, $"Can't open \"{title}\" through a jump host",
-                "Web pages open in your browser, which can't go through Orrery's jump hosts. Set this connection to connect directly, "
+                "Web pages can't go through Orrery's jump hosts, in a tab or in your browser. Set this connection to connect directly, "
                 + "or give the jump host a SOCKS proxy (D 1080) and set your browser to use it.");
             return;
         }
@@ -2034,21 +2087,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (WebPagesInOrrery(entryId))
+        {
+            ConnectLog.LogInformation("Opening \"{Name}\" in a tab: {Site}", title, url.GetLeftPart(UriPartial.Authority));
+            // The tab adds itself to Recent, and to the history once its session is connected, which it is at once.
+            OpenWebTab(new SessionOrigin(title, protocol, entryId, () => OpenWebPageAsync(title, entryId, protocol, host, port)),
+                url, new ConnectionTarget(host, port, null, null));
+            return;
+        }
+
         // Only the scheme, host and port: a page's path or query can carry tokens.
         ConnectLog.LogInformation("Opening \"{Name}\" in the browser: {Site}", title, url.GetLeftPart(UriPartial.Authority));
-        try
+        if (OpenInBrowser(url) is { } problem)
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
-        }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or PlatformNotSupportedException)
-        {
-            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\": {Message}", title, e.Message);
+            ConnectLog.LogWarning("Couldn't open the browser for \"{Name}\": {Message}", title, problem);
             if (entryId is { } failed && _tree.Find(failed) is ConnectionEntry)
             {
                 _history.RecordFailed(failed, DateTimeOffset.Now);
             }
 
-            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", e.Message);
+            await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
             return;
         }
 
@@ -2058,6 +2116,13 @@ public partial class MainWindow : Window
         }
 
         _recent.Add(new RecentConnection(entryId, title, protocol, host, port, null, DateTimeOffset.Now));
+    }
+
+    /// <summary>A web page in a new tab. Its sign-ins and cookies are kept in <c>web</c> in Orrery's data folder.</summary>
+    void OpenWebTab(SessionOrigin origin, Uri url, ConnectionTarget target)
+    {
+        var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"));
+        AddTab(view, new WebSession(target), origin);
     }
 
     /// <summary>
@@ -2395,7 +2460,7 @@ public partial class MainWindow : Window
     void AddTab(Control view, IConnectionSession session, SessionOrigin origin)
     {
         var tab = NewTab(view, session, origin);
-        if (!origin.Local)
+        if (!origin.Local && !origin.ManagementPage)
         {
             _recent.Add(new RecentConnection(origin.EntryId, origin.Title, origin.Protocol,
                 session.Target.Host, session.Target.Port, session.Target.Username, DateTimeOffset.Now));
@@ -2444,6 +2509,19 @@ public partial class MainWindow : Window
                 if (tab == _currentTab)
                 {
                     _sessionDetail.Text = DescribeSession(tab);
+                }
+            };
+        }
+
+        // A web page's address, loading and back and forward are in that bar too.
+        if (view is WebPageView web)
+        {
+            web.Covered = SessionsCovered;
+            web.Changed += (_, _) =>
+            {
+                if (tab == _currentTab)
+                {
+                    UpdateSessionToolbar();
                 }
             };
         }
@@ -2632,6 +2710,7 @@ public partial class MainWindow : Window
         (ILocalSession, SessionState.Disconnected) => "Ended",
         (ILocalSession, SessionState.Failed) => "Couldn't start",
         (ILocalSession, _) => "Running",
+        (WebSession, _) => tab.View is WebPageView { Loading: true } ? "Loading…" : "Loaded",
         (_, SessionState.Connecting) => "Connecting…",
         (_, SessionState.Disconnected) => "Disconnected",
         (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
@@ -2655,6 +2734,25 @@ public partial class MainWindow : Window
         _sessionAddress.Text = tab.Address;
         _sessionLock.Foreground = (IBrush?)this.FindResource(state == SessionState.Connected ? "OrreryConnected" : "OrreryMuted");
         _sessionDetail.Text = DescribeSession(tab);
+
+        // A web page has a browser's buttons and no connection to end: closing the tab is enough.
+        if (tab.View is WebPageView web)
+        {
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Back, "Back", web.GoBack, web.CanGoBack));
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Forward, "Forward", web.GoForward, web.CanGoForward));
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Refresh, "Reload", web.Reload));
+            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.External, "Open in the default browser", async () =>
+            {
+                if (OpenInBrowser(web.Address) is { } problem)
+                {
+                    await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
+                }
+            }));
+            Button webMore = null!;
+            webMore = ToolbarIcon(Controls.Icons.More, "More options", () => Controls.PopupMenu.ShowAt(webMore, SessionMenu(tab), PlacementMode.BottomEdgeAlignedRight));
+            _sessionActions.Children.Add(webMore);
+            return;
+        }
 
         // Recording: a REC pill with its settings while it records, a button to start one while connected.
         if ((state == SessionState.Connected || tab.IsRecording) && tab.View is TerminalView or RemoteFrameView
@@ -2712,6 +2810,31 @@ public partial class MainWindow : Window
             reconnect.Click += async (_, _) => await ReconnectAsync(tab);
             _sessionActions.Children.Add(reconnect);
         }
+    }
+
+    /// <summary>Whether Settings, Recordings, quick connect's dimming or a pane opened over the sessions covers them.</summary>
+    bool SessionsCovered => _settingsHost.IsVisible || _dimmer.IsVisible || _recordingsHost.IsVisible
+        || (_sidePanel.IsVisible && _sidePanel.ZIndex > 0) || (_propertiesHost.IsVisible && _propertiesHost.ZIndex > 0);
+
+    void CoverWebPages()
+    {
+        bool covered = SessionsCovered;
+        foreach (var web in _tabs.Select(t => t.View).OfType<WebPageView>())
+        {
+            web.Covered = covered;
+        }
+    }
+
+    /// <summary>A small icon button for the session toolbar, named for screen readers by its tip.</summary>
+    static Button ToolbarIcon(string icon, string name, Action click, bool enabled = true)
+    {
+        var button = new Button { Content = Controls.StrokeIcon.Create(icon, 15), IsEnabled = enabled };
+        button.Classes.Add("icon");
+        button.Classes.Add("small");
+        ToolTip.SetTip(button, name);
+        Avalonia.Automation.AutomationProperties.SetName(button, name);
+        button.Click += (_, _) => click();
+        return button;
     }
 
     /// <summary>What the session toolbar's More menu offers, for the session as it is now.</summary>
@@ -2862,7 +2985,7 @@ public partial class MainWindow : Window
     /// Whether the connection a tab opened says to record it; a quick connection follows the defaults for all
     /// connections. A local shell or a file browser isn't recorded by a setting.
     /// </summary>
-    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false }
+    bool RecordsBySetting(SessionOrigin origin) => origin is { Files: false, Local: false, ManagementPage: false } && !ProtocolInfo.IsWeb(origin.Protocol)
         && (origin.EntryId is { } id && _tree.Find(id) is { } node
             ? SettingsResolver.Resolve(node).RecordSessions.Value
             : _tree.Root.Settings.RecordSessions == true);

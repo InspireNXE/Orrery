@@ -88,6 +88,9 @@ static class Icons
     public const string File = "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";
     public const string Up = "M12 19V5 M5 12l7-7 7 7";
     public const string Refresh = "M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7";
+    public const string Back = "M15 6l-6 6 6 6";
+    public const string Forward = "M9 6l6 6-6 6";
+    public const string External = "M14 4h6v6 M20 4l-9 9 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5";
     public const string Shield = "M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z M12 8v5 M12 16h.01";
     public const string Alert = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 7v6 M12 16.5h.01";
     public const string Upload = "M12 15V3 M7 8l5-5 5 5 M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4";

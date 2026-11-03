@@ -33,6 +33,14 @@
         "resolved": "11.3.2",
         "contentHash": "qHDToxto1e3hci5YqbG9n0Ty8mlp3zBUN5wT66wKqaDVzXyQ0do3EnRILd4Ke9jpvsktaPpgE0YjEk7hornryQ=="
       },
+      "Avalonia.Controls.WebView": {
+        "type": "Transitive",
+        "resolved": "12.1.1",
+        "contentHash": "QrzIoII70cs+dudUWCstZSYuY2Y6y5fh9aI943bEfre28TTJxPSypunlsekr/0xa5YHm9SDaywmn+Mj0lPOspg==",
+        "dependencies": {
+          "Avalonia": "12.0.0"
+        }
+      },
       "Avalonia.Desktop": {
         "type": "Transitive",
         "resolved": "12.1.5",
@@ -428,6 +436,7 @@
         "type": "Project",
         "dependencies": {
           "Avalonia": "[12.1.5, )",
+          "Avalonia.Controls.WebView": "[12.1.1, )",
           "Avalonia.Desktop": "[12.1.5, )",
           "Avalonia.Fonts.Inter": "[12.1.5, )",
           "Avalonia.Themes.Fluent": "[12.1.5, )",

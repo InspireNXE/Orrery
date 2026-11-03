@@ -54,6 +54,16 @@ public class AppSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Web_pages_open_in_orrery_unless_the_browser_is_chosen()
+    {
+        var store = new AppSettingsStore(SettingsPath);
+        Assert.True(store.Load().OpensWebPagesInOrrery);
+
+        store.Save(new AppSettings { WebPagesInOrrery = false });
+        Assert.False(store.Load().OpensWebPagesInOrrery);
+    }
+
+    [Fact]
     public void Hosts_are_checked_by_their_port_unless_ping_is_chosen()
     {
         var store = new AppSettingsStore(SettingsPath);

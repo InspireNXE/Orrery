@@ -30,7 +30,7 @@ sealed class HistoryRecorder
 
     void OnStateChanged()
     {
-        if (_tab.Origin.EntryId is not { } id || _tree.Find(id) is not ConnectionEntry)
+        if (_tab.Origin.EntryId is not { } id || _tree.Find(id) is not ConnectionEntry || _tab.Origin.ManagementPage)
         {
             return;
         }

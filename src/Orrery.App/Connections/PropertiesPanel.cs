@@ -55,6 +55,7 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _jumpHost = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _colorCorrection = new() { Name = "ColorCorrection", HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _webPages = new() { Name = "WebPages", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, PlaceholderText = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
     readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "00:1A:2B:3C:4D:5E" };
@@ -83,7 +84,7 @@ sealed class PropertiesPanel : UserControl
     readonly Button _choosePort = new() { Content = "Ports…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0, IsVisible = false };
     readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
 
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
     readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
         _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
@@ -104,6 +105,8 @@ sealed class PropertiesPanel : UserControl
     bool _showingSession;
     readonly TextBlock _empty = Pane.EmptyText("Select a connection or folder to see its settings.");
     readonly Func<bool> _enlargeByDefault;
+    readonly Func<bool> _webPagesInOrreryByDefault;
+    readonly Control _webSection;
     readonly ConnectionHistory? _history;
     readonly Func<DateTimeOffset> _now;
     readonly TextBlock _lastConnected = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -119,12 +122,14 @@ sealed class PropertiesPanel : UserControl
     /// <param name="history">When connections last connected, shown under the name.</param>
     /// <param name="now">The clock, for wording like "3 days ago".</param>
     /// <param name="displays">This computer's displays, for choosing them for full screen; by default the window's screens.</param>
+    /// <param name="webPagesInOrreryByDefault">The app setting for where web pages open, used where no folder chooses.</param>
     public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null, ConnectionHistory? history = null, Func<DateTimeOffset>? now = null,
-        Func<IReadOnlyList<LocalDisplay>>? displays = null)
+        Func<IReadOnlyList<LocalDisplay>>? displays = null, Func<bool>? webPagesInOrreryByDefault = null)
     {
         _displayPicker = new DisplayPicker(displays) { IsVisible = false };
         _tree = tree;
         _enlargeByDefault = enlargeByDefault ?? (() => true);
+        _webPagesInOrreryByDefault = webPagesInOrreryByDefault ?? (() => true);
         _history = history;
         _now = now ?? (() => DateTimeOffset.Now);
         _historyTimer.Tick += (_, _) => ShowHistory();
@@ -171,6 +176,12 @@ sealed class PropertiesPanel : UserControl
         _colorCorrectionRow = new InheritRow("Color correction", _colorCorrection, () => ShowInherited(r => SelectColorCorrection(r.ColorCorrection.Value)));
         _colorCorrectionRow.Tip("RDP and VNC: Use app setting corrects the remote desktop's colors for the color vision chosen in Settings, if any. "
             + "Off shows its colors unchanged, for design or photo work. Applies to new connections.");
+        _webPages.Items.Add(new ComboBoxItem { Content = "An Orrery tab", Tag = true });
+        _webPages.Items.Add(new ComboBoxItem { Content = "The default browser", Tag = false });
+        _webPagesRow = new InheritRow("Open web pages in", _webPages, () => ShowInherited(r => SelectWebPages(r.InOrrery(_webPagesInOrreryByDefault()))));
+        _webPagesRow.Tip("Web connections and management pages. In an Orrery tab they sit beside your sessions; the default browser is for "
+            + "pages that need its extensions, saved passwords or sign-ins.");
+        _webSection = Pane.RowSection("Web pages", _webPagesRow.View);
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value));
         _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _recordRow = new InheritRow("Record sessions", _record, () => ShowInherited(r => _record.IsChecked = r.RecordSessions.Value));
@@ -302,6 +313,7 @@ sealed class PropertiesPanel : UserControl
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
                 (_serialSection = Pane.RowSection("Serial line", _baudRateRow.View, _dataBitsRow.View, _parityRow.View, _stopBitsRow.View, _flowControlRow.View)),
                 (_tunnelSection = Pane.RowSection("SSH tunnels", _jumpHostRow.View, _forwardsField)),
+                _webSection,
                 _wakeSection,
                 _notesField,
             },
@@ -381,6 +393,7 @@ sealed class PropertiesPanel : UserControl
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
         _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
+        _webPages.SelectionChanged += (_, _) => MarkDirty();
         foreach (var box in new[] { _remoteAudio, _fullScreenOn, _scaling, _dataBits, _parity, _stopBits, _flowControl })
         {
             box.SelectionChanged += (_, _) => MarkDirty();
@@ -394,7 +407,7 @@ sealed class PropertiesPanel : UserControl
         foreach (var row in new[]
                  {
                      _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow,
-                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
+                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
                      _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
                  })
         {
@@ -569,6 +582,9 @@ sealed class PropertiesPanel : UserControl
 
             _enlargeRow.Load(own.EnlargeRemoteDesktop is null, inherited.EnlargeRemoteDesktop.IsDefault ? "From Settings" : Describe(inherited.EnlargeRemoteDesktop));
             _enlarge.IsChecked = own.EnlargeRemoteDesktop ?? inherited.Enlarge(_enlargeByDefault());
+
+            _webPagesRow.Load(own.WebPagesInOrrery is null, inherited.WebPagesInOrrery.IsDefault ? "From Settings" : Describe(inherited.WebPagesInOrrery));
+            SelectWebPages(own.WebPagesInOrrery ?? inherited.InOrrery(_webPagesInOrreryByDefault()));
 
             _qualityRow.Load(own.DisplayQuality is null, Describe(inherited.DisplayQuality));
             SelectQuality(own.DisplayQuality ?? inherited.DisplayQuality.Value);
@@ -855,6 +871,7 @@ sealed class PropertiesPanel : UserControl
             AllowLegacySsh = _sshLegacyRow.Inheriting ? null : _sshLegacy.IsChecked == true,
             DesktopSize = desktopSize,
             EnlargeRemoteDesktop = _enlargeRow.Inheriting ? null : _enlarge.IsChecked == true,
+            WebPagesInOrrery = _webPagesRow.Inheriting ? null : (_webPages.SelectedItem as ComboBoxItem)?.Tag as bool?,
             DisplayQuality = _qualityRow.Inheriting ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?,
             ColorCorrection = _colorCorrectionRow.Inheriting ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inheriting ? null : _autoReconnect.IsChecked == true,
@@ -936,6 +953,8 @@ sealed class PropertiesPanel : UserControl
         _tunnelSection.IsVisible = _jumpHostRow.View.IsVisible || _forwardsField.IsVisible;
         _wakeSection.IsVisible = _node is ConnectionEntry && network;
         _managementUrlField.IsVisible = _node is ConnectionEntry;
+        // Web connections, and any machine's management page.
+        _webSection.IsVisible = network;
 
         // A serial port is named where a host would be; a web page's host can have a path after it.
         _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";
@@ -1180,6 +1199,9 @@ sealed class PropertiesPanel : UserControl
 
     void SelectQuality(DisplayQuality quality) =>
         _quality.SelectedItem = _quality.Items.OfType<ComboBoxItem>().First(i => (DisplayQuality)i.Tag! == quality);
+
+    void SelectWebPages(bool inOrrery) =>
+        _webPages.SelectedItem = _webPages.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == inOrrery);
 
     void SelectColorCorrection(bool useAppSetting) =>
         _colorCorrection.SelectedItem = _colorCorrection.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == useAppSetting);

@@ -120,7 +120,7 @@ sealed class SettingsView : UserControl
         {
             ("General", [StartupSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
-            ("Sessions", [RemoteDesktopSection(), LocalTerminalSection(), RecordingSection()]),
+            ("Sessions", [RemoteDesktopSection(), WebPagesSection(), LocalTerminalSection(), RecordingSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
             ("About", [LogsSection(), AboutSection()]),
         };
@@ -953,6 +953,39 @@ sealed class SettingsView : UserControl
             Note("RDP tells the server this display's scaling, as Windows' own client does, so the desktop stays sharp with text the size of "
                 + "your other apps'. VNC can't be told, so its picture is enlarged instead: sharp at 200%, slightly soft at 125% or 150%. "
                 + "Off, remote text looks as small as it would at 100%. Applies to new connections. "
+                + "A connection or folder can set its own choice in its properties."));
+    }
+
+    // ---- Web pages ----
+
+    Control WebPagesSection()
+    {
+        var buttons = new[] { (Label: "In an Orrery tab", InOrrery: true), (Label: "In the default browser", InOrrery: false) }.Select(choice => new RadioButton
+        {
+            Content = choice.Label,
+            GroupName = "WebPages",
+            Tag = choice.InOrrery,
+            IsChecked = _settings.OpensWebPagesInOrrery == choice.InOrrery,
+        }).ToList();
+        foreach (var button in buttons)
+        {
+            button.IsCheckedChanged += (_, _) =>
+            {
+                if (button.IsChecked == true && !_loading)
+                {
+                    _settings = _settings with { WebPagesInOrrery = (bool)button.Tag! };
+                    TrySaveSettings();
+                }
+            };
+        }
+
+        var choiceList = new StackPanel { Spacing = 2, Children = { buttons[0], buttons[1] } };
+        AutomationProperties.SetName(choiceList, "Open web pages");
+        return Section("Web pages",
+            Dialogs.Label("Open web connections and management pages"),
+            choiceList,
+            Note("An Orrery tab keeps them beside your sessions, with their own sign-ins kept in Orrery's data folder. The default "
+                + "browser is for pages that need its extensions or saved passwords; a tab can also send its page there. "
                 + "A connection or folder can set its own choice in its properties."));
     }
 
