@@ -10,7 +10,7 @@ from each provider's own pages on that date; links are at the end.
 | # | Step | Platforms | Cost | Owner's part | Status |
 |---|---|---|---|---|---|
 | 1 | GitHub build attestations | All | Free | None: a workflow change | Done (0.1.0 on) |
-| 2 | SignPath Foundation | Windows | Free | Apply; name the approvers; approve each release | Workflow ready; waiting on SignPath |
+| 2 | SignPath Foundation | Windows | Free | Apply; name the approvers; approve each release | Workflow ready; applying needs some reputation first |
 | 3 | GPG-signed packages | Linux | Free | Make and keep a signing key | Workflow ready; waiting on the key |
 | 4 | Developer ID and notarization | macOS | $99 a year | Decide whether macOS is worth it; enroll | Not started |
 
@@ -62,7 +62,10 @@ since 2024 even EV certificates don't skip it. Keeping one signing identity from
    publisher.
 5. Only versions that are actually released get signed, and the download page says what Orrery does.
 
-**Applying:** at signpath.org/apply. There's no published approval time; other projects report waits of weeks.
+**Applying:** at signpath.org/apply. There's no published approval time; other projects report waits of weeks. The
+application asks for evidence the project is established and used (its history, releases, downloads, users), so a
+project with one release may have to wait until it has more to show. Meanwhile Windows releases go out unsigned,
+with their attestations and `SHA256SUMS`; the paid options below don't need any reputation, if waiting costs too much.
 
 **How the workflow does it** (the Windows job, on `v*` tags only, since each request is approved by hand):
 
@@ -137,21 +140,26 @@ Nothing in Linux requires a signature, and signing is free:
 - **AppImage**: `appimagetool --sign` embeds a GPG signature, but nothing checks it when the AppImage runs, so the
   attestation in step 1, and a published checksum, carry more weight.
 
-**Making the key** (once, on your own machine; the secret half never goes in the repository):
+**Making the key** (once, on your own machine; the secret half never goes in the repository). On Windows, Git for
+Windows' gpg does it, but it isn't on PowerShell's PATH; its passphrase prompts are small Windows dialogs. In
+PowerShell, from the repository folder:
 
-```bash
-gpg --quick-generate-key "InspireNXE Orrery packages" rsa4096 sign 3y
+```powershell
+$gpg = 'C:\Program Files\Git\usr\bin\gpg.exe'
+& $gpg --quick-generate-key "InspireNXE Orrery packages" rsa4096 sign 3y
 ```
 
-It asks for a passphrase. Then, with the fingerprint it printed as `FPR`:
+It asks for a passphrase twice, then prints the key with its 40-character fingerprint. With that as `$fpr`:
 
-```bash
-gpg --armor --export FPR > build/linux-signing-key.asc
-gpg --armor --export-secret-keys FPR | gh secret set LINUX_SIGNING_KEY --repo InspireNXE/Orrery
+```powershell
+$fpr = '<the fingerprint>'
+& $gpg --armor --export $fpr | Set-Content -Encoding ascii build\linux-signing-key.asc
+& $gpg --armor --export-secret-keys $fpr | gh secret set LINUX_SIGNING_KEY --repo InspireNXE/Orrery
 gh secret set LINUX_SIGNING_PASSPHRASE --repo InspireNXE/Orrery
 ```
 
-The last asks for the passphrase. Commit `build/linux-signing-key.asc`, and push to `dev` first: the Linux job then
+Exporting the secret key asks for the passphrase again; the last command asks for it to store. On Linux or macOS
+it's the same with `gpg` and `>` in place of `Set-Content`. Commit `build/linux-signing-key.asc`, and push to `dev` first: the Linux job then
 signs and checks the packages, so a problem shows before a release. Keep a backup of the secret key and of the
 revocation certificate gpg wrote to `~/.gnupg/openpgp-revocs.d/`. Before the key expires, extend it
 (`gpg --quick-set-expire FPR 3y`), export the public half again, and update the secret.
