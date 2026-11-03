@@ -56,14 +56,22 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
         }
     }
 
+    /// <summary>Whether a session's view can be recorded: a terminal, a remote desktop, or on Windows a web page.</summary>
+    public static bool Recordable(Control view) => view is TerminalView or RemoteFrameView || (view is WebPageView && WebFrames.Supported);
+
+    /// <summary>The connection's "Color correction" as its view has it, for the recording to play by; null for a terminal.</summary>
+    static bool? AllowsColorCorrection(Control view) => view switch
+    {
+        RemoteFrameView desktop => desktop.AllowsColorCorrection,
+        WebPageView web => web.AllowsColorCorrection,
+        _ => null,
+    };
+
     /// <summary>
     /// Starts recording <paramref name="tab"/>. Asks for the vault only the first time anything is recorded, to keep
     /// the private key in it; after that the public key in settings is enough.
     /// </summary>
-    /// <returns>Null when it couldn't start, with why in <paramref name="problem"/>.</returns>
-    /// <summary>Whether a session's view can be recorded: a terminal, a remote desktop, or on Windows a web page.</summary>
-    public static bool Recordable(Control view) => view is TerminalView or RemoteFrameView || (view is WebPageView && WebFrames.Supported);
-
+    /// <returns>Null when it couldn't start, with why in the problem.</returns>
     public async Task<(SessionRecorder? Recorder, string? Problem)> StartAsync(SessionTab tab, Window owner)
     {
         if (!Recordable(tab.View))
@@ -89,7 +97,15 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
 
         var settings = Settings;
         var started = DateTimeOffset.Now;
-        var info = new RecordingInfo(tab.Origin.Title, tab.Origin.Label, started);
+        var info = new RecordingInfo(tab.Origin.Title, tab.Origin.Label, started) with { ColorCorrection = AllowsColorCorrection(tab.View) };
+
+        // A page's screencast is of the page as shown, so its pictures carry the correction it's shown with.
+        if (tab.View is WebPageView web)
+        {
+            web.Frames.RecordedWith = web.ActiveCorrection;
+            info = info with { CorrectedFor = web.ActiveCorrection?.Vision, CorrectedStrength = web.ActiveCorrection?.Strength };
+        }
+
         SessionRecorder recorder;
         try
         {

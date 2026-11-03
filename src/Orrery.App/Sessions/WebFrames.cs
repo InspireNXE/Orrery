@@ -11,7 +11,8 @@ using SkiaSharp;
 namespace Orrery.App.Sessions;
 
 /// <summary>
-/// A web page's picture, for recording it, on Windows. Chromium's screencast (the DevTools protocol's
+/// A web page's picture, for recording it, on Windows, and the page's start-up script, which goes through the same
+/// DevTools link. Chromium's screencast (the DevTools protocol's
 /// Page.startScreencast, reached through WebView2) sends a JPEG each time the page changes; it runs only while
 /// something listens to <see cref="FrameUpdated"/>, so a page that isn't being recorded costs nothing. WebKit on Linux
 /// and macOS has nothing like it, only slow one-off snapshots, so pages there aren't recorded.
@@ -41,6 +42,23 @@ sealed unsafe partial class WebFrames
     IntPtr _receiver;
     long _token;
     bool _casting;
+
+    // The start-up script: what it should be, its id once WebView2 has it, and which setting of it that id is for.
+    string? _startScript;
+    string? _startScriptId;
+    int _startScriptVersion;
+
+    // Turns frames shown with one correction into frames as a recording says they're corrected.
+    ColorCorrection? _convertFrom, _convertTo, _convert;
+
+    /// <summary>The color correction the page is shown with now; its screencast is of the page as shown.</summary>
+    internal ColorCorrection? ShownWith { get; set; }
+
+    /// <summary>
+    /// The correction a recording under way says its pictures carry (<see cref="Orrery.Core.Recording.RecordingInfo.CorrectedFor"/>).
+    /// Frames shown with another, after Settings changed partway, are converted to it, so the recording stays true to itself.
+    /// </summary>
+    internal ColorCorrection? RecordedWith { get; set; }
 
     /// <summary>Whether this computer can record pages: Windows, where the engine is WebView2.</summary>
     public static bool Supported => OperatingSystem.IsWindows();
@@ -137,6 +155,73 @@ sealed unsafe partial class WebFrames
         {
             Start();
         }
+
+        _startScriptId = null;
+        RegisterStartScript();
+    }
+
+    /// <summary>
+    /// A script run as each new page starts, before the page's own scripts and before it's drawn; null for none. It
+    /// runs in every frame, so it should check it's the top one.
+    /// </summary>
+    public void SetStartScript(string? source)
+    {
+        _startScript = source;
+        RegisterStartScript();
+    }
+
+    void RegisterStartScript()
+    {
+        if (_webView == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_startScriptId is { } old)
+        {
+            Call("Page.removeScriptToEvaluateOnNewDocument", Json("identifier", old));
+            _startScriptId = null;
+        }
+
+        int version = ++_startScriptVersion;
+        if (_startScript is { } source)
+        {
+            Call("Page.addScriptToEvaluateOnNewDocument", Json("source", source), result =>
+            {
+                string? id = null;
+                try
+                {
+                    using var document = JsonDocument.Parse(result);
+                    id = document.RootElement.GetProperty("identifier").GetString();
+                }
+                catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
+                {
+                }
+
+                // One that was replaced while WebView2 was adding it comes straight out again.
+                if (version == _startScriptVersion)
+                {
+                    _startScriptId = id;
+                }
+                else if (id is not null)
+                {
+                    Call("Page.removeScriptToEvaluateOnNewDocument", Json("identifier", id));
+                }
+            });
+        }
+    }
+
+    static string Json(string name, string value)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString(name, value);
+            writer.WriteEndObject();
+        }
+
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
     /// <summary>The engine has gone, with its page.</summary>
@@ -205,14 +290,14 @@ sealed unsafe partial class WebFrames
         _receiver = IntPtr.Zero;
     }
 
-    void Call(string method, string parameters)
+    void Call(string method, string parameters, Action<string>? done = null)
     {
         if (_webView == IntPtr.Zero)
         {
             return;
         }
 
-        var callback = Interface<IDevToolsCallCompletedHandler>(new CallCompleted());
+        var callback = Interface<IDevToolsCallCompletedHandler>(new CallCompleted(done));
         fixed (char* m = method, p = parameters)
         {
             ((delegate* unmanaged[Stdcall]<IntPtr, char*, char*, IntPtr, int>)Slot(_webView, CallDevToolsProtocolMethod))(_webView, m, p, callback);
@@ -269,6 +354,14 @@ sealed unsafe partial class WebFrames
             }
         }
 
+        if (Conversion() is { } convert)
+        {
+            fixed (byte* start = pixels)
+            {
+                convert.Apply((IntPtr)start, info.Width * 4, info.Width, info.Height, new FrameRect(0, 0, info.Width, info.Height));
+            }
+        }
+
         EventHandler<FrameUpdatedEventArgs>? listeners;
         bool resized;
         lock (_lock)
@@ -281,6 +374,17 @@ sealed unsafe partial class WebFrames
         }
 
         listeners?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, info.Width, info.Height), resized));
+    }
+
+    ColorCorrection? Conversion()
+    {
+        var (from, to) = (ShownWith, RecordedWith);
+        if (from != _convertFrom || to != _convertTo)
+        {
+            (_convertFrom, _convertTo, _convert) = (from, to, ColorCorrection.Between(from, to));
+        }
+
+        return _convert;
     }
 
     static IntPtr Interface<T>(object handler)
@@ -319,9 +423,17 @@ sealed unsafe partial class WebFrames
     }
 
     [GeneratedComClass]
-    sealed partial class CallCompleted : IDevToolsCallCompletedHandler
+    sealed partial class CallCompleted(Action<string>? done) : IDevToolsCallCompletedHandler
     {
-        public int Invoke(int errorCode, IntPtr returnObjectAsJson) => 0;
+        public int Invoke(int errorCode, IntPtr returnObjectAsJson)
+        {
+            if (done is not null && errorCode >= 0 && returnObjectAsJson != IntPtr.Zero)
+            {
+                done(Marshal.PtrToStringUni(returnObjectAsJson) ?? "{}");
+            }
+
+            return 0;
+        }
     }
 }
 

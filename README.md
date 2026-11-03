@@ -228,8 +228,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Interface colors:** Standard, Clearer (easier to tell apart for most color blindness) and Color-blind
   (Okabe-Ito). The terminal has its own color-blind scheme.
 - **Color vision:** pick protanopia, deuteranopia or tritanopia, and Orrery switches to color-blind colors, tunes the
-  terminal, and shifts RDP and VNC colors you'd confuse, at a strength you pick. A connection or folder can turn
-  that off for design or photo work.
+  terminal, and shifts the colors you'd confuse in RDP, VNC and web pages, at a strength you pick. A connection or
+  folder can turn that off for design or photo work.
 - Session states, host status, warnings and errors each have a shape, icon or word as well as a color.
 - HDR isn't possible over RDP or VNC.
 

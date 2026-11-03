@@ -26,8 +26,9 @@ public static class ScreenExport
     /// <param name="width">The video's size: every frame is drawn at it, a screen of another size centered on black.</param>
     /// <remarks>Each frame's pixels are the same buffer, drawn again for the next one: use them before moving on.</remarks>
     /// <param name="sound">The sound track's format, from <see cref="SoundFormat.Of"/>; null leaves sound out.</param>
+    /// <param name="recolor">Changes each frame's RGB pixels in place once drawn, as undoing a web page's color correction.</param>
     public static IEnumerable<ExportFrame> Frames(RecordingReader reader, int framesPerSecond, int width, int height, bool skipIdle,
-        CancellationToken cancel = default, SoundFormat? sound = null)
+        CancellationToken cancel = default, SoundFormat? sound = null, Action<byte[]>? recolor = null)
     {
         var track = sound is null ? null : new SoundTrack(sound);
         var decoder = new ScreenDecoder();
@@ -56,6 +57,7 @@ public static class ScreenExport
                 if (changed)
                 {
                     Render(decoder, output, width, height);
+                    recolor?.Invoke(output);
                 }
 
                 yield return new ExportFrame(next, width, height, output, changed) { Sound = track?.Take() ?? [] };
@@ -79,6 +81,7 @@ public static class ScreenExport
         if (any)
         {
             Render(decoder, output, width, height);
+            recolor?.Invoke(output);
             yield return new ExportFrame(next, width, height, output, true) { Sound = track?.Take() ?? [] };
         }
     }

@@ -197,11 +197,11 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaTheory]
-    [InlineData(Protocol.Rdp, new[] { "DISPLAY (RDP AND VNC)", "RDP" }, new[] { "VNC", "SSH", "SERIAL LINE" })]
-    [InlineData(Protocol.Vnc, new[] { "DISPLAY (RDP AND VNC)", "VNC" }, new[] { "RDP", "SSH", "SERIAL LINE" })]
-    [InlineData(Protocol.Ssh, new[] { "SSH", "SSH TUNNELS", "CREDENTIALS" }, new[] { "RDP", "VNC", "SERIAL LINE", "DISPLAY (RDP AND VNC)" })]
+    [InlineData(Protocol.Rdp, new[] { "DISPLAY", "RDP" }, new[] { "VNC", "SSH", "SERIAL LINE" })]
+    [InlineData(Protocol.Vnc, new[] { "DISPLAY", "VNC" }, new[] { "RDP", "SSH", "SERIAL LINE" })]
+    [InlineData(Protocol.Ssh, new[] { "SSH", "SSH TUNNELS", "CREDENTIALS" }, new[] { "RDP", "VNC", "SERIAL LINE", "DISPLAY" })]
     [InlineData(Protocol.Serial, new[] { "SERIAL LINE" }, new[] { "RDP", "VNC", "SSH", "CREDENTIALS", "SSH TUNNELS", "WAKE ON LAN" })]
-    [InlineData(Protocol.Https, new[] { "WAKE ON LAN" }, new[] { "RDP", "VNC", "SSH", "SERIAL LINE", "CREDENTIALS", "SESSION", "SSH TUNNELS" })]
+    [InlineData(Protocol.Https, new[] { "WAKE ON LAN", "DISPLAY" }, new[] { "RDP", "VNC", "SSH", "SERIAL LINE", "CREDENTIALS", "SESSION", "SSH TUNNELS" })]
     public async Task A_connection_shows_only_its_own_protocols_sections(Protocol protocol, string[] shown, string[] hidden)
     {
         var tree = ConnectionTree.Empty();
@@ -225,7 +225,7 @@ public class PropertiesPanelTests
         {
             var (_, window) = await Show(tree, node);
             var sections = SectionsShown(window);
-            Assert.All(new[] { "CREDENTIALS", "SESSION", "DISPLAY (RDP AND VNC)", "RDP", "VNC", "SSH", "SERIAL LINE", "SSH TUNNELS" },
+            Assert.All(new[] { "CREDENTIALS", "SESSION", "DISPLAY", "RDP", "VNC", "SSH", "SERIAL LINE", "SSH TUNNELS" },
                 s => Assert.Contains(s, sections));
             window.Close();
         }
@@ -425,6 +425,21 @@ public class PropertiesPanelTests
 
         Assert.False(entry.Settings.ColorCorrection);
         Assert.False(SettingsResolver.Resolve(entry).ColorCorrection.Value);
+    }
+
+    [AvaloniaFact]
+    public async Task A_web_page_shows_color_correction_and_none_of_the_desktop_settings()
+    {
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "router", Host = "router.lan", Settings = { Protocol = Protocol.Https } };
+        tree.Add(entry, tree.Root);
+        var (_, window) = await Show(tree, entry);
+
+        var labels = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
+        Assert.Contains("Color correction", labels);
+        Assert.DoesNotContain("Display quality", labels);
+        Assert.DoesNotContain("Scaling", labels);
+        window.Close();
     }
 
     [AvaloniaFact]

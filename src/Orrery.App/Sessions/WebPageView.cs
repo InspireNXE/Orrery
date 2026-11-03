@@ -122,6 +122,12 @@ sealed class WebPageView : Panel
             Loading = false;
             Failed = !e.IsSuccess;
             Changed?.Invoke(this, EventArgs.Empty);
+
+            // Where there's no start-up script (Linux and macOS), the page is corrected once it has loaded.
+            if (ActiveCorrection is not null)
+            {
+                RunColorScript();
+            }
             if (DrawnInOrrery && e.IsSuccess)
             {
                 // A page that's gone by the time it runs is no loss.
@@ -163,6 +169,118 @@ sealed class WebPageView : Panel
 
     /// <summary>The page's picture, for recording it (Windows).</summary>
     public WebFrames Frames { get; } = new();
+
+    ColorCorrection? _correction;
+    bool _allowsCorrection = true;
+
+    /// <summary>The color correction for the viewer's color vision, from Settings; null for none.</summary>
+    internal ColorCorrection? Correction
+    {
+        get => _correction;
+        set
+        {
+            _correction = value;
+            ApplyColors();
+        }
+    }
+
+    /// <summary>The connection's "Color correction": off shows the page in its own colors whatever Settings says.</summary>
+    public bool AllowsColorCorrection
+    {
+        get => _allowsCorrection;
+        set
+        {
+            _allowsCorrection = value;
+            ApplyColors();
+        }
+    }
+
+    /// <summary>The correction the page is drawn with: none where the connection turns it off.</summary>
+    internal ColorCorrection? ActiveCorrection => _allowsCorrection ? _correction : null;
+
+    /// <summary>
+    /// Puts the correction on the page: on Windows as a start-up script, so each new page is corrected before it's
+    /// first drawn, and on the page showing now.
+    /// </summary>
+    void ApplyColors()
+    {
+        Frames.ShownWith = ActiveCorrection;
+        Frames.SetStartScript(ActiveCorrection is null ? null : ColorScript(ActiveCorrection));
+        RunColorScript();
+    }
+
+    void RunColorScript()
+    {
+        try
+        {
+            // A page that's gone, or not there yet, by the time it runs is no loss: the next one gets the start-up script.
+            _web.InvokeScript(ColorScript(ActiveCorrection)).ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Script that corrects the top page's colors, or takes the correction off when <paramref name="correction"/> is
+    /// null. It puts an SVG feColorMatrix filter on the root element, which works in linear-light RGB as remote
+    /// desktops are corrected. Built from DOM calls rather than markup or a style sheet, so a page's content security
+    /// policy doesn't stop it, and put back if the page replaces the root's children. The root is the one element
+    /// whose filter doesn't change how fixed elements are placed.
+    /// </summary>
+    internal static string ColorScript(ColorCorrection? correction) => $$"""
+        (() => {
+          if (window.top !== window) return;
+          window.__orreryColors = "{{correction?.FilterValues ?? ""}}";
+          const apply = () => {
+            const root = document.documentElement;
+            if (!root) return;
+            const values = window.__orreryColors;
+            let svg = document.getElementById("__orrery-colors");
+            if (!values) {
+              if (svg) svg.remove();
+              if (root.style.getPropertyValue("filter").includes("__orrery-colors")) root.style.removeProperty("filter");
+              return;
+            }
+            if (!svg) {
+              const ns = "http://www.w3.org/2000/svg";
+              svg = document.createElementNS(ns, "svg");
+              svg.id = "__orrery-colors";
+              svg.setAttribute("aria-hidden", "true");
+              svg.setAttribute("width", "0");
+              svg.setAttribute("height", "0");
+              svg.style.position = "absolute";
+              svg.style.pointerEvents = "none";
+              const filter = document.createElementNS(ns, "filter");
+              filter.id = "__orrery-colors-filter";
+              filter.setAttribute("color-interpolation-filters", "linearRGB");
+              const matrix = document.createElementNS(ns, "feColorMatrix");
+              matrix.setAttribute("type", "matrix");
+              filter.appendChild(matrix);
+              svg.appendChild(filter);
+              root.appendChild(svg);
+            }
+            svg.querySelector("feColorMatrix").setAttribute("values", values);
+            root.style.setProperty("filter", "url(#__orrery-colors-filter)", "important");
+          };
+          apply();
+          if (!window.__orreryColorsWatched) {
+            window.__orreryColorsWatched = true;
+            let watched = null;
+            const watch = () => {
+              const root = document.documentElement;
+              if (root && root !== watched) {
+                watched = root;
+                new MutationObserver(() => {
+                  if (window.__orreryColors && !document.getElementById("__orrery-colors")) apply();
+                }).observe(root, { childList: true });
+              }
+            };
+            new MutationObserver(() => { watch(); apply(); }).observe(document, { childList: true });
+            watch();
+          }
+        })();
+        """;
 
     /// <summary>The page showing now, which links and redirects change.</summary>
     public Uri Address { get; private set; }

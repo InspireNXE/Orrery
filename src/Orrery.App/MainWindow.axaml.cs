@@ -2027,11 +2027,10 @@ public partial class MainWindow : Window
     RemoteFrameView NewRemoteFrameView(SessionOrigin origin, IFrameBufferSession session, bool zoom, bool followsViewSize)
     {
         var settings = _settingsStore.Load();
-        bool allowed = origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
         return new RemoteFrameView(session, zoom)
         {
             FollowsViewSize = followsViewSize,
-            AllowsColorCorrection = allowed,
+            AllowsColorCorrection = AllowsColorCorrection(origin),
             Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
         };
     }
@@ -2136,26 +2135,38 @@ public partial class MainWindow : Window
         _recent.Add(new RecentConnection(entryId, title, protocol, host, port, null, DateTimeOffset.Now));
     }
 
-    /// <summary>A web page in a new tab. Its sign-ins and cookies are kept in <c>web</c> in Orrery's data folder.</summary>
-    void OpenWebTab(SessionOrigin origin, Uri url, ConnectionTarget target)
+    /// <summary>
+    /// A web page in a new tab, with the color correction from Settings unless its connection turns that off (a pop-up
+    /// follows the page it came from). Its sign-ins and cookies are kept in <c>web</c> in Orrery's data folder.
+    /// </summary>
+    void OpenWebTab(SessionOrigin origin, Uri url, ConnectionTarget target, bool? allowsCorrection = null)
     {
-        var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"));
-        view.NewWindowRequested += (_, address) => OpenPopUpTab(address);
+        var settings = _settingsStore.Load();
+        var view = new WebPageView(url, Path.Combine(_location.DataDir, "web"))
+        {
+            AllowsColorCorrection = allowsCorrection ?? AllowsColorCorrection(origin),
+            Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
+        };
+        view.NewWindowRequested += (_, address) => OpenPopUpTab(address, view.AllowsColorCorrection);
         AddTab(view, new WebSession(target, view.Frames), origin);
     }
+
+    /// <summary>The "Color correction" of the connection a tab was opened from; on for one that isn't a saved connection.</summary>
+    bool AllowsColorCorrection(SessionOrigin origin) =>
+        origin.EntryId is not { } id || _tree.Find(id) is not { } node || SettingsResolver.Resolve(node).ColorCorrection.Value;
 
     /// <summary>
     /// A page's pop-up or new-window link, in a tab beside it. Like a management page it isn't a connection: it isn't
     /// added to Recent and isn't reopened with the workspace.
     /// </summary>
-    void OpenPopUpTab(Uri address)
+    void OpenPopUpTab(Uri address, bool allowsCorrection)
     {
         var protocol = address.Scheme == Uri.UriSchemeHttps ? Protocol.Https : Protocol.Http;
         OpenWebTab(new SessionOrigin(address.Host, protocol, null, () =>
         {
-            OpenPopUpTab(address);
+            OpenPopUpTab(address, allowsCorrection);
             return Task.CompletedTask;
-        }) { ManagementPage = true }, address, new ConnectionTarget(address.Host, address.Port, null, null));
+        }) { ManagementPage = true }, address, new ConnectionTarget(address.Host, address.Port, null, null), allowsCorrection);
     }
 
     /// <summary>
@@ -3807,6 +3818,11 @@ public partial class MainWindow : Window
                 foreach (var desktop in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
                 {
                     desktop.Correction = correction;
+                }
+
+                foreach (var page in _tabs.Select(t => t.View).OfType<WebPageView>())
+                {
+                    page.Correction = correction;
                 }
 
                 FollowColorsInPlayer();

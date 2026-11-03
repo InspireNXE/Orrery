@@ -299,8 +299,15 @@ Playing:
   recording (after asking), and ? shows them all over the picture. Every button's tooltip names its key.
 - **Colors:** recordings keep the colors as they were recorded; the player shows them as the viewer has them set. A
   screen is drawn through the color correction from Settings and a terminal with the color-vision palette and
-  terminal colors, and both follow a change in Settings while playing. (A connection's own "Color correction" off
-  doesn't reach its recordings, which don't say which saved connection they came from.)
+  terminal colors, and both follow a change in Settings while playing. A recording keeps the connection's own
+  "Color correction" (`RecordingInfo.ColorCorrection`): one recorded with it off plays in its own colors.
+- **Web pages** are the exception to keeping the colors as recorded. The page is corrected in the engine, with an SVG
+  `feColorMatrix` filter on its root element in linear light, so the screencast is of the page already corrected.
+  The recording says with what (`CorrectedFor`, `CorrectedStrength`; frames shown with another correction, after a
+  change in Settings partway, are converted to it as they're recorded). The player undoes that and applies the
+  viewer's own correction, nothing when they're the same, and an export undoes it, so the video has the page's own
+  colors like every other export. Undoing is exact within rounding except where the correction pushed a color past
+  what the screen shows.
 - **Terminal:** a read-only terminal view fed by a `TerminalEmulator`. Seeking replays the output from the start into
   a fresh emulator without drawing, which is fast for text. *Find* (Ctrl+F) searches the recording's text as you
   type, says how many matches there are, and Enter, Shift+Enter and the arrows beside it go to the next or previous
