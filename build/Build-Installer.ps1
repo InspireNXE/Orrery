@@ -15,11 +15,13 @@
 .EXAMPLE
     build\Build-Installer.ps1
     build\Build-Installer.ps1 -PublishDir artifacts\installer-publish -SkipPublish   # iterate on the .iss
+    build\Build-Installer.ps1 -PublishOnly    # publish and stop, so the files can be signed before the setup is built
 #>
 [CmdletBinding()]
 param(
     [string]$PublishDir,
     [switch]$SkipPublish,
+    [switch]$PublishOnly,
     [string]$OutputDir,
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
@@ -83,6 +85,10 @@ if (-not (Test-Path (Join-Path $PublishDir "Orrery.exe"))) {
 }
 
 & (Join-Path $PSScriptRoot "Generate-ThirdPartyNotices.ps1") -PublishDir $PublishDir
+if ($PublishOnly) {
+    Write-Host "Published to '$PublishDir'; build the setup from it with -SkipPublish."
+    return
+}
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir = Join-Path $repoRoot "artifacts\installer" }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

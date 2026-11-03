@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "files": what the Windows job sends first (artifacts/to-sign in
+  .github/workflows/packages.yml). Orrery's own files only: the two portable executables, and the installed copy's
+  Orrery.exe and Orrery DLLs, which then go into Orrery Setup. Paste it into the SignPath project as the artifact
+  configuration with the slug "files". docs/code-signing.md has the rest.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <directory path="portable-win-x64">
+      <pe-file path="Orrery.exe">
+        <authenticode-sign />
+      </pe-file>
+    </directory>
+    <directory path="portable-win-arm64">
+      <pe-file path="Orrery.exe">
+        <authenticode-sign />
+      </pe-file>
+    </directory>
+    <directory path="installed">
+      <pe-file-set>
+        <include path="Orrery.exe" />
+        <include path="Orrery.dll" />
+        <include path="Orrery.*.dll" min-matches="1" max-matches="unbounded" />
+        <for-each>
+          <authenticode-sign />
+        </for-each>
+      </pe-file-set>
+    </directory>
+  </zip-file>
+</artifact-configuration>

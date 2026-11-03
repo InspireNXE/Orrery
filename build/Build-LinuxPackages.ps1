@@ -22,6 +22,11 @@
 
     -Version builds them as another version than <Version> in Directory.Build.props.
 
+    -SigningKey signs the .deb and .rpm with an ASCII-armored OpenPGP secret key, whose passphrase nfpm reads from
+    NFPM_PASSPHRASE. The .rpm gets a header signature (rpm -K checks it once the public key is imported), the .deb a
+    detached _gpgorigin signature over its other members (debsigs' "origin" type). The AppImage isn't signed: nothing
+    checks its signature when it runs. build/linux-signing-key.asc is the public half.
+
 .EXAMPLE
     ./build/Build-LinuxPackages.ps1                                       # every format, x64 and arm64
     ./build/Build-LinuxPackages.ps1 -Runtimes linux-x64 -Formats deb,rpm   # just x64 .deb and .rpm
@@ -33,7 +38,8 @@ param(
     [string] $NfpmPath,
     [string] $AppImageToolPath,
     [string] $AppImageRuntimeDir,
-    [string] $Version
+    [string] $Version,
+    [string] $SigningKey
 )
 
 $ErrorActionPreference = 'Stop'
@@ -143,6 +149,20 @@ function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
     $lines.Add('    recommends:')
     $lines.Add("      - libsecret")
     $lines.Add("      - webkit2gtk4.1")
+
+    if ($SigningKey) {
+        $key = Yaml (Resolve-Path $SigningKey).Path.Replace('\', '/')
+        $lines.AddRange([string[]]@(
+            'rpm:'
+            '  signature:'
+            "    key_file: $key"
+            'deb:'
+            '  signature:'
+            '    method: debsign'
+            '    type: origin'
+            "    key_file: $key"
+        ))
+    }
 
     # UTF-8 without a BOM in Windows PowerShell 5.1 too, which has no utf8NoBOM encoding.
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))

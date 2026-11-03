@@ -115,11 +115,15 @@ from them (see Releasing below); nothing else is published.
   Linux builds the linux-x64 and linux-arm64 zips, .deb, .rpm and both AppImages (nfpm 2.48.0, appimagetool 1.9.1
   and the type2-runtime 20251108 runtimes, passed with `-AppImageRuntimeDir` so appimagetool doesn't download the
   newest one). macOS builds the macos-arm64 and macos-x64 zips.
+- **Signing.** Release runs sign the Windows files through SignPath Foundation, and every run signs the .deb and
+  .rpm with GPG, once each has its repository variables and secrets; until then those files are unsigned.
+  [code-signing.md](code-signing.md) has the setup.
 - **Pinned.** Every action is pinned by commit, every downloaded tool by version and SHA-256 (the workflow says where
   each hash came from), and the .NET SDK by `DOTNET_SDK_VERSION` (written to a `global.json` on the runner only, so
   local builds can use any .NET 10 SDK).
 - **Caches.** NuGet packages are cached per OS as `nuget-<OS>-<hash of the lock files>`, without `Devolutions.IronRdp`.
-- **Permissions.** The workflow's token can only read the repository, except in the release job, which runs only for
+- **Permissions.** The workflow's token can only read the repository (the Windows job can also read its run's
+  artifacts, for SignPath), except in the release job, which runs only for
   `v*` tags and can write releases (`contents: write`) and make attestations (`id-token: write`,
   `attestations: write`).
 

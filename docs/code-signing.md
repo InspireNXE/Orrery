@@ -7,14 +7,15 @@ from each provider's own pages on that date; links are at the end.
 
 ## What to do, in order
 
-| # | Step | Platforms | Cost | Owner's part |
-|---|---|---|---|---|
-| 1 | GitHub build attestations | All | Free | None: a workflow change |
-| 2 | SignPath Foundation | Windows | Free | Apply; name the approvers; approve each release |
-| 3 | GPG-signed packages | Linux | Free | Make and keep a signing key |
-| 4 | Developer ID and notarization | macOS | $99 a year | Decide whether macOS is worth it; enroll |
+| # | Step | Platforms | Cost | Owner's part | Status |
+|---|---|---|---|---|---|
+| 1 | GitHub build attestations | All | Free | None: a workflow change | Done (0.1.0 on) |
+| 2 | SignPath Foundation | Windows | Free | Apply; name the approvers; approve each release | Workflow ready; waiting on SignPath |
+| 3 | GPG-signed packages | Linux | Free | Make and keep a signing key | Workflow ready; waiting on the key |
+| 4 | Developer ID and notarization | macOS | $99 a year | Decide whether macOS is worth it; enroll | Not started |
 
-Steps 1 to 3 cost nothing and can start now. Step 4 is the only one with no free route.
+Steps 1 to 3 cost nothing. Step 4 is the only one with no free route. Until a step's secrets exist, the workflow
+builds that platform's files unsigned, as before, and a release run says so in a warning.
 
 ## 1. Build attestations (all platforms)
 
@@ -23,15 +24,15 @@ public repositories. Anyone can check a download with `gh attestation verify <fi
 doesn't quiet SmartScreen or Gatekeeper, but it proves a release came from this repository's CI, which suits a
 security-minded project, and it covers the Linux and macOS files that nothing else signs yet.
 
-In `.github/workflows/packages.yml`, give each packaging job `id-token: write` and `attestations: write` (with
-`contents: read`) and add, after the packages are built:
+The release job in `.github/workflows/packages.yml` does this: it attests every file listed in the release's
+`SHA256SUMS` with `actions/attest`. To check a download:
 
-```yaml
-      - name: Attest the packages
-        uses: actions/attest@v4   # pin to the commit SHA of v4.2.2, like the workflow's other actions
-        with:
-          subject-path: artifacts/**/*.zip   # and the installer, .deb, .rpm, AppImage per job
+```bash
+gh attestation verify Orrery-Setup-0.1.0.exe --repo InspireNXE/Orrery
 ```
+
+It prints the workflow, commit and tag the file was built from, and fails for a file that wasn't built there or was
+changed since. Without the GitHub CLI, compare the file's SHA-256 with its line in the release's `SHA256SUMS`.
 
 ## 2. SignPath Foundation (Windows)
 
@@ -63,13 +64,38 @@ since 2024 even EV certificates don't skip it. Keeping one signing identity from
 
 **Applying:** at signpath.org/apply. There's no published approval time; other projects report waits of weeks.
 
-**Wiring it in:** the Windows job uploads the unsigned files with `actions/upload-artifact`, then
-`signpath/github-action-submit-signing-request@v3` sends that artifact's ID with the organization and project slugs and
-an API token (a repository secret), waits for approval, and downloads the signed files. The artifact configuration
-lists what to sign inside the zip: `Orrery.exe` and then the setup that contains it. That means building the installer
-after `Orrery.exe` is signed, so the job becomes publish, then sign the exe, then compile the setup, then sign the
-setup. Inno Setup also writes an uninstaller into the setup, which ideally is signed too; SignPath's documents don't
-say how they handle that, so it's a question for the application.
+**How the workflow does it** (the Windows job, on `v*` tags only, since each request is approved by hand):
+
+1. Builds the portable zips, and publishes the installer's files without building the setup yet
+   (`build/Build-Installer.ps1 -PublishOnly`).
+2. Uploads Orrery's own files as one artifact: each portable `Orrery.exe`, and the installed copy's `Orrery.exe`,
+   `Orrery.dll` and `Orrery.*.dll`. Third-party DLLs keep their own signatures, or none.
+3. `signpath/github-action-submit-signing-request` (v3.0, pinned) submits it under the artifact configuration
+   `files` and waits up to an hour for approval, then downloads the signed files.
+4. Puts them back, checks each one's Authenticode signature, zips the portable folders again
+   (`build/package.ps1 -RezipOnly`) and builds Orrery Setup from the signed files (`-SkipPublish`).
+5. Submits the setup under the artifact configuration `setup`, checks it, and uploads everything as before.
+
+So a release asks for two approvals: the files, then the setup. Inno Setup also writes an uninstaller into the setup,
+which isn't signed this way; SignPath's documents don't say how they handle that, so it's a question for them.
+
+**Setting it up, once accepted:**
+
+1. In the SignPath project, add two artifact configurations, pasting `build/signpath/files.xml` with the slug
+   `files` and `build/signpath/setup.xml` with the slug `setup`. SignPath's editor checks them; restrictions on
+   product name and version can be added there.
+2. Use the signing policy SignPath Foundation sets up for releases, with the slug `release-signing` (or change
+   `signing-policy-slug` in the workflow to match), and link the project to this repository as its trusted build
+   system (GitHub.com).
+3. Make an API token for a CI user in SignPath, with permission to submit to that policy.
+4. In the GitHub repository, Settings > Secrets and variables > Actions:
+   - Variables: `SIGNPATH_ORGANIZATION_ID` (the organization's ID) and `SIGNPATH_PROJECT_SLUG`.
+   - Secret: `SIGNPATH_API_TOKEN`.
+
+   Or from a terminal: `gh variable set SIGNPATH_ORGANIZATION_ID`, `gh variable set SIGNPATH_PROJECT_SLUG` and
+   `gh secret set SIGNPATH_API_TOKEN`, each asking for its value.
+5. Add the "Code signing policy" section below to the README.
+6. The next tag's run waits at "Sign the files" for approval in SignPath, then at "Sign the setup".
 
 **Draft policy section for the README:**
 
@@ -101,12 +127,44 @@ say how they handle that, so it's a question for the application.
 
 Nothing in Linux requires a signature, and signing is free:
 
-- **.deb and .rpm**: sign them with a GPG key kept as a repository secret, and publish its public key in the
-  releases. If Orrery later offers an apt or dnf repository, its index is what apt checks: users put the key in
-  `/etc/apt/keyrings` and name it with `signed-by`. Since February 2026, Debian 13's apt rejects SHA-1 signatures, so
-  use a fresh Ed25519 or RSA-4096 key and SHA-256.
+- **.deb and .rpm**: signed by nfpm with a GPG key kept as a repository secret (`build/Build-LinuxPackages.ps1
+  -SigningKey`). The .rpm gets a header signature, which `rpm -K` checks; the .deb a detached `_gpgorigin` signature
+  (debsigs' "origin" type) over its other members. The workflow checks both against `build/linux-signing-key.asc`,
+  the public half, before uploading, and the release carries it as `orrery-linux-signing-key.asc`. If Orrery later
+  offers an apt or dnf repository, its index is what apt checks: users put the key in `/etc/apt/keyrings` and name it
+  with `signed-by`. Since February 2026, Debian 13's apt rejects SHA-1 signatures, so the key is a fresh RSA-4096
+  one (RSA rather than Ed25519, which rpm before 4.16, as on RHEL 8, can't check).
 - **AppImage**: `appimagetool --sign` embeds a GPG signature, but nothing checks it when the AppImage runs, so the
   attestation in step 1, and a published checksum, carry more weight.
+
+**Making the key** (once, on your own machine; the secret half never goes in the repository):
+
+```bash
+gpg --quick-generate-key "InspireNXE Orrery packages" rsa4096 sign 3y
+```
+
+It asks for a passphrase. Then, with the fingerprint it printed as `FPR`:
+
+```bash
+gpg --armor --export FPR > build/linux-signing-key.asc
+gpg --armor --export-secret-keys FPR | gh secret set LINUX_SIGNING_KEY --repo InspireNXE/Orrery
+gh secret set LINUX_SIGNING_PASSPHRASE --repo InspireNXE/Orrery
+```
+
+The last asks for the passphrase. Commit `build/linux-signing-key.asc`, and push to `dev` first: the Linux job then
+signs and checks the packages, so a problem shows before a release. Keep a backup of the secret key and of the
+revocation certificate gpg wrote to `~/.gnupg/openpgp-revocs.d/`. Before the key expires, extend it
+(`gpg --quick-set-expire FPR 3y`), export the public half again, and update the secret.
+
+To check a downloaded package:
+
+```bash
+gpg --import orrery-linux-signing-key.asc && sudo rpm --import orrery-linux-signing-key.asc
+rpm -K orrery-0.1.1-1.x86_64.rpm      # "digests signatures OK"
+```
+
+For a .deb, `debsig-verify` needs a policy file for the key; comparing against `SHA256SUMS` or the attestation is
+simpler.
 
 ## 4. macOS
 
