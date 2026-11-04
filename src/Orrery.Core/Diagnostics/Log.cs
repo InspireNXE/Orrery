@@ -15,6 +15,12 @@ public static class Log
 
     public static ILoggerFactory Factory { get; set; } = NullLoggerFactory.Instance;
 
+    /// <summary>What hides names and addresses in the log file; null until the app starts the log, and in tests that don't.</summary>
+    public static LogMask? Mask { get; set; }
+
+    /// <summary>Remembers a value the log should hide wherever it turns up, such as a saved connection's host.</summary>
+    public static void Learn(LogMaskKind kind, string? value) => Mask?.Learn(kind, value);
+
     /// <summary>
     /// A logger for an area of the app, such as "Ssh" or "Storage". Safe to keep in a static field: it follows
     /// <see cref="Factory"/> when that changes.

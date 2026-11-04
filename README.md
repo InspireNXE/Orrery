@@ -467,14 +467,23 @@ Recordings are in `recordings/` in the data folder, encrypted. Move data takes t
 <details>
 <summary>Logs</summary>
 
-One file a day, kept two weeks, in `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or
-`~/.local/state/orrery/logs` (portable: the data folder). They record what connected where and what went wrong,
-never passwords, keys, keystrokes or screen contents. Settings opens the folder, and has a detailed logging switch
-that turns itself off when Orrery closes.
+One file a day (a new one past 10 MB), in `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or
+`~/.local/state/orrery/logs` (portable: the data folder). They're kept for 14 days and to 100 MB in all; Settings
+can keep them for 7 or 30 days instead, and deletes them on request. They record what connected and what went
+wrong, never passwords, keys, keystrokes or screen contents. Settings opens the folder, and has a detailed logging
+switch that turns itself off when Orrery closes.
 
-They do name your connections, hosts and IP addresses, usernames, saved credentials' names, host key and certificate
-fingerprints and file paths (detailed logging adds SFTP paths). None of that logs anyone in, but together it maps your
-network, so read a log over before sharing it, and remove what you'd rather not send.
+Names and addresses are hidden, so a log can go in a GitHub issue as it is. Hosts, IP and web addresses, usernames,
+connection and credential names and file paths are written as tags such as `host-3f9a2c` or `path-0c4e1d.orrec`.
+The same name always gets the same tag, so a log still shows that two lines are about one server. Tags are keyed by a
+secret in the data folder that never goes in a log, so they can't be turned back by trying addresses; Settings looks a
+tag up on your own computer. Versions, protocols, ports, error codes, timings and host key fingerprints stay. *Show
+names and addresses in logs* writes them out for reading a log yourself, until Orrery closes, and says so in the log.
+
+Hiding works on what Orrery knows is a name, plus anything shaped like an address. A library's error message can
+still name a host Orrery hadn't seen yet, so skim a log before you share it. Logs from before 0.1.2 aren't hidden;
+*Delete logs* clears them. IronRDP's own log, `ironrdp.log`, is only written when you turn it on with
+`IRONRDP_LOG`, and isn't hidden.
 
 </details>
 
