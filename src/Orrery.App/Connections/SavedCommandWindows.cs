@@ -150,7 +150,8 @@ sealed class SavedCommandWindow : Window
         _confirm.IsCheckedChanged += (_, _) => _confirmTouched |= !_settingConfirm;
         _text.TextChanged += (_, _) => NoteDestructive();
 
-        var save = new Button { Content = adding ? "Add" : "Save", IsDefault = false };
+        // Enter in the name saves; in the command it's a new line, and Ctrl+Enter saves (DialogKeys).
+        var save = new Button { Content = adding ? "Add" : "Save", IsDefault = true };
         save.Classes.Add("accent");
         var cancel = new Button { Content = "Cancel", IsCancel = true };
         save.Click += (_, _) => Save();
@@ -168,7 +169,7 @@ sealed class SavedCommandWindow : Window
                 Dialogs.Field("Command", _text),
                 new TextBlock
                 {
-                    Text = "{host}, {username} and {name} are filled in from the connection. Several lines are pasted as one.",
+                    Text = $"{{host}}, {{username}} and {{name}} are filled in from the connection. Several lines are pasted as one. {(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Enter {(adding ? "adds" : "saves")} it.",
                     FontSize = 12,
                     Foreground = Dialogs.MutedBrush,
                     TextWrapping = TextWrapping.Wrap,

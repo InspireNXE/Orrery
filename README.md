@@ -355,6 +355,9 @@ Narrator, NVDA and JAWS on Windows.
 - Terminals and remote desktops keep every key, Tab included.
 - Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the session for its tab, leaving full screen first; Enter goes back.
 - In a terminal, Ctrl+Shift+A selects all; plain Ctrl+A still reaches the shell.
+- In every prompt, Enter is the default button and Esc cancels, and Left and Right move between the buttons. A
+  prompt opens with its field or default button focused; where Enter is unsafe, that's Cancel. In a box that takes
+  several lines, such as a saved command, Ctrl+Enter (Cmd+Enter on macOS) saves.
 
 ### Color
 

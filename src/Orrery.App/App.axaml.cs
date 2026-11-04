@@ -39,6 +39,7 @@ public partial class App : Application
     {
         AvaloniaXamlLoader.Load(this);
         Palette.AddTo(Resources);
+        Input.DialogKeys.Install();
     }
 
     public override void OnFrameworkInitializationCompleted()
