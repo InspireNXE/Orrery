@@ -7,6 +7,14 @@ what each can encode, and on AMD encodes test frames with every codec (measured 
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
+> **Pinned: codec patents, to settle before any release.** AMD's AMF headers open with a "Notice Regarding
+> Standards": AMD grants no license to codec patents (H.264/AVC and HEVC/H.265 among them), and any royalties owed are
+> the user's. NVIDIA's NVENC is in the same position. The MIT license covers our code and the headers, not the codecs.
+> Orrery Host ships no codec of its own and only calls the encoders the GPU and driver provide, as Parsec, Sunshine and
+> OBS do, but H.264 and HEVC through vendor encoders need a licensing review before Orrery Host is released. Until
+> then: **prefer AV1** (royalty-free) wherever both ends support it, and treat H.264 and HEVC as fallbacks. Tracked in
+> §13 and §14.
+
 ---
 
 ## 1. Goals and non-goals
@@ -453,7 +461,7 @@ Each is checked (source, version, hash, license) before it's added, and none is 
 - Whether input over a reliable stream adds measurable latency (measure in phase 3).
 - Which AV1 encode and decode generations the two test GPUs are. The RX 9070 XT encodes AV1 (measured in §5); the
   NVIDIA card is still to be probed.
-- Codec patents. AMD's headers say their license covers no codec patents and royalties are the user's; NVIDIA's
+- Codec patents (pinned at the top). AMD's headers say their license covers no codec patents and royalties are the user's; NVIDIA's
   hardware and drivers are in the same position. Orrery Host calls the encoders the GPU and driver already provide and
   ships no codec of its own, as Parsec, Sunshine and OBS do, but this deserves a proper look before a release, and AV1
   (royalty-free) is the codec to prefer where both sides have it.
