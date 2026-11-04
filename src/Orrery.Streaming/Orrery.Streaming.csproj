@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Shared by the OSP client (Orrery.Protocols.Stream) and Orrery Host: no UI and no platform code.
+       See docs/design-stream.md. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orrery.Streaming.Tests" />
+  </ItemGroup>
+</Project>

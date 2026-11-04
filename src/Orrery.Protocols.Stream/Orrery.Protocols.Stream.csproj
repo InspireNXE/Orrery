@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The OSP client: session, decoders, presenter, input capture. Not referenced by Orrery.App yet. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Orrery.Core\Orrery.Core.csproj" />
+    <ProjectReference Include="..\Orrery.Streaming\Orrery.Streaming.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Orrery Host, the companion that runs on the machine being reached. A console placeholder until phase 1 brings
+       capture and encoding; not packaged yet. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>OrreryHost</AssemblyName>
+    <Product>Orrery Host</Product>
+    <Description>Orrery Host</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Orrery.Streaming\Orrery.Streaming.csproj" />
+  </ItemGroup>
+</Project>
