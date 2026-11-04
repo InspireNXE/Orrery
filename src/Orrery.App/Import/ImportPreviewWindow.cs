@@ -24,8 +24,18 @@ sealed class ImportPreviewWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Dialogs.PanelBrush;
 
-        var newFolder = new RadioButton { GroupName = "dest", IsChecked = true, Content = $"In a new folder, \"{result.Root.Name}\"" };
-        var topLevel = new RadioButton { GroupName = "dest", Content = "At the top level" };
+        var newFolder = new RadioButton { GroupName = "dest", IsChecked = true };
+        var topLevel = new RadioButton { GroupName = "dest" };
+        var placement = new StackPanel
+        {
+            Spacing = 6,
+            Children =
+            {
+                Dialogs.Label("Put them"),
+                Dialogs.Choice(newFolder, "In a new folder", result.Root.Name),
+                Dialogs.Choice(topLevel, "At the top level", "Beside your other connections and folders"),
+            },
+        };
         var skip = new CheckBox
         {
             Content = $"Skip {alreadyImported} connection{(alreadyImported == 1 ? "" : "s")} imported before",
@@ -96,9 +106,7 @@ sealed class ImportPreviewWindow : Window
                 new TextBlock { Text = protocols, Foreground = Dialogs.MutedBrush, IsVisible = protocols.Length > 0 },
                 new TextBlock { Text = credentials, TextWrapping = TextWrapping.Wrap },
                 new ScrollViewer { MaxHeight = 220, Content = details, IsVisible = details.Children.Count > 0 },
-                Dialogs.Label("Put them"),
-                newFolder,
-                topLevel,
+                placement,
                 skip,
                 keepCommands,
                 new TextBlock { Text = $"Your {report.From} file isn't changed.", FontSize = 12, Foreground = Dialogs.MutedBrush },

@@ -225,4 +225,45 @@ static class Dialogs
 
         return new StackPanel { Spacing = 4, Children = { Label(label), input } };
     }
+
+    static readonly IBrush ChoiceBrush = new SolidColorBrush(Color.Parse("#181B21"));
+    static readonly IBrush ChosenBrush = new SolidColorBrush(Color.Parse("#1A2130"));
+
+    /// <summary>
+    /// A radio button as a tile: its title over a muted line, the whole tile clickable, and the chosen one edged in the
+    /// accent. Arrow keys move between a group's tiles (<see cref="Input.RadioKeys"/>).
+    /// </summary>
+    public static Control Choice(RadioButton radio, string title, string? line = null, bool mono = false)
+    {
+        var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap } } };
+        if (line is not null)
+        {
+            text.Children.Add(new TextBlock { Text = line, FontSize = 12, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, FontFamily = mono ? MonoFont : FontFamily.Default });
+        }
+
+        radio.Content = text;
+        radio.HorizontalAlignment = HorizontalAlignment.Stretch;
+        radio.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        radio.Padding = new Thickness(10, 0, 0, 0);
+        // The margin is the tile's padding, kept inside the button so a click anywhere on the tile chooses it.
+        radio.Margin = new Thickness(12, 8);
+        // The content is a panel, which a screen reader can't read as the button's name.
+        AutomationProperties.SetName(radio, title);
+        if (line is not null)
+        {
+            AutomationProperties.SetHelpText(radio, line);
+        }
+
+        var tile = new Border { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Child = radio };
+        void Show()
+        {
+            bool chosen = radio.IsChecked == true;
+            tile.Background = chosen ? ChosenBrush : ChoiceBrush;
+            tile.BorderBrush = chosen ? new SolidColorBrush(Palette.Accent.Color, 0.55) : Pane.LineBrush;
+        }
+
+        radio.IsCheckedChanged += (_, _) => Show();
+        Show();
+        return tile;
+    }
 }
