@@ -58,7 +58,7 @@ sealed class SetupWizard : Window
     readonly Notice _message = new(NoticeKind.Error) { IsVisible = false };
     readonly ScrollViewer _scroll = new();
     readonly StackPanel _content = new() { Margin = new Thickness(32, 28, 32, 24), Spacing = 6 };
-    readonly Button _defaults = new() { Name = "SetupDefaults", Content = "Use defaults" };
+    readonly Button _defaults = new() { Name = "SetupDefaults", Content = "Skip to the end" };
     readonly Button _back = new() { Name = "SetupBack", Content = "Back", Padding = new Thickness(16, 6) };
     readonly Button _next = new() { Name = "SetupNext", Content = "Next", Padding = new Thickness(18, 6), IsDefault = true, Classes = { "accent" } };
 
@@ -143,10 +143,10 @@ sealed class SetupWizard : Window
             }
         };
 
-        _defaults.Click += (_, _) => UseDefaults();
+        _defaults.Click += (_, _) => SkipToEnd();
         _back.Click += (_, _) => Back();
         _next.Click += async (_, _) => await NextAsync();
-        AutomationProperties.SetHelpText(_defaults, "Skips to the end, with every choice at its default, to see what will happen before you start.");
+        AutomationProperties.SetHelpText(_defaults, "Goes to the summary with what you've chosen so far. Anything you haven't looked at uses its default.");
 
         // Enter moves on from anywhere but a push button, which Enter presses; the options would otherwise take it for
         // a click. Escape does nothing, so a stray press never loses what's been chosen.
@@ -416,13 +416,17 @@ sealed class SetupWizard : Window
         GoTo(_steps[_steps.IndexOf(_current) + 1]);
     }
 
-    /// <summary>Puts every option back to its default and jumps to the end, where they're listed.</summary>
-    internal void UseDefaults()
+    /// <summary>
+    /// Jumps to the end, where the choices are listed, keeping every one made so far; the steps not looked at already
+    /// hold their defaults. A master password that can't be used is said there, and Start goes back to it.
+    /// </summary>
+    internal void SkipToEnd()
     {
-        _besideApp.IsChecked = true;
-        _vaultPassword.Text = _vaultConfirm.Text = string.Empty;
-        SetOptions(new SetupChoices { Imports = [.. _imports.Where(i => i.Found).Select(i => i.File.Path)] });
         GoTo(SetupStep.Done);
+        if (VaultPasswordProblem() is { } problem)
+        {
+            ShowMessage($"The master password can't be used yet. {problem}", NoticeKind.Error);
+        }
     }
 
     void SetOptions(SetupChoices choices)
