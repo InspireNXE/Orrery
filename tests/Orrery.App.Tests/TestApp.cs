@@ -14,6 +14,7 @@ public sealed class TestApp : Application
         Styles.Add(new FluentTheme());
         Orrery.App.Input.DialogKeys.Install();
         Orrery.App.Input.RadioKeys.Install();
+        Orrery.App.Input.OverlappingRightClick.Install();
     }
 
     public static AppBuilder BuildAvaloniaApp() =>

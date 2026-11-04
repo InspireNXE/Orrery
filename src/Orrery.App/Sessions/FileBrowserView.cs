@@ -148,43 +148,15 @@ sealed class FileBrowserView : DockPanel
             }
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         var menu = new ContextMenu();
-        void Fill()
+        menu.Opening += (_, _) =>
         {
             menu.Items.Clear();
             foreach (var entry in MenuFor(Selected(), _transfer is not null))
             {
                 menu.Items.Add(entry is null ? new Separator() : MenuItemFor(entry));
             }
-        }
-
-        menu.Opening += (_, _) => Fill();
+        };
         _list.ContextMenu = menu;
-        // A right press while the left is still down (a quick left-then-right click overlaps like that) joins the left
-        // press, so the list sees only a left click and no menu. A press the right button joined opens the menu as
-        // the buttons come up.
-        bool rightJoined = false;
-        _list.AddHandler(PointerPressedEvent, (_, _) => rightJoined = false, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
-        _list.AddHandler(PointerMovedEvent, (_, e) =>
-        {
-            var point = e.GetCurrentPoint(_list).Properties;
-            rightJoined |= point.IsRightButtonPressed && point.IsLeftButtonPressed;
-        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
-        _list.AddHandler(PointerReleasedEvent, (_, e) =>
-        {
-            if (e.InitialPressMouseButton == MouseButton.Left && rightJoined)
-            {
-                rightJoined = false;
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (!menu.IsOpen && _list.IsEffectivelyEnabled && _list.IsEffectivelyVisible)
-                    {
-                        // Open alone doesn't raise Opening, which a right-click's own menu does.
-                        Fill();
-                        menu.Open(_list);
-                    }
-                });
-            }
-        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         DragDrop.SetAllowDrop(_list, true);
         _list.AddHandler(DragDrop.DragOverEvent, (_, e) => e.DragEffects = e.DataTransfer.Contains(DataFormat.File) && _transfer is null ? DragDropEffects.Copy : DragDropEffects.None);
         _list.AddHandler(DragDrop.DropEvent, (_, e) =>
