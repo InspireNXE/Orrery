@@ -20,7 +20,7 @@ static class Program
         Console.WriteLine($"Orrery Host {typeof(Program).Assembly.GetName().Version}, OSP version {OspProtocol.Version}: not implemented yet.");
         Console.WriteLine("  --probe     list this machine's GPUs and what each can encode");
         Console.WriteLine("  --capture   capture a monitor and encode it, timing each frame (AMD only so far)");
-        Console.WriteLine("              [--monitor N] [--codec av1|hevc|h264] [--seconds N] [--mbps N] [--out file]");
+        Console.WriteLine("              [--monitor N] [--codec av1|hevc|h264] [--seconds N] [--mbps N] [--out file] [--loopback]");
         return 1;
     }
 }

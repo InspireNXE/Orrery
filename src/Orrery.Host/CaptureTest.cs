@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Orrery.Host.Encoding;
@@ -10,7 +12,7 @@ using Orrery.Streaming;
 namespace Orrery.Host;
 
 /// <summary>What <c>--capture</c> was asked to do.</summary>
-sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1, int Seconds = 10, long? Bitrate = null, string? OutputPath = null)
+sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1, int Seconds = 10, long? Bitrate = null, string? OutputPath = null, bool Loopback = false)
 {
     /// <summary>Reads the arguments after <c>--capture</c>, or returns null with <paramref name="error"/> saying what's wrong.</summary>
     public static CaptureOptions? Parse(IReadOnlyList<string> args, out string? error)
@@ -36,6 +38,9 @@ sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1,
                 case "--out" when !string.IsNullOrWhiteSpace(value):
                     options = options with { OutputPath = value };
                     break;
+                case "--loopback":
+                    options = options with { Loopback = true };
+                    continue; // takes no value
                 default:
                     error = value is null || args[i] is not ("--monitor" or "--codec" or "--seconds" or "--mbps" or "--out")
                         ? $"Unknown option {args[i]}."
@@ -161,7 +166,10 @@ static class CaptureTest
                 ? Path.ChangeExtension(Path.GetFullPath(requested), BitstreamFile.Extension(options.Codec))
                 : null;
             using var file = path is null ? null : new BitstreamFile(File.Create(path), options.Codec, width, height);
-            output.WriteLine($"Encoding {width}x{height} at up to {fps} fps with {Name(options.Codec)}, {bitrate / 1_000_000} Mbps, for {options.Seconds} s."
+            // With --loopback the file is written from the frames that came back over UDP, which proves they arrive whole.
+            using var loopback = options.Loopback ? new Loopback(f => file?.Write(f.Data, (long)(f.CaptureMicroseconds / 1000))) : null;
+            output.WriteLine($"Encoding {width}x{height} at up to {fps} fps with {Name(options.Codec)}, {bitrate / 1_000_000} Mbps, for {options.Seconds} s"
+                + (loopback is null ? "." : ", sending each frame over UDP to 127.0.0.1 and back together.")
                 + " A frame is only captured when something on the monitor changes, so move a window or play a video.");
 
             var stats = new List<FrameTiming>();
@@ -242,10 +250,18 @@ static class CaptureTest
 
                 stats.Add(new FrameTiming(Milliseconds(captured - presented), Milliseconds(encoded - captured), frame.Length));
                 totalBytes += frame.Length;
-                file?.Write(frame, (long)Milliseconds(presented - firstPresent));
+                if (loopback is not null)
+                {
+                    loopback.Send(frame, (ulong)(Milliseconds(presented - firstPresent) * 1000), recovery: stats.Count == 1);
+                }
+                else
+                {
+                    file?.Write(frame, (long)Milliseconds(presented - firstPresent));
+                }
             }
 
             Report(output, stats, totalBytes, options.Seconds, startsCorrectly, pointerOnly, reopened);
+            loopback?.Finish(output);
             if (path is not null && stats.Count > 0)
             {
                 output.WriteLine($"Wrote {path}");
@@ -304,6 +320,76 @@ static class CaptureTest
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Sends each encoded frame over plain UDP to a receiver on 127.0.0.1 in this process, which puts it back together:
+    /// proves the packetizing end to end and times what it adds, before there's a client to send to.
+    /// </summary>
+    sealed class Loopback : IDisposable
+    {
+        readonly UdpMediaReceiver _receiver = new(new IPEndPoint(IPAddress.Loopback, 0));
+        readonly UdpMediaSender _sender;
+        readonly Thread _thread;
+        readonly ConcurrentDictionary<uint, long> _sentAt = new();
+        readonly List<double> _transit = [];
+        readonly ManualResetEventSlim _allArrived = new();
+        uint _sent;
+
+        public Loopback(Action<AssembledFrame> onFrame)
+        {
+            _sender = new UdpMediaSender(_receiver.LocalEndPoint);
+            _thread = new Thread(() => _receiver.Run(frame =>
+            {
+                long now = Stopwatch.GetTimestamp();
+                if (_sentAt.TryGetValue(frame.FrameNumber, out long sent))
+                {
+                    _transit.Add(Milliseconds(now - sent));
+                }
+
+                onFrame(frame);
+                if (frame.FrameNumber == Volatile.Read(ref _sent))
+                {
+                    _allArrived.Set();
+                }
+            })) { IsBackground = true, Name = "Loopback receiver" };
+            _thread.Start();
+        }
+
+        public void Send(byte[] frame, ulong captureMicroseconds, bool recovery)
+        {
+            uint number = _sent + 1;
+            _sentAt[number] = Stopwatch.GetTimestamp();
+            _allArrived.Reset();
+            Volatile.Write(ref _sent, number);
+            _sender.SendFrame(frame, new MediaPacketHeader(MediaKind.Video, recovery ? MediaPacketFlags.Recovery : MediaPacketFlags.None, 0, number, 0, 0, captureMicroseconds));
+        }
+
+        /// <summary>Waits briefly for the last frame, stops the receiver and reports what crossed.</summary>
+        public void Finish(TextWriter output)
+        {
+            if (_sent > 0)
+            {
+                _allArrived.Wait(TimeSpan.FromMilliseconds(500));
+            }
+
+            _receiver.Dispose();
+            _thread.Join();
+            var assembler = _receiver.Assembler;
+            output.WriteLine($"Loopback: {assembler.FramesCompleted} of {_sent} frames back whole in {_sender.PacketsSent:N0} datagrams ({_sender.BytesSent:N0} bytes)"
+                + $", {assembler.FramesDropped} dropped, {assembler.PacketsRejected} datagrams rejected, {assembler.PacketsDuplicated} duplicated.");
+            if (_transit.Count > 0)
+            {
+                output.WriteLine($"  send to reassembled  {Spread(_transit)}");
+            }
+        }
+
+        public void Dispose()
+        {
+            _receiver.Dispose();
+            _sender.Dispose();
+            _allArrived.Dispose();
+        }
     }
 
     readonly record struct FrameTiming(double PresentToCapture, double CaptureToEncoded, int Bytes)

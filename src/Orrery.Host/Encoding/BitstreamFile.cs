@@ -16,6 +16,7 @@ sealed class BitstreamFile : IDisposable
     readonly VideoCodec _codec;
     readonly byte[] _frameHeader = new byte[12];
     uint _frames;
+    long _lastMilliseconds = -1;
 
     public BitstreamFile(Stream stream, VideoCodec codec, int width, int height)
     {
@@ -45,8 +46,14 @@ sealed class BitstreamFile : IDisposable
         _ => ".ivf",
     };
 
+    /// <summary>
+    /// Appends a frame. Two frames can be presented within the same millisecond, and players reject a timestamp that
+    /// doesn't increase, so one that doesn't is moved a millisecond past the last.
+    /// </summary>
     public void Write(ReadOnlySpan<byte> frame, long milliseconds)
     {
+        milliseconds = Math.Max(milliseconds, _lastMilliseconds + 1);
+        _lastMilliseconds = milliseconds;
         if (_codec == VideoCodec.Av1)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(_frameHeader, (uint)frame.Length);

@@ -18,8 +18,8 @@ public class CaptureTests
     [Fact]
     public void Every_option_is_read()
     {
-        var options = CaptureOptions.Parse(["--monitor", "1", "--codec", "HEVC", "--seconds", "3", "--mbps", "40", "--out", "a.bin"], out _);
-        Assert.Equal(new CaptureOptions(1, VideoCodec.Hevc, 3, 40_000_000, "a.bin"), options);
+        var options = CaptureOptions.Parse(["--monitor", "1", "--codec", "HEVC", "--seconds", "3", "--mbps", "40", "--loopback", "--out", "a.bin"], out _);
+        Assert.Equal(new CaptureOptions(1, VideoCodec.Hevc, 3, 40_000_000, "a.bin", Loopback: true), options);
     }
 
     [Theory]
@@ -67,6 +67,23 @@ public class CaptureTests
         Assert.Equal(new byte[] { 0x12, 0x00, 0xAA }, bytes[44..47]);
         Assert.Equal(17L, BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(51)));
         Assert.Equal(32 + 12 + 3 + 12 + 2, bytes.Length);
+    }
+
+    [Fact]
+    public void IVF_timestamps_always_increase()
+    {
+        var stream = new KeptMemoryStream();
+        using (var file = new BitstreamFile(stream, VideoCodec.Av1, 64, 64))
+        {
+            file.Write([1], 42);
+            file.Write([2], 42);
+            file.Write([3], 40);
+            file.Write([4], 50);
+        }
+
+        byte[] bytes = stream.ToArray();
+        long[] times = Enumerable.Range(0, 4).Select(i => BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(32 + i * 13 + 4))).ToArray();
+        Assert.Equal([42L, 43L, 44L, 50L], times);
     }
 
     [Theory]
