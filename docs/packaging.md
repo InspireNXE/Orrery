@@ -261,7 +261,7 @@ unused DLL in Windows packages. Builds without a runtime, like `dotnet run`, kee
 publish's `deps.json`, so it lists exactly what that platform ships, including the .NET runtime pack. License and
 notice files are copied unchanged from each package; a package that only names its license (MIT) gets the
 standard text with its copyright line. `build/licenses/<package id>.txt` adds texts a package lacks or bundles
-separately (IronRDP's MIT license, the Inter font's OFL), with their source named. The script fails if a shipped
+separately (IronRDP's MIT license, Markdig's BSD license, the Inter font's OFL), with their source named. The script fails if a shipped
 package has no license text it can find, so a new dependency can't ship unacknowledged.
 
 ## Package versions and lock files

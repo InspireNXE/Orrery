@@ -598,6 +598,7 @@ Built on open-source work, all under permissive licenses (MIT, Apache 2.0, BSD, 
   [community fork](https://github.com/karbonbaron/MarcusW.VncClient))
 - [NSec](https://nsec.rocks/) and [libsodium](https://libsodium.org/) (vault and export encryption),
   [BouncyCastle](https://www.bouncycastle.org/) (mRemoteNG file encryption)
+- [Markdig](https://github.com/xoofx/markdig) by Alexandre Mutel (release notes)
 - [.NET](https://dotnet.microsoft.com/) by Microsoft and the .NET Foundation, which ships inside every package
 - Portions of this software are copyright © The FreeType Project (https://freetype.org). All rights reserved.
   (FreeType is built into Skia.)

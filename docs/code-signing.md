@@ -46,7 +46,7 @@ since 2024 even EV certificates don't skip it. Keeping one signing identity from
 
 - MIT, an OSI license, with no commercial dual license.
 - Every bundled component is open source: Avalonia, the web view package, SSH.NET, IronRDP, NSec and libsodium,
-  BouncyCastle, Serilog and the .NET runtime are MIT, Apache, BSD or ISC (`THIRD-PARTY-NOTICES.txt`). The web view
+  BouncyCastle, Serilog, Markdig and the .NET runtime are MIT, Apache, BSD or ISC (`THIRD-PARTY-NOTICES.txt`). The web view
   uses the WebView2 runtime that comes with Windows, which counts as a system library; no WebView2 SDK is bundled.
 - No telemetry. Host checks contact the user's own hosts and can be turned off, in Settings or per folder.
 - The installer uninstalls cleanly.
