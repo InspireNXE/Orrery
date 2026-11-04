@@ -342,7 +342,7 @@ public partial class MainWindow : Window
         KeyDown += OnWindowKeyDown;
         Opened += async (_, _) =>
         {
-            // A few seconds from now, so it doesn't wait on the offers below.
+            // Checks straight away, in the background, then on the schedule in Settings.
             _updates?.Start();
 
             // In the background: a full folder can take a moment, and nothing waits on it.

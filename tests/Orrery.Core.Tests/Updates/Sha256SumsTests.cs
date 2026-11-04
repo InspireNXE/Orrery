@@ -32,13 +32,17 @@ public class UpdateScheduleTests
     static readonly DateTimeOffset Now = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Due_at_first_and_then_once_a_day()
+    public void Due_at_first_and_then_every_hour_unless_set_otherwise()
     {
         Assert.True(UpdateSchedule.IsCheckDue(new AppSettings(), Now));
-        Assert.False(UpdateSchedule.IsCheckDue(new AppSettings { LastUpdateCheck = Now.AddHours(-23) }, Now));
-        Assert.True(UpdateSchedule.IsCheckDue(new AppSettings { LastUpdateCheck = Now.AddHours(-24) }, Now));
-        Assert.Equal(TimeSpan.FromHours(1), UpdateSchedule.TimeUntilDue(new AppSettings { LastUpdateCheck = Now.AddHours(-23) }, Now));
+        Assert.False(UpdateSchedule.IsCheckDue(new AppSettings { LastUpdateCheck = Now.AddMinutes(-50) }, Now));
+        Assert.True(UpdateSchedule.IsCheckDue(new AppSettings { LastUpdateCheck = Now.AddMinutes(-60) }, Now));
+        Assert.Equal(TimeSpan.FromMinutes(10), UpdateSchedule.TimeUntilDue(new AppSettings { LastUpdateCheck = Now.AddMinutes(-50) }, Now));
         Assert.Equal(TimeSpan.Zero, UpdateSchedule.TimeUntilDue(new AppSettings(), Now));
+
+        var daily = new AppSettings { LastUpdateCheck = Now.AddHours(-23), UpdateCheckMinutes = 1440 };
+        Assert.False(UpdateSchedule.IsCheckDue(daily, Now));
+        Assert.Equal(TimeSpan.FromHours(1), UpdateSchedule.TimeUntilDue(daily, Now));
     }
 
     [Fact]

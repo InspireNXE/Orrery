@@ -352,8 +352,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 ### Your workspace
 
 - Install it, or run it portable with its data wherever you choose.
-- Updates come from this repository's releases. Orrery checks once a day (Settings › About › Updates, or
-  Ctrl+K *Check for updates*), sending only its version, and shows a bar above the tabs when one is out. Windows
+- Updates come from this repository's releases. Orrery checks as it starts and then every hour while it's open
+  (30 minutes to a day in Settings › About › Updates, or Ctrl+K *Check for updates* any time), sending only its
+  version, and shows a bar above the tabs when one is out. *What's new*, there or in Ctrl+K, shows the release
+  notes of your version and the ones around it. Windows
   copies and the AppImage download it, check it against the release's `SHA256SUMS`, and restart as the new version,
   reopening the sessions that were open; *When I quit* waits instead. The .deb, .rpm and macOS copies point you to
   the release. Later, Skip this version, previews and downloading in the background are in Settings. A preview

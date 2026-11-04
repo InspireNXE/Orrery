@@ -241,6 +241,7 @@ public partial class MainWindow
         if (_updates is not null)
         {
             yield return new PaletteCommand("Check for updates", group, CheckForUpdatesAsync) { Keywords = ["upgrade", "version", "new", "release"] };
+            yield return new PaletteCommand("What's new", group, _updates.ShowWhatsNewAsync) { Keywords = ["changelog", "release notes", "version", "changes"] };
         }
     }
 

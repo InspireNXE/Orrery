@@ -19,6 +19,9 @@ interface IUpdateService : IDisposable
     /// <summary>The newer release to offer, or null when Orrery is up to date. Fails with <see cref="UpdateException"/>.</summary>
     Task<UpdateOffer?> CheckAsync(bool previews, string? skippedVersion, CancellationToken cancellationToken);
 
+    /// <summary>The release list, previews too, for their notes. Fails with <see cref="UpdateException"/>.</summary>
+    Task<IReadOnlyList<Release>> GetReleasesAsync(CancellationToken cancellationToken);
+
     /// <summary>Downloads and checks the offer's file, reporting the bytes received so far.</summary>
     Task<DownloadedUpdate> DownloadAsync(UpdateOffer offer, IProgress<long>? progress, CancellationToken cancellationToken);
 
@@ -40,6 +43,8 @@ sealed class EngineUpdateService(Updater updater) : IUpdateService
 
     public Task<UpdateOffer?> CheckAsync(bool previews, string? skippedVersion, CancellationToken cancellationToken) =>
         updater.CheckAsync(previews, skippedVersion, cancellationToken);
+
+    public Task<IReadOnlyList<Release>> GetReleasesAsync(CancellationToken cancellationToken) => updater.GetReleasesAsync(cancellationToken);
 
     public Task<DownloadedUpdate> DownloadAsync(UpdateOffer offer, IProgress<long>? progress, CancellationToken cancellationToken) =>
         updater.DownloadAsync(offer, progress, cancellationToken);

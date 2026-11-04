@@ -35,13 +35,13 @@ interface IUpdateHost
 }
 
 /// <summary>
-/// Orrery's side of updating: checks from time to time while the main window is open (<see cref="UpdateSchedule"/>),
+/// Orrery's side of updating: checks as the main window opens and then from time to time (<see cref="UpdateSchedule"/>),
 /// keeps the offer for the update bar, and takes an update from its details through the download to the restart. It
 /// owns the engine for the window's life; disposing it cancels whatever is under way.
 /// </summary>
 sealed class UpdateController : IDisposable
 {
-    /// <summary>How long after the window opens the first automatic check waits, so start-up isn't slowed.</summary>
+    /// <summary>How long after the update settings change the timer looks again.</summary>
     public static readonly TimeSpan FirstCheckDelay = TimeSpan.FromSeconds(5);
 
     /// <summary>How long after an automatic check fails it's tried again: it's still due, having not run.</summary>
@@ -61,6 +61,9 @@ sealed class UpdateController : IDisposable
     Task? _quietDownload;
     bool _checking;
     bool _disposed;
+
+    // The check as the window opens runs whenever the last one was; the rest follow the schedule.
+    bool _atLaunch;
     ReleaseVersion? _hiddenVersion;
     DownloadedUpdate? _downloaded;
     DownloadedUpdate? _onQuit;
@@ -104,8 +107,12 @@ sealed class UpdateController : IDisposable
     /// <summary>The offer, its download or the bar changed.</summary>
     public event EventHandler? Changed;
 
-    /// <summary>Starts the automatic checks: the first a few seconds from now, if one is due.</summary>
-    public void Start() => Schedule(FirstCheckDelay);
+    /// <summary>Starts the automatic checks: one straight away, however recent the last was, then on the schedule.</summary>
+    public void Start()
+    {
+        _atLaunch = true;
+        Schedule(TimeSpan.Zero);
+    }
 
     /// <summary>The update settings changed: checks were turned on or off, say. Looks again shortly.</summary>
     public void SettingsChanged() => Schedule(FirstCheckDelay);
@@ -116,7 +123,8 @@ sealed class UpdateController : IDisposable
     void Schedule(TimeSpan atLeast)
     {
         _timer?.Stop();
-        if (_disposed || UpdateSchedule.TimeUntilDue(_settings.Load(), _time.GetUtcNow()) is not { } until)
+        var settings = _settings.Load();
+        if (_disposed || (_atLaunch && settings.ChecksForUpdates ? TimeSpan.Zero : UpdateSchedule.TimeUntilDue(settings, _time.GetUtcNow())) is not { } until)
         {
             return;
         }
@@ -154,12 +162,13 @@ sealed class UpdateController : IDisposable
         }
 
         var settings = _settings.Load();
-        if (!UpdateSchedule.IsCheckDue(settings, _time.GetUtcNow()))
+        if (!(_atLaunch && settings.ChecksForUpdates) && !UpdateSchedule.IsCheckDue(settings, _time.GetUtcNow()))
         {
             Schedule(TimeSpan.Zero);
             return;
         }
 
+        _atLaunch = false;
         _checking = true;
         try
         {
@@ -183,6 +192,11 @@ sealed class UpdateController : IDisposable
         catch (UpdateException e)
         {
             UpdateLog.LogWarning("Couldn't check for updates: {Message}", e.Message);
+
+            // Still due, having not run, so it would go again at once: tried again a while later instead.
+            _checking = false;
+            Schedule(settings.UpdateCheckInterval < RetryDelay ? settings.UpdateCheckInterval : RetryDelay);
+            return;
         }
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
         {
@@ -193,7 +207,7 @@ sealed class UpdateController : IDisposable
             _checking = false;
         }
 
-        Schedule(RetryDelay);
+        Schedule(TimeSpan.Zero);
     }
 
     /// <summary>
@@ -260,6 +274,15 @@ sealed class UpdateController : IDisposable
             case UpdateChoice.Skip:
                 Skip();
                 break;
+        }
+    }
+
+    /// <summary>The release notes of this version and the others in the release list (<see cref="WhatsNewWindow"/>).</summary>
+    public async Task ShowWhatsNewAsync()
+    {
+        if (Host is { } host)
+        {
+            await new WhatsNewWindow(_service.GetReleasesAsync, CurrentVersion, UsesOtherFeed).ShowDialog(host.Owner);
         }
     }
 
