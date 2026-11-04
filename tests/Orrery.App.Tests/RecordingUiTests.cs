@@ -626,6 +626,19 @@ public sealed class RecordingUiTests : IDisposable
         Assert.Empty(Mp4Route.All([], null));
     }
 
+    [Fact]
+    public void Settings_says_which_codecs_come_from_windows_and_which_from_ffmpeg()
+    {
+        var system = new[] { new SystemCodec("H.264", Guid.NewGuid(), false), new SystemCodec("AV1", Guid.NewGuid(), true) };
+        var ffmpeg = new FfmpegInfo(@"C:\ffmpeg.exe", "ffmpeg version 7.1", [new FfmpegCodec("H.264", "libx264"), new FfmpegCodec("H.265", "libx265")]);
+
+        Assert.Equal(@"Using ffmpeg version 7.1 at C:\ffmpeg.exe. MP4 export offers H.264 and AV1 (graphics card) from Windows; H.265 from ffmpeg.",
+            FfmpegHelp.Status(system, ffmpeg.Path, ffmpeg));
+        Assert.Equal("Using ffmpeg version 7.1 at C:\\ffmpeg.exe. MP4 export offers H.264 and H.265 from ffmpeg.", FfmpegHelp.Status([], ffmpeg.Path, ffmpeg));
+        Assert.StartsWith(@"C:\gone.exe didn't run as ffmpeg", FfmpegHelp.Status([], @"C:\gone.exe", null));
+        Assert.EndsWith("this ffmpeg has no H.264, H.265 or AV1 encoder.", FfmpegHelp.Status([], ffmpeg.Path, ffmpeg with { Codecs = [] }));
+    }
+
     [AvaloniaFact]
     public void Export_links_to_ffmpeg_only_when_it_can_offer_no_mp4()
     {

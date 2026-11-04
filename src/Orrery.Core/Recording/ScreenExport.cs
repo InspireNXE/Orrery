@@ -217,10 +217,62 @@ public sealed record FfmpegInfo(string Path, string Version, IReadOnlyList<Ffmpe
 
 /// <summary>
 /// MP4 export through an ffmpeg the user installed and chose (design §3.4). It's started by its full path with its
-/// arguments as a list, never through a shell, and never found on PATH, downloaded or bundled.
+/// arguments as a list, never through a shell, and never found on PATH, downloaded or bundled. <see cref="Find"/>
+/// looks where installers put it, for Settings to suggest; nothing found is run until the user takes it.
 /// </summary>
 public static class Ffmpeg
 {
+    /// <summary>The first ffmpeg in a place installers put it on this system, or null. Only looks: runs nothing.</summary>
+    public static string? Find()
+    {
+        IEnumerable<string> places = OperatingSystem.IsWindows()
+            ? WindowsPlaces(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+            : UnixPlaces(OperatingSystem.IsMacOS());
+        return places.FirstOrDefault(File.Exists);
+    }
+
+    /// <summary>
+    /// Where Windows installers put ffmpeg.exe, in order: winget's packages, newest first, then its links (for this
+    /// user, then everyone), Scoop, Chocolatey and Program Files. Folders any user can make, like C:\ffmpeg, aren't
+    /// looked in, so another account can't plant one there.
+    /// </summary>
+    public static IEnumerable<string> WindowsPlaces(string localAppData, string programFiles, string programData, string home)
+    {
+        foreach (var packages in new[] { System.IO.Path.Combine(localAppData, "Microsoft", "WinGet", "Packages"), System.IO.Path.Combine(programFiles, "WinGet", "Packages") })
+        {
+            foreach (var build in Subfolders(packages, "*FFmpeg*").SelectMany(p => Subfolders(p, "ffmpeg-*")).OrderDescending(StringComparer.OrdinalIgnoreCase))
+            {
+                yield return System.IO.Path.Combine(build, "bin", "ffmpeg.exe");
+            }
+        }
+
+        yield return System.IO.Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "ffmpeg.exe");
+        yield return System.IO.Path.Combine(programFiles, "WinGet", "Links", "ffmpeg.exe");
+        yield return System.IO.Path.Combine(home, "scoop", "apps", "ffmpeg", "current", "bin", "ffmpeg.exe");
+        yield return System.IO.Path.Combine(programData, "chocolatey", "bin", "ffmpeg.exe");
+        yield return System.IO.Path.Combine(programFiles, "ffmpeg", "bin", "ffmpeg.exe");
+    }
+
+    /// <summary>Where package managers put ffmpeg on macOS (Homebrew, then MacPorts) and Linux (the distribution's, then Homebrew).</summary>
+    public static IEnumerable<string> UnixPlaces(bool macOS) => macOS
+        ? ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg"]
+        : ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/home/linuxbrew/.linuxbrew/bin/ffmpeg"];
+
+    static IEnumerable<string> Subfolders(string folder, string pattern)
+    {
+        try
+        {
+            return Directory.Exists(folder) ? Directory.GetDirectories(folder, pattern) : [];
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     // In order of preference, per codec: software encoders first, which every build of ffmpeg agrees on.
     static readonly (string Name, string[] Encoders)[] Known =
     [

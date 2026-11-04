@@ -452,6 +452,38 @@ static class FfmpegHelp
                 : "To install it, use your distribution's ffmpeg package (on Fedora, RPM Fusion's: the default ffmpeg-free can't make "
                     + "H.264 or H.265); which ffmpeg then shows the program to choose.";
 
+    /// <summary>
+    /// What MP4 export uses now, for Settings: the chosen ffmpeg's version line (or that it no longer runs), and each
+    /// codec with whether Windows or ffmpeg makes it.
+    /// </summary>
+    public static string Status(IReadOnlyList<SystemCodec> system, string? chosen, FfmpegInfo? ffmpeg)
+    {
+        var lead = (chosen, ffmpeg) switch
+        {
+            (null, _) => OperatingSystem.IsWindows() ? "No ffmpeg chosen." : "No ffmpeg chosen, so screen recordings export as AVI only.",
+            (_, null) => $"{chosen} didn't run as ffmpeg (moved or uninstalled?), so export doesn't use it.",
+            _ => $"Using {ffmpeg.Version} at {ffmpeg.Path}.",
+        };
+        var routes = Mp4Route.All(system, ffmpeg);
+        if (routes.Count == 0)
+        {
+            return ffmpeg is not null ? $"{lead} MP4 export offers nothing: this ffmpeg has no H.264, H.265 or AV1 encoder."
+                : OperatingSystem.IsWindows() ? $"{lead} MP4 export offers nothing: this Windows has no video encoders of its own."
+                : lead;
+        }
+
+        var fromWindows = routes.Where(r => r.System is not null).Select(r => r.Name + (r.System!.HardwareOnly ? " (graphics card)" : "")).ToList();
+        var fromFfmpeg = routes.Where(r => r.Ffmpeg is not null).Select(r => r.Name).ToList();
+        string[] parts =
+        [
+            .. fromWindows.Count > 0 ? [$"{And(fromWindows)} from Windows"] : Array.Empty<string>(),
+            .. fromFfmpeg.Count > 0 ? [$"{And(fromFfmpeg)} from ffmpeg"] : Array.Empty<string>(),
+        ];
+        return $"{lead} MP4 export offers {string.Join("; ", parts)}.";
+
+        static string And(List<string> names) => names.Count == 1 ? names[0] : $"{string.Join(", ", names[..^1])} and {names[^1]}";
+    }
+
     /// <summary>A button that opens <see cref="DownloadPage"/> in the browser.</summary>
     public static Button DownloadButton()
     {
