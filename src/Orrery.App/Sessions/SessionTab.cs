@@ -50,7 +50,11 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
 sealed class SessionTab
 {
 
-    readonly StateGlyph _state = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly StateGlyph _state = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+
+    /// <summary>The name and its protocol tag, hidden when the tab is squeezed down to its state.</summary>
+    readonly DockPanel _name = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly Button _close;
     // The current tab's marker, along its top over the outline; App.axaml shows it on the selected tab.
     readonly Border _marker = new() { Classes = { "marker", "top" } };
 
@@ -71,9 +75,9 @@ sealed class SessionTab
         };
 
         // The tag is smaller and in another font, so centering it leaves it off the name's line; sit it on the same baseline.
-        title.Loaded += (_, _) => protocol.Margin = new Thickness(0, Math.Max(0, title.TextLayout.Baseline - protocol.TextLayout.Baseline), 0, 0);
+        title.Loaded += (_, _) => protocol.Margin = new Thickness(8, Math.Max(0, title.TextLayout.Baseline - protocol.TextLayout.Baseline), 0, 0);
 
-        var close = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center };
+        var close = new Button { Content = StrokeIcon.Create(Icons.Close, 12), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         close.Classes.Add("icon");
         close.Classes.Add("tabclose");
         ToolTip.SetTip(close, origin.Local ? "End the shell and close" : "Disconnect and close");
@@ -93,18 +97,26 @@ sealed class SessionTab
                 Children =
                 {
                     _marker,
-                    new StackPanel
+                    // A dock rather than a row, so a tab squeezed by TabStripPanel cuts its name short instead of its close button.
+                    new DockPanel
                     {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = 8,
                         Margin = new Thickness(12, 0, 6, 0),
                         VerticalAlignment = VerticalAlignment.Center,
-                        Children = { _state, _recordingDot, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Children = { title, protocol } }, _soundButton, close },
+                        Children =
+                        {
+                            Pane.Docked(_state, Dock.Left), Pane.Docked(_recordingDot, Dock.Left),
+                            Pane.Docked(close, Dock.Right), Pane.Docked(_soundButton, Dock.Right),
+                            _name,
+                        },
                     },
                 },
             },
         };
         Header.Classes.Add("tab");
+        _name.Children.Add(Pane.Docked(protocol, Dock.Right));
+        _name.Children.Add(title);
+        _close = close;
+        Header.CompactChanged += (_, _) => ShowCompact();
         _label = $"{origin.Title}, {(origin.Local ? "local terminal" : protocol.Text)}";
         Header.Label = _label;
         ToolTip.SetTip(_recordingDot, "Recording");
@@ -180,7 +192,7 @@ sealed class SessionTab
     static readonly TimeSpan PlayingFor = TimeSpan.FromSeconds(2);
 
     readonly StrokeIcon _soundIcon = StrokeIcon.Create(Icons.Volume, 13);
-    readonly Button _soundButton = new() { VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+    readonly Button _soundButton = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), IsVisible = false };
     readonly DispatcherTimer _soundCheck = new() { Interval = TimeSpan.FromMilliseconds(500) };
 
     IAudioTap? SoundTap => Session is IAudioSession { AudioTap: { } tap } ? tap : null;
@@ -250,6 +262,7 @@ sealed class SessionTab
         Height = 8,
         Fill = RecordingBrush,
         VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, 8, 0),
         IsVisible = false,
     };
 
@@ -823,7 +836,15 @@ sealed class SessionTab
             Header.Classes.Set("selected", value);
             Header.IsCurrent = value;
             Host.IsVisible = value;
+            ShowCompact();
         }
+    }
+
+    // Squeezed, a tab shows its state alone, as a browser shows a page's icon; the current one keeps its close button.
+    void ShowCompact()
+    {
+        _name.IsVisible = !Header.Compact;
+        _close.IsVisible = !Header.Compact || Header.IsCurrent;
     }
 
     /// <summary>The state in words, as the tooltip and screen readers give it.</summary>

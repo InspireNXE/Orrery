@@ -31,6 +31,30 @@ sealed class SessionTabHeader : Button
         set => Change(ref _status, value, AutomationElementIdentifiers.ItemStatusProperty);
     }
 
+    bool _compact;
+
+    /// <summary>
+    /// Squeezed to its state by <see cref="TabStripPanel"/>, as a browser narrows tabs when there are many: the name is
+    /// hidden, and the close button too unless it's the current tab.
+    /// </summary>
+    public bool Compact
+    {
+        get => _compact;
+        set
+        {
+            if (_compact != value)
+            {
+                _compact = value;
+                CompactChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public event EventHandler? CompactChanged;
+
+    /// <summary>Its width with the name showing, kept while it's compact so the strip knows when it fits again.</summary>
+    internal double FullWidth { get; set; }
+
     public bool IsCurrent
     {
         get => _isCurrent;

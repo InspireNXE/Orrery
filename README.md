@@ -189,6 +189,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   click away, with a Copy button.
 - **Reconnects** happen on their own, waiting longer each time (up to a minute), and at once when the network
   returns. A refused login or an untrusted host key or certificate is never retried.
+- **Many tabs** narrow to fit the tab strip, as in a browser, then show only their state (the current one keeps its
+  close button), and past that the strip scrolls with the mouse wheel. The ⌄ button lists every tab.
 - **Pop out** a tab into a window of its own, from its menu, the session toolbar, Ctrl+Shift+O, or by dragging it
   off the tab strip. The window has the session's toolbar and its own full screen. *Back to tabs*, the shortcut
   again, or closing the window puts it back where it was in the strip; dragging the name in its bar onto the tab
