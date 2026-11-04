@@ -98,7 +98,7 @@ public class FileBrowserViewTests
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task A_right_click_after_a_left_one_opens_the_menu_even_when_the_release_was_taken(bool taken)
+    public async Task A_right_click_opens_the_menu_even_when_it_overlaps_a_left_one(bool overlapping)
     {
         var path = Path.Combine(Path.GetTempPath(), $"orrery-known-hosts-{Guid.NewGuid():N}.json");
         var validator = new HostKeyValidator(new JsonCertificateTrustStore(path), _ => Task.FromResult(CertificateTrustDecision.Reject));
@@ -117,20 +117,29 @@ public class FileBrowserViewTests
             Dispatcher.UIThread.RunJobs();
             var list = view.ShowForTests([Item("a.txt"), Item("logs", folder: true)]);
             Dispatcher.UIThread.RunJobs();
-            if (taken)
-            {
-                // Stands in for whatever takes the release in the real app, so the list doesn't open the menu itself.
-                window.AddHandler(InputElement.PointerReleasedEvent, (_, e) => e.Handled = e.InitialPressMouseButton == MouseButton.Right,
-                    Avalonia.Interactivity.RoutingStrategies.Tunnel);
-            }
-
             list.SelectedItems!.Add(list.Items[0]);
             var row = list.GetVisualDescendants().OfType<ListBoxItem>().Last();
             var at = row.TranslatePoint(new Avalonia.Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value;
-            window.MouseDown(at, MouseButton.Left);
-            window.MouseUp(at, MouseButton.Left);
-            window.MouseDown(at, MouseButton.Right);
-            window.MouseUp(at, MouseButton.Right);
+            if (overlapping)
+            {
+                // A quick left-then-right click as Avalonia reports it on Windows: the right button goes down before
+                // the left is up, so it joins the left press as a move, and the release is the left one. Headless
+                // input doesn't do that, so the events are raised as the real app gets them.
+                var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+                var target = row.GetVisualDescendants().OfType<Control>().First(c => c.IsHitTestVisible);
+                var both = new PointerPointProperties(RawInputModifiers.LeftMouseButton | RawInputModifiers.RightMouseButton, PointerUpdateKind.RightButtonPressed);
+                window.MouseDown(at, MouseButton.Left);
+                target.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, target, pointer, window, at, 0, both, KeyModifiers.None));
+                window.MouseUp(at, MouseButton.Left);
+            }
+            else
+            {
+                window.MouseDown(at, MouseButton.Left);
+                window.MouseUp(at, MouseButton.Left);
+                window.MouseDown(at, MouseButton.Right);
+                window.MouseUp(at, MouseButton.Right);
+            }
+
             Dispatcher.UIThread.RunJobs();
 
             Assert.True(list.ContextMenu!.IsOpen);
