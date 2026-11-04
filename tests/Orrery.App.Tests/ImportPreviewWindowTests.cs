@@ -1,5 +1,7 @@
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Import;
@@ -48,6 +50,33 @@ public class ImportPreviewWindowTests
         window.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "Import")
             .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Assert.False((await choice)!.KeepCommands);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Arrow_keys_move_between_where_to_put_them()
+    {
+        var report = new ImportReport("export.json", 0, 1, 0, 0, new Dictionary<string, int> { ["SSH"] = 1 }, [], [], []);
+        var owner = new Window();
+        owner.Show();
+        var window = new ImportPreviewWindow(new ImportResult(new ConnectionFolder { Name = "Imported" }, [], report), 0, "your vault");
+        var choice = window.ShowDialog<ImportChoice?>(owner);
+        Dispatcher.UIThread.RunJobs();
+
+        var radios = window.GetVisualDescendants().OfType<RadioButton>().ToList();
+        Assert.Equal(["In a new folder", "At the top level"], radios.Select(r => Avalonia.Automation.AutomationProperties.GetName(r)));
+        radios[0].Focus();
+        window.KeyPress(Key.Down, RawInputModifiers.None, PhysicalKey.ArrowDown, null);
+        Assert.True(radios[1].IsChecked);
+        Assert.True(radios[1].IsFocused);
+        window.KeyPress(Key.Down, RawInputModifiers.None, PhysicalKey.ArrowDown, null);
+        Assert.True(radios[0].IsChecked);
+        window.KeyPress(Key.Up, RawInputModifiers.None, PhysicalKey.ArrowUp, null);
+        Assert.True(radios[1].IsChecked);
+
+        window.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == "Import")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.False((await choice)!.IntoNewFolder);
         owner.Close();
     }
 }
