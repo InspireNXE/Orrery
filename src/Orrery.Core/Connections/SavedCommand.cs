@@ -98,6 +98,26 @@ public static partial class SavedCommands
     };
 
     /// <summary>
+    /// Whether a command saved on <paramref name="owner"/> reaches a Telnet or serial connection, where a password it
+    /// types crosses the line unencrypted.
+    /// </summary>
+    public static bool ReachesUnencrypted(ConnectionNode owner) =>
+        (owner is ConnectionFolder folder ? folder.Descendants().OfType<ConnectionEntry>() : [(ConnectionEntry)owner])
+            .Any(e => SettingsResolver.Resolve(e).Protocol.Value is Protocol.Telnet or Protocol.Serial);
+
+    /// <summary>
+    /// Why the login password shouldn't be typed at this prompt, or null when it may: the login credential is for
+    /// another user than the session logged in as, or the prompt asks for another user's password. Either way it
+    /// would be the wrong password, given to a prompt that didn't ask for it.
+    /// </summary>
+    public static string? WhyNotLogin(string? credentialUser, string? sessionUser, string? promptUser) =>
+        credentialUser is { Length: > 0 } c && sessionUser is { Length: > 0 } s && !string.Equals(c, s, StringComparison.Ordinal)
+            ? $"its login credential is for {c}, but the session logged in as {s}"
+        : promptUser is { Length: > 0 } p && (sessionUser ?? credentialUser) is { Length: > 0 } u && !string.Equals(p, u, StringComparison.Ordinal)
+            ? $"the prompt asks for {p}'s password, not {u}'s"
+        : null;
+
+    /// <summary>
     /// What <paramref name="entry"/> can send: its own commands, then each folder's up to the top, nearest first. A
     /// name already taken nearer hides the one further out. A guest takes its folders', not its host's: the host is
     /// another machine. Each asks first when it says to, or when Confirm every command is on for the connection.

@@ -73,6 +73,31 @@ Rules for answering:
     that it goes to every connection in it that asks, since a server that's been broken into could ask just to
     collect it. Each connection's own login password is its own, so that's allowed anywhere without a warning.
 11. A command that asks first says which password it would type, naming the credential when the vault is unlocked.
+12. The login password goes only to that login: not when the login credential is for another user than the session
+    logged in as, nor at a prompt that names another user (`[sudo] password for root:`, `deploy@db's password:`).
+13. A real password prompt hides what's typed. If the password is on screen afterwards and wasn't before, the prompt
+    was something else (a program printing "Password:" and reading the line): the tab says so, that it's in the
+    scrollback and any recording, and to change it, and nothing more is sent.
+14. On connect, a command that types a password is sent only at a shell prompt. Others are still typed after 15
+    seconds without one, but one typed at a prompt Orrery doesn't know (Telnet's `login:`) could hand its password
+    to whatever reads it.
+15. A vault unlock that a password prompt brings up says which connection and command it's for, and that cancelling
+    leaves the prompt to the user.
+
+Each outcome that leaves something undone or at risk (no prompt, a refused password, the wrong user, a password on
+screen, the vault left locked, a command not sent) is said in a bar above the session that stays until dismissed,
+pushing the session down rather than covering it, and read out. The status line's notices go after a few seconds and
+show in the main window even for another tab, which is too easy to miss for these.
+
+What the editor says, whenever a command will type a password (as warnings with an icon, read out as warnings):
+
+- Always: it's typed once, only at a password prompt within 10 seconds, never at a shell prompt, and any program on
+  the server can show such a prompt, so use it only on servers you trust.
+- On a folder, with a chosen credential: every connection in it gets this password when it asks, and one server
+  there that's been broken into could ask just to collect it. On the defaults that choice is refused, as an error.
+  With the login password, a plain note that each connection types its own.
+- Reaching a Telnet or serial connection: the password crosses the line as plain text, as the login does.
+- Always, as a plain note: the safer ways (a NOPASSWD sudoers rule, or a key for root).
 
 **Become root** in the editor fills in `sudo -i` (as `sudo su`, one process fewer), answered with the login password.
 `su -` is the same with root's credential chosen. The connection pane marks such a command *types a password*.

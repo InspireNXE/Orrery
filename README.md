@@ -214,13 +214,24 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   once the shell's prompt shows. Local shells and quick connects never send anything by themselves.
 - **Becoming root:** a command can answer a password prompt (*If it asks for a password*) with the connection's
   login password or a saved credential's, such as root's for `su -`. *Become root* in the editor fills in `sudo -i`
-  answered with the login password. The password is typed once, only if a password prompt shows within a few seconds,
-  never at a shell prompt and never again if it's refused; it isn't in the command, the scrollback or the logs, which
-  name the credential. Only saved connections get one, never a local shell or a quick connect, and a chosen
-  credential's password is never typed from the defaults for all connections; on a folder, the editor warns that it
-  goes to every connection in it that asks. A command that asks first says which password it would type. Where you can, a NOPASSWD sudoers rule or a key for root is safer: it keeps no sudo password
-  in Orrery. Imported commands are listed in the import preview, unticked, and none of them sends itself or types a
-  password until you set that.
+  answered with the login password. Any program on a server can show a password prompt, so use it only on servers you
+  trust; the editor says so, and which connections the password reaches.
+  - The password is typed once, only if a password prompt shows within 10 seconds of the command, never at a shell
+    prompt and never again if it's refused. It isn't in the command or the logs, which name the credential.
+  - Only saved connections get one, never a local shell or a quick connect. The login password goes only to that
+    login: not when the session logged in as someone else, nor at a prompt for another user's password.
+  - A chosen credential's password is never typed from the defaults for all connections. On a folder, the editor
+    warns that every connection in it gets the password when it asks. Over Telnet and serial it says the password
+    crosses the line unencrypted.
+  - Whatever it didn't do, or did wrong, is said in a bar above the session that stays until you dismiss it. If the
+    password shows on screen after it's typed, the prompt wasn't a real one: the bar says so in red, and that the
+    password is in the scrollback (and the recording, if there is one), so you can change it.
+  - On connect, a command that types a password waits for the shell's prompt and isn't sent without one.
+  - A command that asks first says which password it would type, and a vault unlock it brings up says why.
+  - Safer where you can: a NOPASSWD sudoers rule or a key for root keeps no sudo password in Orrery.
+
+  Imported commands are listed in the import preview, unticked, and none of them sends itself or types a password
+  until you set that.
 
 <p align="center">
   <img src="docs/images/side-by-side.png" width="720"

@@ -491,7 +491,10 @@ public class WorkspaceWindowTests : IDisposable
     /// Opens <see cref="_saved"/> in a tab with <paramref name="commands"/> sent when connected, its login a vault
     /// credential whose password is "hunter2", and connects it at a shell prompt.
     /// </summary>
-    async Task<ConnectingTerminal> ConnectAsync(MainWindow window, Func<string, string?> reply, params SavedCommand[] commands)
+    Task<ConnectingTerminal> ConnectAsync(MainWindow window, Func<string, string?> reply, params SavedCommand[] commands) =>
+        ConnectAsync(window, reply, "someone@saved:~$ ", commands);
+
+    async Task<ConnectingTerminal> ConnectAsync(MainWindow window, Func<string, string?> reply, string firstScreen, params SavedCommand[] commands)
     {
         var vault = Assert.IsType<VaultFileStore>(VaultAutoLockTests.Private<ICredentialStore>(window, "_credentials"));
         await vault.UnlockAsync("correct horse battery staple");
@@ -506,8 +509,91 @@ public class WorkspaceWindowTests : IDisposable
         var origin = new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask);
         typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [new Sessions.TerminalView(session), session, origin]);
         session.Connect();
-        session.Output("someone@saved:~$ ");
+        session.Output(firstScreen);
         return session;
+    }
+
+    /// <summary>Runs the UI for a while, for checking nothing more is typed.</summary>
+    static async Task IdleAsync(int milliseconds = 1500)
+    {
+        for (int i = 0; i < milliseconds / 25; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(25);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task The_login_password_isnt_typed_at_a_prompt_for_someone_elses()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var session = await ConnectAsync(window, typed => typed == "sudo -i\r" ? "\r\n[sudo] password for root: " : null, BecomeRoot, IntoRoot);
+
+            await Until(() => session.Sent.Length > 0);
+            await IdleAsync();
+            Assert.Equal("sudo -i\r", session.Sent.ToString());
+            Assert.Contains("the prompt asks for root's password, not someone's", VaultAutoLockTests.Private<SessionTab>(window, "_currentTab").Warning.Text);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_password_that_shows_on_screen_is_reported_and_stops_the_rest()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            // A program that prints "Password:" and echoes the line: not a real password prompt.
+            var session = await ConnectAsync(window, typed => typed switch
+            {
+                "sudo -i\r" => "\r\nPassword: ",
+                "hunter2\r" => "hunter2\r\nsomeone@saved:~$ ",
+                _ => null,
+            }, BecomeRoot, IntoRoot);
+
+            await Until(() => session.Sent.ToString().Contains("hunter2"));
+            await IdleAsync();
+            Assert.Equal("sudo -i\rhunter2\r", session.Sent.ToString());
+
+            // Said over the session until dismissed, as an error, not only in the status line for a few seconds.
+            var warning = VaultAutoLockTests.Private<SessionTab>(window, "_currentTab").Warning;
+            Assert.StartsWith("Security: the password from \"someone's login\" showed on screen", warning.Text);
+            Assert.Equal(Orrery.App.Controls.NoticeKind.Error, warning.Kind);
+            await IdleAsync(500);
+            Assert.NotNull(warning.Text);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_command_that_types_a_password_waits_for_a_shell_prompt_on_connect()
+    {
+        var wait = MainWindow.ShellWait;
+        MainWindow.ShellWait = TimeSpan.FromSeconds(1);
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var session = await ConnectAsync(window, _ => null, "\r\nlogin: ", BecomeRoot);
+
+            await IdleAsync(2500);
+            Assert.Equal(string.Empty, session.Sent.ToString());
+        }
+        finally
+        {
+            MainWindow.ShellWait = wait;
+            window.Close();
+        }
     }
 
     static SavedCommand BecomeRoot => new() { Name = "Become root", Text = "sudo -i", WhenConnected = true, Password = CommandPassword.Login };

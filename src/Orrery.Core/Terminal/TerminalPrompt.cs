@@ -41,6 +41,25 @@ public static partial class TerminalPrompt
         return text[^1] is '$' or '#' or '%' or '>' or '❯' ? TerminalPromptKind.Shell : TerminalPromptKind.None;
     }
 
+    /// <summary>
+    /// The user a password prompt names, as sudo's does (<c>[sudo] password for riley:</c>) and ssh's
+    /// (<c>riley@web-01's password:</c>), or null when it names none (<c>Password:</c>, su's).
+    /// </summary>
+    public static string? PromptUser(string? line)
+    {
+        var text = line?.TrimEnd() ?? string.Empty;
+        if (Classify(text) != TerminalPromptKind.Password)
+        {
+            return null;
+        }
+
+        var match = NamedUser().Match(text);
+        return match.Success ? match.Groups["user"].Value : null;
+    }
+
+    [GeneratedRegex(@"\bpassword for (?<user>[^\s:]+)\s*:$|^(?<user>[^\s@]+)@[^\s']+'s password:$", RegexOptions.IgnoreCase)]
+    private static partial Regex NamedUser();
+
     // "password" (or "passphrase") then anything but another colon, ending in a colon: sudo's, su's and ssh's own.
     // Not "New password:" or "Retype password:", which passwd asks, and an answer there would change it.
     [GeneratedRegex(@"^(?!.*\b(new|retype|re-enter|repeat)\b).*\b(password|passphrase)\b[^:]*:$", RegexOptions.IgnoreCase)]

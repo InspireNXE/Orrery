@@ -8,6 +8,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
+using Orrery.App.Controls;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
@@ -221,7 +222,7 @@ public class SavedCommandUiTests
             password: "If it asks for a password, Orrery types web-01's login password.");
         prompt.Show();
 
-        Assert.Contains(prompt.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text == "If it asks for a password, Orrery types web-01's login password.");
+        Assert.Contains(prompt.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "If it asks for a password, Orrery types web-01's login password.");
         Assert.EndsWith("web-01's login password.", AutomationProperties.GetHelpText(prompt));
         prompt.Close();
     }
@@ -244,28 +245,49 @@ public class SavedCommandUiTests
         window.PasswordChoice = CommandPassword.Credential;
         Dispatcher.UIThread.RunJobs();
 
-        string? Warning() => window.GetVisualDescendants().OfType<TextBlock>()
-            .FirstOrDefault(t => t.IsVisible && (t.Text?.Contains("broken into") == true || t.Text?.Contains("defaults for all connections, which") == true))?.Text;
+        string? Warning() => window.GetVisualDescendants().OfType<Notice>()
+            .FirstOrDefault(n => n.IsEffectivelyVisible && (n.Text?.Contains("broken into") == true || n.Text == SavedCommandWindow.NotFromDefaults))?.Text;
+        bool Shows(string text) => window.GetVisualDescendants().OfType<Notice>().Any(n => n.IsEffectivelyVisible && n.Text == text);
 
+        // The risk is always said, and the safer way; on the connection alone, nothing about reach.
+        Assert.True(Shows(SavedCommandWindow.PasswordRisk));
+        Assert.True(Shows(SavedCommandWindow.Safer));
         Assert.Null(Warning());
         window.PlaceBox.SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
-        Assert.Contains("every connection in Production", Warning());
+        Assert.Contains("every connection in it gets this password", Warning());
 
         window.PlaceBox.SelectedIndex = 2;
         Dispatcher.UIThread.RunJobs();
-        Assert.Contains("isn't typed from the defaults", Warning());
+        Assert.Equal(SavedCommandWindow.NotFromDefaults, Warning());
         window.Save();
         Assert.True(window.IsVisible);
-        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("Save it on a folder or a connection") == true);
 
         // The login password is each connection's own, so it can go on the defaults.
         window.PasswordChoice = CommandPassword.Login;
         Dispatcher.UIThread.RunJobs();
         Assert.Null(Warning());
+        Assert.True(Shows(SavedCommandWindow.PasswordRisk));
         window.Save();
         Assert.Equal(CommandPassword.Login, (await result)?.Password);
         owner.Close();
+    }
+
+    [AvaloniaFact]
+    public void Typing_a_password_over_telnet_or_serial_says_its_unencrypted()
+    {
+        var tree = ConnectionTree.Empty();
+        var console = new ConnectionEntry { Name = "switch", Host = "COM3", Settings = { Protocol = Protocol.Serial } };
+        tree.Add(console, tree.Root);
+        var window = new SavedCommandWindow(null, "switch", new NoCredentials(), console);
+        window.Show();
+        bool Plain() => window.GetVisualDescendants().OfType<Notice>().Any(n => n.IsEffectivelyVisible && n.Text == SavedCommandWindow.PlainText);
+
+        Assert.False(Plain());
+        window.PasswordChoice = CommandPassword.Login;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(Plain());
+        window.Close();
     }
 
     [AvaloniaFact]

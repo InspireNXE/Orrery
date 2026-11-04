@@ -261,6 +261,30 @@ public class SavedCommandTests
     }
 
     [Fact]
+    public void The_login_password_goes_only_to_that_login_and_a_prompt_asking_for_it()
+    {
+        Assert.Null(SavedCommands.WhyNotLogin("riley", "riley", "riley"));
+        Assert.Null(SavedCommands.WhyNotLogin("riley", "riley", null));
+        Assert.Null(SavedCommands.WhyNotLogin(null, "riley", "riley"));
+        Assert.Contains("logged in as deploy", SavedCommands.WhyNotLogin("riley", "deploy", null));
+        Assert.Contains("root's password", SavedCommands.WhyNotLogin("riley", "riley", "root"));
+        Assert.Contains("root's password", SavedCommands.WhyNotLogin("riley", null, "root"));
+    }
+
+    [Fact]
+    public void A_folder_with_a_telnet_or_serial_connection_reaches_an_unencrypted_line()
+    {
+        var (tree, prod, web) = Sample();
+        Assert.False(SavedCommands.ReachesUnencrypted(prod));
+
+        var console = new ConnectionEntry { Name = "switch", Host = "COM3", Settings = { Protocol = Protocol.Serial } };
+        tree.Add(console, prod);
+        Assert.True(SavedCommands.ReachesUnencrypted(prod));
+        Assert.True(SavedCommands.ReachesUnencrypted(console));
+        Assert.False(SavedCommands.ReachesUnencrypted(web));
+    }
+
+    [Fact]
     public void Only_a_command_that_presses_enter_answers_a_password_prompt()
     {
         Assert.True(new SavedCommand { Name = "Root", Text = "sudo -i", Password = CommandPassword.Login }.AnswersPassword);
