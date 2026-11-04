@@ -14,7 +14,8 @@ belong to an SSH connection's settings.
 ### Orrery Stream Protocol and Orrery Host
 
 Low-latency desktop and game streaming in the spirit of Parsec, direct connect only: OSP as a protocol in the tree,
-with GPU-encoded H.264, HEVC and AV1 over QUIC, controller passthrough and relative mouse, and Orrery Host as a
+with GPU-encoded H.264, HEVC and AV1 over QUIC, controller passthrough and relative mouse, the same clipboard as
+RDP (text, images and files, both ways), and Orrery Host as a
 separate companion package on the machine being reached. Drafted, not started: see
 [design-stream.md](design-stream.md).
 

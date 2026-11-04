@@ -82,7 +82,7 @@ One QUIC connection per session, on one UDP port (default to be picked; configur
 | Video, audio | Unreliable datagrams (RFC 9221) with our own FEC | No head-of-line blocking; a late frame is a useless frame |
 | Control: codec and mode changes, keyframe and reference-invalidation requests, stats | A reliable bidirectional stream | Must arrive, low volume |
 | Input: keys, buttons, controller state | A reliable stream to start with; datagrams with redundancy if measurements show the stream adds latency | Lost key-ups cause stuck keys |
-| Clipboard, later file transfer | Their own streams | Large items mustn't hold up input |
+| Clipboard: offers on one stream, each copied file on its own (§10) | Reliable streams | Large items mustn't hold up input |
 
 **What QUIC gives us**: TLS 1.3 built in (pairing becomes pinning the host's certificate, §6), one firewall port,
 multiplexing, and connection migration so a laptop moving from Wi-Fi to Ethernet keeps its session.
@@ -217,7 +217,8 @@ client offers only combinations within it.
 - **Storage.** The client keeps the host's certificate fingerprint and its own client key in Orrery's secret store, like
   passwords. The host keeps a list of paired clients, each one revocable in its UI.
 - **Every connection** is mutual TLS 1.3 with pinned certificates; an unpaired client gets nothing past the handshake.
-- **Host policy** per paired client: view only, keyboard and mouse, controllers, clipboard, which monitors.
+- **Host policy** per paired client: view only, keyboard and mouse, controllers, clipboard (off, text only, one
+  direction, or everything; §10), which monitors.
 - **Exposure.** The host listens only on the interfaces and port its settings allow, LAN only by default.
   A security review of the host goes before any release that includes it.
 
@@ -284,11 +285,52 @@ for OSP, with a note: "UDP can't go through SSH tunnels; use a VPN to reach this
 
 ---
 
-## 10. Audio
+## 10. Audio and clipboard
+
+### Audio
 
 Host: WASAPI loopback on Windows, PipeWire on Linux. Opus at a low frame size (5 to 10 ms) over datagrams, with light
 FEC. Client playback through the same audio path RDP uses today (`IAudioSession`), or a lower-latency one if that adds
 too much delay. Microphone passthrough is a later addition.
+
+### Clipboard
+
+The same clipboard an RDP session has: **text, images and files, both ways.** The client side implements Orrery's
+existing `IClipboardSession` (text, `ClipboardImage`, files, `ClipboardTransfer` progress and cancel), so the view's
+clipboard code, the progress display and the connection's **Share clipboard** setting work unchanged.
+
+| Content | Format on the wire | Notes |
+|---|---|---|
+| Text | UTF-8 | Same cap as RDP (`RdpClipboardBridge.MaxTextLength`, 1M characters) |
+| Images | PNG | Converted from and to the local format (DIB on Windows, `image/png` on Wayland and macOS); capped in pixels and bytes |
+| Files and folders | A file list, then each file's bytes on its own QUIC stream | Folders keep their structure; total size and count capped |
+
+**How it flows**
+- Each side watches its clipboard and sends an **offer** (what kinds it holds, sizes, file names) on the clipboard
+  control stream. Nothing else moves until the other side pastes, or for text and small images, sends at once, as the
+  RDP bridge does when the session gets the keyboard.
+- **Files are fetched on their own streams**, so a large copy never holds up input, video or control messages. QUIC
+  gives each stream its own flow control, so a 5 GB copy doesn't push frames out.
+- **Received files are downloaded at once into a private folder**, as RDP does today, because the local clipboard can
+  only hold files that exist. Progress and cancel use the existing `ClipboardTransfer` events. The folder lasts until
+  the session ends or the next files arrive.
+- Later, on Windows: an `IDataObject` with virtual files (`CFSTR_FILECONTENTS`) so a paste in Explorer pulls the
+  bytes on demand instead of downloading first.
+
+**Getting at the clipboard on each side**
+
+| Where | How | Notes |
+|---|---|---|
+| Windows host | A clipboard listener in the user's session | A SYSTEM service in session 0 can't see the clipboard, so after phase 4 the per-session helper does this |
+| Linux host (Wayland) | The **Clipboard portal** alongside the RemoteDesktop portal session (GNOME 46+, KDE); `ext-data-control-v1` where the compositor has it (KDE, wlroots) | Wayland doesn't let a background app read the clipboard any other way |
+| Client, in a tab | Orrery's existing clipboard code | As RDP and VNC today |
+| Client, in an SDL3 popout | SDL3's clipboard API, with MIME types | On Wayland only the focused window may read the clipboard, and while the stream window has focus Orrery's XWayland window doesn't |
+
+**Safety.** Clipboard data from the other side is untrusted, as in `RdpClipboardBridge`: every size is capped, file
+names are checked before they become paths (no `..`, no absolute paths, no device names, no reparse tricks), and
+none of it is logged. Clipboard sharing needs both the connection's **Share clipboard** setting and the host's
+policy for that client (§6), which can also limit it to **one direction** (host to client, or client to host) or to
+text only.
 
 ---
 
@@ -301,8 +343,8 @@ Each phase ends usable and tested on real hardware, both GPUs where it applies.
    whether Avalonia can present fast enough. AMF follows straight after.
 2. **Input.** Keyboard and mouse, relative mouse with pointer lock, SDL3 controllers on the client, virtual HID
    gamepad on the host.
-3. **The real protocol.** QUIC over MsQuic, pairing, mutual TLS, FEC, rate control, recovery from loss, Opus audio, clipboard. OSP
-   appears in Orrery's tree and properties pane.
+3. **The real protocol.** QUIC over MsQuic, pairing, mutual TLS, FEC, rate control, recovery from loss, Opus audio,
+   and the full clipboard: text, images and files both ways (§10). OSP appears in Orrery's tree and properties pane.
 4. **The Windows service.** SYSTEM service plus a helper that follows the active desktop: works at the login screen and on
    UAC prompts, survives sign-out, runs unattended.
 5. **Linux host, Wayland only.** Portal and PipeWire capture, VA-API encoding, uinput. Linux and macOS clients get
@@ -331,6 +373,7 @@ passthrough; file transfer; several monitors at once.
 - **Linux?** Wayland sessions only, host and client. Orrery's own window stays on XWayland; streams get a native
   Wayland window (§5).
 - **Multi-display, HDR, VRR, 12-bit together?** All but 12-bit; 10-bit HDR is the ceiling (§5, display capabilities).
+- **Clipboard?** (2026-11-04) The same as RDP: text, images and files, to and from the host (§10).
 
 ## 13. Open questions
 
