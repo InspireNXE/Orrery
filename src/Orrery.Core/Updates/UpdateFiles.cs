@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection;
 
 namespace Orrery.Core.Updates;
 
@@ -72,6 +73,44 @@ static class UpdateFiles
     }
 
     /// <summary>
+    /// <paramref name="target"/> is this process's own single-file executable. Such an app reads an assembly it hasn't
+    /// loaded yet from whatever file is at its path, so once a new build is there it can't load one: starting the new
+    /// Orrery, or opening a folder, failed with a FileNotFoundException for System.Diagnostics.Process.
+    /// </summary>
+    static bool RunsFromBundle(string target) =>
+        string.IsNullOrEmpty(typeof(UpdateFiles).Assembly.Location) && Environment.ProcessPath is { } running
+        && string.Equals(Path.GetFullPath(running), Path.GetFullPath(target), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    /// <summary>
+    /// Loads every assembly the app refers to, and those they refer to, while they're still in the running file, so
+    /// Orrery can start the new one and carry on until it does (or until it quits, if the update waits for that).
+    /// </summary>
+    internal static void LoadEveryAssembly()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<Assembly>(AppDomain.CurrentDomain.GetAssemblies());
+        while (queue.TryDequeue(out var assembly))
+        {
+            foreach (var name in assembly.GetReferencedAssemblies())
+            {
+                if (!seen.Add(name.FullName))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    queue.Enqueue(Assembly.Load(name));
+                }
+                catch (Exception e) when (e is FileNotFoundException or FileLoadException or BadImageFormatException)
+                {
+                    // Referred to but never shipped (a facade for another platform, say); nothing will ask for it.
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Puts <paramref name="replacement"/> in place of <paramref name="target"/>, then copies each of
     /// <paramref name="alongside"/> over its destination. The replacement is first copied beside the target, so the
     /// swap itself is two renames in one folder. If any step fails, the old target is put back.
@@ -94,6 +133,11 @@ static class UpdateFiles
         try
         {
             File.Copy(replacement, incoming);
+            if (RunsFromBundle(target))
+            {
+                LoadEveryAssembly();
+            }
+
             if (!OperatingSystem.IsWindows())
             {
                 File.SetUnixFileMode(incoming, Executable(File.GetUnixFileMode(target)));
