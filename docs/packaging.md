@@ -152,8 +152,9 @@ becomes 0.3.0), change `<Version>` before tagging a preview of it.
 same. Orrery offers a pre-release to copies that turned previews on (Settings › About › Updates, or the setup), and to
 a copy that's a preview itself unless previews were turned off there, so whoever installs a preview hears of the next
 one. Once `0.2.0` is out, it's offered to them as well, being newer. The .deb and .rpm carry it as `0.2.0~preview.1`,
-which their package managers also sort before `0.2.0`; macOS's Info.plist and Windows' version info get the numbers
-only.
+which their package managers also sort before `0.2.0` (the files are named with a `.` there,
+`orrery_0.2.0.preview.1-1_amd64.deb`, since GitHub turns `~` into `.` on upload); macOS's Info.plist and Windows'
+version info get the numbers only.
 
 Preflight fails at once if the tag is neither `v` plus `<Version>` nor a preview of `<Version>`'s numbers: a tag for
 another version needs `<Version>` bumped and committed first.
