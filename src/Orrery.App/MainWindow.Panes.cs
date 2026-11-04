@@ -63,7 +63,7 @@ public partial class MainWindow
         _inspectorToggle.ContextMenu = ModeMenu("Settings pane", () => _inspectorMode, SetInspectorMode);
 
         // A pin in each of the side panel's headers, and one in the right-hand pane's top corner.
-        foreach (var header in new[] { _credentialsView.Header, _recentPanel.Header, _recordingsPanel.Header })
+        foreach (var header in new[] { _credentialsView.Header, _recentPanel.Header, _commandsPanel.Header, _recordingsPanel.Header })
         {
             Controls.Pane.AddHeaderButton(header, SidePin());
         }
@@ -97,16 +97,23 @@ public partial class MainWindow
         _propertiesHost.AddHandler(KeyDownEvent, OnFloatingKeyDown);
         AddHandler(PointerPressedEvent, OnPanesPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        // The page it was left on, when that's Recent; Connections otherwise.
-        if (settings.SidePanelPage == "recent")
+        // The page it was left on, when that's Recent or Commands; Connections otherwise.
+        if (settings.SidePanelPage is "recent" or "commands")
         {
-            _side = "recent";
+            _side = settings.SidePanelPage;
             foreach (var (name, (_, view)) in _sides)
             {
                 view.IsVisible = name == _side;
             }
 
-            _recentPanel.Refresh();
+            if (_side == "commands")
+            {
+                _inspectorContent.Content = _commandEditor;
+            }
+            else
+            {
+                _recentPanel.Refresh();
+            }
         }
 
         ApplyPanes();

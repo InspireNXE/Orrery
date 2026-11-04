@@ -100,6 +100,8 @@ public partial class MainWindow : Window
     readonly RecentConnections _recent;
     readonly ConnectionHistory _history;
     readonly RecentPanel _recentPanel;
+    readonly CommandsPanel _commandsPanel;
+    readonly CommandEditorPane _commandEditor;
     readonly Recording.RecordingsPanel _recordingsPanel;
     readonly ContentControl _recordingsHost;
 
@@ -202,6 +204,7 @@ public partial class MainWindow : Window
             ["connections"] = (this.FindControl<Button>("ConnectionsRailButton")!, this.FindControl<Control>("ConnectionsSide")!),
             ["credentials"] = (this.FindControl<Button>("CredentialsRailButton")!, this.FindControl<Control>("CredentialsSide")!),
             ["recent"] = (this.FindControl<Button>("RecentRailButton")!, this.FindControl<Control>("RecentSide")!),
+            ["commands"] = (this.FindControl<Button>("CommandsRailButton")!, this.FindControl<Control>("CommandsSide")!),
             ["recordings"] = (this.FindControl<Button>("RecordingsRailButton")!, this.FindControl<Control>("RecordingsSide")!),
         };
         _settingsHost = this.FindControl<ContentControl>("SettingsHost")!;
@@ -304,6 +307,8 @@ public partial class MainWindow : Window
         _recentPanel = new RecentPanel(_recent);
         _recentPanel.OpenRequested += async (_, recent) => await OpenRecentAsync(recent);
         this.FindControl<ContentControl>("RecentSide")!.Content = _recentPanel;
+        (_commandsPanel, _commandEditor) = CreateCommandsPage();
+        this.FindControl<ContentControl>("CommandsSide")!.Content = _commandsPanel;
         _recordingsPanel = new Recording.RecordingsPanel(_recordings);
         this.FindControl<ContentControl>("RecordingsSide")!.Content = _recordingsPanel;
         _recordingsHost = this.FindControl<ContentControl>("RecordingsHost")!;
@@ -783,9 +788,9 @@ public partial class MainWindow : Window
         }
 
         _side = side;
-        if (side is "connections" or "recent")
+        if (side is "connections" or "recent" or "commands")
         {
-            SaveLayout(s => s with { SidePanelPage = side == "recent" ? side : null });
+            SaveLayout(s => s with { SidePanelPage = side == "connections" ? null : side });
         }
 
         ShowRecordingsHost(side == "recordings");
@@ -796,7 +801,12 @@ public partial class MainWindow : Window
 
         RevealSidePanel();
 
-        _inspectorContent.Content = side == "credentials" ? _credentialsView.Editor : _properties;
+        _inspectorContent.Content = side switch
+        {
+            "credentials" => _credentialsView.Editor,
+            "commands" => _commandEditor,
+            _ => _properties,
+        };
         switch (side)
         {
             case "credentials":
@@ -805,6 +815,10 @@ public partial class MainWindow : Window
                 break;
             case "recent":
                 _recentPanel.Refresh();
+                break;
+            case "commands":
+                _commandsPanel.Refresh();
+                _commandEditor.UpdateSend();
                 break;
             case "recordings":
                 _recordingsPanel.Refresh();
@@ -3358,6 +3372,7 @@ public partial class MainWindow : Window
     {
         _sessionToolbar.IsVisible = _currentTab is not null && !_fullScreen;
         _properties?.ShowSession(_currentTab);
+        _commandEditor?.UpdateSend();
         if (_currentTab is { } tab)
         {
             ShowSessionBar(tab, _sessionAddress, _sessionLock, _sessionDetail, _sessionActions);

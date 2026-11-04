@@ -216,6 +216,11 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   once the shell's prompt shows. Local shells and quick connects never send anything by themselves. The arrows
   beside a command in the properties pane move it up or down, which is the order the menus list them and the
   order they're sent in when connected.
+- **Commands page:** the Commands button in the rail lists every saved command in one place, grouped by where it's
+  saved (the defaults first, then folders and connections in tree order), with a filter that matches names, text
+  and places. Choosing one opens it in the right-hand pane to edit; changing *Save on* moves it there. + adds one,
+  starting on the connection or folder selected in the tree. When the current tab is a connected terminal that has
+  the command, *Send to* (its name) saves any changes and sends it, asking first if it says to.
 - **Becoming root:** a command can answer a password prompt (*If it asks for a password*) with the connection's
   login password or a saved credential's, such as root's for `su -`. *Become root* in the editor fills in `sudo -i`
   answered with the login password. Any program on a server can show a password prompt, so use it only on servers you
@@ -284,7 +289,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; on
   Linux and macOS it opens beside a web page, since nothing can be drawn over the page there. Drag a pane's inner edge to resize it. Panes start the way
   they were left: their widths, a pinned pane put away with its shortcut stays away, and the side panel opens on
-  Recent if that's where it was (Credentials and Recordings start on Connections).
+  Recent or Commands if that's where it was (Credentials and Recordings start on Connections).
 - **Last connected** shows in the properties pane ("3 days ago", exact time on hover), with a newer failed attempt
   if there was one.
 

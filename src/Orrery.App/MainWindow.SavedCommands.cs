@@ -377,6 +377,58 @@ public partial class MainWindow
         return places;
     }
 
+    /// <summary>
+    /// The side panel's Commands page and the editor it opens in the right-hand pane. A new command starts on the
+    /// connection or folder selected in the tree, and Send goes to the current terminal when it has the command.
+    /// </summary>
+    (CommandsPanel, CommandEditorPane) CreateCommandsPage()
+    {
+        var panel = new CommandsPanel(_tree);
+        var editor = new CommandEditorPane(_tree, _credentials, CommandSendTargetFor);
+        panel.Chosen += (_, at) =>
+        {
+            editor.Show(at);
+            RevealInspector();
+        };
+        panel.NewRequested += (_, _) =>
+        {
+            panel.Select(null);
+            editor.Show(null, SelectedNode);
+            RevealInspector();
+        };
+        editor.Changed += (_, nodes) =>
+        {
+            foreach (var node in nodes)
+            {
+                _properties.CommandsChanged(node);
+            }
+
+            panel.Select(editor.Shown?.Command);
+        };
+
+        // A command deleted or moved elsewhere (from a connection's settings, say) isn't left open to save back.
+        _tree.Changed += (_, _) =>
+        {
+            if (editor.Shown is { } shown && shown.Owner.Commands?.Contains(shown.Command) != true)
+            {
+                editor.Clear();
+            }
+        };
+        return (panel, editor);
+    }
+
+    /// <summary>Send in the Commands page's editor: the current tab, when it's a connected terminal that has the command.</summary>
+    CommandSendTarget? CommandSendTargetFor(CommandAt at)
+    {
+        if (_currentTab is not { View: TerminalView } tab || tab.Session.State != SessionState.Connected
+            || CommandSourceFor(tab).Commands.FirstOrDefault(c => c.Command == at.Command) is not { } resolved)
+        {
+            return null;
+        }
+
+        return new CommandSendTarget($"Send to {tab.Origin.Title}", () => SendSavedCommandAsync(tab, resolved, resolved.Command.PressEnter));
+    }
+
     /// <summary>Opens the command editor for a new command from the tab, starting from <paramref name="seed"/> (a selection) if given.</summary>
     async Task NewCommandAsync(SessionTab tab, TerminalView terminal, string? seed)
     {

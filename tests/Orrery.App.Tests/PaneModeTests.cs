@@ -5,6 +5,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Orrery.App.Connections;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Xunit;
@@ -223,6 +224,31 @@ public class PaneModeTests : IDisposable
 
             Click(window, "ConnectionsRailButton");
             Assert.Null(AppSettingsStore.In(Location).Load().SidePanelPage);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void The_side_panel_starts_on_Commands_with_its_editor_beside_it_when_it_was_left_there()
+    {
+        var window = Open(new AppSettings());
+        Click(window, "CommandsRailButton");
+        Assert.IsType<CommandEditorPane>(VaultAutoLockTests.Private<ContentControl>(window, "_inspectorContent").Content);
+        window.Close();
+        Assert.Equal("commands", AppSettingsStore.In(Location).Load().SidePanelPage);
+
+        window = Open(AppSettingsStore.In(Location).Load());
+        try
+        {
+            Assert.True(window.FindControl<Control>("CommandsSide")!.IsVisible);
+            Assert.False(window.FindControl<Control>("ConnectionsSide")!.IsVisible);
+            Assert.IsType<CommandEditorPane>(VaultAutoLockTests.Private<ContentControl>(window, "_inspectorContent").Content);
+
+            Click(window, "ConnectionsRailButton");
+            Assert.IsType<PropertiesPanel>(VaultAutoLockTests.Private<ContentControl>(window, "_inspectorContent").Content);
         }
         finally
         {

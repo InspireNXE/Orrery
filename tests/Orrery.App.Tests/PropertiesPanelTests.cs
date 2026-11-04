@@ -689,7 +689,7 @@ public class PropertiesPanelTests
         Assert.Equal(outside, PropertiesPanel.WithHome(outside));
     }
 
-    sealed class EmptyCredentialStore : ICredentialStore
+    internal sealed class EmptyCredentialStore : ICredentialStore
     {
         TaskCompletionSource? _gate;
 
