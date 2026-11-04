@@ -2,8 +2,8 @@
 
 Status: **Draft**, 2026-11-03 (owner's answers in §12). Scaffolded 2026-11-04: the projects in §3 except
 `Orrery.Host.Service` exist, with the media packet header, codec choice and connection options. Phase 1 started
-2026-11-04: NVENC bindings generated from the header (§13) and `OrreryHost --probe`, which lists the GPUs and what
-each NVIDIA one can encode. Nothing streams yet.
+2026-11-04: NVENC and AMF bindings generated from their headers (§13) and `OrreryHost --probe`, which lists the GPUs,
+what each can encode, and on AMD encodes test frames with every codec (measured in §5). Nothing streams yet.
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
@@ -205,6 +205,19 @@ What can run together, at low latency, on a wired LAN:
 | Decode | 2–4 ms |
 | Present, with VRR | 0 to a few ms |
 | **Total** | **about 8–15 ms**, plus the display's own lag |
+
+**Measured so far** (2026-11-04, `OrreryHost --probe`, AMF 1.5.3 runtime on an RX 9070 XT, ultra-low-latency usage,
+20 Mbps): encode time from submitting a frame to having its bitstream, median of 29 frames after the first. Blank NV12
+frames are the easiest there are, so these are the floor; real content and the color conversion come on top.
+
+| Codec | 1920x1080 | 3840x2160 |
+|---|---|---|
+| H.264 | 2.04 ms | 5.39 ms |
+| HEVC | 1.62 ms | 3.96 ms |
+| AV1 | 1.85 ms | 4.23 ms |
+
+The same machine's integrated Radeon answers AMF_CODEC_NOT_SUPPORTED for every codec. NVENC hasn't been measured
+yet: no NVIDIA machine has run the probe.
 
 Two such streams at good quality need roughly 150–300 Mbps: fine on wired gigabit, unrealistic on most Wi-Fi, where
 rate control lowers quality before it lets latency grow. The host advertises what its encoders can sustain, and the
@@ -425,6 +438,7 @@ Each is checked (source, version, hash, license) before it's added, and none is 
 | Dependency | Status | Details |
 |---|---|---|
 | NVENC header | **Used, not shipped** | FFmpeg's nv-codec-headers `n12.1.14.1` (NVENC API 12.1, MIT), `nvEncodeAPI.h` SHA-256 `dbdaa8bcbc2b9325bd24bc68b36170a8432411518040e8d4c8421608cf217425`. `tools/nvenc-interop` fetches it, refuses any other hash, and generates `NvEncInterop.g.cs` with MSVC, so offsets, GUIDs and bitfield masks come from the compiler. The driver supplies the library at run time; API 12.1 needs driver 531.61 or later on Windows, 530.41.03 on Linux |
+| AMF headers | **Used, not shipped** | GPUOpen-LibrariesAndSDKs/AMF `v1.4.36` (2025-04-29), 29 headers from `amf/public/include` (core, encoders, caps), MIT; each file's SHA-256 is pinned in `tools/amf-interop/Generate-AmfInterop.ps1`, and each was checked against the git blob hash at that tag when pinned. The generator compiles them as C, so vtable slots come from the headers' C vtable structs. The headers open with AMD's "Notice Regarding Standards": no license to codec patents (H.264 and HEVC among them), and any royalties owed are the user's. That's about codec patents, not the MIT code; see the open question in §14. AMF 1.4.36 runs on drivers whose runtime is 1.4.36 or later (this machine's is 1.5.3) |
 | SDL3 | **Vetted, waiting for approval** | Official release 3.4.18 (2026-10-02) from libsdl-org/SDL. 3.4.20 came out 2026-11-03 and is left until it has been out a couple of weeks. SHA-256 from GitHub's asset digests: `SDL3-3.4.18-win32-x64.zip` `75c2c0fc74e7d1206aaedc22893a35887332f4f85f5c8b74fddc10d177985f2c`, `SDL3-3.4.18-win32-arm64.zip` `a95910a1a19260a7d17ca041cf47af13d1aa600b4ee8f0005ddc1e8e942f5086`, `SDL3-3.4.18.dmg` `c1adf3da91108dbc3e4205da5dacebc203085d283fa89e86eb2c889abd03a853`, source `SDL3-3.4.18.tar.gz` `9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3` (GPG-signed, `.sig` alongside). zlib license. No Linux binaries upstream: build from the signed tarball in CI, or use the distro's when it's new enough |
 | SDL3 C# binding | **Recommended: our own** | We need perhaps 40 functions (windows, events, gamepads, rumble, clipboard, properties), so a thin P/Invoke layer of our own over the official binaries, like NVENC's, avoids a dependency. Alternatives seen: `ppy/SDL3-CS` (MIT, NuGet, ships natives ppy builds themselves, last 2026-10-02); `edwardgushchin/SDL3-CS` (zlib, active); `flibitijibibo/SDL3-CS` (zlib, single generated file, last commit 2026-07-07) |
 
@@ -437,4 +451,9 @@ Each is checked (source, version, hash, license) before it's added, and none is 
 - Which Opus binding to ship (libopus is BSD; the .NET wrapper needs a license and maintenance check).
 - Which SDL3 version supports HDR through Wayland's color-management protocol, and which compositors we test on.
 - Whether input over a reliable stream adds measurable latency (measure in phase 3).
-- Which AV1 encode and decode generations the two test GPUs are.
+- Which AV1 encode and decode generations the two test GPUs are. The RX 9070 XT encodes AV1 (measured in §5); the
+  NVIDIA card is still to be probed.
+- Codec patents. AMD's headers say their license covers no codec patents and royalties are the user's; NVIDIA's
+  hardware and drivers are in the same position. Orrery Host calls the encoders the GPU and driver already provide and
+  ships no codec of its own, as Parsec, Sunshine and OBS do, but this deserves a proper look before a release, and AV1
+  (royalty-free) is the codec to prefer where both sides have it.
