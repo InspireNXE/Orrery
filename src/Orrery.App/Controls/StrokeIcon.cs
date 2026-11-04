@@ -84,6 +84,7 @@ static class Icons
     public const string Globe = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M3.5 9h17 M3.5 15h17 M12 3c-2.5 2.6-3.6 5.6-3.6 9s1.1 6.4 3.6 9 M12 3c2.5 2.6 3.6 5.6 3.6 9s-1.1 6.4-3.6 9";
     public const string SerialPort = "M3 8h18l-2.5 8h-13z M7.5 11h.01 M10.5 11h.01 M13.5 11h.01 M16.5 11h.01 M9 13.5h.01 M12 13.5h.01 M15 13.5h.01";
     public const string More = "M5 12h.01 M12 12h.01 M19 12h.01";
+    public const string Grip = "M9 6h.01 M9 12h.01 M9 18h.01 M15 6h.01 M15 12h.01 M15 18h.01";
     public const string FullScreen = "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5";
     public const string File = "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5";
     public const string Up = "M12 19V5 M5 12l7-7 7 7";
@@ -93,6 +94,9 @@ static class Icons
     public const string Pin = "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5-1.5l1.5-4l4-4 M9 15l-4.5 4.5 M14.5 4l5.5 5.5";
     public const string Unpin = "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5-1.5l1.5-4l4-4 M9 15l-4.5 4.5 M14.5 4l5.5 5.5 M3 3l18 18";
     public const string External ="M14 4h6v6 M20 4l-9 9 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5";
+    // A window with an arrow leaving it, and one with the arrow coming back: pop a tab out, put it back in the tabs.
+    public const string PopOut = "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M10 14l5-5 M11 9h4v4";
+    public const string PopIn = "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z M15 9l-5 5 M9 10v4h4";
     public const string Shield = "M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z M12 8v5 M12 16h.01";
     public const string Alert = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 7v6 M12 16.5h.01";
     public const string Upload = "M12 15V3 M7 8l5-5 5 5 M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4";

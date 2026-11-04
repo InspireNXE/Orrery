@@ -71,6 +71,7 @@ public partial class MainWindow : Window
     readonly StackPanel _tabStrip;
     readonly Panel _sessionHost;
     readonly Control _emptyState;
+    readonly TextBlock _emptyStateTitle;
     readonly Border _sessionToolbar;
     readonly StackPanel _sessionActions;
     readonly TextBlock _sessionAddress, _sessionDetail, _sessionCount;
@@ -154,7 +155,7 @@ public partial class MainWindow : Window
         Palette.Use(_settingsStore.Load().InterfaceColorScheme);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
-        storageText.Text = $"Data: {location.DataDir}";
+        storageText.Text = location.DataDir;
         ToolTip.SetTip(storageText, location.DataDir);
         if (FolderAccess.IsOpenToOthers(location.DataDir))
         {
@@ -180,6 +181,7 @@ public partial class MainWindow : Window
         _tabStrip = this.FindControl<StackPanel>("TabStrip")!;
         _sessionHost = this.FindControl<Panel>("SessionHost")!;
         _emptyState = this.FindControl<Control>("EmptyState")!;
+        _emptyStateTitle = this.FindControl<TextBlock>("EmptyStateTitle")!;
         _sessionToolbar = this.FindControl<Border>("SessionToolbar")!;
         _sessionActions = this.FindControl<StackPanel>("SessionActions")!;
         _sessionAddress = this.FindControl<TextBlock>("SessionAddress")!;
@@ -379,6 +381,7 @@ public partial class MainWindow : Window
             _properties.TrySave();
             SaveNow();
             SaveWorkspace();
+            ClosePopouts();
             _hostStatus.Dispose();
             SessionLogger.CloseAll();
             foreach (var session in OpenSessions())
@@ -714,7 +717,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The rail switches the side panel between connections, credentials, recent and recordings. Clicking the open
+    /// The rail switches the side panel between connections, recent, credentials and recordings. Clicking the open
     /// one hides the panel, as in VS Code. Credentials edit in the right-hand pane, like connections.
     /// </summary>
     async void OnRailClick(object? sender, RoutedEventArgs e)
@@ -847,7 +850,8 @@ public partial class MainWindow : Window
         // Caught on the way down, as the full-screen shortcut is; TabShortcuts decides what a focused session keeps.
         AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Handled || _tabs.Count == 0 || _settingsHost.IsVisible
+            var strip = StripTabs();
+            if (e.Handled || strip.Count == 0 || _settingsHost.IsVisible
                 || (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is { IsRecording: true }
                 || Input.TabShortcuts.Match(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()) is not { } command)
             {
@@ -862,25 +866,37 @@ public partial class MainWindow : Window
                     _ = CloseTabAsync(tab.Session);
                 }
             }
-            else if (Input.TabShortcuts.Target(command, _currentTab is null ? 0 : _tabs.IndexOf(_currentTab), _tabs.Count) is { } index)
+            else if (Input.TabShortcuts.Target(command, _currentTab is null ? 0 : strip.IndexOf(_currentTab), strip.Count) is { } index)
             {
-                SelectTab(_tabs[index]);
+                SelectTab(strip[index]);
             }
         }, RoutingStrategies.Tunnel);
 
-        // A local terminal, caught on the way down too so a focused terminal doesn't take it as Ctrl+T.
+        // A local terminal, and popping the current tab out, caught on the way down too so a focused terminal doesn't
+        // take them as Ctrl+T and Ctrl+O.
         AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (!e.Handled && !_dimmer.IsVisible
-                && (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is not { IsRecording: true }
-                && Input.TabShortcuts.OpensLocalTerminal(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
+            if (e.Handled || _dimmer.IsVisible
+                || (e.Source as Visual)?.FindAncestorOfType<ShortcutRecorder>(includeSelf: true) is { IsRecording: true })
+            {
+                return;
+            }
+
+            if (Input.TabShortcuts.OpensLocalTerminal(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
             {
                 e.Handled = true;
                 OpenLocalTerminal();
             }
+            else if (Input.TabShortcuts.PopsOut(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()) && _currentTab is { } tab
+                && !_settingsHost.IsVisible)
+            {
+                e.Handled = true;
+                PopOut(tab);
+            }
         }, RoutingStrategies.Tunnel);
 
-        // Drag a tab sideways to move it; it lands where it's let go. The tab's own click still selects it.
+        // Drag a tab sideways to move it; it lands where it's let go. Dragged well above or below the strip, it pops
+        // out into a window of its own where it's let go. The tab's own click still selects it.
         _tabStrip.AddHandler(PointerPressedEvent, (_, e) =>
         {
             if (e.GetCurrentPoint(_tabStrip).Properties.IsLeftButtonPressed && TabAt(e.Source) is { } tab)
@@ -896,35 +912,51 @@ public partial class MainWindow : Window
                 return;
             }
 
-            double dx = e.GetPosition(_tabStrip).X - start.X;
-            if (!_tabDragging && Math.Abs(dx) > 6)
+            var at = e.GetPosition(_tabStrip);
+            double dx = at.X - start.X;
+            if (!_tabDragging && (Math.Abs(dx) > 6 || Math.Abs(at.Y - start.Y) > 6))
             {
                 _tabDragging = true;
 
                 // The button theme animates RenderTransform (a pressed "shrink"), and an animated value outranks the
                 // drag's own, so its transitions are off for the drag; the tabs slide with the drag's own instead.
-                foreach (var each in _tabs)
+                foreach (var each in StripTabs())
                 {
                     each.Header.Transitions = [];
                 }
 
-                tab.Header.ZIndex = 1;
-                tab.Header.Opacity = 0.85;
+                // The tab lifts off the strip and follows the pointer; where it was is left as an empty slot, which
+                // moves to where it will land.
+                _tabGhost = TabGhost.Show(this, tab, tab.Header.Bounds.Width);
+                ShowAsSlot(tab.Header, true);
             }
 
             if (_tabDragging)
             {
-                ShowTabDrag(tab, dx);
+                _tabTearing = Input.TabShortcuts.TearsOff(at.Y, _tabStrip.Bounds.Height);
+                ShowTabDrag(tab, dx, at);
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        _tabStrip.AddHandler(PointerReleasedEvent, (_, _) =>
+        _tabStrip.AddHandler(PointerReleasedEvent, (_, e) =>
         {
             if (_draggedTab is { } tab && _tabDragging)
             {
                 int target = _tabDropIndex;
+                bool tearing = _tabTearing;
+                var at = this.PointToScreen(e.GetPosition(this));
                 EndTabDrag();
-                MoveTab(tab, target);
+
+                // After the release has been through the tab, which is still in the strip until then.
+                if (tearing)
+                {
+                    Dispatcher.UIThread.Post(() => PopOut(tab, at: at));
+                }
+                else
+                {
+                    MoveTab(tab, target);
+                }
+
                 return;
             }
 
@@ -936,26 +968,58 @@ public partial class MainWindow : Window
     bool _tabDragging;
     int _tabDropIndex;
 
+    // The held tab is far enough above or below the strip to pop out where it's let go.
+    bool _tabTearing;
+
+    // The held tab, drawn over the window while it's dragged.
+    TabGhost? _tabGhost;
+
     /// <summary>
-    /// Draws the drag: the held tab follows the pointer, kept within the strip, and the tabs it passes slide into its
-    /// old place, so the gap shows where it will land. Only transforms move, so the held tab keeps the pointer.
+    /// Draws the drag: the held tab, lifted, follows the pointer along the strip, and the tabs it passes slide aside
+    /// so its empty slot shows where it will land. Pulled off the strip to pop out, it follows the pointer anywhere and
+    /// opens into a picture of the window it will become, and the slot goes back to its place. Only transforms move.
     /// </summary>
-    void ShowTabDrag(SessionTab tab, double dx)
+    void ShowTabDrag(SessionTab tab, double dx, Point at)
     {
-        int from = _tabs.IndexOf(tab);
+        var strip = StripTabs();
+        int from = strip.IndexOf(tab);
         var bounds = tab.Header.Bounds;
-        double left = _tabs[0].Header.Bounds.Left, right = _tabs[^1].Header.Bounds.Right;
+        double left = strip[0].Header.Bounds.Left, right = strip[^1].Header.Bounds.Right;
         dx = Math.Clamp(dx, left - bounds.Left, right - bounds.Right);
 
         // Judged by the leading edge, not the center: a tab wider than its neighbor could never get its center
         // past the neighbor's middle at the end of the strip.
         double edge = dx < 0 ? bounds.Left + dx : bounds.Right + dx;
-        _tabDropIndex = Input.TabShortcuts.DropIndex([.. _tabs.Select(t => t.Header.Bounds.Center.X)], from, edge);
-        double step = bounds.Width + _tabStrip.Spacing;
-        for (int i = 0; i < _tabs.Count; i++)
+        _tabDropIndex = _tabTearing ? from : Input.TabShortcuts.DropIndex([.. strip.Select(t => t.Header.Bounds.Center.X)], from, edge);
+        tab.Header.Cursor = _tabTearing ? new Cursor(StandardCursorType.DragMove) : null;
+        if (_tabGhost is { } ghost)
         {
-            double x = i == from ? dx : Input.TabShortcuts.Shift(i, from, _tabDropIndex) * step;
-            SlideTo(_tabs[i].Header, x, animate: i != from);
+            ghost.AsWindow = _tabTearing;
+            ghost.MoveTo(_tabStrip, _tabTearing ? at - TabGhost.WindowGrip : new Point(bounds.Left + dx, bounds.Top));
+        }
+
+        double step = bounds.Width + _tabStrip.Spacing;
+        double slot = 0;
+        for (int i = 0; i < strip.Count; i++)
+        {
+            int shift = Input.TabShortcuts.Shift(i, from, _tabDropIndex);
+            slot -= shift * (strip[i].Header.Bounds.Width + _tabStrip.Spacing);
+            if (i != from)
+            {
+                SlideTo(strip[i].Header, shift * step, animate: true);
+            }
+        }
+
+        SlideTo(tab.Header, slot, animate: true);
+    }
+
+    /// <summary>A tab's place in the strip, kept for it while it's dragged: its outline, with nothing in it.</summary>
+    static void ShowAsSlot(Control header, bool slot)
+    {
+        header.Classes.Set("slot", slot);
+        if (header is ContentControl { Content: Control content })
+        {
+            content.Opacity = slot ? 0 : 1;
         }
     }
 
@@ -988,26 +1052,34 @@ public partial class MainWindow : Window
         {
             each.Header.ClearValue(RenderTransformProperty);
             each.Header.ClearValue(TransitionsProperty);
-            each.Header.ZIndex = 0;
-            each.Header.Opacity = 1;
+            each.Header.ClearValue(CursorProperty);
+            ShowAsSlot(each.Header, false);
         }
 
-        (_draggedTab, _tabDragStart, _tabDragging) = (null, null, false);
+        _tabGhost?.Remove();
+        (_draggedTab, _tabDragStart, _tabDragging, _tabTearing, _tabGhost) = (null, null, false, false, null);
     }
 
     SessionTab? TabAt(object? source) =>
         (source as Visual)?.FindAncestorOfType<Button>(includeSelf: true) is { } button ? _tabs.FirstOrDefault(t => t.Header == button) : null;
 
+    /// <summary>
+    /// Moves a tab to <paramref name="index"/> in the strip. Among all the open sessions it goes just before or after
+    /// the tab it lands on, so a popped-out session keeps its place for when it comes back.
+    /// </summary>
     void MoveTab(SessionTab tab, int index)
     {
-        int from = _tabs.IndexOf(tab);
-        if (from < 0 || index == from)
+        var strip = StripTabs();
+        int from = strip.IndexOf(tab);
+        if (from < 0 || index == from || index < 0 || index >= strip.Count)
         {
             return;
         }
 
-        _tabs.RemoveAt(from);
-        _tabs.Insert(index, tab);
+        var landsOn = strip[index];
+        _tabs.Remove(tab);
+        int at = _tabs.IndexOf(landsOn);
+        _tabs.Insert(index > from ? at + 1 : at, tab);
         _tabStrip.Children.Move(from, index);
     }
 
@@ -1902,7 +1974,7 @@ public partial class MainWindow : Window
         {
             if (index < _tabs.Count)
             {
-                SelectTab(_tabs[index]);
+                ShowTab(_tabs[index]);
             }
         }
         else if (choice?.Command is { } command)
@@ -2747,14 +2819,8 @@ public partial class MainWindow : Window
         tab.CloseRequested += async (_, _) => await CloseTabAsync(session);
         tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
-        tab.RecordingStoppedByItself += (_, reason) => ShowNotice($"{tab.Origin.Title}: {reason}");
-        tab.RecordingChanged += (_, _) =>
-        {
-            if (tab == _currentTab)
-            {
-                UpdateSessionToolbar();
-            }
-        };
+        tab.RecordingStoppedByItself += (_, reason) => ShowNotice(tab, $"{tab.Origin.Title}: {reason}");
+        tab.RecordingChanged += (_, _) => RefreshSessionBar(tab);
         HistoryRecorder.Attach(tab, _tree, _history);
 
         // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
@@ -2762,7 +2828,11 @@ public partial class MainWindow : Window
         {
             desktop.DesktopResized += (_, _) =>
             {
-                if (tab == _currentTab)
+                if (tab.Popout is { } popout)
+                {
+                    popout.Detail.Text = DescribeSession(tab);
+                }
+                else if (tab == _currentTab)
                 {
                     _sessionDetail.Text = DescribeSession(tab);
                 }
@@ -2773,13 +2843,7 @@ public partial class MainWindow : Window
         if (view is WebPageView web)
         {
             web.Covered = SessionsCovered;
-            web.Changed += (_, _) =>
-            {
-                if (tab == _currentTab)
-                {
-                    UpdateSessionToolbar();
-                }
-            };
+            web.Changed += (_, _) => RefreshSessionBar(tab);
         }
 
         tab.StateChanged += (_, _) =>
@@ -2790,10 +2854,7 @@ public partial class MainWindow : Window
                 BeginReconnect(tab);
             }
 
-            if (tab == _currentTab)
-            {
-                UpdateSessionToolbar();
-            }
+            RefreshSessionBar(tab);
         };
         return tab;
     }
@@ -2886,15 +2947,30 @@ public partial class MainWindow : Window
 
         bool current = old == _currentTab;
         _tabs[index] = tab;
-        _tabStrip.Children[_tabStrip.Children.IndexOf(old.Header)] = tab.Header;
-        _sessionHost.Children[_sessionHost.Children.IndexOf(old.Host)] = tab.Host;
-        if (current)
+        if (old.Popout is { } popout)
         {
-            SelectTab(tab);
+            // A popped-out session reconnects in its own window.
+            old.Popout = null;
+            tab.Popout = popout;
+            popout.Hold(tab);
+            UpdatePopoutBar(popout);
+            if (popout.IsActive)
+            {
+                Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
+            }
         }
         else
         {
-            tab.IsSelected = false;
+            _tabStrip.Children[_tabStrip.Children.IndexOf(old.Header)] = tab.Header;
+            _sessionHost.Children[_sessionHost.Children.IndexOf(old.Host)] = tab.Host;
+            if (current)
+            {
+                SelectTab(tab);
+            }
+            else
+            {
+                tab.IsSelected = false;
+            }
         }
 
         UpdateSessionChrome();
@@ -2911,7 +2987,8 @@ public partial class MainWindow : Window
             ShowRecordingsHost(false);
         }
 
-        foreach (var each in _tabs)
+        // A popped-out session is showing in its own window, whichever tab is current here.
+        foreach (var each in StripTabs())
         {
             each.IsSelected = each == tab;
         }
@@ -2938,18 +3015,28 @@ public partial class MainWindow : Window
             tab.EndedByUser = true;
             tab.CancelReconnect();
             tab.Recorder?.Stop();
-            int index = _tabs.IndexOf(tab);
+            int index = StripTabs().IndexOf(tab);
             _tabs.Remove(tab);
-            _tabStrip.Children.Remove(tab.Header);
-            _sessionHost.Children.Remove(tab.Host);
-            if (_tabs.Count == 0)
+            if (tab.Popout is { } popout)
+            {
+                tab.Popout = null;
+                popout.Release();
+            }
+            else
+            {
+                _tabStrip.Children.Remove(tab.Header);
+                _sessionHost.Children.Remove(tab.Host);
+            }
+
+            var strip = StripTabs();
+            if (strip.Count == 0)
             {
                 ExitFullScreen();
             }
 
             if (tab == _currentTab)
             {
-                SelectTab(_tabs.Count == 0 ? null : _tabs[Math.Min(index, _tabs.Count - 1)], chosen: false);
+                SelectTab(strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)], chosen: false);
             }
 
             UpdateSessionChrome();
@@ -2999,59 +3086,74 @@ public partial class MainWindow : Window
     /// The lock before the address: closed and green only while an encrypted session is connected, open in amber for
     /// one that isn't encrypted, and not there for a local one.
     /// </summary>
-    void ShowLock(SessionTab tab)
+    void ShowLock(SessionTab tab, Controls.StrokeIcon lockIcon)
     {
         bool? encrypted = Encrypted(tab);
-        _sessionLock.IsVisible = encrypted is not null;
-        _sessionLock.Data = Geometry.Parse(encrypted == false ? OpenLock : ClosedLock);
+        lockIcon.IsVisible = encrypted is not null;
+        lockIcon.Data = Geometry.Parse(encrypted == false ? OpenLock : ClosedLock);
         // A page that didn't load, such as one whose certificate isn't trusted, isn't shown as connected.
         bool connected = tab.Session.State == SessionState.Connected && tab.View is not WebPageView { Failed: true };
-        _sessionLock.Foreground = encrypted == false ? Palette.Warning
+        lockIcon.Foreground = encrypted == false ? Palette.Warning
             : (IBrush?)this.FindResource(connected ? "OrreryConnected" : "OrreryMuted");
         string said = encrypted == false ? "Not encrypted" : "Encrypted";
-        ToolTip.SetTip(_sessionLock, said);
-        Avalonia.Automation.AutomationProperties.SetName(_sessionLock, said);
+        ToolTip.SetTip(lockIcon, said);
+        Avalonia.Automation.AutomationProperties.SetName(lockIcon, said);
     }
 
     /// <summary>The bar under the tabs: where the current session is connected, and what can be done with it.</summary>
     void UpdateSessionToolbar()
     {
         _sessionToolbar.IsVisible = _currentTab is not null && !_fullScreen;
-        _sessionActions.Children.Clear();
         _properties?.ShowSession(_currentTab);
-        if (_currentTab is not { } tab)
+        if (_currentTab is { } tab)
         {
-            return;
+            ShowSessionBar(tab, _sessionAddress, _sessionLock, _sessionDetail, _sessionActions);
         }
+        else
+        {
+            _sessionActions.Children.Clear();
+        }
+    }
 
+    /// <summary>
+    /// Fills a session's bar: the main window's under the tabs, or a popped-out session's above it. Where it's
+    /// connected, and what can be done with it.
+    /// </summary>
+    void ShowSessionBar(SessionTab tab, TextBlock address, Controls.StrokeIcon lockIcon, TextBlock detail, Panel actions)
+    {
+        actions.Children.Clear();
         var session = tab.Session;
         var state = session.State;
-        _sessionAddress.Text = tab.Address;
-        ShowLock(tab);
-        _sessionDetail.Text = DescribeSession(tab);
+        address.Text = tab.Address;
+        ShowLock(tab, lockIcon);
+        detail.Text = DescribeSession(tab);
+        var popOut = tab.Popout is null
+            ? ToolbarIcon(Controls.Icons.PopOut, $"Pop out into its own window ({Input.TabShortcuts.PopOutDescription(OperatingSystem.IsMacOS())})", () => PopOut(tab))
+            : ToolbarIcon(Controls.Icons.PopIn, $"Back to the tabs ({Input.TabShortcuts.PopOutDescription(OperatingSystem.IsMacOS())})", () => Rejoin(tab));
 
         // A web page has a browser's buttons and no connection to end: closing the tab is enough.
         if (tab.View is WebPageView web)
         {
-            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Back, "Back", web.GoBack, web.CanGoBack));
-            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Forward, "Forward", web.GoForward, web.CanGoForward));
-            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.Refresh, "Reload", web.Reload));
+            actions.Children.Add(ToolbarIcon(Controls.Icons.Back, "Back", web.GoBack, web.CanGoBack));
+            actions.Children.Add(ToolbarIcon(Controls.Icons.Forward, "Forward", web.GoForward, web.CanGoForward));
+            actions.Children.Add(ToolbarIcon(Controls.Icons.Refresh, "Reload", web.Reload));
             if (Recording.RecordingService.Recordable(web)
                 && Recording.RecordingControl.For(tab, async () => await StartRecordingAsync(tab), () => StopRecording(tab), () => ShowRecordings()) is { } webRecording)
             {
-                _sessionActions.Children.Add(webRecording);
+                actions.Children.Add(webRecording);
             }
 
-            _sessionActions.Children.Add(ToolbarIcon(Controls.Icons.External, "Open in the default browser", async () =>
+            actions.Children.Add(ToolbarIcon(Controls.Icons.External, "Open in the default browser", async () =>
             {
                 if (OpenInBrowser(web.Address) is { } problem)
                 {
-                    await Dialogs.ShowMessageAsync(this, "Couldn't open the browser", problem);
+                    await Dialogs.ShowMessageAsync(WindowOf(tab), "Couldn't open the browser", problem);
                 }
             }));
+            actions.Children.Add(popOut);
             Button webMore = null!;
             webMore = ToolbarIcon(Controls.Icons.More, "More options", () => Controls.PopupMenu.ShowAt(webMore, SessionMenu(tab), PlacementMode.BottomEdgeAlignedRight));
-            _sessionActions.Children.Add(webMore);
+            actions.Children.Add(webMore);
             return;
         }
 
@@ -3059,7 +3161,7 @@ public partial class MainWindow : Window
         if ((state == SessionState.Connected || tab.IsRecording) && tab.View is TerminalView or RemoteFrameView
             && Recording.RecordingControl.For(tab, async () => await StartRecordingAsync(tab), () => StopRecording(tab), () => ShowRecordings()) is { } recording)
         {
-            _sessionActions.Children.Add(recording);
+            actions.Children.Add(recording);
         }
 
         if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
@@ -3071,7 +3173,7 @@ public partial class MainWindow : Window
                 desktop.SendKeys(RemoteKeyCombo.CtrlAltDel);
                 desktop.Focus();
             };
-            _sessionActions.Children.Add(ctrlAltDel);
+            actions.Children.Add(ctrlAltDel);
         }
 
         if (state == SessionState.Connected)
@@ -3079,11 +3181,16 @@ public partial class MainWindow : Window
             var fullScreen = new Button { Content = Controls.StrokeIcon.Create(Controls.Icons.FullScreen, 15) };
             fullScreen.Classes.Add("icon");
             fullScreen.Classes.Add("small");
-            ToolTip.SetTip(fullScreen, $"Full screen ({Input.FullScreenShortcut.Describe(_fullScreenShortcut)})");
-            Avalonia.Automation.AutomationProperties.SetName(fullScreen, "Full screen");
-            fullScreen.Click += (_, _) => EnterFullScreen();
-            _sessionActions.Children.Add(fullScreen);
+            // A popped-out session's bar shows over it in full screen too, so there it's the way out.
+            bool leaves = tab.Popout is { IsFullScreen: true };
+            string label = leaves ? "Exit full screen" : "Full screen";
+            ToolTip.SetTip(fullScreen, $"{label} ({Input.FullScreenShortcut.Describe(_fullScreenShortcut)})");
+            Avalonia.Automation.AutomationProperties.SetName(fullScreen, label);
+            fullScreen.Click += (_, _) => ToggleFullScreen(tab);
+            actions.Children.Add(fullScreen);
         }
+
+        actions.Children.Add(popOut);
 
         var more = new Button { Content = Controls.StrokeIcon.Create(Controls.Icons.More, 16) };
         more.Classes.Add("icon");
@@ -3091,7 +3198,7 @@ public partial class MainWindow : Window
         ToolTip.SetTip(more, "More options");
         Avalonia.Automation.AutomationProperties.SetName(more, "More options");
         more.Click += (_, _) => Controls.PopupMenu.ShowAt(more, SessionMenu(tab), PlacementMode.BottomEdgeAlignedRight);
-        _sessionActions.Children.Add(more);
+        actions.Children.Add(more);
 
         if (state is SessionState.Connecting or SessionState.Connected)
         {
@@ -3102,14 +3209,14 @@ public partial class MainWindow : Window
                 tab.EndedByUser = true;
                 await session.DisconnectAsync();
             };
-            _sessionActions.Children.Add(disconnect);
+            actions.Children.Add(disconnect);
         }
         else
         {
             var reconnect = new Button { Content = tab.Origin.Local ? "Restart" : "Reconnect" };
             reconnect.Classes.Add("accent");
             reconnect.Click += async (_, _) => await ReconnectAsync(tab);
-            _sessionActions.Children.Add(reconnect);
+            actions.Children.Add(reconnect);
         }
     }
 
@@ -3120,7 +3227,7 @@ public partial class MainWindow : Window
     void CoverWebPages()
     {
         bool covered = SessionsCovered;
-        foreach (var web in _tabs.Select(t => t.View).OfType<WebPageView>())
+        foreach (var web in StripTabs().Select(t => t.View).OfType<WebPageView>())
         {
             web.Covered = covered;
         }
@@ -3160,7 +3267,7 @@ public partial class MainWindow : Window
             var viewOnly = MenuItemFor("View only", () =>
             {
                 desktop.ViewOnly = !desktop.ViewOnly;
-                UpdateSessionToolbar();
+                RefreshSessionBar(tab);
             });
             viewOnly.ToggleType = MenuItemToggleType.CheckBox;
             viewOnly.IsChecked = desktop.ViewOnly;
@@ -3219,29 +3326,31 @@ public partial class MainWindow : Window
             menu.Items.Add(MenuItemFor("Close", async () => await CloseTabAsync(tab.Session)));
             menu.Items.Add(MenuItemFor("Close other tabs", async () =>
             {
-                foreach (var other in _tabs.Where(t => t != tab).ToList())
+                foreach (var other in StripTabs().Where(t => t != tab).ToList())
                 {
                     await CloseTabAsync(other.Session);
                 }
-            }, enabled: _tabs.Count > 1));
+            }, enabled: StripTabs().Count > 1));
         };
         return menu;
     }
 
-    /// <summary>What applies to any session: fill the screen, open it again alongside, or start it over.</summary>
+    /// <summary>
+    /// What applies to any session: fill the screen, pop it out or put it back, open it again alongside, or start it over.
+    /// </summary>
     IEnumerable<Control> TabActions(SessionTab tab)
     {
-        yield return MenuItemFor("Full screen", () =>
-        {
-            SelectTab(tab);
-            EnterFullScreen();
-        }, Input.FullScreenShortcut.Format(_fullScreenShortcut), tab.Session.State == SessionState.Connected);
+        bool mac = OperatingSystem.IsMacOS();
+        yield return MenuItemFor(tab.Popout is { IsFullScreen: true } ? "Exit full screen" : "Full screen", () => ToggleFullScreen(tab),
+            Input.FullScreenShortcut.Format(_fullScreenShortcut), tab.Session.State == SessionState.Connected);
 
         if (Screens.All.Count > 1)
         {
-            var current = Screens.ScreenFromWindow(this);
+            var current = Screens.ScreenFromWindow(WindowOf(tab));
             var on = MenuItemFor("Full screen on", null, enabled: tab.Session.State == SessionState.Connected);
-            if (tab.View is RemoteFrameView && OperatingSystem.IsWindows())
+
+            // Spreading over displays takes the main window's own full screen.
+            if (tab.View is RemoteFrameView && OperatingSystem.IsWindows() && tab.Popout is null)
             {
                 on.Items.Add(MenuItemFor("Every display", () =>
                 {
@@ -3256,15 +3365,15 @@ public partial class MainWindow : Window
                 var label = $"Display {i + 1}  ({screen.Bounds.Width}×{screen.Bounds.Height})"
                     + (screen.IsPrimary ? " · main" : string.Empty)
                     + (Equals(screen.Bounds, current?.Bounds) ? " · this window" : string.Empty);
-                on.Items.Add(MenuItemFor(label, () =>
-                {
-                    SelectTab(tab);
-                    EnterFullScreen(screen);
-                }));
+                on.Items.Add(MenuItemFor(label, () => ToggleFullScreen(tab, screen)));
             }
 
             yield return on;
         }
+
+        yield return tab.Popout is null
+            ? MenuItemFor("Pop out", () => PopOut(tab), Input.TabShortcuts.PopOutDescription(mac))
+            : MenuItemFor("Back to tabs", () => Rejoin(tab), Input.TabShortcuts.PopOutDescription(mac));
 
         if (tab.Origin is { Protocol: Protocol.Ssh, EntryId: { } id } && _tree.Find(id) is ConnectionEntry entry)
         {
@@ -3317,7 +3426,7 @@ public partial class MainWindow : Window
 
         if (_settingsStore.Load().RecordingNoteShown != true)
         {
-            if (!await Dialogs.ConfirmAsync(this, "Recording sessions", Recording.RecordingsPanel.Note, "Record"))
+            if (!await Dialogs.ConfirmAsync(WindowOf(tab), "Recording sessions", Recording.RecordingsPanel.Note, "Record"))
             {
                 return;
             }
@@ -3325,10 +3434,11 @@ public partial class MainWindow : Window
             _settingsStore.Save(_settingsStore.Load() with { RecordingNoteShown = true });
         }
 
-        var (recorder, problem) = await _recordings.StartAsync(tab, this);
+        // Asked over the window the session is in, its own if it's popped out.
+        var (recorder, problem) = await _recordings.StartAsync(tab, WindowOf(tab));
         if (recorder is null)
         {
-            ShowNotice($"{tab.Origin.Title}: {problem}");
+            ShowNotice(tab, $"{tab.Origin.Title}: {problem}");
             return;
         }
 
@@ -3345,7 +3455,7 @@ public partial class MainWindow : Window
     void StopRecording(SessionTab tab)
     {
         tab.Recorder?.Stop();
-        ShowNotice($"Stopped recording {tab.Origin.Title}");
+        ShowNotice(tab, $"Stopped recording {tab.Origin.Title}");
     }
 
     /// <summary>Shows or hides the Recordings section's main area. Hiding it pauses the player, so coming back carries on.</summary>
@@ -3393,7 +3503,8 @@ public partial class MainWindow : Window
 
     async Task SaveScreenshotAsync(SessionTab tab, RemoteFrameView desktop)
     {
-        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        var owner = WindowOf(tab);
+        var file = await owner.StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
         {
             Title = "Save screenshot",
             SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.png",
@@ -3412,13 +3523,14 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            await Dialogs.ShowMessageAsync(this, "Couldn't save the screenshot", e.Message);
+            await Dialogs.ShowMessageAsync(owner, "Couldn't save the screenshot", e.Message);
         }
     }
 
     async Task SavePdfAsync(SessionTab tab, WebPageView page)
     {
-        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        var owner = WindowOf(tab);
+        var file = await owner.StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
         {
             Title = "Save page as PDF",
             SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.pdf",
@@ -3438,13 +3550,14 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException or InvalidOperationException)
         {
-            await Dialogs.ShowMessageAsync(this, "Couldn't save the page", e.Message);
+            await Dialogs.ShowMessageAsync(owner, "Couldn't save the page", e.Message);
         }
     }
 
     async Task SaveOutputAsync(SessionTab tab, TerminalView terminal)
     {
-        var file = await StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        var owner = WindowOf(tab);
+        var file = await owner.StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
         {
             Title = "Save session output",
             SuggestedFileName = $"{SafeFileName(tab.Origin.Title)} {DateTime.Now:yyyy-MM-dd HHmmss}.txt",
@@ -3464,7 +3577,7 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            await Dialogs.ShowMessageAsync(this, "Couldn't save the output", e.Message);
+            await Dialogs.ShowMessageAsync(owner, "Couldn't save the output", e.Message);
         }
     }
 
@@ -3491,7 +3604,9 @@ public partial class MainWindow : Window
 
     void UpdateSessionChrome()
     {
-        _emptyState.IsVisible = _tabs.Count == 0;
+        _emptyState.IsVisible = StripTabs().Count == 0;
+        _emptyStateTitle.Text = _tabs.Count == 0 ? "No open sessions"
+            : _tabs.Count == 1 ? "The open session is in its own window" : "The open sessions are in their own windows";
         _sessionCount.Text = _tabs.Count switch { 0 => "No sessions open", 1 => "1 session open", var n => $"{n} sessions open" };
         UpdateTreeStatus();
     }
