@@ -322,6 +322,10 @@
             CornerRadius="0,0,10,10" Padding="14,6,8,6">
       <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock x:Name="FullScreenTitle" VerticalAlignment="Center" FontWeight="SemiBold" />
+        <StackPanel x:Name="FullScreenRecording" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="False">
+          <Ellipse Width="8" Height="8" Fill="#E5484D" VerticalAlignment="Center" />
+          <TextBlock Text="Recording" VerticalAlignment="Center" FontSize="12" Foreground="#E5484D" />
+        </StackPanel>
         <TextBlock x:Name="FullScreenHint" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
         <Button Content="Exit full screen" Click="OnExitFullScreenClick" />
       </StackPanel>

@@ -171,6 +171,18 @@ public class WorkspaceWindowTests : IDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    sealed class ConnectedTerminal(string host) : ITerminalSession
+    {
+        public ConnectionTarget Target { get; } = new(host, 22, "someone", null);
+        public SessionState State => SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public event Action<byte[]>? DataReceived { add { } remove { } }
+        public void Send(ReadOnlySpan<byte> data) { }
+        public void Resize(int columns, int rows) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     sealed class StateSession(string host, SessionState state) : IConnectionSession
     {
         public ConnectionTarget Target { get; } = new(host, 22, "someone", null);
@@ -470,6 +482,54 @@ public class WorkspaceWindowTests : IDisposable
             bar.IsVisible = true;
             Move(24, 310);
             Assert.False(bar.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task The_full_screen_bar_says_when_the_session_is_recording()
+    {
+        var settings = AppSettingsStore.In(_location);
+        settings.Save(settings.Load() with { RecordingNoteShown = true });
+        var window = NewWindow();
+        try
+        {
+            window.Width = 1200;
+            window.Height = 800;
+            window.Show();
+            var vault = Assert.IsType<VaultFileStore>(VaultAutoLockTests.Private<ICredentialStore>(window, "_credentials"));
+            await vault.UnlockAsync("correct horse battery staple");
+            var session = new ConnectedTerminal(_saved.Host);
+            typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window,
+                [new Sessions.TerminalView(session), session, new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask)]);
+            Dispatcher.UIThread.RunJobs();
+            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, null]);
+            Dispatcher.UIThread.RunJobs();
+            var bar = window.FindControl<Border>("FullScreenBar")!;
+            var mark = window.FindControl<StackPanel>("FullScreenRecording")!;
+
+            window.MouseMove(new Avalonia.Point(20, 300));
+            window.MouseMove(new Avalonia.Point(20, 2));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(bar.IsVisible);
+            Assert.False(mark.IsVisible);
+
+            // Starting and stopping while the bar is showing changes it there and then.
+            var tab = VaultAutoLockTests.Private<SessionTab>(window, "_currentTab");
+            await (Task)typeof(MainWindow).GetMethod("StartRecordingAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [tab])!;
+            Assert.True(tab.IsRecording);
+            Assert.True(mark.IsVisible);
+            Assert.EndsWith(", recording", Avalonia.Automation.AutomationProperties.GetName(bar));
+
+            var recorder = tab.Recorder!;
+            recorder.Stop();
+            await recorder.Completion;
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(mark.IsVisible);
+            Assert.DoesNotContain("recording", Avalonia.Automation.AutomationProperties.GetName(bar));
         }
         finally
         {
