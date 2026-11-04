@@ -129,17 +129,24 @@ from them (see Releasing below); nothing else is published.
 
 ## Releasing
 
-Orrery checks GitHub's releases for updates, so a release has to look the way it expects:
+Orrery checks GitHub's releases for updates, so a release has to look the way it expects.
 
-1. Set `<Version>` in `Directory.Build.props` to the release's version (`0.2.0`) and commit it.
+Between releases, `<Version>` in `Directory.Build.props` is the next planned version with `-dev` (`0.2.0-dev`), so
+anything built from `dev` reports a version of its own, older than that version's previews and the release itself:
+Orrery sorts `0.2.0-dev` < `0.2.0-preview.1` < `0.2.0`, and a dev build is offered both. If the plan changes (0.2.0
+becomes 0.3.0), change `<Version>` before tagging a preview of it.
+
+1. Set `<Version>` to the release's version (`0.2.0`), along with the version badge and line at the top of the
+   README, and commit it.
 2. Tag that commit `v<version>` and push the tag: `git tag v0.2.0` then `git push origin v0.2.0`.
 3. When the run finishes, its release job has made a **draft** release for the tag: every package, a `SHA256SUMS`
    listing their SHA-256s, notes generated from the commits since the last release, and GitHub artifact attestations
    for each package (`gh attestation verify <file> --repo InspireNXE/Orrery` checks one).
 4. Look the draft over on GitHub (Releases), edit the notes, and publish it. Orrery never sees drafts.
+5. Set `<Version>` on `dev` to the next version with `-dev` (`0.2.1-dev`, or `0.3.0-dev`) and commit it.
 
 **Previews.** A preview is a tag with a suffix on `<Version>`'s numbers, on whatever commit should go out:
-`git tag v0.2.0-preview.1` then `git push origin v0.2.0-preview.1` while `<Version>` is `0.2.0` (or `0.2.0-dev`, or
+`git tag v0.2.0-preview.1` then `git push origin v0.2.0-preview.1` while `<Version>` is `0.2.0-dev` (or `0.2.0`, or
 `0.2.0-preview.1` itself). Every package is built as the tag's version, so a preview needs no commit of its own, and
 `0.2.0-preview.1` < `0.2.0-preview.2` < `0.2.0`. The release job marks it a pre-release, and steps 3 and 4 are the
 same. Orrery offers a pre-release to copies that turned previews on (Settings › About › Updates, or the setup), and to

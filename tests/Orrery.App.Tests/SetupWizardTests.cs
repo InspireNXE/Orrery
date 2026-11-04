@@ -244,7 +244,7 @@ public class SetupWizardTests : IDisposable
             ("Passwords", Keychain),
             ("Import", "mRemoteNG, SSH config"),
             ("Updates", "Checked daily; ask me"),
-            ("Previews", "Off"),
+            ("Previews", new AppSettings().OffersPreviewUpdates ? "On" : "Off"),
             ("Host status", "Shown"),
             ("Web pages", "In a tab"),
         ], window.Summary());
