@@ -53,7 +53,7 @@ public static class ConnectionExporter
     /// <summary>Marks an Orrery export file, so it isn't mistaken for connections.json or anything else.</summary>
     internal const string OrreryFormatName = "orrery-connections";
     /// <summary>The newest schema the importer reads. Files are written with the oldest that holds them, as connections.json is.</summary>
-    internal const int OrrerySchemaVersion = 4;
+    internal const int OrrerySchemaVersion = 5;
 
     public static ExportFormat? FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {

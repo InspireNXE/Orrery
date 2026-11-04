@@ -209,7 +209,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
   host, with Cancel focused; the editor ticks it for commands that look like they delete, stop or overwrite something, such as
   `rm -rf` or `systemctl stop`. *Confirm every command* asks before all of them, for a connection or a whole
-  folder. Nothing is sent on connect. Imported commands are listed in the import preview, unticked.
+  folder. A command marked *Send it by itself each time a saved connection connects* is typed once the terminal
+  connects, reconnects included: the defaults' first, then each folder's inwards, then the connection's own. Local
+  shells and quick connects never send anything by themselves. Imported commands are listed in the import preview,
+  unticked, and none of them sends itself until you turn that on.
 
 <p align="center">
   <img src="docs/images/side-by-side.png" width="720"

@@ -124,11 +124,43 @@ public class SavedCommandTests
     }
 
     [Fact]
+    public void A_command_sent_when_connected_needs_schema_5_so_a_build_that_would_drop_it_refuses_the_file()
+    {
+        var (tree, prod, _) = Sample();
+        prod.Commands![1].WhenConnected = true;
+        Assert.Equal(5, ConnectionStore.SchemaFor(tree.Root));
+
+        prod.Commands[1].WhenConnected = false;
+        Assert.Equal(4, ConnectionStore.SchemaFor(tree.Root));
+    }
+
+    [Fact]
+    public void When_connected_the_defaults_go_first_then_each_folder_inwards_then_the_connections_own()
+    {
+        var (tree, prod, web) = Sample();
+        tree.Root.Commands = [new SavedCommand { Name = "Prompt", Text = "export PS1='> '", WhenConnected = true }];
+        prod.Commands![1].WhenConnected = true;
+        web.Commands =
+        [
+            new SavedCommand { Name = "Into app", Text = "cd /srv/app", WhenConnected = true },
+            new SavedCommand { Name = "By hand", Text = "htop" },
+            new SavedCommand { Name = "Attach", Text = "tmux attach", WhenConnected = true },
+        ];
+
+        Assert.Equal(["Prompt", "Uptime", "Into app", "Attach"], SavedCommands.WhenConnected(web).Select(c => c.Command.Name));
+
+        // A nearer command of the same name hides the folder's, and isn't sent unless it says so itself.
+        web.Commands.Add(new SavedCommand { Name = "uptime", Text = "uptime -p" });
+        Assert.Equal(["Prompt", "Into app", "Attach"], SavedCommands.WhenConnected(web).Select(c => c.Command.Name));
+    }
+
+    [Fact]
     public void Commands_survive_saving_and_loading()
     {
         var (tree, prod, _) = Sample();
         prod.Commands![0].Confirm = true;
         prod.Commands[0].PressEnter = false;
+        prod.Commands[0].WhenConnected = true;
         var folder = Path.Combine(Path.GetTempPath(), "orrery-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try
@@ -138,7 +170,7 @@ public class SavedCommandTests
             var loaded = store.Load().Root.Descendants().OfType<ConnectionFolder>().Single(f => f.Name == "Prod");
 
             var command = loaded.Commands![0];
-            Assert.Equal(("Tail log", "tail -f /var/log/app.log", false, true), (command.Name, command.Text, command.PressEnter, command.Confirm));
+            Assert.Equal(("Tail log", "tail -f /var/log/app.log", false, true, true), (command.Name, command.Text, command.PressEnter, command.Confirm, command.WhenConnected));
         }
         finally
         {
@@ -171,6 +203,20 @@ public class SavedCommandTests
 
         ImportReview.DropCommands(result.Root);
         Assert.Empty(ImportReview.Commands(result.Root));
+    }
+
+    [Fact]
+    public void An_imported_command_never_runs_when_connected_until_turned_on_here()
+    {
+        var (tree, prod, _) = Sample();
+        prod.Commands![0].WhenConnected = true;
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, new Dictionary<Guid, CredentialSummary>(), Now);
+        var result = OrreryImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "export.json");
+
+        var tail = ImportReview.Commands(result.Root).Single(c => c.Command.Name == "Tail log").Command;
+        Assert.False(tail.WhenConnected);
+        Assert.Contains(result.Report.Warnings, w => w.Contains("\"Tail log\"") && w.Contains("when connected"));
     }
 
     [Fact]

@@ -1317,6 +1317,7 @@ sealed class PropertiesPanel : UserControl
     {
         var title = new TextBlock { Text = command.Name, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         var marks = new List<string>();
+        if (command.WhenConnected) marks.Add("when connected");
         if (command.Confirm) marks.Add("asks first");
         if (!command.PressEnter) marks.Add("no Enter");
         if (from is not null) marks.Add(from.Parent is null ? "from the defaults" : $"from {from.Name}");

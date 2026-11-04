@@ -95,6 +95,9 @@ sealed class SavedCommandWindow : Window
     };
     readonly CheckBox _pressEnter = new() { Content = "Press Enter after it, so it runs", IsChecked = true };
     readonly CheckBox _confirm = new() { Content = "Ask before sending it" };
+
+    // Saved connections only: a local shell or a quick connect never sends anything by itself.
+    readonly CheckBox _whenConnected = new() { Content = "Send it by itself each time a saved connection connects" };
     readonly TextBlock _hint = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly TextBlock _error = new() { FontSize = 12, Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     bool _confirmTouched, _settingConfirm;
@@ -143,6 +146,7 @@ sealed class SavedCommandWindow : Window
             _text.Text = command.Text;
             _pressEnter.IsChecked = command.PressEnter;
             _confirm.IsChecked = command.Confirm;
+            _whenConnected.IsChecked = command.WhenConnected;
             _confirmTouched = true;
         }
 
@@ -176,6 +180,7 @@ sealed class SavedCommandWindow : Window
                 },
                 _pressEnter,
                 _confirm,
+                _whenConnected,
                 _hint,
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, save } },
@@ -199,6 +204,7 @@ sealed class SavedCommandWindow : Window
     internal TextBox TextBox => _text;
     internal CheckBox ConfirmBox => _confirm;
     internal CheckBox PressEnterBox => _pressEnter;
+    internal CheckBox WhenConnectedBox => _whenConnected;
 
     void NoteDestructive()
     {
@@ -231,7 +237,14 @@ sealed class SavedCommandWindow : Window
         }
 
         var name = string.IsNullOrWhiteSpace(_name.Text) ? FirstWords(text) : _name.Text.Trim();
-        Close(new SavedCommand { Name = name, Text = text, PressEnter = _pressEnter.IsChecked == true, Confirm = _confirm.IsChecked == true });
+        Close(new SavedCommand
+        {
+            Name = name,
+            Text = text,
+            PressEnter = _pressEnter.IsChecked == true,
+            Confirm = _confirm.IsChecked == true,
+            WhenConnected = _whenConnected.IsChecked == true,
+        });
     }
 
     void ShowError(string message)

@@ -180,6 +180,26 @@ public class WorkspaceWindowTests : IDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>A terminal that's connecting until the test says it's connected, keeping what's typed into it.</summary>
+    sealed class ConnectingTerminal(string host) : ITerminalSession
+    {
+        public ConnectionTarget Target { get; } = new(host, 22, "someone", null);
+        public SessionState State { get; private set; } = SessionState.Connecting;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+        public event Action<byte[]>? DataReceived { add { } remove { } }
+        public readonly System.Text.StringBuilder Sent = new();
+        public void Send(ReadOnlySpan<byte> data) => Sent.Append(System.Text.Encoding.UTF8.GetString(data));
+        public void Resize(int columns, int rows) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Connect()
+        {
+            State = SessionState.Connected;
+            StateChanged?.Invoke(this, new SessionStateChangedEventArgs(State, null));
+        }
+    }
+
     public WorkspaceWindowTests()
     {
         _location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
@@ -400,6 +420,71 @@ public class WorkspaceWindowTests : IDisposable
         Assert.Equal(1, workspace.Active);
     }
 
+
+    [AvaloniaFact]
+    public async Task A_saved_connection_sends_its_when_connected_commands_once_connected_folders_first()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var saved = (ConnectionEntry)tree.Find(_saved.Id)!;
+            tree.Root.Commands = [new SavedCommand { Name = "Root first", Text = "echo root", WhenConnected = true }];
+            saved.Commands =
+            [
+                new SavedCommand { Name = "By hand", Text = "uptime" },
+                new SavedCommand { Name = "Into app", Text = "cd /srv/app", WhenConnected = true },
+                new SavedCommand { Name = "Typed only", Text = "tmux attach", WhenConnected = true, PressEnter = false },
+            ];
+
+            var session = new ConnectingTerminal(_saved.Host);
+            var origin = new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask);
+            typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [new Sessions.TerminalView(session), session, origin]);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(string.Empty, session.Sent.ToString());
+
+            session.Connect();
+            await Until(() => session.Sent.Length > 0);
+            Assert.Equal("echo root\rcd /srv/app\rtmux attach", session.Sent.ToString());
+
+            // Once per tab: a later change of state doesn't send them again.
+            session.Connect();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("echo root\rcd /srv/app\rtmux attach", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_quick_connect_terminal_sends_nothing_by_itself()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            VaultAutoLockTests.Private<ConnectionTree>(window, "_tree").Root.Commands = [new SavedCommand { Name = "Root", Text = "sudo -i", WhenConnected = true }];
+            var session = new ConnectingTerminal("typed.example");
+            var origin = new SessionOrigin("typed.example", Protocol.Ssh, null, () => Task.CompletedTask);
+            typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [new Sessions.TerminalView(session), session, origin]);
+
+            session.Connect();
+            for (int i = 0; i < 10; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10);
+            }
+
+            Assert.Equal(string.Empty, session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 
     [AvaloniaFact]
     public async Task The_offer_hides_while_a_session_is_full_screen_and_comes_back_after()
