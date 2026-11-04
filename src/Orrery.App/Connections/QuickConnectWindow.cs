@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -166,6 +167,11 @@ sealed class QuickConnectWindow : Window
     readonly LiveText _spoken = new("Orrery.QuickConnect", ScreenReader.MostRecent);
     int _selected = -1;
     bool _closing;
+
+    // Where the pointer last was, and whether it has moved since the box opened: a pointer that happens to rest where
+    // the box opens, or where a row lands as the results change, doesn't take the highlight from the top result.
+    Point? _pointer;
+    bool _pointerMoved;
     QuickConnectChoice? _choice;
 
     public QuickConnectWindow(ConnectionTree tree, IReadOnlyList<OpenSession>? sessions = null, IReadOnlyList<PaletteCommand>? commands = null)
@@ -247,6 +253,13 @@ sealed class QuickConnectWindow : Window
             PlaceOverOwner();
             _query.Focus();
         };
+
+        AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            var at = e.GetPosition(this);
+            _pointerMoved |= _pointer is { } last && last != at;
+            _pointer = at;
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         // Like a menu: clicking anywhere else dismisses it. Closed once the click has finished activating the window
         // it landed on: closing in the middle of that handover leaves Windows to activate another app instead, which
@@ -519,7 +532,13 @@ sealed class QuickConnectWindow : Window
 
         var item = new Item(row, hintText, choice, $"{spoken}. {spokenHint ?? hint}");
         int index = _items.Count;
-        row.PointerEntered += (_, _) => Select(index, speak: false);
+        row.PointerMoved += (_, _) =>
+        {
+            if (_pointerMoved && _selected != index)
+            {
+                Select(index, speak: false);
+            }
+        };
         row.PointerPressed += (_, e) =>
         {
             e.Handled = true;
