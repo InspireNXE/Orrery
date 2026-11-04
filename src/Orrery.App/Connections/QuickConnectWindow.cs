@@ -430,9 +430,11 @@ sealed class QuickConnectWindow : Window
 
     void AddCommand(PaletteCommand command) =>
         AddItem(CommandRow(command), new QuickConnectChoice(null, null, 0) { Command = command },
-            command.AltHint is { } alt ? $"Run · Shift+Enter {alt}" : "Run",
+            command.AltHint is { } alt ? $"Run  ↵   ·   {alt}  Shift+↵" : "Run  ↵",
             string.Join(", ", new[] { command.Title, command.Detail, command.Group, command.Shortcut, command.AltHint is { } hint ? $"Shift+Enter to {hint}" : null }
-                .Where(s => !string.IsNullOrEmpty(s))));
+                .Where(s => !string.IsNullOrEmpty(s))),
+            tall: command.Detail is { Length: > 0 },
+            spokenHint: command.AltHint is { } said ? $"Run, or Shift+Enter to {said}" : "Run");
 
     static string DirectText(QuickConnectChoice choice) => $"{DirectVerb(choice)}{DirectAddress(choice)}";
 
@@ -483,15 +485,26 @@ sealed class QuickConnectWindow : Window
         Margin = new Thickness(10, _list.Children.Count == 0 ? 6 : 10, 10, 4),
     });
 
+    /// <param name="hint">What Enter does, shown on the highlighted row; ↵ is added unless the hint names its keys itself.</param>
     /// <param name="spoken">The row in words, for a screen reader.</param>
-    void AddItem(Control content, QuickConnectChoice choice, string hint, string spoken)
+    /// <param name="tall">Two lines, such as a saved command's name over its text.</param>
+    /// <param name="spokenHint">The hint in words, where it's keys on screen.</param>
+    void AddItem(Control content, QuickConnectChoice choice, string hint, string spoken, bool tall = false, string? spokenHint = null)
     {
-        var hintText = new TextBlock { Text = $"{hint}  ↵", FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+        var hintText = new TextBlock
+        {
+            Text = hint.Contains('↵') ? hint : $"{hint}  ↵",
+            FontSize = 12,
+            Foreground = Dialogs.MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            IsVisible = false,
+        };
         // The shared row from App.axaml: the selected fill and marker on the highlighted result.
         var row = new Border
         {
             Classes = { "row" },
-            Height = 40,
+            Height = tall ? 50 : 40,
             Cursor = new Cursor(StandardCursorType.Hand),
             Child = new Panel
             {
@@ -503,7 +516,7 @@ sealed class QuickConnectWindow : Window
             },
         };
 
-        var item = new Item(row, hintText, choice, $"{spoken}. {hint}");
+        var item = new Item(row, hintText, choice, $"{spoken}. {spokenHint ?? hint}");
         int index = _items.Count;
         row.PointerEntered += (_, _) => Select(index, speak: false);
         row.PointerPressed += (_, e) =>
@@ -615,7 +628,7 @@ sealed class QuickConnectWindow : Window
                     Text = detail.ReplaceLineEndings(" ⏎ "),
                     FontFamily = Dialogs.MonoFont,
                     FontSize = 12,
-                    Foreground = SoftBrush,
+                    Foreground = Dialogs.MutedBrush,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     MaxWidth = 460,
                     Margin = new Thickness(26, 0, 0, 0),

@@ -21,7 +21,7 @@ sealed record PaletteCommand(string Title, string Group, Func<Task> Run, string?
     /// <summary>What Shift+Enter does instead, such as typing a saved command without pressing Enter. Null for nothing.</summary>
     public Func<Task>? AltRun { get; init; }
 
-    /// <summary>What the row's hint says Shift+Enter does, when there's <see cref="AltRun"/>.</summary>
+    /// <summary>What the row's hint says Shift+Enter does, when there's <see cref="AltRun"/>: a couple of words, such as "type only".</summary>
     public string? AltHint { get; init; }
 
     /// <summary>Other words it's found by, such as "preferences" for Settings.</summary>

@@ -166,7 +166,7 @@ public class SavedCommandUiTests
         {
             Detail = "tail -f /var/log/app.log",
             AltRun = () => Task.CompletedTask,
-            AltHint = "types it without Enter",
+            AltHint = "type only",
         };
         var tree = ConnectionTree.Empty();
         var owner = new Window();
@@ -177,7 +177,10 @@ public class SavedCommandUiTests
         window.GetVisualDescendants().OfType<TextBox>().Single().Text = ">tail";
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Contains("tail -f /var/log/app.log", window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text));
+        var texts = window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
+        Assert.Contains("tail -f /var/log/app.log", texts);
+        // Keys, not a sentence, so the command's text keeps the room.
+        Assert.Contains("Run  ↵   ·   type only  Shift+↵", texts);
         window.KeyPress(Key.Enter, RawInputModifiers.Shift, PhysicalKey.Enter, null);
         Dispatcher.UIThread.RunJobs();
 
