@@ -216,7 +216,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   login password or a saved credential's, such as root's for `su -`. *Become root* in the editor fills in `sudo -i`
   answered with the login password. The password is typed once, only if a password prompt shows within a few seconds,
   never at a shell prompt and never again if it's refused; it isn't in the command, the scrollback or the logs, which
-  name the credential. Where you can, a NOPASSWD sudoers rule or a key for root is safer: it keeps no sudo password
+  name the credential. Only saved connections get one, never a local shell or a quick connect, and a chosen
+  credential's password is never typed from the defaults for all connections; on a folder, the editor warns that it
+  goes to every connection in it that asks. A command that asks first says which password it would type. Where you can, a NOPASSWD sudoers rule or a key for root is safer: it keeps no sudo password
   in Orrery. Imported commands are listed in the import preview, unticked, and none of them sends itself or types a
   password until you set that.
 

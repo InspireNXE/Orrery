@@ -1,4 +1,5 @@
 using System.Text;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -210,6 +211,60 @@ public class SavedCommandUiTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(await answer);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_prompt_says_which_password_a_command_types()
+    {
+        var prompt = new ConfirmCommandWindow("Become root", "sudo -i", "web-01", null, pressEnter: true,
+            password: "If it asks for a password, Orrery types web-01's login password.");
+        prompt.Show();
+
+        Assert.Contains(prompt.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text == "If it asks for a password, Orrery types web-01's login password.");
+        Assert.EndsWith("web-01's login password.", AutomationProperties.GetHelpText(prompt));
+        prompt.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_chosen_credentials_password_warns_on_a_folder_and_isnt_saved_on_the_defaults()
+    {
+        var tree = ConnectionTree.Empty();
+        var prod = new ConnectionFolder { Name = "Production" };
+        var web = new ConnectionEntry { Name = "web-01", Host = "web-01.example" };
+        tree.Add(prod, tree.Root);
+        tree.Add(web, prod);
+        var owner = new Window();
+        owner.Show();
+        var window = new SavedCommandWindow(null,
+            [new CommandPlace("web-01 only", web), new CommandPlace("Everything in Production", prod), new CommandPlace("Every connection", tree.Root)], new NoCredentials());
+        var result = window.ShowDialog<SavedCommand?>(owner);
+        Dispatcher.UIThread.RunJobs();
+        window.TextBox.Text = "su -";
+        window.PasswordChoice = CommandPassword.Credential;
+        Dispatcher.UIThread.RunJobs();
+
+        string? Warning() => window.GetVisualDescendants().OfType<TextBlock>()
+            .FirstOrDefault(t => t.IsVisible && (t.Text?.Contains("broken into") == true || t.Text?.Contains("defaults for all connections, which") == true))?.Text;
+
+        Assert.Null(Warning());
+        window.PlaceBox.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("every connection in Production", Warning());
+
+        window.PlaceBox.SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("isn't typed from the defaults", Warning());
+        window.Save();
+        Assert.True(window.IsVisible);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsVisible && t.Text?.StartsWith("Save it on a folder or a connection") == true);
+
+        // The login password is each connection's own, so it can go on the defaults.
+        window.PasswordChoice = CommandPassword.Login;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(Warning());
+        window.Save();
+        Assert.Equal(CommandPassword.Login, (await result)?.Password);
         owner.Close();
     }
 

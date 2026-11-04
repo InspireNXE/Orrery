@@ -125,7 +125,7 @@ public partial class MainWindow
         if (command.Confirm && pressEnter)
         {
             var owner = TopLevel.GetTopLevel(terminal) as Window ?? this;
-            if (!await new ConfirmCommandWindow(command.Command.Name, text, source.Name, source.Where, pressEnter).ShowDialog<bool>(owner))
+            if (!await new ConfirmCommandWindow(command.Command.Name, text, source.Name, source.Where, pressEnter, await PasswordLineAsync(command, source)).ShowDialog<bool>(owner))
             {
                 if (focus)
                 {
@@ -151,7 +151,42 @@ public partial class MainWindow
         }
 
         CommandLog.LogInformation("Sent the saved command \"{Command}\" to \"{Name}\"{Enter}", command.Command.Name, source.Name, pressEnter ? "" : " without Enter");
-        return !(pressEnter && command.Command.AnswersPassword) || await AnswerPasswordAsync(tab, terminal, command.Command, source, before);
+        if (!pressEnter || !command.Command.AnswersPassword)
+        {
+            return true;
+        }
+
+        // Sent, but any prompt is left to the user.
+        if (SavedCommands.WhyNoPassword(command, source.Entry) is { } why)
+        {
+            CommandLog.LogInformation("\"{Command}\" on \"{Name}\" won't type a password: {Why}", command.Command.Name, source.Name, why);
+            ShowNotice($"\"{command.Command.Name}\" won't type a password on {source.Name}: {why}. Type it yourself if it asks.");
+            return true;
+        }
+
+        return await AnswerPasswordAsync(tab, terminal, command.Command, source, before);
+    }
+
+    /// <summary>For the ask-first prompt: which password a command types if asked, or null when it types none here.</summary>
+    async Task<string?> PasswordLineAsync(ResolvedCommand command, CommandSource source)
+    {
+        if (SavedCommands.WhyNoPassword(command, source.Entry) is not null)
+        {
+            return null;
+        }
+
+        if (command.Command.Password == CommandPassword.Login)
+        {
+            return $"If it asks for a password, Orrery types {source.Name}'s login password.";
+        }
+
+        // The vault isn't unlocked just to name it: the prompt says which credential once it can.
+        var name = !_credentials.IsLocked && command.Command.PasswordCredentialId is { } id
+            ? (await _credentials.ListAsync()).FirstOrDefault(c => c.Id == id)?.Name
+            : null;
+        return name is null
+            ? "If it asks for a password, Orrery types a saved credential's password."
+            : $"If it asks for a password, Orrery types the password of \"{name}\".";
     }
 
     /// <summary>How long a command has to bring up its password prompt, and the shell to come back after it's answered.</summary>

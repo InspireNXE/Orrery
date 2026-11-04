@@ -1371,7 +1371,7 @@ sealed class PropertiesPanel : UserControl
             return;
         }
 
-        if (await new SavedCommandWindow(command, node.Parent is null ? "the defaults for all connections" : node.Name, _credentials).ShowDialog<SavedCommand?>(owner) is not { } saved
+        if (await new SavedCommandWindow(command, node.Parent is null ? "the defaults for all connections" : node.Name, _credentials, node).ShowDialog<SavedCommand?>(owner) is not { } saved
             || _node != node)
         {
             return;

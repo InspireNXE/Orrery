@@ -582,6 +582,59 @@ public class WorkspaceWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task A_quick_connect_gets_no_password_even_sent_by_hand()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var vault = Assert.IsType<VaultFileStore>(VaultAutoLockTests.Private<ICredentialStore>(window, "_credentials"));
+            await vault.UnlockAsync("correct horse battery staple");
+            var root = Guid.NewGuid();
+            await vault.SaveAsync(new Credential(root, "root", CredentialKind.Password, "root", null, "hunter2"));
+
+            // The defaults' commands reach typed-in addresses, by hand: those never get a password.
+            var su = new SavedCommand { Name = "su", Text = "su -", Password = CommandPassword.Credential, PasswordCredentialId = root };
+            tree.Root.Commands = [su];
+            var session = new ConnectingTerminal("typed.example") { Reply = typed => typed == "su -\r" ? "\r\nPassword: " : null };
+            typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window,
+                [new Sessions.TerminalView(session), session, new SessionOrigin("typed.example", Protocol.Ssh, null, () => Task.CompletedTask)]);
+            session.Connect();
+            Dispatcher.UIThread.RunJobs();
+
+            var tab = VaultAutoLockTests.Private<SessionTab>(window, "_currentTab");
+            Assert.True(await window.SendSavedCommandAsync(tab, new ResolvedCommand(su, tree.Root, false), pressEnter: true, focus: false));
+            Assert.Equal("su -\r", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_chosen_credentials_password_isnt_typed_from_the_defaults()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var su = new SavedCommand { Name = "su", Text = "su -", WhenConnected = true, Password = CommandPassword.Credential, PasswordCredentialId = Guid.NewGuid() };
+            var session = await ConnectAsync(window, typed => typed == "su -\r" ? "\r\nPassword: " : null);
+            VaultAutoLockTests.Private<ConnectionTree>(window, "_tree").Root.Commands = [su];
+
+            var tab = VaultAutoLockTests.Private<SessionTab>(window, "_currentTab");
+            Assert.True(await window.SendSavedCommandAsync(tab, new ResolvedCommand(su, VaultAutoLockTests.Private<ConnectionTree>(window, "_tree").Root, false), pressEnter: true, focus: false));
+            Assert.Equal("su -\r", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public async Task A_refused_password_isnt_typed_again()
     {
         var window = NewWindow();

@@ -66,6 +66,13 @@ Rules for answering:
 6. The log names the command, the connection and the credential, never the password.
 7. An imported command never answers a prompt, whatever the file says; the import warns.
 8. A file with any command that answers is schema 5, as for *when connected*.
+9. Only a saved connection gets a password. A local shell or a quick connect can send the defaults' commands by
+   hand, but a typed-in address could be any machine, so any prompt is left to the user.
+10. A chosen credential's password (root's) is never typed from the defaults for all connections, which reach every
+    server: the editor won't save one there, and one in a hand-edited file isn't typed. On a folder the editor warns
+    that it goes to every connection in it that asks, since a server that's been broken into could ask just to
+    collect it. Each connection's own login password is its own, so that's allowed anywhere without a warning.
+11. A command that asks first says which password it would type, naming the credential when the vault is unlocked.
 
 **Become root** in the editor fills in `sudo -i` (as `sudo su`, one process fewer), answered with the login password.
 `su -` is the same with root's credential chosen. The connection pane marks such a command *types a password*.
