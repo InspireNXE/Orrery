@@ -51,7 +51,7 @@ and GitHub attests that they were built by this repository's workflow:
 `gh attestation verify <file> --repo InspireNXE/Orrery`.
 
 On first launch a short setup asks where a portable copy keeps its data, where saved passwords go (and the vault's
-master password, if that's your choice), what to import, and how to handle updates. *Use defaults* skips to the end.
+master password, if that's your choice), what to import, and how to handle updates. *Skip to the end* goes straight to the summary, keeping anything you've already chosen.
 
 ## Platform support
 
@@ -76,6 +76,9 @@ machine yet, hence the 🧪.
 | Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
 | Pop a tab out into its own window | 🧪 | 🧪 | 🧪 |
+| Two tabs side by side | 🧪 | 🧪 | 🧪 |
+| Find in a terminal's scrollback | 🧪 | 🧪 | 🧪 |
+| Saved commands, asking first for risky ones | 🧪 | 🧪 | 🧪 |
 | **Remote desktops** | | | |
 | Fit the window and follow resizes | ✅ | 🧪 | 🧪 |
 | Clipboard | ✅ text, images, files | 🧪 text, images, files [^files] | 🧪 text, images, files [^files] |
@@ -178,7 +181,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **SSH keys:** a connection or folder can name a key file. Orrery tries a saved key, then the file, then your
   agent, then the password. The file is read on each connect, never copied. Passphrases are asked for and can be
   saved. On Linux and macOS, Orrery warns when others can read the key.
-- **SFTP browser** beside the terminal: upload, drop in, download, rename, delete, new folder.
+- **SFTP browser** beside the terminal: upload, drop in, download, rename, delete, new folder, copy paths, from the toolbar, keys or a right-click menu.
 - **Clipboard** is shared unless turned off for a connection or folder. RDP carries text, images and files; VNC,
   text. On Linux and macOS, remote files download when copied (up to 1 GB), with progress and Cancel at the foot of
   the desktop. Not yet tried on a real Mac or Linux machine.
@@ -190,6 +193,34 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   off the tab strip. The window has the session's toolbar and its own full screen. *Back to tabs*, the shortcut
   again, or closing the window puts it back where it was in the strip; dragging the name in its bar onto the tab
   strip puts it back where you let go. It keeps running throughout.
+- **Side by side:** two tabs share the session area, from a tab's menu, Ctrl+Shift+E (the current tab and the next),
+  or by dragging a tab to the left or right edge of the session area, which shades the half it will take. Drag the
+  divider to resize. The side you click or type in is the current tab, with a line over it; choosing another tab
+  puts it in that side and leaves the other in view. Closing or popping out either side gives the other the whole
+  area, and full screen or the shortcut again ends it. A remote desktop that follows window resizes fits its side.
+- **Find** in a terminal (Ctrl+Shift+F, Cmd+F on macOS, or Find… in its right-click menu) searches the screen and
+  its scrollback as you type, newest match first. Enter goes back through older ones and Shift+Enter forward;
+  matches are marked in the text and as ticks down the scroll bar. Selected text is searched for straight away.
+- **Saved commands:** an SSH, Telnet or serial connection, or a folder, can keep commands for its terminals. Ones
+  on the defaults for all connections reach every terminal, local shells and quick connects included. Add them in
+  the properties pane under Commands, from *Commands › New command…* in the session's menu or Ctrl+K, which asks
+  whether it's for this connection, a folder it's in, or every connection, or with *Save selection as command…*. They're listed under Commands in the session's menu and in Ctrl+K (`>saved` lists them), where Enter
+  sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
+  are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
+  host, with Cancel focused; the editor ticks it for commands that look like they delete, stop or overwrite something, such as
+  `rm -rf` or `systemctl stop`. *Confirm every command* asks before all of them, for a connection or a whole
+  folder. Nothing is sent on connect. Imported commands are listed in the import preview, unticked.
+
+<p align="center">
+  <img src="docs/images/side-by-side.png" width="720"
+       alt="Two SSH tabs side by side: web-01 on the left, with its find bar open on nginx showing 2 of 2 and the matches marked in the text, and web-02 on the right showing nginx's status and error log. The properties pane is hidden.">
+</p>
+
+<p align="center">
+  <img src="docs/images/saved-commands.png" width="720"
+       alt="Quick connect open over the main window with >saved typed in. Under Saved commands · web-01 it lists New saved command…, then Restart nginx, Follow the access log and Disk space, each with the command it sends beneath its name.">
+</p>
+
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
   *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.
@@ -286,7 +317,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   (? lists them), and your color correction.
 - **Export** an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
-  in Settings. Orrery never downloads or bundles ffmpeg. See
+  in Settings, which finds one installed by the usual package managers and shows the codecs each route offers.
+  Orrery never downloads or bundles ffmpeg; *Get ffmpeg* in Settings links to its download page, with the install
+  command for your system. See
   [the design notes](docs/design-session-recording.md).
 
 <p align="center">
@@ -335,6 +368,9 @@ Narrator, NVDA and JAWS on Windows.
 - Terminals and remote desktops keep every key, Tab included.
 - Ctrl+Alt+Home (Ctrl+Cmd+Home on macOS) leaves the session for its tab, leaving full screen first; Enter goes back.
 - In a terminal, Ctrl+Shift+A selects all; plain Ctrl+A still reaches the shell.
+- In every prompt, Enter is the default button and Esc cancels, and Left and Right move between the buttons. A
+  prompt opens with its field or default button focused; where Enter is unsafe, that's Cancel. In a box that takes
+  several lines, such as a saved command, Ctrl+Enter (Cmd+Enter on macOS) saves.
 
 ### Color
 
@@ -364,9 +400,11 @@ On macOS, Cmd takes the place of Ctrl.
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+K | Quick connect; `>` for commands |
+| Ctrl+K | Quick connect; `>` for commands. From a terminal, where Ctrl+K is the shell's, Ctrl+Shift+K |
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+O | Pop the tab out into its own window, or put it back |
+| Ctrl+Shift+E | Show the tab side by side with the next, or end side by side |
+| Ctrl+Shift+F (Cmd+F on macOS) | In a terminal: find in the scrollback |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel, over the sessions unless it's pinned; the mode stays as it is |
@@ -380,7 +418,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Delete | Delete the selected rows |
 
 A focused remote session gets keys first, so these go to the remote machine. Full screen, Ctrl+Alt+Home and
-Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T and Ctrl+Shift+O work from a terminal, not from a remote desktop.
+Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T, Ctrl+Shift+O, Ctrl+Shift+E and Ctrl+Shift+K work from a terminal,
+not from a remote desktop.
 
 ## Where your data lives
 

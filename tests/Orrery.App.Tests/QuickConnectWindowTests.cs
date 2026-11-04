@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -53,5 +54,39 @@ public class QuickConnectWindowTests
         Assert.True(result.IsCompleted);
         Assert.Same(web01, result.Result!.Entry);
         Assert.True(result.Result.Edit);
+    }
+
+    [AvaloniaFact]
+    public void The_top_result_stays_highlighted_until_the_pointer_moves_onto_another()
+    {
+        var (result, window) = Open("web", out _);
+        var second = HoverableRows(window)[1].TranslatePoint(new Point(40, 10), window)!.Value;
+
+        // The box came up under a pointer resting on the second row, which hasn't moved.
+        window.MouseMove(second);
+        window.MouseMove(second);
+        window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, result.Result!.SessionIndex);
+
+        (result, window) = Open("web", out var web01);
+        HoverableRows(window);
+        window.MouseMove(second);
+        window.MouseMove(second + new Point(5, 0));
+        window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Same(web01, result.Result!.Entry);
+    }
+
+    /// <summary>The rows, with the transparent background App.axaml gives them so the pointer finds them.</summary>
+    static List<Border> HoverableRows(QuickConnectWindow window)
+    {
+        var rows = window.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("row")).ToList();
+        foreach (var row in rows)
+        {
+            row.Background = Avalonia.Media.Brushes.Transparent;
+        }
+
+        return rows;
     }
 }

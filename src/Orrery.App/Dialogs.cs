@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Orrery.App.Controls;
@@ -224,5 +225,70 @@ static class Dialogs
         }
 
         return new StackPanel { Spacing = 4, Children = { Label(label), input } };
+    }
+
+    static readonly IBrush ChoiceBrush = new SolidColorBrush(Color.Parse("#181B21"));
+    static readonly IBrush ChosenBrush = new SolidColorBrush(Color.Parse("#1A2130"));
+
+    /// <summary>
+    /// A radio button as a tile: its title over a muted line, the whole tile clickable, and the chosen one edged in the
+    /// accent. Arrow keys move between a group's tiles (<see cref="Input.RadioKeys"/>).
+    /// </summary>
+    public static Control Choice(RadioButton radio, string title, string? line = null, bool mono = false)
+    {
+        var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Children = { new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap } } };
+        if (line is not null)
+        {
+            text.Children.Add(new TextBlock { Text = line, FontSize = 12, Foreground = MutedBrush, TextWrapping = TextWrapping.Wrap, FontFamily = mono ? MonoFont : FontFamily.Default });
+        }
+
+        radio.Content = text;
+        radio.HorizontalAlignment = HorizontalAlignment.Stretch;
+        radio.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        radio.Padding = new Thickness(10, 0, 0, 0);
+        radio.Margin = new Thickness(12, 8);
+        // The tile shows keyboard focus itself, so the button's own ring doesn't draw a second box inside it.
+        radio.FocusAdorner = null;
+        // The content is a panel, which a screen reader can't read as the button's name.
+        AutomationProperties.SetName(radio, title);
+        if (line is not null)
+        {
+            AutomationProperties.SetHelpText(radio, line);
+        }
+
+        var tile = new Border { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Child = radio, Cursor = new Cursor(StandardCursorType.Hand) };
+        bool keyboardFocus = false;
+        void Show()
+        {
+            bool chosen = radio.IsChecked == true;
+            tile.Background = chosen ? ChosenBrush : ChoiceBrush;
+            tile.BorderBrush = keyboardFocus ? Palette.Accent : chosen ? new SolidColorBrush(Palette.Accent.Color, 0.45) : Pane.LineBrush;
+            // A thicker edge for keyboard focus, with the margin taking back what it adds, so nothing inside moves.
+            tile.BorderThickness = new Thickness(keyboardFocus ? 2 : 1);
+            radio.Margin = keyboardFocus ? new Thickness(11, 7) : new Thickness(12, 8);
+        }
+
+        radio.IsCheckedChanged += (_, _) => Show();
+        radio.GotFocus += (_, e) =>
+        {
+            keyboardFocus = e.NavigationMethod is NavigationMethod.Tab or NavigationMethod.Directional;
+            Show();
+        };
+        radio.LostFocus += (_, _) =>
+        {
+            keyboardFocus = false;
+            Show();
+        };
+        // Anywhere on the tile chooses it, the edge around the button included.
+        tile.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed && radio.IsEffectivelyEnabled)
+            {
+                radio.IsChecked = true;
+                radio.Focus(NavigationMethod.Pointer);
+            }
+        };
+        Show();
+        return tile;
     }
 }

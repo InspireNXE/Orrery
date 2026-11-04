@@ -48,6 +48,12 @@ public partial class MainWindow
         }
 
         int index = StripTabs().IndexOf(tab);
+        var partner = SplitPartner(tab);
+        if (partner is not null)
+        {
+            EndSplit(select: false);
+        }
+
         var area = _sessionHost.Bounds.Size;
         var origin = _sessionHost.PointToScreen(default);
         _tabStrip.Children.Remove(tab.Header);
@@ -66,10 +72,10 @@ public partial class MainWindow
             web.Covered = false;
         }
 
-        if (current)
+        if (current || partner is not null)
         {
             var strip = StripTabs();
-            SelectTab(strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)], chosen: false);
+            SelectTab(partner ?? (strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)]), chosen: false);
         }
 
         UpdateSessionChrome();
@@ -198,6 +204,7 @@ public partial class MainWindow
             }
 
             popout.Activate();
+            tab.MarkShown();
             Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
         else
@@ -296,8 +303,11 @@ public partial class MainWindow
                 Activate();
                 OpenLocalTerminal();
             }
-            else if (e.Key == Key.K && e.KeyModifiers == (mac ? KeyModifiers.Meta : KeyModifiers.Control))
+            else if (Input.TabShortcuts.OpensQuickConnect(e.Key, e.KeyModifiers, place, mac)
+                || (e.Key == Key.K && e.KeyModifiers == (mac ? KeyModifiers.Meta : KeyModifiers.Control) && place == Input.FocusPlace.App))
             {
+                // As in the main window: plain Ctrl+K is a session's own (the shell's delete to the end of the line),
+                // and Ctrl+Shift+K opens quick connect from a terminal.
                 e.Handled = true;
                 Activate();
                 _ = OpenQuickConnectAsync();

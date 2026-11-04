@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -24,6 +25,9 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
 
     /// <summary>Run this command instead, once the palette has closed.</summary>
     public PaletteCommand? Command { get; init; }
+
+    /// <summary>Run the command's Shift+Enter action (<see cref="PaletteCommand.AltRun"/>) instead.</summary>
+    public bool Alt { get; init; }
 
     static readonly (string Scheme, Protocol Protocol)[] Schemes =
     [
@@ -163,6 +167,11 @@ sealed class QuickConnectWindow : Window
     readonly LiveText _spoken = new("Orrery.QuickConnect", ScreenReader.MostRecent);
     int _selected = -1;
     bool _closing;
+
+    // Where the pointer last was, and whether it has moved since the box opened: a pointer that happens to rest where
+    // the box opens, or where a row lands as the results change, doesn't take the highlight from the top result.
+    Point? _pointer;
+    bool _pointerMoved;
     QuickConnectChoice? _choice;
 
     public QuickConnectWindow(ConnectionTree tree, IReadOnlyList<OpenSession>? sessions = null, IReadOnlyList<PaletteCommand>? commands = null)
@@ -216,6 +225,7 @@ sealed class QuickConnectWindow : Window
                 Hint("Esc", "close"),
                 Hint(">", "commands"),
                 Hint("ssh:// rdp:// vnc:// telnet://", "pick a protocol"),
+                _altHint,
             },
         };
 
@@ -243,6 +253,13 @@ sealed class QuickConnectWindow : Window
             PlaceOverOwner();
             _query.Focus();
         };
+
+        AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            var at = e.GetPosition(this);
+            _pointerMoved |= _pointer is { } last && last != at;
+            _pointer = at;
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         // Like a menu: clicking anywhere else dismisses it. Closed once the click has finished activating the window
         // it landed on: closing in the middle of that handover leaves Windows to activate another app instead, which
@@ -426,8 +443,12 @@ sealed class QuickConnectWindow : Window
     }
 
     void AddCommand(PaletteCommand command) =>
-        AddItem(CommandRow(command), new QuickConnectChoice(null, null, 0) { Command = command }, "Run",
-            command.Shortcut is { } shortcut ? $"{command.Title}, {command.Group}, {shortcut}" : $"{command.Title}, {command.Group}");
+        AddItem(CommandRow(command), new QuickConnectChoice(null, null, 0) { Command = command },
+            "Run",
+            string.Join(", ", new[] { command.Title, command.Detail, command.Group, command.Shortcut, command.AltHint is { } hint ? $"Shift+Enter to {hint}" : null }
+                .Where(s => !string.IsNullOrEmpty(s))),
+            tall: command.Detail is { Length: > 0 },
+            spokenHint: command.AltHint is { } said ? $"Run, or Shift+Enter to {said}" : "Run");
 
     static string DirectText(QuickConnectChoice choice) => $"{DirectVerb(choice)}{DirectAddress(choice)}";
 
@@ -478,15 +499,26 @@ sealed class QuickConnectWindow : Window
         Margin = new Thickness(10, _list.Children.Count == 0 ? 6 : 10, 10, 4),
     });
 
+    /// <param name="hint">What Enter does, shown with ↵ on the highlighted row.</param>
     /// <param name="spoken">The row in words, for a screen reader.</param>
-    void AddItem(Control content, QuickConnectChoice choice, string hint, string spoken)
+    /// <param name="tall">Two lines, such as a saved command's name over its text.</param>
+    /// <param name="spokenHint">The hint in words, where it's keys on screen.</param>
+    void AddItem(Control content, QuickConnectChoice choice, string hint, string spoken, bool tall = false, string? spokenHint = null)
     {
-        var hintText = new TextBlock { Text = $"{hint}  ↵", FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, IsVisible = false };
+        var hintText = new TextBlock
+        {
+            Text = $"{hint}  ↵",
+            FontSize = 12,
+            Foreground = Dialogs.MutedBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            IsVisible = false,
+        };
         // The shared row from App.axaml: the selected fill and marker on the highlighted result.
         var row = new Border
         {
             Classes = { "row" },
-            Height = 40,
+            Height = tall ? 50 : 40,
             Cursor = new Cursor(StandardCursorType.Hand),
             Child = new Panel
             {
@@ -498,9 +530,15 @@ sealed class QuickConnectWindow : Window
             },
         };
 
-        var item = new Item(row, hintText, choice, $"{spoken}. {hint}");
+        var item = new Item(row, hintText, choice, $"{spoken}. {spokenHint ?? hint}");
         int index = _items.Count;
-        row.PointerEntered += (_, _) => Select(index, speak: false);
+        row.PointerMoved += (_, _) =>
+        {
+            if (_pointerMoved && _selected != index)
+            {
+                Select(index, speak: false);
+            }
+        };
         row.PointerPressed += (_, e) =>
         {
             e.Handled = true;
@@ -593,7 +631,37 @@ sealed class QuickConnectWindow : Window
             row.Children.Add(Chip(shortcut));
         }
 
-        return row;
+        if (command.Detail is not { Length: > 0 } detail)
+        {
+            return row;
+        }
+
+        // A saved command's text, on one line under its name, so what will be typed is in view before it's picked. The
+        // icon moves out of the name's line into a column of its own, centered on both lines.
+        var icon = row.Children[0];
+        row.Children.RemoveAt(0);
+        var lines = new StackPanel
+        {
+            Spacing = 2,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                row,
+                new TextBlock
+                {
+                    Text = detail.ReplaceLineEndings(" ⏎ "),
+                    FontFamily = Dialogs.MonoFont,
+                    FontSize = 12,
+                    Foreground = Dialogs.MutedBrush,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 460,
+                    // Left, under the name: with a width limit and no alignment it would sit centered in the row.
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                },
+            },
+        };
+        Grid.SetColumn(lines, 2);
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,10,*"), Children = { icon, lines } };
     }
 
     static Control ActionRow(string label) => new StackPanel
@@ -677,6 +745,13 @@ sealed class QuickConnectWindow : Window
         }
 
         _selected = index;
+        // What Shift+Enter does on this row, if anything, beside the other keys.
+        _altHint.IsVisible = index >= 0 && _items[index].Choice.Command?.AltHint is not null;
+        if (index >= 0 && _items[index].Choice.Command?.AltHint is { } alt)
+        {
+            _altHint.Inlines = [new Run("Shift+↵") { FontFamily = Dialogs.MonoFont }, new Run($" {alt}")];
+        }
+
         if (index >= 0)
         {
             _items[index].Show(true);
@@ -687,6 +762,11 @@ sealed class QuickConnectWindow : Window
             }
         }
     }
+
+    /// <summary>The footer's Shift+Enter hint, shown while the highlighted row has a second action.</summary>
+    readonly TextBlock _altHint = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, Margin = new Thickness(0, 0, 16, 0), IsVisible = false };
+
+    internal TextBlock AltHint => _altHint;
 
     /// <summary>What was last read out, for tests.</summary>
     internal string Spoken => _spoken.Text;
@@ -702,6 +782,14 @@ sealed class QuickConnectWindow : Window
                 break;
             case Key.Up when count > 0:
                 Select((_selected - 1 + count) % count);
+                e.Handled = true;
+                break;
+            case Key.Enter when e.KeyModifiers == KeyModifiers.Shift:
+                if (_selected >= 0 && _items[_selected].Choice is { Command.AltRun: not null } alternative)
+                {
+                    Finish(alternative with { Alt = true });
+                }
+
                 e.Handled = true;
                 break;
             case Key.Enter when e.KeyModifiers == KeyModifiers.Alt:

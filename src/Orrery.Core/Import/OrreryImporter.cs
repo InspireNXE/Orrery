@@ -264,6 +264,7 @@ public static class OrreryImporter
             ? id
             : SourcePrefix + node.Id;
         copy.Settings = node.Settings?.Clone() ?? new InheritableSettings();
+        copy.Commands = ImportedCommands(node.Commands, copy.Name, warnings);
 
         // Only a path, which isn't read until the connection is used; a value that can't be one is left out.
         if (copy.Settings.KeyFile is { } keyFile)
@@ -315,5 +316,42 @@ public static class OrreryImporter
         }
 
         return copy;
+    }
+
+    /// <summary>
+    /// Saved commands as the file has them, less any that can't be one: no text, too long, or with control characters
+    /// that would act as keys. Kept in the result for the preview to list; they're left out unless the user keeps them.
+    /// </summary>
+    static List<SavedCommand>? ImportedCommands(List<SavedCommand>? commands, string owner, List<string> warnings)
+    {
+        if (commands is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var kept = new List<SavedCommand>();
+        foreach (var command in commands)
+        {
+            if (command is null || string.IsNullOrWhiteSpace(command.Text))
+            {
+                continue;
+            }
+
+            if (command.Text.Length > SavedCommands.MaxLength || command.Text.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t')))
+            {
+                warnings.Add($"{owner}: the saved command \"{command.Name}\" has characters a command can't, so it was left out.");
+                continue;
+            }
+
+            kept.Add(new SavedCommand
+            {
+                Name = string.IsNullOrWhiteSpace(command.Name) ? "Imported command" : command.Name.Trim(),
+                Text = command.Text,
+                PressEnter = command.PressEnter,
+                Confirm = command.Confirm,
+            });
+        }
+
+        return kept.Count > 0 ? kept : null;
     }
 }

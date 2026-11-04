@@ -11,10 +11,24 @@ static class Pane
     static readonly IBrush FooterBrush = new SolidColorBrush(Color.Parse("#101216")).ToImmutable();
     public static readonly IBrush LineBrush = new SolidColorBrush(Color.Parse("#23272F")).ToImmutable();
 
-    /// <summary>A titled group of fields, headed like the mockup's inspector.</summary>
-    public static Control Section(string title, params Control[] children)
+    /// <summary>A section's card, a step up from the pane: the same raised panel and hairline as Settings' cards.</summary>
+    public static readonly IBrush CardBrush = new SolidColorBrush(Color.Parse("#181B21")).ToImmutable();
+
+    /// <summary>The faint line between rows in a card.</summary>
+    static readonly IBrush RowLineBrush = new SolidColorBrush(Color.Parse("#2A2F38")).ToImmutable();
+
+    /// <summary>
+    /// A titled group of fields in a card of its own, as Settings' sections are, so where one ends and the next begins
+    /// is plain. Hiding the card hides the section.
+    /// </summary>
+    public static Control Section(string title, params Control[] children) => Card(SectionBody(title, 10, children));
+
+    /// <summary>A titled group of one-line setting rows, which sit close together like a list.</summary>
+    public static Control RowSection(string title, params Control[] rows) => Card(SectionBody(title, 4, [Rows(rows)]));
+
+    static StackPanel SectionBody(string title, double spacing, Control[] children)
     {
-        var section = new StackPanel { Spacing = 10 };
+        var section = new StackPanel { Spacing = spacing };
         var heading = new TextBlock { Text = title.ToUpperInvariant(), Classes = { "section" } };
         Avalonia.Automation.AutomationProperties.SetHeadingLevel(heading, 2);
         section.Children.Add(heading);
@@ -22,20 +36,54 @@ static class Pane
         return section;
     }
 
-    /// <summary>A titled group of one-line setting rows, which sit close together like a list.</summary>
-    public static Control RowSection(string title, params Control[] rows)
+    static Border Card(Control content) => new()
     {
-        var section = (StackPanel)Section(title);
-        section.Spacing = 4;
-        section.Children.Add(Rows(rows));
-        return section;
-    }
+        Background = CardBrush,
+        BorderBrush = LineBrush,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(8),
+        Padding = new Thickness(CardPadding, 10, CardPadding, 8),
+        Child = content,
+    };
 
-    /// <summary>Setting rows one under another, with no gap between them.</summary>
+    /// <summary>How far a card's content sits in from its sides; a row's editor reaches out by this much to fill the card's width.</summary>
+    public const double CardPadding = 12;
+
+    /// <summary>
+    /// Setting rows one under another, with no gap between them and a faint line between each shown row and the next.
+    /// A row that's hidden takes its line with it; a note (a text block) belongs to the row above, so has none.
+    /// </summary>
     public static Control Rows(params Control[] rows)
     {
         var list = new StackPanel();
-        list.Children.AddRange(rows);
+        var lined = new List<Border>();
+        void Rule()
+        {
+            bool first = true;
+            foreach (var line in lined)
+            {
+                line.BorderThickness = new Thickness(0, line.IsVisible && !first && line.Child is not TextBlock ? 1 : 0, 0, 0);
+                first &= !line.IsVisible;
+            }
+        }
+
+        foreach (var row in rows)
+        {
+            var line = new Border { BorderBrush = RowLineBrush, Child = row, IsVisible = row.IsVisible };
+            // The row says whether it's shown; its line follows.
+            row.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == Visual.IsVisibleProperty)
+                {
+                    line.IsVisible = row.IsVisible;
+                    Rule();
+                }
+            };
+            lined.Add(line);
+            list.Children.Add(line);
+        }
+
+        Rule();
         return list;
     }
 
@@ -46,6 +94,15 @@ static class Pane
         BorderBrush = LineBrush,
         BorderThickness = new Thickness(0, 1, 0, 0),
         Padding = new Thickness(16, 14, 16, 16),
+        Child = content,
+    };
+
+    /// <summary>The pane's header, pinned over the scrolling content and set off from it by the footer's line.</summary>
+    public static Control HeaderStrip(Control content) => new Border
+    {
+        BorderBrush = LineBrush,
+        BorderThickness = new Thickness(0, 0, 0, 1),
+        Padding = new Thickness(16, 16, 16, 12),
         Child = content,
     };
 

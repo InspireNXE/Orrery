@@ -435,6 +435,88 @@ sealed record Mp4Route(string Name, SystemCodec? System, FfmpegCodec? Ffmpeg)
     }
 }
 
+/// <summary>
+/// Where to get ffmpeg, for Settings and the export dialog. Orrery only points the way: it never downloads or bundles
+/// ffmpeg (docs/design-session-recording.md §1), so the link is the project's own download page.
+/// </summary>
+static class FfmpegHelp
+{
+    public static readonly Uri DownloadPage = new("https://ffmpeg.org/download.html");
+
+    /// <summary>How to install ffmpeg here, and how to find the program to choose.</summary>
+    public static string InstallHint =>
+        OperatingSystem.IsWindows()
+            ? "To install it, run winget install Gyan.FFmpeg in a terminal; where.exe ffmpeg in a new terminal then shows the program to choose."
+            : OperatingSystem.IsMacOS()
+                ? "To install it with Homebrew, run brew install ffmpeg in Terminal; which ffmpeg then shows the program to choose."
+                : "To install it, use your distribution's ffmpeg package (on Fedora, RPM Fusion's: the default ffmpeg-free can't make "
+                    + "H.264 or H.265); which ffmpeg then shows the program to choose.";
+
+    /// <summary>Every codec MP4 export knows, in Export…'s order.</summary>
+    static readonly string[] CodecNames = ["H.264", "H.265", "AV1"];
+
+    /// <summary>
+    /// Each codec MP4 export knows, for Settings' list: whether Windows or ffmpeg makes it, or nothing does and what
+    /// would. Windows' encoder wins when both have one, as in Export….
+    /// </summary>
+    public static IReadOnlyList<CodecRow> Codecs(IReadOnlyList<SystemCodec> system, FfmpegInfo? ffmpeg)
+    {
+        var routes = Mp4Route.All(system, ffmpeg);
+        return CodecNames.Select(name => routes.FirstOrDefault(r => r.Name == name) switch
+        {
+            { System: { } codec } => new CodecRow(name, Mp4Source.Windows, codec.HardwareOnly ? "graphics card" : null),
+            { Ffmpeg: not null } => new CodecRow(name, Mp4Source.Ffmpeg, null),
+            _ => new CodecRow(name, Mp4Source.None, Missing(name)),
+        }).ToList();
+
+        static string Missing(string name) => !OperatingSystem.IsWindows() ? "needs an ffmpeg that has it"
+            : name switch
+            {
+                "AV1" => "needs a recent graphics card, or an ffmpeg that has it",
+                "H.265" => "needs Windows' HEVC extension or a recent graphics card, or an ffmpeg that has it",
+                _ => "needs an ffmpeg that has it",
+            };
+    }
+
+    /// <summary>A long path as its last three parts, "…\ffmpeg-9.0.2-full_build\bin\ffmpeg.exe"; the full one goes in a tooltip.</summary>
+    public static string ShortPath(string path)
+    {
+        var separator = path.Contains('\\') ? '\\' : '/';
+        var parts = path.Split(separator);
+        return parts.Length <= 4 ? path : "…" + separator + string.Join(separator, parts[^3..]);
+    }
+
+    /// <summary>The line about a found ffmpeg: "Found ffmpeg 9.0.2, installed by winget", from its path alone.</summary>
+    public static string FoundText(string path) => Ffmpeg.Describe(path) switch
+    {
+        (null, null) => "Found ffmpeg",
+        (null, { } version) => $"Found ffmpeg {version}",
+        ({ } installer, null) => $"Found ffmpeg, installed by {installer}",
+        ({ } installer, { } version) => $"Found ffmpeg {version}, installed by {installer}",
+    };
+
+    /// <summary>A button that opens <see cref="DownloadPage"/> in the browser.</summary>
+    public static Button DownloadButton()
+    {
+        var button = new Button { Content = "Get ffmpeg" };
+        ToolTip.SetTip(button, "Opens ffmpeg.org's download page. Orrery never downloads or bundles ffmpeg.");
+        button.Click += (_, _) =>
+        {
+            if (MainWindow.OpenInBrowser(DownloadPage) is { } problem)
+            {
+                Log.For("Recording").LogWarning("Couldn't open ffmpeg's download page: {Message}", problem);
+            }
+        };
+        return button;
+    }
+}
+
+/// <summary>What makes a codec for MP4 export.</summary>
+enum Mp4Source { Windows, Ffmpeg, None }
+
+/// <summary>One codec in Settings' MP4 export list, with a note after it (graphics card, or what would add it).</summary>
+sealed record CodecRow(string Name, Mp4Source Source, string? Detail);
+
 sealed record ExportChoice(Mp4Route? Route, bool SkipIdle);
 
 /// <summary>Asks what a screen recording should become: AVI, or MP4 with a codec Windows or the chosen ffmpeg has.</summary>
@@ -480,16 +562,25 @@ sealed class ExportChoiceWindow : Window
         {
             panel.Children.Add(new TextBlock
             {
-                Text = OperatingSystem.IsWindows()
-                    ? "This Windows has no video encoders of its own (an N edition, or Server without Media Foundation). For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings."
-                    : "For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings.",
+                Text = (OperatingSystem.IsWindows()
+                    ? "This Windows has no video encoders of its own (an N edition, or Server without Media Foundation). For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings. "
+                    : "For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings. ") + FfmpegHelp.InstallHint,
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 12,
                 Foreground = Dialogs.MutedBrush,
             });
         }
 
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, export } });
+        var buttons = new DockPanel { LastChildFill = false };
+        if (routes.Count == 0 && !hasFfmpeg)
+        {
+            buttons.Children.Add(FfmpegHelp.DownloadButton());
+        }
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { cancel, export } };
+        DockPanel.SetDock(actions, Dock.Right);
+        buttons.Children.Add(actions);
+        panel.Children.Add(buttons);
         Content = panel;
         AutomationProperties.SetHelpText(this, RecordingExport.Warning);
     }

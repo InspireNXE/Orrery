@@ -50,6 +50,7 @@ public sealed record ResolvedSettings(
     public required Resolved<SerialStopBits> StopBits { get; init; }
     public required Resolved<SerialFlowControl> FlowControl { get; init; }
     public required Resolved<bool> RecordSessions { get; init; }
+    public required Resolved<bool> ConfirmCommands { get; init; }
 
     /// <summary>Where web pages open, as the tree sets it; null leaves it to the app setting, see <see cref="InOrrery"/>.</summary>
     public required Resolved<bool?> WebPagesInOrrery { get; init; }
@@ -147,6 +148,7 @@ public static class SettingsResolver
             StopBits = Value(nameof(InheritableSettings.StopBits), s => s.StopBits, SerialStopBits.One),
             FlowControl = Value(nameof(InheritableSettings.FlowControl), s => s.FlowControl, SerialFlowControl.None),
             RecordSessions = Flag(nameof(InheritableSettings.RecordSessions), s => s.RecordSessions, false),
+            ConfirmCommands = Flag(nameof(InheritableSettings.ConfirmCommands), s => s.ConfirmCommands, false),
             CheckHostStatus = Flag(nameof(InheritableSettings.CheckHostStatus), s => s.CheckHostStatus, true),
         };
     }

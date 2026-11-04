@@ -58,7 +58,7 @@ sealed class SetupWizard : Window
     readonly Notice _message = new(NoticeKind.Error) { IsVisible = false };
     readonly ScrollViewer _scroll = new();
     readonly StackPanel _content = new() { Margin = new Thickness(32, 28, 32, 24), Spacing = 6 };
-    readonly Button _defaults = new() { Name = "SetupDefaults", Content = "Use defaults" };
+    readonly Button _defaults = new() { Name = "SetupDefaults", Content = "Skip to the end" };
     readonly Button _back = new() { Name = "SetupBack", Content = "Back", Padding = new Thickness(16, 6) };
     readonly Button _next = new() { Name = "SetupNext", Content = "Next", Padding = new Thickness(18, 6), IsDefault = true, Classes = { "accent" } };
 
@@ -143,10 +143,10 @@ sealed class SetupWizard : Window
             }
         };
 
-        _defaults.Click += (_, _) => UseDefaults();
+        _defaults.Click += (_, _) => SkipToEnd();
         _back.Click += (_, _) => Back();
         _next.Click += async (_, _) => await NextAsync();
-        AutomationProperties.SetHelpText(_defaults, "Skips to the end, with every choice at its default, to see what will happen before you start.");
+        AutomationProperties.SetHelpText(_defaults, "Goes to the summary with what you've chosen so far. Anything you haven't looked at uses its default.");
 
         // Enter moves on from anywhere but a push button, which Enter presses; the options would otherwise take it for
         // a click. Escape does nothing, so a stray press never loses what's been chosen.
@@ -160,38 +160,40 @@ sealed class SetupWizard : Window
             }
         }, RoutingStrategies.Tunnel);
 
+        var sidebar = new Border
+        {
+            Background = Dialogs.PanelBrush,
+            BorderBrush = Pane.LineBrush,
+            BorderThickness = new Thickness(0, 0, 1, 0),
+            Width = 148,
+            Padding = new Thickness(0, 20),
+            Child = _stepList,
+        };
+        var footer = new Border
+        {
+            BorderBrush = Pane.LineBrush,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(32, 12, 20, 12),
+            Child = new DockPanel
+            {
+                Children =
+                {
+                    Pane.Docked(new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        Children = { _defaults, _back, _next },
+                    }, Dock.Right),
+                    _progress,
+                },
+            },
+        };
         Content = new DockPanel
         {
             Children =
             {
-                Pane.Docked(new Border
-                {
-                    Background = Dialogs.PanelBrush,
-                    BorderBrush = Pane.LineBrush,
-                    BorderThickness = new Thickness(0, 0, 1, 0),
-                    Width = 148,
-                    Padding = new Thickness(0, 20),
-                    Child = _stepList,
-                }, Dock.Left),
-                Pane.Docked(new Border
-                {
-                    BorderBrush = Pane.LineBrush,
-                    BorderThickness = new Thickness(0, 1, 0, 0),
-                    Padding = new Thickness(32, 12, 20, 12),
-                    Child = new DockPanel
-                    {
-                        Children =
-                        {
-                            Pane.Docked(new StackPanel
-                            {
-                                Orientation = Orientation.Horizontal,
-                                Spacing = 8,
-                                Children = { _defaults, _back, _next },
-                            }, Dock.Right),
-                            _progress,
-                        },
-                    },
-                }, Dock.Bottom),
+                Pane.Docked(sidebar, Dock.Left),
+                Pane.Docked(footer, Dock.Bottom),
                 _scroll,
             },
         };
@@ -202,6 +204,15 @@ sealed class SetupWizard : Window
             new Panel { Margin = new Thickness(0, 8, 0, 0), Children = { _message } },
         ]);
         _scroll.Content = _content;
+
+        // Tab goes through the step's page, then the buttons under it, then the step list, rather than the order
+        // they're docked in, which put the step list between the page and the buttons.
+        // Each is made a group of its own, as a container's index is otherwise passed over for its controls' own.
+        foreach (var (part, index) in new Control[] { _scroll, footer, sidebar }.Select((p, i) => (p, i)))
+        {
+            KeyboardNavigation.SetTabNavigation(part, KeyboardNavigationMode.Local);
+            KeyboardNavigation.SetTabIndex(part, index);
+        }
 
         GoTo(_steps[0], announce: false);
         Opened += (_, _) =>
@@ -416,13 +427,17 @@ sealed class SetupWizard : Window
         GoTo(_steps[_steps.IndexOf(_current) + 1]);
     }
 
-    /// <summary>Puts every option back to its default and jumps to the end, where they're listed.</summary>
-    internal void UseDefaults()
+    /// <summary>
+    /// Jumps to the end, where the choices are listed, keeping every one made so far; the steps not looked at already
+    /// hold their defaults. A master password that can't be used is said there, and Start goes back to it.
+    /// </summary>
+    internal void SkipToEnd()
     {
-        _besideApp.IsChecked = true;
-        _vaultPassword.Text = _vaultConfirm.Text = string.Empty;
-        SetOptions(new SetupChoices { Imports = [.. _imports.Where(i => i.Found).Select(i => i.File.Path)] });
         GoTo(SetupStep.Done);
+        if (VaultPasswordProblem() is { } problem)
+        {
+            ShowMessage($"The master password can't be used yet. {problem}", NoticeKind.Error);
+        }
     }
 
     void SetOptions(SetupChoices choices)

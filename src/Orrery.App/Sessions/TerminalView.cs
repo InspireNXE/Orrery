@@ -78,6 +78,13 @@ public sealed class TerminalView : Control
         };
 
         _terminal.Updated += QueueAnnounce;
+        _terminal.Updated += QueueRefind;
+        _findTimer = new DispatcherTimer { Interval = RefindDelay };
+        _findTimer.Tick += (_, _) =>
+        {
+            _findTimer.Stop();
+            Refind();
+        };
         _announceTimer = new DispatcherTimer { Interval = AnnounceTick };
         _announceTimer.Tick += (_, _) => SayDue();
         VisualChildren.Add(_spoken);
@@ -449,6 +456,8 @@ public sealed class TerminalView : Control
                 DrawLine(context, _terminal.LineAt(absolute), absolute, r * _cellHeight, selStart, selEnd);
             }
 
+            DrawMatchTicks(context);
+
             if (_terminal.CursorVisible && _scrollOffset == 0)
             {
                 var rect = new Rect(_terminal.CursorX * _cellWidth, _terminal.CursorY * _cellHeight, _cellWidth, _cellHeight);
@@ -468,12 +477,14 @@ public sealed class TerminalView : Control
         (int Row, int Column)? selStart, (int Row, int Column)? selEnd)
     {
         var cells = line.Cells;
+        var marks = MatchMarks(line);
         int x = 0;
         while (x < cells.Length)
         {
             // A run of cells that look the same; wide characters are drawn on their own so they stay on grid.
             var style = cells[x].Style;
             bool selected = IsSelected(absoluteRow, x, selStart, selEnd);
+            var mark = marks?[x] ?? Mark.None;
             bool wide = x + 1 < cells.Length && cells[x + 1].CodePoint == TerminalCell.WideContinuation;
             int end = x + 1;
             var text = new StringBuilder(CellText(cells[x]));
@@ -484,6 +495,7 @@ public sealed class TerminalView : Control
             else
             {
                 while (end < cells.Length && cells[end].Style == style && IsSelected(absoluteRow, end, selStart, selEnd) == selected
+                       && (marks?[end] ?? Mark.None) == mark
                        && !(end + 1 < cells.Length && cells[end + 1].CodePoint == TerminalCell.WideContinuation)
                        && cells[end].CodePoint != TerminalCell.WideContinuation)
                 {
@@ -494,6 +506,8 @@ public sealed class TerminalView : Control
 
             var (fg, bg) = Colors(style);
             if (selected) bg = SelectionColor;
+            else if (mark == Mark.Current) (fg, bg) = (CurrentMatchText, CurrentMatchColor);
+            else if (mark == Mark.Match) (fg, bg) = (MatchText, MatchColor);
 
             var rect = new Rect(x * _cellWidth, y, (end - x) * _cellWidth, _cellHeight);
             if (bg != DefaultBackground)
@@ -526,6 +540,12 @@ public sealed class TerminalView : Control
             {
                 double sy = y + _cellHeight / 2;
                 context.DrawLine(new Pen(BrushFor(fg), 1), new Point(rect.Left, sy), new Point(rect.Right, sy));
+            }
+
+            // The current match is outlined too, so it stands out by more than its color.
+            if (mark == Mark.Current && !selected)
+            {
+                context.DrawRectangle(new Pen(BrushFor(MatchText), 1), rect.Deflate(0.5));
             }
 
             x = end;
@@ -583,6 +603,214 @@ public sealed class TerminalView : Control
         return brush;
     }
 
+    // ---- Find ----
+
+    /// <summary>Find stops counting here: past this many, the marks would only be a smear.</summary>
+    internal const int MaxMatches = 1000;
+
+    /// <summary>How long Find waits after new output before looking again, so a busy log isn't searched every frame.</summary>
+    static readonly TimeSpan RefindDelay = TimeSpan.FromMilliseconds(250);
+
+    // Amber, apart from the blue selection for every kind of color vision; the current match is lighter and outlined.
+    static readonly Color MatchColor = Color.Parse("#6B5310");
+    static readonly Color MatchText = Color.Parse("#FFE29A");
+    static readonly Color CurrentMatchColor = Color.Parse("#E0A92A");
+    static readonly Color CurrentMatchText = Color.Parse("#1A1200");
+    static readonly Color MatchTick = Color.Parse("#A07A1E");
+
+    enum Mark : byte { None, Match, Current }
+
+    readonly DispatcherTimer _findTimer;
+    string _findQuery = string.Empty;
+    List<TerminalMatch> _found = [];
+    int _foundAt = -1;
+    volatile bool _finding;
+    int _refindQueued;
+
+    /// <summary>Ctrl+Shift+F (Cmd+F on macOS) in the terminal: the tab shows its find bar.</summary>
+    public event EventHandler? FindRequested;
+
+    /// <summary>The matches or the current one changed (on the UI thread).</summary>
+    public event EventHandler? MatchesChanged;
+
+    /// <summary>Every match of the text being found, oldest first, up to <see cref="MaxMatches"/>.</summary>
+    public IReadOnlyList<TerminalMatch> Matches => _found;
+
+    /// <summary>Which of <see cref="Matches"/> is current, or -1 for none.</summary>
+    public int CurrentMatch => _foundAt;
+
+    /// <summary>
+    /// Marks every match of <paramref name="query"/> and goes to the newest, scrolling back to it if need be. Empty
+    /// clears the marks. New output is searched as it comes.
+    /// </summary>
+    public void Find(string query)
+    {
+        _findQuery = query;
+        _finding = query.Length > 0;
+        _found = _finding ? TerminalSearch.Find(_terminal, query, MaxMatches) : [];
+        _foundAt = _found.Count - 1;
+        PlaceMarks();
+        if (_foundAt >= 0)
+        {
+            ScrollToMatch(_found[_foundAt]);
+        }
+
+        InvalidateVisual();
+        MatchesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Goes to an older (-1) or newer (+1) match, round to the other end, scrolling to it.</summary>
+    public void FindStep(int by)
+    {
+        if (_found.Count == 0)
+        {
+            return;
+        }
+
+        _foundAt = _foundAt < 0 ? (by < 0 ? _found.Count - 1 : 0) : (_foundAt + by + _found.Count) % _found.Count;
+        ScrollToMatch(_found[_foundAt]);
+        InvalidateVisual();
+        MatchesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Clears the marks and stops searching new output. The view stays where it's scrolled to.</summary>
+    public void EndFind() => Find(string.Empty);
+
+    // Called on the session's thread as output arrives; one search per pause, on the UI thread.
+    void QueueRefind()
+    {
+        if (!_finding || Interlocked.Exchange(ref _refindQueued, 1) == 1)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            _refindQueued = 0;
+            if (_finding && !_findTimer.IsEnabled)
+            {
+                _findTimer.Start();
+            }
+        });
+    }
+
+    /// <summary>Whether a search is waiting for output to pause, for tests.</summary>
+    internal bool RefindPending => _findTimer.IsEnabled;
+
+    /// <summary>Runs the waiting search now, for tests.</summary>
+    internal void RefindNow()
+    {
+        _findTimer.Stop();
+        Refind();
+    }
+
+    /// <summary>Searches again after output, keeping the same match current while it's still there.</summary>
+    void Refind()
+    {
+        if (!_finding)
+        {
+            return;
+        }
+
+        var current = _foundAt >= 0 ? _found[_foundAt] : (TerminalMatch?)null;
+        _found = TerminalSearch.Find(_terminal, _findQuery, MaxMatches);
+        _foundAt = current is { } was ? _found.FindIndex(m => ReferenceEquals(m.Line, was.Line) && m.Column == was.Column) : -1;
+        PlaceMarks();
+        InvalidateVisual();
+        MatchesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    void ScrollToMatch(TerminalMatch match)
+    {
+        lock (_terminal.SyncRoot)
+        {
+            int top = _terminal.ScrollbackCount - _scrollOffset;
+            if (match.Row >= top && match.EndRow < top + _terminal.Rows)
+            {
+                return;
+            }
+
+            // Out of sight: bring it to the middle, or as near as the history allows.
+            int wantedTop = match.Row - _terminal.Rows / 2;
+            _scrollOffset = Math.Clamp(_terminal.ScrollbackCount - wantedTop, 0, _terminal.ScrollbackCount);
+        }
+    }
+
+    /// <summary>
+    /// Where each match is drawn, by line: the line objects move up with the output, so between output and the next
+    /// search the marks stay on their text rather than on the rows it was found in.
+    /// </summary>
+    void PlaceMarks()
+    {
+        _marked.Clear();
+        lock (_terminal.SyncRoot)
+        {
+            int total = _terminal.ScrollbackCount + _terminal.Rows;
+            for (int i = 0; i < _found.Count; i++)
+            {
+                var match = _found[i];
+                for (int row = match.Row; row <= Math.Min(match.EndRow, total - 1); row++)
+                {
+                    var line = _terminal.LineAt(row);
+                    int from = row == match.Row ? match.Column : 0;
+                    int to = row == match.EndRow ? match.EndColumn : line.Length - 1;
+                    if (!_marked.TryGetValue(line, out var spans))
+                    {
+                        _marked[line] = spans = [];
+                    }
+
+                    spans.Add((from, to, i));
+                }
+            }
+        }
+    }
+
+    readonly Dictionary<TerminalLine, List<(int From, int To, int Match)>> _marked = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Which cells of a line are part of a match, or null when none are.</summary>
+    Mark[]? MatchMarks(TerminalLine line)
+    {
+        if (!_marked.TryGetValue(line, out var spans))
+        {
+            return null;
+        }
+
+        var marks = new Mark[line.Length];
+        foreach (var (from, to, match) in spans)
+        {
+            for (int x = Math.Max(0, from); x <= Math.Min(to, line.Length - 1); x++)
+            {
+                marks[x] = match == _foundAt ? Mark.Current : Mark.Match;
+            }
+        }
+
+        return marks;
+    }
+
+    /// <summary>A tick at the right edge for each match, placed by where it is in the whole history, as a scroll bar would.</summary>
+    void DrawMatchTicks(DrawingContext context)
+    {
+        if (_found.Count == 0)
+        {
+            return;
+        }
+
+        int total = _terminal.ScrollbackCount + _terminal.Rows;
+        double height = Bounds.Height, x = Bounds.Width - 4;
+        for (int i = 0; i < _found.Count; i++)
+        {
+            if (i != _foundAt)
+            {
+                context.FillRectangle(BrushFor(MatchTick), new Rect(x, height * _found[i].Row / total, 4, 2));
+            }
+        }
+
+        if (_foundAt >= 0)
+        {
+            context.FillRectangle(BrushFor(CurrentMatchColor), new Rect(x - 1, height * _found[_foundAt].Row / total - 1, 5, 4));
+        }
+    }
+
     // ---- Keyboard ----
 
     protected override void OnKeyUp(KeyEventArgs e)
@@ -619,6 +847,14 @@ public sealed class TerminalView : Control
         {
             e.Handled = true;
             SelectAll();
+            return;
+        }
+
+        // Find: Ctrl+Shift+F (Cmd+F on macOS). Plain Ctrl+F goes to the session, where shells use it.
+        if (mac ? mods == KeyModifiers.Meta && e.Key == Key.F : ctrl && shift && !alt && e.Key == Key.F)
+        {
+            e.Handled = true;
+            FindRequested?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -961,6 +1197,16 @@ public sealed class TerminalView : Control
         InvalidateVisual();
     }
 
+    /// <summary>The selected text, or null without a selection.</summary>
+    public string? SelectedText
+    {
+        get
+        {
+            var (start, end) = OrderedSelection();
+            return start is { } s && end is { } e ? _terminal.GetText(s.Row, s.Column, e.Row, e.Column) : null;
+        }
+    }
+
     /// <summary>Copies the selection, if there is one, and clears it.</summary>
     public async Task CopyAsync()
     {
@@ -984,6 +1230,16 @@ public sealed class TerminalView : Control
 
         NoteTyped(text.ReplaceLineEndings("\n"));
         Send(TerminalKeys.Paste(text, _terminal.BracketedPaste));
+    }
+
+    /// <summary>
+    /// Types a saved command into the session, pasted as one (bracketed, when the shell asked for it) so a several-line
+    /// command can't run half of itself, then Enter if <paramref name="pressEnter"/>.
+    /// </summary>
+    public void SendCommand(string text, bool pressEnter)
+    {
+        NoteTyped(text.ReplaceLineEndings("\n") + (pressEnter ? "\n" : ""));
+        Send(TerminalKeys.Paste(text, _terminal.BracketedPaste) + (pressEnter ? "\r" : ""));
     }
 
     /// <summary>Everything in the scrollback and on screen, as plain text.</summary>

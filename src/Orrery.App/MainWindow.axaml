@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Orrery.App.Connections"
         xmlns:c="using:Orrery.App.Controls"
+        xmlns:s="using:Orrery.App.Sessions"
         x:Class="Orrery.App.MainWindow"
         Title="Orrery"
         Icon="/Assets/orrery.ico"
@@ -41,7 +42,7 @@
 
           <Button x:Name="QuickConnectButton" Grid.Column="1" Classes="search"
                   HorizontalAlignment="Stretch" MaxWidth="520" Height="30" VerticalAlignment="Center"
-                  Click="OnQuickConnectClick" ToolTip.Tip="Quick connect (Ctrl+K)"
+                  Click="OnQuickConnectClick" ToolTip.Tip="Quick connect (Ctrl+K, or Ctrl+Shift+K from a terminal)"
                   AutomationProperties.Name="Quick connect">
             <DockPanel>
               <Border DockPanel.Dock="Right" BorderBrush="{StaticResource OrreryControlBorder}" BorderThickness="1"
@@ -194,6 +195,7 @@
                   <TreeView.ContextMenu>
                     <ContextMenu>
                       <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
+                      <MenuItem x:Name="NewSessionMenuItem" Header="Open new session" Click="OnNewSessionMenuClick" />
                       <MenuItem x:Name="BrowseFilesMenuItem" Header="Browse files (SFTP)" Click="OnBrowseFilesMenuClick" />
                       <MenuItem x:Name="WakeMenuItem" Header="Wake" Click="OnWakeMenuClick" />
                       <MenuItem x:Name="ManagementMenuItem" Header="Open management page" Click="OnManagementMenuClick" />
@@ -274,7 +276,7 @@
           </Border>
 
           <Grid>
-            <Panel x:Name="SessionHost" Background="#0B0D10" />
+            <s:SessionSplitPanel x:Name="SessionHost" Background="#0B0D10" />
             <StackPanel x:Name="EmptyState" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
               <TextBlock x:Name="EmptyStateTitle" Text="No open sessions" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
               <TextBlock Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"

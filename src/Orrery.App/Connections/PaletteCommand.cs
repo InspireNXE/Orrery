@@ -15,6 +15,15 @@ sealed record PaletteCommand(string Title, string Group, Func<Task> Run, string?
     /// <summary>Its keyboard shortcut, shown at the right.</summary>
     public string? Shortcut { get; init; }
 
+    /// <summary>A second line under the title, such as a saved command's text, shown in the mono font.</summary>
+    public string? Detail { get; init; }
+
+    /// <summary>What Shift+Enter does instead, such as typing a saved command without pressing Enter. Null for nothing.</summary>
+    public Func<Task>? AltRun { get; init; }
+
+    /// <summary>What the row's hint says Shift+Enter does, when there's <see cref="AltRun"/>: a couple of words, such as "type only".</summary>
+    public string? AltHint { get; init; }
+
     /// <summary>Other words it's found by, such as "preferences" for Settings.</summary>
     public IReadOnlyList<string> Keywords { get; init; } = [];
 

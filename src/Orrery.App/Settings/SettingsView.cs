@@ -123,7 +123,7 @@ sealed class SettingsView : UserControl
 
         var pages = new (string Name, Control[] Sections)[]
         {
-            ("General", [StartupSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
+            ("General", [StartupSection(), OpeningSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
             ("Sessions", [RemoteDesktopSection(), WebPagesSection(), LocalTerminalSection(), RecordingSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
@@ -242,6 +242,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>Remembering recent connections was turned on or off; off means clearing what's kept.</summary>
     public event EventHandler<bool>? RememberRecentConnectionsChanged;
+
+    /// <summary>What opening a connection that's already open does was changed: true opens another session.</summary>
+    public event EventHandler<bool>? NewSessionOnOpenChanged;
 
     /// <summary>A pane mode was chosen, and saved: the side panel's, then the right-hand pane's.</summary>
     public event EventHandler<(PaneMode Side, PaneMode Inspector)>? PaneModesChanged;
@@ -808,10 +811,106 @@ sealed class SettingsView : UserControl
             OpenFolder(folder);
         };
 
-        var noFfmpeg = OperatingSystem.IsWindows() ? "None chosen: MP4 uses Windows' own encoders." : "None chosen: screen recordings export as AVI only.";
-        var ffmpegText = Note(_settings.FfmpegPath is { } chosen ? $"Using {chosen}" : noFfmpeg);
+        // MP4 export (docs/design-session-recording.md §4.2): each codec and what makes it, from Windows' codecs (read
+        // once) and the chosen ffmpeg, run to read its version and encoders. With none that runs, the places installers
+        // use are looked in, and one found is offered, not taken: its line comes from its path, so nothing is run.
+        IReadOnlyList<Core.Recording.SystemCodec>? systemCodecs = null;
+        string? foundFfmpeg = null;
+        int refreshes = 0;
+        var codecList = new Border { Background = Pane.CardBrush, BorderBrush = Pane.LineBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6) };
         var chooseFfmpeg = new Button { Content = "Choose ffmpeg…" };
-        var clearFfmpeg = new Button { Content = "Don't use ffmpeg", IsVisible = _settings.FfmpegPath is not null };
+        var getFfmpeg = Recording.FfmpegHelp.DownloadButton();
+        var clearFfmpeg = new Button { Content = "Don't use ffmpeg", IsVisible = false };
+        var notChosen = new TextBlock { Text = "Not chosen", FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0), IsVisible = false };
+        var current = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = false };
+        var ffmpegText = Note("Checking…");
+        var installFfmpeg = Note(Recording.FfmpegHelp.InstallHint);
+        installFfmpeg.IsVisible = false;
+        var foundLine = new TextBlock { FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
+        var foundPath = new TextBlock { FontFamily = Dialogs.MonoFont, FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis };
+        var useFound = new Button { Content = "Use it", Classes = { "accent" }, VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(useFound, Dock.Right);
+        var foundDot = Dot(Palette.Accent);
+        DockPanel.SetDock(foundDot, Dock.Left);
+        var found = new Border
+        {
+            Background = Pane.CardBrush,
+            BorderBrush = new SolidColorBrush(Palette.Accent.Color, 0.4),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 10),
+            IsVisible = false,
+            Child = new DockPanel
+            {
+                Children = { foundDot, useFound, new StackPanel { Margin = new Thickness(12, 0), Children = { foundLine, foundPath } } },
+            },
+        };
+
+        async Task RefreshFfmpegAsync()
+        {
+            var mine = ++refreshes;
+            ffmpegText.Text = "Checking…";
+            ffmpegText.IsVisible = true;
+            systemCodecs ??= OperatingSystem.IsWindows() ? await Task.Run(Core.Recording.MediaFoundation.Codecs) : [];
+            var chosen = _settings.FfmpegPath;
+            var info = chosen is null ? null : await Core.Recording.Ffmpeg.ProbeAsync(chosen);
+            var candidate = info is null ? await Task.Run(Core.Recording.Ffmpeg.Find) : null;
+            if (mine != refreshes)
+            {
+                return;
+            }
+
+            codecList.Child = Pane.Rows([.. Recording.FfmpegHelp.Codecs(systemCodecs, info).Select(CodecLine)]);
+            chooseFfmpeg.Content = chosen is null ? "Choose ffmpeg…" : "Choose another…";
+            getFfmpeg.IsVisible = info is null;
+            clearFfmpeg.IsVisible = chosen is not null;
+            notChosen.IsVisible = chosen is null;
+            current.Children.Clear();
+            if (info is not null)
+            {
+                var path = new TextBlock { Text = Recording.FfmpegHelp.ShortPath(info.Path), FontFamily = Dialogs.MonoFont, FontSize = 12, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center };
+                ToolTip.SetTip(path, info.Path);
+                current.Children.AddRange([Dot(Palette.Success), new TextBlock { Text = $"ffmpeg {Core.Recording.Ffmpeg.ShortVersion(info.Version)}", FontSize = 13, VerticalAlignment = VerticalAlignment.Center }, path]);
+            }
+
+            current.IsVisible = info is not null;
+            ffmpegText.Text = chosen is not null && info is null ? $"{chosen} didn't run as ffmpeg (moved or uninstalled?), so export doesn't use it." : string.Empty;
+            ffmpegText.IsVisible = ffmpegText.Text.Length > 0;
+            foundFfmpeg = candidate == chosen ? null : candidate;
+            if (foundFfmpeg is not null)
+            {
+                foundLine.Text = Recording.FfmpegHelp.FoundText(foundFfmpeg);
+                foundPath.Text = Recording.FfmpegHelp.ShortPath(foundFfmpeg);
+                ToolTip.SetTip(foundPath, foundFfmpeg);
+            }
+
+            found.IsVisible = foundFfmpeg is not null;
+            installFfmpeg.IsVisible = info is null && foundFfmpeg is null;
+        }
+
+        async Task UseFfmpegAsync(string path)
+        {
+            ffmpegText.Text = "Checking…";
+            ffmpegText.IsVisible = true;
+            if (await Core.Recording.Ffmpeg.ProbeAsync(path) is null)
+            {
+                ffmpegText.Text = $"{path} isn't an ffmpeg Orrery could run. Nothing changed.";
+                return;
+            }
+
+            _settings = _settings with { FfmpegPath = path };
+            TrySaveSettings();
+            await RefreshFfmpegAsync();
+        }
+
+        _ = RefreshFfmpegAsync();
+        useFound.Click += async (_, _) =>
+        {
+            if (foundFfmpeg is { } path)
+            {
+                await UseFfmpegAsync(path);
+            }
+        };
         chooseFfmpeg.Click += async (_, _) =>
         {
             if (TopLevel.GetTopLevel(this) is not { } top)
@@ -829,25 +928,13 @@ sealed class SettingsView : UserControl
                 return;
             }
 
-            ffmpegText.Text = "Checking…";
-            var info = await Core.Recording.Ffmpeg.ProbeAsync(path);
-            if (info is null)
-            {
-                ffmpegText.Text = "That isn't an ffmpeg Orrery could run. Nothing changed.";
-                return;
-            }
-
-            _settings = _settings with { FfmpegPath = path };
-            TrySaveSettings();
-            clearFfmpeg.IsVisible = true;
-            ffmpegText.Text = $"{info.Version}. MP4 export offers: {(info.Codecs.Count == 0 ? "nothing (this build has no H.264, H.265 or AV1 encoder)" : string.Join(", ", info.Codecs.Select(c => c.Name)))}.";
+            await UseFfmpegAsync(path);
         };
-        clearFfmpeg.Click += (_, _) =>
+        clearFfmpeg.Click += async (_, _) =>
         {
             _settings = _settings with { FfmpegPath = null };
             TrySaveSettings();
-            clearFfmpeg.IsVisible = false;
-            ffmpegText.Text = noFfmpeg;
+            await RefreshFfmpegAsync();
         };
 
         return Section("Recordings",
@@ -865,15 +952,58 @@ sealed class SettingsView : UserControl
             Note("Old recordings are deleted for good, the oldest first, when they pass these limits."),
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { show, open } },
             used,
-            Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg } }),
+            new Border { Height = 1, Background = Pane.LineBrush, Margin = new Thickness(0, 8, 0, 4) },
+            SubHeading("MP4 EXPORT"),
+            codecList,
+            Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, getFfmpeg, clearFfmpeg, notChosen } }),
+            current,
             ffmpegText,
+            found,
+            installFfmpeg,
             Note(OperatingSystem.IsWindows()
-                ? "Export… makes MP4 with Windows' own H.264, H.265 and AV1 encoders, whichever this PC has (AV1 and H.265 often need "
-                    + "a recent graphics card or Windows' HEVC extension). An ffmpeg you've installed adds any codec Windows lacks. "
-                    + "Orrery never downloads or bundles ffmpeg."
-                : "Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4: "
-                    + "Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."));
+                ? "Export… uses Windows' own encoders first. An ffmpeg adds any codec Windows lacks."
+                : "Export… makes MP4 through the ffmpeg chosen here. Without one, screen recordings export as AVI."));
     }
+
+    /// <summary>A codec in the MP4 export list: its name, a dot for what makes it (green Windows, blue ffmpeg, gray nothing), and a note.</summary>
+    static Control CodecLine(Recording.CodecRow row)
+    {
+        bool none = row.Source == Recording.Mp4Source.None;
+        var line = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(12, 7),
+            Children =
+            {
+                new TextBlock { Text = row.Name, Width = 64, FontSize = 13, Foreground = none ? Dialogs.MutedBrush : null },
+                Dot(row.Source switch { Recording.Mp4Source.Windows => Palette.Success, Recording.Mp4Source.Ffmpeg => Palette.Accent, _ => Palette.StateEnded }),
+                new TextBlock
+                {
+                    Text = row.Source switch { Recording.Mp4Source.Windows => "Windows", Recording.Mp4Source.Ffmpeg => "ffmpeg", _ => "Not available" },
+                    FontSize = 13,
+                    Margin = new Thickness(8, 0, 0, 0),
+                    Foreground = none ? Dialogs.MutedBrush : null,
+                },
+            },
+        };
+        if (row.Detail is { } detail)
+        {
+            line.Children.Add(new TextBlock { Text = "· " + detail, FontSize = 13, Margin = new Thickness(6, 0, 0, 0), Foreground = none ? Palette.StateEnded : Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis });
+        }
+
+        AutomationProperties.SetName(line, $"{row.Name}: {(none ? "not available" : "from " + row.Source)}{(row.Detail is null ? "" : ", " + row.Detail)}");
+        return line;
+    }
+
+    /// <summary>A heading inside a section, styled like the section's own and a level below it.</summary>
+    static TextBlock SubHeading(string text)
+    {
+        var heading = new TextBlock { Text = text, Classes = { "section" } };
+        AutomationProperties.SetHeadingLevel(heading, 3);
+        return heading;
+    }
+
+    static Avalonia.Controls.Shapes.Ellipse Dot(IBrush brush) => new() { Width = 8, Height = 8, Fill = brush, VerticalAlignment = VerticalAlignment.Center };
 
     static string UsedText(string folder)
     {
@@ -943,6 +1073,41 @@ sealed class SettingsView : UserControl
                 + "and asks for the login again."),
             recent,
             Note(recentNote));
+    }
+
+    // ---- Opening connections ----
+
+    Control OpeningSection()
+    {
+        var choice = new ComboBox
+        {
+            MinWidth = 160,
+            ItemsSource = new[]
+            {
+                new ComboBoxItem { Content = "Go to its open session", Tag = false },
+                new ComboBoxItem { Content = "Open a new session", Tag = true },
+            },
+            SelectedIndex = _settings.OpensNewSession ? 1 : 0,
+        };
+        AutomationProperties.SetName(choice, "Opening a connection that's already open");
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (_loading || choice.SelectedItem is not ComboBoxItem { Tag: bool newSession })
+            {
+                return;
+            }
+
+            _settings = _settings with { NewSessionOnOpen = newSession };
+            if (TrySaveSettings())
+            {
+                NewSessionOnOpenChanged?.Invoke(this, newSession);
+            }
+        };
+
+        return Section("Opening connections",
+            Row("Double-click a connection that's already open", choice),
+            Note("This goes for Enter and Connect too. With several sessions open to it, it goes to the one used last; with none, it opens one. "
+                + "Ctrl+double-click, a middle-click, or Open new session on its right-click menu always opens another."));
     }
 
     // ---- Remote desktops ----

@@ -31,6 +31,8 @@ public partial class MainWindow
             {
                 commands.AddRange(FromMenu(control, null, group));
             }
+
+            commands.AddRange(SavedCommandPaletteCommands(tab));
         }
 
         commands.AddRange(SessionsCommands());
@@ -43,7 +45,7 @@ public partial class MainWindow
     /// <summary>A menu item as commands: itself, or each item of its submenu ("Send keys: Ctrl+Alt+Del").</summary>
     internal static IEnumerable<PaletteCommand> FromMenu(Control control, string? parent, string group)
     {
-        if (control is not MenuItem { IsEnabled: true, IsVisible: true, Header: string header } item)
+        if (control is not MenuItem { IsEnabled: true, IsVisible: true, Header: string header } item || item.Tag is SavedCommandsMenuTag)
         {
             yield break;
         }
@@ -66,7 +68,7 @@ public partial class MainWindow
         {
             item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             return Task.CompletedTask;
-        }) { Shortcut = item.InputGesture?.ToString() };
+        }) { Shortcut = item.InputGesture is { } gesture ? Input.FullScreenShortcut.Describe(gesture) : null };
     }
 
     /// <summary>A session that holds a connection open: not a local shell or a web page, which have none to end.</summary>

@@ -110,8 +110,11 @@ public partial class MainWindow : Window
     readonly HostStatusController _hostStatus;
     readonly TextBlock _noticeText;
     int _noticeVersion;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _managementMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
+    readonly MenuItem _connectMenuItem, _newSessionMenuItem, _browseFilesMenuItem, _wakeMenuItem, _managementMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
+
+    // Settings: opening a connection that's already open starts another session rather than going to it.
+    bool _newSessionOnOpen;
     SessionTab? _currentTab;
     readonly NetworkWatch _network = new();
 
@@ -213,6 +216,7 @@ public partial class MainWindow : Window
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
+        _newSessionMenuItem = this.FindControl<MenuItem>("NewSessionMenuItem")!;
         _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
         _wakeMenuItem = this.FindControl<MenuItem>("WakeMenuItem")!;
         _managementMenuItem = this.FindControl<MenuItem>("ManagementMenuItem")!;
@@ -318,6 +322,7 @@ public partial class MainWindow : Window
         _hostStatus.Method = startSettings.HostCheckMethod;
         _hostStatus.Enabled = startSettings.ChecksHostStatus;
         RememberRecentConnections(startSettings.RemembersRecentConnections);
+        _newSessionOnOpen = startSettings.OpensNewSession;
 
         WireTree();
         WireTitleBar();
@@ -472,6 +477,7 @@ public partial class MainWindow : Window
 
         // A host's row also expands on double-click (the tree item does that and marks the event handled), so
         // the expansion is put back: double-click connects, the arrow expands. Double-clicks on the arrow are left alone.
+        // It goes to the connection's open session, if it has one; with Ctrl held it opens another.
         _treeView.AddHandler(DoubleTappedEvent, async (_, e) =>
         {
             if (e.Source is not Visual source || source.FindAncestorOfType<Avalonia.Controls.Primitives.ToggleButton>(includeSelf: true) is not null
@@ -485,7 +491,17 @@ public partial class MainWindow : Window
                 item.IsExpanded = !item.IsExpanded;
             }
 
-            await ConnectAsync(entry);
+            await OpenAsync(entry, newSession: e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control));
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+
+        // A middle-click on a connection always opens another session, as it opens a new tab in a browser.
+        _treeView.AddHandler(PointerReleasedEvent, async (_, e) =>
+        {
+            if (e.InitialPressMouseButton == MouseButton.Middle && RowAt(e.Source)?.Node is ConnectionEntry entry)
+            {
+                e.Handled = true;
+                await OpenAsync(entry, newSession: true);
+            }
         }, RoutingStrategies.Bubble, handledEventsToo: true);
 
         _treeView.KeyDown += async (_, e) =>
@@ -526,6 +542,7 @@ public partial class MainWindow : Window
             int connections = nodes.OfType<ConnectionEntry>().Count();
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
+            _newSessionMenuItem.IsVisible = connections == 1;
             _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
             int wakeable = nodes.OfType<ConnectionEntry>().Count(e => !string.IsNullOrEmpty(e.MacAddress));
             _wakeMenuItem.IsVisible = nodes.OfType<ConnectionEntry>().Any();
@@ -872,8 +889,8 @@ public partial class MainWindow : Window
             }
         }, RoutingStrategies.Tunnel);
 
-        // A local terminal, and popping the current tab out, caught on the way down too so a focused terminal doesn't
-        // take them as Ctrl+T and Ctrl+O.
+        // A local terminal, popping the current tab out, splitting and quick connect, caught on the way down too so a
+        // focused terminal doesn't take them as Ctrl+T, Ctrl+O, Ctrl+E and Ctrl+K.
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Handled || _dimmer.IsVisible
@@ -893,7 +910,22 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 PopOut(tab);
             }
+            else if (Input.TabShortcuts.Splits(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()) && _currentTab is { } current
+                && !_settingsHost.IsVisible)
+            {
+                e.Handled = true;
+                ToggleSplit(current);
+            }
+            else if (Input.TabShortcuts.OpensQuickConnect(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
+            {
+                e.Handled = true;
+                _ = OpenQuickConnectAsync();
+            }
         }, RoutingStrategies.Tunnel);
+
+        // Clicking into or tabbing into the other side of a split makes it the current tab.
+        _sessionHost.AddHandler(GotFocusEvent, (_, e) => OnSessionAreaFocus(e.Source));
+        _sessionHost.AddHandler(PointerPressedEvent, (_, e) => OnSessionAreaFocus(e.Source), RoutingStrategies.Tunnel, handledEventsToo: true);
 
         // Drag a tab sideways to move it; it lands where it's let go. Dragged well above or below the strip, it pops
         // out into a window of its own where it's let go. The tab's own click still selects it.
@@ -934,6 +966,8 @@ public partial class MainWindow : Window
             if (_tabDragging)
             {
                 _tabTearing = Input.TabShortcuts.TearsOff(at.Y, _tabStrip.Bounds.Height);
+                _tabSplitSide = _tabTearing ? SplitSideAt(tab, e.GetPosition(this)) : null;
+                ShowSplitPreview(_tabSplitSide);
                 ShowTabDrag(tab, dx, at);
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -944,11 +978,16 @@ public partial class MainWindow : Window
             {
                 int target = _tabDropIndex;
                 bool tearing = _tabTearing;
+                var splitSide = _tabSplitSide;
                 var at = this.PointToScreen(e.GetPosition(this));
                 EndTabDrag();
 
                 // After the release has been through the tab, which is still in the strip until then.
-                if (tearing)
+                if (splitSide is { } onRight)
+                {
+                    Dispatcher.UIThread.Post(() => SplitWith(tab, onRight));
+                }
+                else if (tearing)
                 {
                     Dispatcher.UIThread.Post(() => PopOut(tab, at: at));
                 }
@@ -970,6 +1009,9 @@ public partial class MainWindow : Window
 
     // The held tab is far enough above or below the strip to pop out where it's let go.
     bool _tabTearing;
+
+    // Torn off over the session area's left (false) or right (true) edge: it splits there instead of popping out.
+    bool? _tabSplitSide;
 
     // The held tab, drawn over the window while it's dragged.
     TabGhost? _tabGhost;
@@ -1057,7 +1099,8 @@ public partial class MainWindow : Window
         }
 
         _tabGhost?.Remove();
-        (_draggedTab, _tabDragStart, _tabDragging, _tabTearing, _tabGhost) = (null, null, false, false, null);
+        ShowSplitPreview(null);
+        (_draggedTab, _tabDragStart, _tabDragging, _tabTearing, _tabGhost, _tabSplitSide) = (null, null, false, false, null, null);
     }
 
     SessionTab? TabAt(object? source) =>
@@ -1101,6 +1144,9 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        // Full screen is for one session: the other side of a split waits in its tab.
+        EndSplit(tab);
 
         IReadOnlyList<Avalonia.Platform.Screen>? spread = null;
         if (screen is null && tab.View is RemoteFrameView desktopView)
@@ -1536,6 +1582,14 @@ public partial class MainWindow : Window
 
     async void OnConnectMenuClick(object? sender, RoutedEventArgs e) => await ConnectSelectedAsync();
 
+    async void OnNewSessionMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (SingleSelectedNode is ConnectionEntry entry)
+        {
+            await OpenAsync(entry, newSession: true);
+        }
+    }
+
     async void OnBrowseFilesMenuClick(object? sender, RoutedEventArgs e)
     {
         if (SingleSelectedNode is ConnectionEntry entry)
@@ -1684,8 +1738,23 @@ public partial class MainWindow : Window
         var selected = SelectedNodes().ToHashSet();
         foreach (var entry in _tree.Root.Descendants().OfType<ConnectionEntry>().Where(selected.Contains).ToList())
         {
-            await ConnectAsync(entry);
+            await OpenAsync(entry);
         }
+    }
+
+    /// <summary>
+    /// Goes to the connection's open session, the one shown last, wherever it is: its tab, or its own window. With none
+    /// open, with <paramref name="newSession"/>, or with Settings saying so, it connects again in a new session.
+    /// </summary>
+    async Task OpenAsync(ConnectionEntry entry, bool newSession = false)
+    {
+        if (!newSession && !_newSessionOnOpen && SessionTab.OpenFor(_tabs, entry.Id) is { } open)
+        {
+            ShowTab(open);
+            return;
+        }
+
+        await ConnectAsync(entry);
     }
 
     async void OnEditDefaultsClick(object? sender, RoutedEventArgs e)
@@ -1904,7 +1973,8 @@ public partial class MainWindow : Window
 
     void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        // A focused session swallows keys first, so Ctrl+K inside a remote desktop goes to the remote machine.
+        // A focused session swallows keys first, so Ctrl+K inside a remote desktop goes to the remote machine, and in a
+        // terminal to the shell; Ctrl+Shift+K opens quick connect from a terminal.
         var modifier = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
         if (e.Key == Key.K && e.KeyModifiers == modifier)
         {
@@ -1976,6 +2046,10 @@ public partial class MainWindow : Window
             {
                 ShowTab(_tabs[index]);
             }
+        }
+        else if (choice is { Alt: true, Command.AltRun: { } alternative })
+        {
+            await alternative();
         }
         else if (choice?.Command is { } command)
         {
@@ -2932,6 +3006,7 @@ public partial class MainWindow : Window
 
         // A muted tab stays muted when it reconnects.
         tab.IsMuted = old.IsMuted;
+        tab.LastShown = old.LastShown;
 
         // The recording carries on in the same file, with the reconnect marked on its timeline.
         if (old.Recorder is { IsRecording: true } recorder)
@@ -2963,6 +3038,7 @@ public partial class MainWindow : Window
         {
             _tabStrip.Children[_tabStrip.Children.IndexOf(old.Header)] = tab.Header;
             _sessionHost.Children[_sessionHost.Children.IndexOf(old.Host)] = tab.Host;
+            ReplaceInSplit(old, tab);
             if (current)
             {
                 SelectTab(tab);
@@ -2970,6 +3046,7 @@ public partial class MainWindow : Window
             else
             {
                 tab.IsSelected = false;
+                ShowSplit();
             }
         }
 
@@ -2979,9 +3056,11 @@ public partial class MainWindow : Window
     }
 
     /// <param name="chosen">Chosen or opened, rather than next in line after another closed, so it leaves Recordings.</param>
-    void SelectTab(SessionTab? tab, bool chosen = true)
+    void SelectTab(SessionTab? tab, bool chosen = true, bool focus = true)
     {
+        PlaceInSplit(_currentTab, tab);
         _currentTab = tab;
+        tab?.MarkShown();
         if (tab is not null && chosen && _recordingsShown)
         {
             ShowRecordingsHost(false);
@@ -2992,6 +3071,8 @@ public partial class MainWindow : Window
         {
             each.IsSelected = each == tab;
         }
+
+        ShowSplit();
 
         // A pane opened over the sessions to pick this one has done its job; Auto collapses for it.
         if (tab is not null)
@@ -3004,7 +3085,10 @@ public partial class MainWindow : Window
         if (tab is not null)
         {
             tab.Header.BringIntoView();
-            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
+            if (focus)
+            {
+                Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
+            }
         }
     }
 
@@ -3016,6 +3100,13 @@ public partial class MainWindow : Window
             tab.CancelReconnect();
             tab.Recorder?.Stop();
             int index = StripTabs().IndexOf(tab);
+
+            // The other side of a split takes the whole area.
+            var partner = SplitPartner(tab);
+            if (partner is not null)
+            {
+                EndSplit(select: false);
+            }
             _tabs.Remove(tab);
             if (tab.Popout is { } popout)
             {
@@ -3034,9 +3125,9 @@ public partial class MainWindow : Window
                 ExitFullScreen();
             }
 
-            if (tab == _currentTab)
+            if (tab == _currentTab || partner is not null)
             {
-                SelectTab(strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)], chosen: false);
+                SelectTab(partner ?? (strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)]), chosen: false);
             }
 
             UpdateSessionChrome();
@@ -3281,7 +3372,14 @@ public partial class MainWindow : Window
             string command = mac ? "Cmd" : "Ctrl";
             items.Add(MenuItemFor("Copy", async () => await terminal.CopyAsync(), mac ? "Cmd+C" : "Ctrl+Shift+C", terminal.HasSelection));
             items.Add(MenuItemFor("Paste", async () => await terminal.PasteAsync(), mac ? "Cmd+V" : "Ctrl+Shift+V", connected));
+            items.Add(MenuItemFor("Find…", () => tab.FindBar?.Open(terminal.SelectedText), mac ? "Cmd+F" : "Ctrl+Shift+F"));
             items.Add(new Separator());
+            if (SavedCommandMenuItems(tab, terminal).ToList() is { Count: > 0 } saved)
+            {
+                items.AddRange(saved);
+                items.Add(new Separator());
+            }
+
             items.Add(MenuItemFor("Larger text", () => ChangeTerminalTextSize(1), $"{command}+OemPlus"));
             items.Add(MenuItemFor("Smaller text", () => ChangeTerminalTextSize(-1), $"{command}+OemMinus"));
             items.Add(MenuItemFor("Reset text size", () => ChangeTerminalTextSize(0), $"{command}+D0"));
@@ -3374,6 +3472,18 @@ public partial class MainWindow : Window
         yield return tab.Popout is null
             ? MenuItemFor("Pop out", () => PopOut(tab), Input.TabShortcuts.PopOutDescription(mac))
             : MenuItemFor("Back to tabs", () => Rejoin(tab), Input.TabShortcuts.PopOutDescription(mac));
+
+        if (SplitPartner(tab) is not null)
+        {
+            yield return MenuItemFor("End side by side", () => EndSplit(tab), Input.TabShortcuts.SplitDescription(mac));
+        }
+        else if (tab.Popout is null && StripTabs() is { Count: > 1 } strip)
+        {
+            yield return tab != _currentTab || _currentTab is null
+                ? MenuItemFor("Side by side with the current tab", () => SplitWith(tab, onRight: true))
+                : MenuItemFor(strip[^1] == tab ? "Side by side with the previous tab" : "Side by side with the next tab",
+                    () => ToggleSplit(tab), Input.TabShortcuts.SplitDescription(mac));
+        }
 
         if (tab.Origin is { Protocol: Protocol.Ssh, EntryId: { } id } && _tree.Find(id) is ConnectionEntry entry)
         {
@@ -3894,6 +4004,11 @@ public partial class MainWindow : Window
             result = result.WithoutAlreadyIn(_tree);
         }
 
+        if (!choice.KeepCommands)
+        {
+            ImportReview.DropCommands(result.Root);
+        }
+
         try
         {
             if (result.Credentials.Count > 0)
@@ -4238,6 +4353,7 @@ public partial class MainWindow : Window
                 }
             };
             view.RememberRecentConnectionsChanged += (_, on) => RememberRecentConnections(on);
+            view.NewSessionOnOpenChanged += (_, on) => _newSessionOnOpen = on;
             view.PaneModesChanged += (_, modes) => FollowPaneModes(modes.Side, modes.Inspector);
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             view.TerminalColorsChanged += (_, scheme) =>

@@ -53,6 +53,27 @@ public class TabShortcutsTests
         Assert.Equal("Cmd+Shift+O", TabShortcuts.PopOutDescription(mac: true));
     }
 
+    [Fact]
+    public void Ctrl_shift_k_opens_quick_connect_from_a_terminal_but_not_a_remote_desktop()
+    {
+        Assert.True(TabShortcuts.OpensQuickConnect(Key.K, Ctrl | KeyModifiers.Shift, FocusPlace.Terminal, mac: false));
+        Assert.True(TabShortcuts.OpensQuickConnect(Key.K, Ctrl | KeyModifiers.Shift, FocusPlace.App, mac: false));
+        Assert.False(TabShortcuts.OpensQuickConnect(Key.K, Ctrl | KeyModifiers.Shift, FocusPlace.Desktop, mac: false));
+        Assert.False(TabShortcuts.OpensQuickConnect(Key.K, Ctrl, FocusPlace.Terminal, mac: false)); // The shell's: delete to the end of the line.
+        Assert.True(TabShortcuts.OpensQuickConnect(Key.K, KeyModifiers.Meta | KeyModifiers.Shift, FocusPlace.Terminal, mac: true));
+    }
+
+    [Fact]
+    public void Ctrl_shift_e_splits_except_from_a_remote_desktop()
+    {
+        Assert.True(TabShortcuts.Splits(Key.E, Ctrl | KeyModifiers.Shift, FocusPlace.App, mac: false));
+        Assert.True(TabShortcuts.Splits(Key.E, Ctrl | KeyModifiers.Shift, FocusPlace.Terminal, mac: false));
+        Assert.False(TabShortcuts.Splits(Key.E, Ctrl | KeyModifiers.Shift, FocusPlace.Desktop, mac: false));
+        Assert.False(TabShortcuts.Splits(Key.E, Ctrl, FocusPlace.Terminal, mac: false)); // Ctrl+E is end of line in shells.
+        Assert.True(TabShortcuts.Splits(Key.E, KeyModifiers.Meta | KeyModifiers.Shift, FocusPlace.Terminal, mac: true));
+        Assert.Equal("Ctrl+Shift+E", TabShortcuts.SplitDescription(mac: false));
+    }
+
     [Theory]
     [InlineData(20, false)]
     [InlineData(-30, false)]

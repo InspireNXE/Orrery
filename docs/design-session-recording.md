@@ -191,7 +191,8 @@ readable by anyone who has the file, then writes it where the user chooses:
   with any of H.264, H.265 or AV1 that Windows can't make, each listed only if that ffmpeg has an encoder for it
   (`ffmpeg -encoders`, read once). This is how macOS and Linux make MP4. Orrery starts ffmpeg by its full path with arguments as a list (no shell), pipes raw RGB frames to its standard
   input, and writes nothing to disk unencrypted except ffmpeg's output file. ffmpeg is never searched for on `PATH`,
-  downloaded or bundled: the user picks the file, and Settings shows its version line. Sound goes to it through a
+  downloaded or bundled: the user picks the file, or takes one Settings found where installers put it (§4.2), and
+  Settings shows its version line. Sound goes to it through a
   second pipe, so it never touches the disk either: a named pipe only this user can open on Windows, or a FIFO in a
   private temporary folder elsewhere. ffmpeg encodes it as AAC at 192 kbit/s. ffmpeg reads its inputs in step, so a
   sound track that stopped while the picture went on would leave both waiting: the sound runs on in silence to two
@@ -226,6 +227,19 @@ under a new *Recording* group, for every protocol.
 - *Record remote desktop sound* (on by default), with its size: about 11 MB a minute while sound plays.
 - *Put connection names in file names* (on by default).
 - *ffmpeg for MP4 export* (*ffmpeg (optional)* on Windows): none by default; *Choose…* picks the executable (§3.4).
+  It sits under its own *MP4 export* heading in the card: a list of H.264, H.265 and AV1, each with a dot for what
+  makes it (green Windows, blue ffmpeg, gray nothing, with what would add it), then the ffmpeg buttons and the chosen
+  one's version and path (run each time Settings opens, so one moved or uninstalled says so). With no ffmpeg
+  that runs, Settings looks, without running anything, where installers put one: winget's packages (newest first)
+  and links, Scoop, Chocolatey and Program Files on Windows; Homebrew and MacPorts on macOS; `/usr/bin`,
+  `/usr/local/bin` and Homebrew on Linux. A folder any account can make, like `C:\ffmpeg`, isn't looked in. One found
+  is offered with *Use it*, which checks it as *Choose…* does; nothing is taken without that click. The offer names
+  the version and installer from the path alone ("Found ffmpeg 9.0.2, installed by winget"), so nothing runs first.
+  *Get ffmpeg* opens https://ffmpeg.org/download.html in the browser, and while none is chosen a note says how to
+  install it here: `winget install Gyan.FFmpeg` on Windows, `brew install ffmpeg` on macOS, the distribution's package
+  on Linux (RPM Fusion's on Fedora, whose `ffmpeg-free` has no H.264 or H.265 encoder). The export dialog shows the
+  same link and note when it can offer no MP4 at all. Orrery points the way and nothing more: a download from inside
+  it would make Orrery answer for a third party's executable, which the user's own package manager does better.
 - *Show recordings* (opens the Recordings section, §5.3), *Open the recordings folder*, and the space recordings use now.
 - Which MP4 codec isn't a setting: *Export…* on a screen recording lists AVI and each of H.264, H.265 and AV1 that
   Windows or the chosen ffmpeg can make.

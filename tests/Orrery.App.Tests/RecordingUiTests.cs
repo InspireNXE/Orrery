@@ -626,6 +626,48 @@ public sealed class RecordingUiTests : IDisposable
         Assert.Empty(Mp4Route.All([], null));
     }
 
+    [Fact]
+    public void Settings_lists_each_codec_with_what_makes_it()
+    {
+        var system = new[] { new SystemCodec("H.264", Guid.NewGuid(), false), new SystemCodec("AV1", Guid.NewGuid(), true) };
+        var ffmpeg = new FfmpegInfo(@"C:\ffmpeg.exe", "ffmpeg version 7.1", [new FfmpegCodec("H.264", "libx264"), new FfmpegCodec("H.265", "libx265")]);
+
+        var rows = FfmpegHelp.Codecs(system, ffmpeg);
+        Assert.Equal(["H.264", "H.265", "AV1"], rows.Select(r => r.Name));
+        Assert.Equal([Mp4Source.Windows, Mp4Source.Ffmpeg, Mp4Source.Windows], rows.Select(r => r.Source));
+        Assert.Equal("graphics card", rows[2].Detail);
+        Assert.All(FfmpegHelp.Codecs([], null), r => Assert.Equal(Mp4Source.None, r.Source));
+    }
+
+    [Fact]
+    public void A_found_ffmpeg_is_described_from_its_path_alone()
+    {
+        const string Winget = @"C:\Users\me\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build\bin\ffmpeg.exe";
+        Assert.Equal("Found ffmpeg 9.0.2, installed by winget", FfmpegHelp.FoundText(Winget));
+        Assert.Equal(@"…\ffmpeg-9.0.2-full_build\bin\ffmpeg.exe", FfmpegHelp.ShortPath(Winget));
+        Assert.Equal("Found ffmpeg, installed by Homebrew", FfmpegHelp.FoundText("/opt/homebrew/bin/ffmpeg"));
+        Assert.Equal("Found ffmpeg", FfmpegHelp.FoundText(@"C:\Program Files\ffmpeg\bin\ffmpeg.exe"));
+        Assert.Equal("9.0.2", Ffmpeg.ShortVersion("ffmpeg version 9.0.2-full_build-www.gyan.dev Copyright (c) 2000-2026"));
+        Assert.Equal("7.1", Ffmpeg.ShortVersion("ffmpeg version n7.1 Copyright"));
+        Assert.Equal("N-118000-gabc", Ffmpeg.ShortVersion("ffmpeg version N-118000-gabc Copyright"));
+    }
+
+    [AvaloniaFact]
+    public void Export_links_to_ffmpeg_only_when_it_can_offer_no_mp4()
+    {
+        static bool Links(ExportChoiceWindow window)
+        {
+            window.Show();
+            var links = window.GetVisualDescendants().OfType<Button>().Any(b => Equals(b.Content, "Get ffmpeg"));
+            window.Close();
+            return links;
+        }
+
+        Assert.True(Links(new ExportChoiceWindow([], hasFfmpeg: false)));
+        Assert.False(Links(new ExportChoiceWindow(Mp4Route.All([new SystemCodec("H.264", Guid.NewGuid(), false)], null), hasFfmpeg: false)));
+        Assert.False(Links(new ExportChoiceWindow([], hasFfmpeg: true)));
+    }
+
     async Task<(PlayerView Player, Window Window, string Path)> OpenTerminalRecording(string name, double width = 1000)
     {
         var publicKey = await RecordingKeys.EnsureAsync(_credentials);

@@ -155,6 +155,13 @@ sealed class SessionTab
         _countdown.Tick += (_, _) => CountDown();
         WireSound();
         Host = new Grid { Children = { view, BuildScreen() } };
+        if (view is TerminalView terminal)
+        {
+            FindBar = new TerminalFindBar(terminal);
+            ((Grid)Host).Children.Insert(1, FindBar);
+            terminal.FindRequested += (_, _) => FindBar.Open(terminal.SelectedText);
+        }
+
         ShowState();
     }
 
@@ -338,6 +345,9 @@ sealed class SessionTab
     /// <summary>The view with the connection-lost screen over it; what goes in the session area.</summary>
     public Control Host { get; }
 
+    /// <summary>Find in the scrollback, for a terminal; null for other sessions.</summary>
+    public TerminalFindBar? FindBar { get; }
+
     /// <summary>The window this session is popped out into; null while it's a tab in the main window's strip.</summary>
     public PopoutWindow? Popout { get; set; }
 
@@ -349,6 +359,22 @@ sealed class SessionTab
 
     /// <summary>Set when the user disconnected or closed it, so its ending isn't treated as a drop.</summary>
     public bool EndedByUser { get; set; }
+
+    /// <summary>When it was last shown, as a count that only goes up, so opening its connection again goes to the latest.</summary>
+    public long LastShown { get; set; }
+
+    static long _shown;
+
+    /// <summary>Marks it as the session shown last.</summary>
+    public void MarkShown() => LastShown = Interlocked.Increment(ref _shown);
+
+    /// <summary>
+    /// The session a connection already has open, the one shown most recently, or null. Its file browser and its management
+    /// page are left out: they aren't the session that opening the connection makes.
+    /// </summary>
+    public static SessionTab? OpenFor(IEnumerable<SessionTab> tabs, Guid entryId) =>
+        tabs.Where(t => t.Origin.EntryId == entryId && !t.Origin.Files && !t.Origin.ManagementPage)
+            .MaxBy(t => t.LastShown);
 
     /// <summary>
     /// The settings a running remote desktop can't take up, as they were saved when it opened, so the settings pane
