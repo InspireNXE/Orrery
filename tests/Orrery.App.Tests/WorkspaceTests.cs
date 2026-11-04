@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
@@ -419,6 +420,51 @@ public class WorkspaceWindowTests : IDisposable
 
             typeof(MainWindow).GetMethod("ExitFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, []);
             Assert.True(bar.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void The_full_screen_bar_goes_after_sliding_off_it_along_the_top_edge_and_moving_down()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Width = 1200;
+            window.Height = 800;
+            window.Show();
+            AddTab(window, new IdleSession("desk.example", 3389), new SessionOrigin("desk", Protocol.Rdp, null, () => Task.CompletedTask));
+            Dispatcher.UIThread.RunJobs();
+            typeof(MainWindow).GetMethod("EnterFullScreen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [null, null]);
+            Dispatcher.UIThread.RunJobs();
+            var bar = window.FindControl<Border>("FullScreenBar")!;
+
+            void Move(double x, double y)
+            {
+                window.MouseMove(new Avalonia.Point(x, y));
+                Dispatcher.UIThread.RunJobs();
+            }
+
+            Move(20, 300);
+            Move(20, 2);
+            Assert.True(bar.IsVisible);
+
+            // Onto the bar, off it sideways along the top edge, then down: never over the bar on the way out.
+            var middle = bar.TranslatePoint(new Avalonia.Point(bar.Bounds.Width / 2, bar.Bounds.Height / 2), window)!.Value;
+            Move(middle.X, middle.Y);
+            Move(20, 2);
+            Assert.True(bar.IsVisible);
+            Move(20, 300);
+            Assert.False(bar.IsVisible);
+
+            // Straight down off the bar still hides it.
+            Move(20, 2);
+            Move(middle.X, middle.Y);
+            Move(middle.X, 300);
+            Assert.False(bar.IsVisible);
         }
         finally
         {
