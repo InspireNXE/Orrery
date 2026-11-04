@@ -15,6 +15,7 @@ public class RailNavigationTests : IDisposable
     [InlineData("ConnectionsRailButton")] // The panel that was already showing behind Settings.
     [InlineData("CredentialsRailButton")]
     [InlineData("RecentRailButton")]
+    [InlineData("CommandsRailButton")]
     public void Choosing_another_rail_item_leaves_settings_and_shows_its_panel(string button)
     {
         var location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
