@@ -43,6 +43,7 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _protocol = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBox _port = new() { FontFamily = Dialogs.MonoFont };
     readonly CredentialPicker _credential;
+    readonly ICredentialStore _credentials;
     readonly TextBox _username = new(), _domain = new();
     readonly TextBox _keyFile = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "~/.ssh/id_ed25519" };
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
@@ -144,6 +145,7 @@ sealed class PropertiesPanel : UserControl
         _now = now ?? (() => DateTimeOffset.Now);
         _historyTimer.Tick += (_, _) => ShowHistory();
         _lastConnected.IsVisible = history is not null;
+        _credentials = credentials;
         _credential = new CredentialPicker(credentials);
         _tile = Pane.Tile(_tileIcon);
 
@@ -1318,6 +1320,7 @@ sealed class PropertiesPanel : UserControl
         var title = new TextBlock { Text = command.Name, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         var marks = new List<string>();
         if (command.WhenConnected) marks.Add("when connected");
+        if (command.AnswersPassword) marks.Add("types a password");
         if (command.Confirm) marks.Add("asks first");
         if (!command.PressEnter) marks.Add("no Enter");
         if (from is not null) marks.Add(from.Parent is null ? "from the defaults" : $"from {from.Name}");
@@ -1368,7 +1371,7 @@ sealed class PropertiesPanel : UserControl
             return;
         }
 
-        if (await new SavedCommandWindow(command, node.Parent is null ? "the defaults for all connections" : node.Name).ShowDialog<SavedCommand?>(owner) is not { } saved
+        if (await new SavedCommandWindow(command, node.Parent is null ? "the defaults for all connections" : node.Name, _credentials).ShowDialog<SavedCommand?>(owner) is not { } saved
             || _node != node)
         {
             return;

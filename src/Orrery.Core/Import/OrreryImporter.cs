@@ -320,7 +320,7 @@ public static class OrreryImporter
 
     /// <summary>
     /// Saved commands as the file has them, less any that can't be one: no text, too long, or with control characters
-    /// that would act as keys. None runs when connected, whatever the file says. Kept in the result for the preview to list; they're left out unless the user keeps them.
+    /// that would act as keys. None runs when connected or types a password, whatever the file says. Kept in the result for the preview to list; they're left out unless the user keeps them.
     /// </summary>
     static List<SavedCommand>? ImportedCommands(List<SavedCommand>? commands, string owner, List<string> warnings)
     {
@@ -355,6 +355,12 @@ public static class OrreryImporter
             if (command.WhenConnected)
             {
                 warnings.Add($"{owner}: the saved command \"{command.Name}\" ran when connected in the file. It doesn't here until you turn that on.");
+            }
+
+            // Nor type a password: a command can print "Password:" itself and read what's typed.
+            if (command.Password != CommandPassword.None)
+            {
+                warnings.Add($"{owner}: the saved command \"{command.Name}\" answered a password prompt in the file. It doesn't here until you set that.");
             }
         }
 

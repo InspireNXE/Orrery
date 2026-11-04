@@ -90,7 +90,11 @@ public sealed class TerminalView : Control
         VisualChildren.Add(_spoken);
         LogicalChildren.Add(_spoken);
 
-        session.DataReceived += data => _terminal.Feed(data);
+        session.DataReceived += data =>
+        {
+            _terminal.Feed(data);
+            Interlocked.Increment(ref _received);
+        };
         session.StateChanged += (_, e) => ShowState(e.State, e.Message);
         ShowState(session.State, null);
     }
@@ -217,6 +221,21 @@ public sealed class TerminalView : Control
             }
 
             return text.ToString().TrimEnd();
+        }
+    }
+
+    long _received;
+
+    /// <summary>How many times output has come, for telling when it's stopped.</summary>
+    internal long Received => Interlocked.Read(ref _received);
+
+    /// <summary>The text of the line the cursor is on, up to the cursor: what a prompt waits after.</summary>
+    internal string CursorLine()
+    {
+        lock (_terminal.SyncRoot)
+        {
+            var text = _terminal.ScreenLine(_terminal.CursorY).Text();
+            return text[..Math.Min(text.Length, _terminal.CursorX)];
         }
     }
 
@@ -1241,6 +1260,12 @@ public sealed class TerminalView : Control
         NoteTyped(text.ReplaceLineEndings("\n") + (pressEnter ? "\n" : ""));
         Send(TerminalKeys.Paste(text, _terminal.BracketedPaste) + (pressEnter ? "\r" : ""));
     }
+
+    /// <summary>
+    /// Types a password at a prompt, then Enter: as keys, never pasted (bracketed paste would put the markers in it),
+    /// and not noted as typed for the screen reader, which would otherwise hold it to match against the echo.
+    /// </summary>
+    internal void SendSecret(string secret) => Send(secret + "\r");
 
     /// <summary>Everything in the scrollback and on screen, as plain text.</summary>
     public string AllText() => _terminal.AllText();

@@ -1,6 +1,6 @@
 # Design: commands sent when connected
 
-Status: phase 1 built on `feature/when-connected`; phase 2 designed, not built.
+Status: phases 1 and 2 built on `feature/when-connected`; the later items at the end of section 2 aren't.
 
 A user asked whether Orrery could, on connecting to an SSH host, run `sudo su` and answer its password prompt for
 them. The answer builds on saved commands (README, *Saved commands*): phase 1 lets a saved command send itself once a
@@ -42,32 +42,39 @@ the shell's history and in recordings (which keep what the server sends back, an
 command sent on a timer goes wrong whenever the prompt doesn't come: a sudo timestamp still valid, a NOPASSWD rule, the
 first-use lecture. The password then lands at a shell prompt as a command.
 
-So phase 2 adds steps that aren't commands, in a **When connected** list on a connection or folder:
+The first design had a **When connected** list of steps (send, wait for, answer) apart from saved commands. What's
+built is smaller: the waits are built in, and answering is a setting of the command, so there's one list to keep.
 
-- **Send**: a saved command, or text typed in place.
-- **Wait for**: text or a pattern on the screen's last line, with a timeout (default: the shell's prompt).
-- **Answer a password prompt**: with the connection's own login credential, or one chosen. Only straight after a
-  *Wait for* that matched a password prompt.
+- **Waiting for the shell.** Each command sent when connected waits for the shell's prompt first (output stopped for
+  300 ms, and the cursor's line ending in `$`, `#`, `%`, `>` or `❯`), up to 15 seconds, then is typed anyway, as a
+  shell reads what's typed ahead. A password prompt showing instead stops the rest: nothing is typed into it.
+- **Answering** (`SavedCommand.Password`, *If it asks for a password* in the editor): leave it, the connection's login
+  password, or a chosen credential's (`PasswordCredentialId`). Only for a command that presses Enter. It applies
+  however the command is sent, by hand or when connected.
 
 Rules for answering:
 
-1. Typed only when the last line matches a password prompt (`[sudo] password for riley:`, `Password:`, or a pattern
-   given), within the timeout.
-2. If the prompt doesn't come, nothing is typed. The sequence stops and says so in the tab: "sudo didn't ask for a
-   password, so none was sent."
-3. The password comes from a saved credential, never from the step. A locked vault asks to be unlocked, as at login.
-4. A password prompt has echo off, so the answer isn't in the scrollback or a recording, as when typed by hand.
-5. The log names the credential, never the password: "answered the sudo prompt for X with credential Y".
+1. Typed only when, within 10 seconds of sending, output stops on a password prompt (`[sudo] password for riley:`,
+   `Password:`, `riley@host's password:`, a key's passphrase). Not passwd's `New password:` or `Retype…`.
+2. A shell prompt instead (sudo didn't ask) is fine: nothing is typed and the next command goes. No prompt at all
+   types nothing and stops the rest, saying so in the tab.
+3. The password comes from a saved credential, never from the command. A locked vault asks to be unlocked, as at
+   login, and the prompt has to be the one still showing afterwards.
+4. Typed as keys, not pasted, and not noted for the screen reader's echo matching. A password prompt has echo off, so
+   it isn't in the scrollback or a recording, as when typed by hand.
+5. Typed once. If the password prompt comes back, it isn't typed again: the tab says the password wasn't taken.
+6. The log names the command, the connection and the credential, never the password.
+7. An imported command never answers a prompt, whatever the file says; the import warns.
+8. A file with any command that answers is schema 5, as for *when connected*.
 
-**Become root** is a ready-made sequence: send `sudo -i` (as `sudo su`, one process fewer), wait for a password prompt
-or a root prompt (`#`), answer with the login's credential if it was a password prompt, wait for `#`. `su -` is the
-same with root's credential chosen.
+**Become root** in the editor fills in `sudo -i` (as `sudo su`, one process fewer), answered with the login password.
+`su -` is the same with root's credential chosen. The connection pane marks such a command *types a password*.
 
-Also in phase 2:
+Not built yet:
 
-- A way to connect without the steps: Ctrl+click Connect, or *Connect without its commands* on the menu.
+- A way to connect without the commands: Ctrl+click Connect, or *Connect without its commands* on the menu.
 - A marker on the tab of a session that became root.
-- The same steps suit Telnet and serial logins (wait for `login:`, send the username, answer `Password:`).
+- Waiting for other text (`login:` on a serial console) and sending the username, for Telnet and serial logins.
 
 SFTP has no shell, so files as root would be a feature of its own (starting `sftp-server` through sudo).
 
