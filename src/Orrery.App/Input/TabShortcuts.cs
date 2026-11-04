@@ -87,6 +87,16 @@ static class TabShortcuts
     /// <summary>For people and menus: "Ctrl+Shift+O", "Cmd+Shift+O".</summary>
     public static string PopOutDescription(bool mac) => mac ? "Cmd+Shift+O" : "Ctrl+Shift+O";
 
+    /// <summary>
+    /// Ctrl+Shift+E (Cmd+Shift+E on macOS) shows the current tab side by side with the next one, or ends the split, as
+    /// it splits a terminal in Terminator. Taken where Ctrl+Shift+T is: not in a remote desktop, which gets it.
+    /// </summary>
+    public static bool Splits(Key key, KeyModifiers modifiers, FocusPlace place, bool mac) =>
+        key == Key.E && modifiers == ((mac ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift) && place != FocusPlace.Desktop;
+
+    /// <summary>For people and menus: "Ctrl+Shift+E", "Cmd+Shift+E".</summary>
+    public static string SplitDescription(bool mac) => mac ? "Cmd+Shift+E" : "Ctrl+Shift+E";
+
     /// <summary>The index <paramref name="command"/> leads to from <paramref name="current"/>, among <paramref name="count"/> tabs; null for none.</summary>
     public static int? Target(TabCommand command, int current, int count)
     {

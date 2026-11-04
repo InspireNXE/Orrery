@@ -76,6 +76,9 @@ machine yet, hence the 🧪.
 | Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
 | Pop a tab out into its own window | 🧪 | 🧪 | 🧪 |
+| Two tabs side by side | 🧪 | 🧪 | 🧪 |
+| Find in a terminal's scrollback | 🧪 | 🧪 | 🧪 |
+| Saved commands, asking first for risky ones | 🧪 | 🧪 | 🧪 |
 | **Remote desktops** | | | |
 | Fit the window and follow resizes | ✅ | 🧪 | 🧪 |
 | Clipboard | ✅ text, images, files | 🧪 text, images, files [^files] | 🧪 text, images, files [^files] |
@@ -190,6 +193,21 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   off the tab strip. The window has the session's toolbar and its own full screen. *Back to tabs*, the shortcut
   again, or closing the window puts it back where it was in the strip; dragging the name in its bar onto the tab
   strip puts it back where you let go. It keeps running throughout.
+- **Side by side:** two tabs share the session area, from a tab's menu, Ctrl+Shift+E (the current tab and the next),
+  or by dragging a tab to the left or right edge of the session area, which shades the half it will take. Drag the
+  divider to resize. The side you click or type in is the current tab, with a line over it; choosing another tab
+  puts it in that side and leaves the other in view. Closing or popping out either side gives the other the whole
+  area, and full screen or the shortcut again ends it. A remote desktop that follows window resizes fits its side.
+- **Find** in a terminal (Ctrl+Shift+F, Cmd+F on macOS, or Find… in its right-click menu) searches the screen and
+  its scrollback as you type, newest match first. Enter goes back through older ones and Shift+Enter forward;
+  matches are marked in the text and as ticks down the scroll bar. Selected text is searched for straight away.
+- **Saved commands:** a connection or folder can keep commands for its terminals, in the properties pane under
+  Commands, or with *Save as command…* on a selection. They're listed under Commands in the session's menu and in
+  Ctrl+K, where Enter sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
+  are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
+  host, with Cancel focused; the editor ticks it for commands that look like they delete, stop or overwrite something, such as
+  `rm -rf` or `systemctl stop`. *Confirm every command* asks before all of them, for a connection or a whole
+  folder. Nothing is sent on connect. Imported commands are listed in the import preview, unticked.
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
   *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.
@@ -367,6 +385,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+K | Quick connect; `>` for commands |
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+O | Pop the tab out into its own window, or put it back |
+| Ctrl+Shift+E | Show the tab side by side with the next, or end side by side |
+| Ctrl+Shift+F (Cmd+F on macOS) | In a terminal: find in the scrollback |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel, over the sessions unless it's pinned; the mode stays as it is |
@@ -380,7 +400,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Delete | Delete the selected rows |
 
 A focused remote session gets keys first, so these go to the remote machine. Full screen, Ctrl+Alt+Home and
-Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T and Ctrl+Shift+O work from a terminal, not from a remote desktop.
+Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T, Ctrl+Shift+O and Ctrl+Shift+E work from a terminal, not from a
+remote desktop.
 
 ## Where your data lives
 

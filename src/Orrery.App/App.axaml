@@ -396,6 +396,11 @@
     <Style Selector="Button.tab.selected Border.marker">
       <Setter Property="IsVisible" Value="True" />
     </Style>
+    <!-- The other side of a split view: outlined like the current tab, but not filled, so the two read as a pair. -->
+    <Style Selector="Button.tab.beside">
+      <Setter Property="BorderBrush" Value="{StaticResource OrreryControlBorder}" />
+      <Setter Property="Foreground" Value="{StaticResource OrrerySoftText}" />
+    </Style>
     <!-- A tab's place while it's dragged (or a popped-out session's, while it's dragged back): an empty outline. -->
     <Style Selector="Button.tab.slot /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />

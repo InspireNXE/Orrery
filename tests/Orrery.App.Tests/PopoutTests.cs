@@ -213,12 +213,15 @@ public class PopoutTests : IDisposable
             Dispatcher.UIThread.RunJobs();
             Assert.False(VaultAutoLockTests.Private<bool>(window, "_tabTearing"), "a little way down is still a move along the strip");
 
-            window.MouseMove(start + new Point(30, 200));
+            // Into the middle of the session area: its edges split instead.
+            var area = VaultAutoLockTests.Private<Panel>(window, "_sessionHost");
+            var middle = area.TranslatePoint(new Point(area.Bounds.Width / 2, area.Bounds.Height / 2), window)!.Value;
+            window.MouseMove(middle);
             Dispatcher.UIThread.RunJobs();
             Assert.True(VaultAutoLockTests.Private<bool>(window, "_tabTearing"));
             Assert.NotNull(alpha.Header.Cursor);
 
-            window.MouseUp(start + new Point(30, 200), MouseButton.Left);
+            window.MouseUp(middle, MouseButton.Left);
             Dispatcher.UIThread.RunJobs();
 
             Assert.NotNull(alpha.Popout);
