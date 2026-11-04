@@ -39,12 +39,20 @@ public static partial class SavedCommands
     /// name already taken nearer hides the one further out. A guest takes its folders', not its host's: the host is
     /// another machine. Each asks first when it says to, or when Confirm every command is on for the connection.
     /// </summary>
-    public static IReadOnlyList<ResolvedCommand> For(ConnectionEntry entry)
+    public static IReadOnlyList<ResolvedCommand> For(ConnectionEntry entry) =>
+        Collect(entry.Ancestors().Prepend<ConnectionNode>(entry), SettingsResolver.Resolve(entry).ConfirmCommands.Value);
+
+    /// <summary>
+    /// What a terminal opened without a saved connection can send, such as a local shell or a quick connect: the
+    /// commands on the defaults for all connections (<paramref name="root"/>), asking first as the defaults say.
+    /// </summary>
+    public static IReadOnlyList<ResolvedCommand> ForDefaults(ConnectionFolder root) => Collect([root], root.Settings.ConfirmCommands ?? false);
+
+    static List<ResolvedCommand> Collect(IEnumerable<ConnectionNode> nearestFirst, bool confirmAll)
     {
-        bool confirmAll = SettingsResolver.Resolve(entry).ConfirmCommands.Value;
         var names = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
         var found = new List<ResolvedCommand>();
-        foreach (var node in entry.Ancestors().Prepend<ConnectionNode>(entry))
+        foreach (var node in nearestFirst)
         {
             foreach (var command in node.Commands ?? [])
             {
@@ -62,12 +70,15 @@ public static partial class SavedCommands
     /// The text with <c>{host}</c>, <c>{username}</c> and <c>{name}</c> filled in. Anything else in braces is left as
     /// it is, so a shell's own <c>${var}</c> and <c>{a,b}</c> come through.
     /// </summary>
-    public static string Expand(string text, ConnectionEntry entry, string? username) =>
+    public static string Expand(string text, ConnectionEntry entry, string? username) => Expand(text, entry.Host, username, entry.Name);
+
+    /// <summary>The same, for a terminal without a saved connection: the host and name are what it was opened as.</summary>
+    public static string Expand(string text, string host, string? username, string name) =>
         Placeholder().Replace(text, match => match.Groups[1].Value.ToLowerInvariant() switch
         {
-            "host" => entry.Host,
+            "host" => host,
             "username" => username ?? string.Empty,
-            "name" => entry.Name,
+            "name" => name,
             _ => match.Value,
         });
 

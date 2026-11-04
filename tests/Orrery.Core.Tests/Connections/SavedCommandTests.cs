@@ -38,6 +38,27 @@ public class SavedCommandTests
     }
 
     [Fact]
+    public void A_terminal_without_a_saved_connection_gets_the_defaults_commands_only()
+    {
+        var (tree, _, _) = Sample();
+        tree.Root.Commands = [Command("Disk", "df -h"), Command("Wipe", "rm -rf ./build")];
+
+        var commands = SavedCommands.ForDefaults(tree.Root);
+        Assert.Equal(["Disk", "Wipe"], commands.Select(c => c.Command.Name));
+        Assert.All(commands, c => Assert.False(c.Confirm));
+
+        tree.Root.Settings.ConfirmCommands = true;
+        Assert.All(SavedCommands.ForDefaults(tree.Root), c => Assert.True(c.Confirm));
+    }
+
+    [Fact]
+    public void Placeholders_fill_in_from_the_address_a_terminal_was_opened_to()
+    {
+        Assert.Equal("ssh-copy-id root@10.0.0.5 # quick", SavedCommands.Expand("ssh-copy-id {username}@{host} # {name}", "10.0.0.5", "root", "quick"));
+        Assert.Equal("echo @PC ${host}", SavedCommands.Expand("echo {username}@{host} ${host}", "PC", null, "Local"));
+    }
+
+    [Fact]
     public void A_guest_takes_its_folders_commands_not_its_hosts()
     {
         var (tree, prod, web) = Sample();

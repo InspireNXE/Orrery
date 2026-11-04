@@ -73,9 +73,15 @@ sealed class ConfirmCommandWindow : Window
     }
 }
 
+/// <summary>Somewhere a new command can be saved: a connection, a folder, or the defaults (the tree's top).</summary>
+sealed record CommandPlace(string Label, ConnectionNode Node);
+
 /// <summary>Adds or changes a saved command: its name, what's typed, whether Enter is pressed, and whether it asks first.</summary>
 sealed class SavedCommandWindow : Window
 {
+    readonly IReadOnlyList<CommandPlace> _places = [];
+    readonly ComboBox _place = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+
     readonly TextBox _name = new() { PlaceholderText = "Tail the nginx error log" };
     readonly TextBox _text = new()
     {
@@ -92,6 +98,34 @@ sealed class SavedCommandWindow : Window
     readonly TextBlock _hint = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly TextBlock _error = new() { FontSize = 12, Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     bool _confirmTouched, _settingConfirm;
+
+    /// <summary>A new command from a terminal, saved on whichever of <paramref name="places"/> is chosen (the first to begin with).</summary>
+    public SavedCommandWindow(SavedCommand? command, IReadOnlyList<CommandPlace> places)
+        : this(command, places.Count > 0 ? places[0].Label : string.Empty)
+    {
+        _places = places;
+        if (places.Count < 2)
+        {
+            return;
+        }
+
+        foreach (var place in places)
+        {
+            _place.Items.Add(new ComboBoxItem { Content = place.Label });
+        }
+
+        _place.SelectedIndex = 0;
+        var panel = (StackPanel)Content!;
+        int at = panel.Children.IndexOf(_ownerLine);
+        panel.Children[at] = Dialogs.Field("Save on", _place);
+    }
+
+    /// <summary>Where the command is to be saved, when the window was given places.</summary>
+    public CommandPlace? ChosenPlace => _places.Count == 0 ? null : _places[Math.Max(0, _place.SelectedIndex)];
+
+    internal ComboBox PlaceBox => _place;
+
+    readonly TextBlock _ownerLine = new() { Foreground = Dialogs.MutedBrush, FontSize = 12 };
 
     public SavedCommandWindow(SavedCommand? command, string ownerName)
     {
@@ -129,7 +163,7 @@ sealed class SavedCommandWindow : Window
             Children =
             {
                 Dialogs.Heading(new TextBlock { Text = Title, FontSize = 16, FontWeight = FontWeight.SemiBold }),
-                new TextBlock { Text = $"On {ownerName}", Foreground = Dialogs.MutedBrush, FontSize = 12 },
+                _ownerLine,
                 Dialogs.Field("Name", _name),
                 Dialogs.Field("Command", _text),
                 new TextBlock
@@ -146,6 +180,7 @@ sealed class SavedCommandWindow : Window
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, save } },
             },
         };
+        _ownerLine.Text = $"On {ownerName}";
         Opened += (_, _) => (adding ? _name : _text).Focus();
     }
 

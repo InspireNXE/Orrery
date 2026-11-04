@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
@@ -95,6 +96,43 @@ public class SavedCommandUiTests
         Assert.NotNull(saved);
         Assert.Equal(("uptime", "uptime\nfree -h", false, false), (saved!.Name, saved.Text, saved.PressEnter, saved.Confirm));
         owner.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_new_command_from_a_terminal_can_go_on_the_connection_a_folder_or_every_connection()
+    {
+        var tree = ConnectionTree.Empty();
+        var prod = new ConnectionFolder { Name = "Production" };
+        var web = new ConnectionEntry { Name = "web-01", Host = "web-01.example" };
+        tree.Add(prod, tree.Root);
+        tree.Add(web, prod);
+        var owner = new Window();
+        owner.Show();
+        var window = new SavedCommandWindow(null,
+            [new CommandPlace("web-01 only", web), new CommandPlace("Everything in Production", prod), new CommandPlace("Every connection", tree.Root)]);
+        var result = window.ShowDialog<SavedCommand?>(owner);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(web, window.ChosenPlace?.Node);
+        Assert.Equal(3, window.PlaceBox.ItemCount);
+        window.PlaceBox.SelectedIndex = 2;
+        window.TextBox.Text = "uptime";
+        window.Save();
+
+        Assert.Equal("uptime", (await result)?.Text);
+        Assert.Same(tree.Root, window.ChosenPlace?.Node);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public void With_only_one_place_the_editor_just_names_it()
+    {
+        var tree = ConnectionTree.Empty();
+        var window = new SavedCommandWindow(null, [new CommandPlace("Every connection", tree.Root)]);
+
+        Assert.Same(tree.Root, window.ChosenPlace?.Node);
+        Assert.Contains(window.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "On Every connection");
+        Assert.DoesNotContain(window.PlaceBox, window.GetLogicalDescendants());
     }
 
     [AvaloniaFact]
