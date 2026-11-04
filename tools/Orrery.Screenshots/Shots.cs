@@ -105,7 +105,7 @@ static class Shots
     /// <summary>The window as it would look on someone else's computer: no real path, and a host check that asks no one.</summary>
     static void Stage(MainWindow window)
     {
-        window.FindControl<TextBlock>("StorageText")!.Text = @"Data: D:\Tools\Orrery\data";
+        window.FindControl<TextBlock>("StorageText")!.Text = @"D:\Tools\Orrery\data";
         window.FindControl<Control>("DataAccessText")!.IsVisible = false;
 
         var field = typeof(MainWindow).GetField("_hostStatus", BindingFlags.Instance | BindingFlags.NonPublic)!;
