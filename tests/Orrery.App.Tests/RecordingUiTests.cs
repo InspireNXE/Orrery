@@ -639,6 +639,20 @@ public sealed class RecordingUiTests : IDisposable
         Assert.All(FfmpegHelp.Codecs([], null), r => Assert.Equal(Mp4Source.None, r.Source));
     }
 
+    [AvaloniaFact]
+    public void Every_codec_line_in_settings_has_text_you_can_see()
+    {
+        var rows = new[] { new CodecRow("H.264", Mp4Source.Windows, null), new CodecRow("AV1", Mp4Source.Windows, "graphics card"),
+            new CodecRow("H.265", Mp4Source.Ffmpeg, null), new CodecRow("VP9", Mp4Source.None, "needs an ffmpeg that has it") };
+
+        foreach (var row in rows)
+        {
+            var texts = ((Panel)Orrery.App.Settings.SettingsView.CodecLine(row)).Children.OfType<TextBlock>().ToList();
+            Assert.Contains(texts, t => t.Text == row.Name);
+            Assert.All(texts, t => Assert.NotNull(t.Foreground));
+        }
+    }
+
     [Fact]
     public void A_found_ffmpeg_is_described_from_its_path_alone()
     {

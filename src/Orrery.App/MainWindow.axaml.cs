@@ -857,6 +857,16 @@ public partial class MainWindow : Window
         // from there, never over the bar, left it showing.
         _fullScreenBar.PointerExited += (_, e) => HideFullScreenBarUnlessOver(e);
         _fullScreenHotZone.PointerExited += (_, e) => HideFullScreenBarUnlessOver(e);
+
+        // And on any move off both, seen before the session takes it: an exit can be missed or come with the last
+        // position still on the strip, and the bar then stayed over the remote desktop.
+        AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            if (_fullScreenBar.IsVisible)
+            {
+                HideFullScreenBarUnlessOver(e);
+            }
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     void HideFullScreenBarUnlessOver(PointerEventArgs e)
