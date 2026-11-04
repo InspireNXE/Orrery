@@ -211,7 +211,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   `rm -rf` or `systemctl stop`. *Confirm every command* asks before all of them, for a connection or a whole
   folder. A command marked *Send it by itself each time a saved connection connects* is typed once the terminal
   connects, reconnects included: the defaults' first, then each folder's inwards, then the connection's own, each
-  once the shell's prompt shows. Local shells and quick connects never send anything by themselves.
+  once the shell's prompt shows. Local shells and quick connects never send anything by themselves. The arrows
+  beside a command in the properties pane move it up or down, which is the order the menus list them and the
+  order they're sent in when connected.
 - **Becoming root:** a command can answer a password prompt (*If it asks for a password*) with the connection's
   login password or a saved credential's, such as root's for `su -`. *Become root* in the editor fills in `sudo -i`
   answered with the login password. Any program on a server can show a password prompt, so use it only on servers you

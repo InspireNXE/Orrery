@@ -1294,9 +1294,10 @@ sealed class PropertiesPanel : UserControl
             return;
         }
 
-        foreach (var command in _node.Commands ?? [])
+        var commands = _node.Commands ?? [];
+        for (int i = 0; i < commands.Count; i++)
         {
-            _commandList.Children.Add(CommandRow(command, from: null));
+            _commandList.Children.Add(CommandRow(commands[i], from: null, first: i == 0, last: i == commands.Count - 1));
         }
 
         // What it takes from further up, as a connection would get them; a name set here hides the same one there.
@@ -1315,7 +1316,7 @@ sealed class PropertiesPanel : UserControl
         _commandList.IsVisible = _commandList.Children.Count > 0;
     }
 
-    Control CommandRow(SavedCommand command, ConnectionFolder? from)
+    Control CommandRow(SavedCommand command, ConnectionFolder? from, bool first = true, bool last = true)
     {
         var title = new TextBlock { Text = command.Name, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         var marks = new List<string>();
@@ -1360,7 +1361,48 @@ sealed class PropertiesPanel : UserControl
         AutomationProperties.SetName(remove, $"Remove {command.Name}");
         edit.Click += async (_, _) => await EditCommandAsync(command);
         remove.Click += (_, _) => RemoveCommand(command);
-        return new DockPanel { Children = { Pane.Docked(remove, Dock.Right), Pane.Docked(edit, Dock.Right), info } };
+        var row = new DockPanel { Children = { Pane.Docked(remove, Dock.Right), Pane.Docked(edit, Dock.Right) } };
+
+        // The order is the palette's, and the order commands go in when connected.
+        if (!(first && last))
+        {
+            foreach (var (by, icon, word) in new[] { (1, Icons.Next, "down"), (-1, Icons.Previous, "up") })
+            {
+                var move = new Button { Content = StrokeIcon.Create(icon, 14), Width = 26, Height = 26, VerticalAlignment = VerticalAlignment.Top, Tag = by };
+                move.Classes.Add("icon");
+                move.IsEnabled = by < 0 ? !first : !last;
+                ToolTip.SetTip(move, $"Move {word}");
+                AutomationProperties.SetName(move, $"Move {command.Name} {word}");
+                move.Click += (_, _) => MoveCommand(command, by);
+                row.Children.Add(Pane.Docked(move, Dock.Right));
+            }
+        }
+
+        row.Children.Add(info);
+        return row;
+    }
+
+    /// <summary>Moves one of the node's own commands up (-1) or down (1) a place, saving the tree at once.</summary>
+    internal void MoveCommand(SavedCommand command, int by)
+    {
+        if (_node?.Commands is not { } commands || commands.IndexOf(command) is not (>= 0 and var at) || at + by < 0 || at + by >= commands.Count)
+        {
+            return;
+        }
+
+        commands.RemoveAt(at);
+        commands.Insert(at + by, command);
+        _tree.NotifyChanged();
+        ShowCommands();
+
+        // Focus follows the command, on the same arrow (or the other, at the end), so it can be pressed again.
+        if (_commandList.Children[at + by] is Panel row)
+        {
+            var arrows = row.Children.OfType<Button>().Where(b => b.Tag is int).ToList();
+            (arrows.FirstOrDefault(b => Equals(b.Tag, by) && b.IsEnabled) ?? arrows.FirstOrDefault(b => b.IsEnabled))?.Focus();
+        }
+
+        ScreenReader.Announce(this, $"{command.Name} moved to {at + by + 1} of {commands.Count}", "Orrery.Properties", ScreenReader.MostRecent);
     }
 
     /// <summary>Adds a command (<paramref name="command"/> null) or changes one, saving the tree at once.</summary>

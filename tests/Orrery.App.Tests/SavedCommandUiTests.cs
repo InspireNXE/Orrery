@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -352,6 +353,42 @@ public class SavedCommandUiTests
         Assert.True(panel.TrySave());
         Assert.True(prod.Settings.ConfirmCommands);
         Assert.All(SavedCommands.For(web), c => Assert.True(c.Confirm));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Own_commands_move_up_and_down_and_inherited_ones_have_no_arrows()
+    {
+        var tree = ConnectionTree.Empty();
+        var prod = new ConnectionFolder { Name = "Production", Commands = [new SavedCommand { Name = "Uptime", Text = "uptime" }] };
+        var web = new ConnectionEntry
+        {
+            Name = "web-01", Host = "web-01.example", Settings = { Protocol = Protocol.Ssh },
+            Commands = [new SavedCommand { Name = "First", Text = "a" }, new SavedCommand { Name = "Second", Text = "b" }, new SavedCommand { Name = "Third", Text = "c" }],
+        };
+        tree.Add(prod, tree.Root);
+        tree.Add(web, prod);
+        int changes = 0;
+        tree.Changed += (_, _) => changes++;
+        var panel = new PropertiesPanel(tree, new NoCredentials());
+        var window = new Window { Content = panel, Width = 400, Height = 900 };
+        window.Show();
+        await panel.ShowAsync(web);
+        Dispatcher.UIThread.RunJobs();
+
+        Button Arrow(string name) => panel.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == name);
+        Assert.False(Arrow("Move First up").IsEnabled);
+        Assert.False(Arrow("Move Third down").IsEnabled);
+        Assert.DoesNotContain(panel.GetVisualDescendants().OfType<Button>(), b => AutomationProperties.GetName(b)?.StartsWith("Move Uptime") == true);
+
+        Arrow("Move Third up").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["First", "Third", "Second"], web.Commands!.Select(c => c.Name));
+        Assert.True(Arrow("Move Third up").IsFocused);
+
+        panel.MoveCommand(web.Commands[0], -1); // Already first: nothing.
+        Assert.Equal(["First", "Third", "Second"], web.Commands.Select(c => c.Name));
+        Assert.Equal(1, changes);
         window.Close();
     }
 }
