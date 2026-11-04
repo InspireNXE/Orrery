@@ -966,24 +966,32 @@ sealed class SettingsView : UserControl
     }
 
     /// <summary>A codec in the MP4 export list: its name, a dot for what makes it (green Windows, blue ffmpeg, gray nothing), and a note.</summary>
-    static Control CodecLine(Recording.CodecRow row)
+    internal static Control CodecLine(Recording.CodecRow row)
     {
         bool none = row.Source == Recording.Mp4Source.None;
+        var name = new TextBlock { Text = row.Name, Width = 64, FontSize = 13 };
+        var source = new TextBlock
+        {
+            Text = row.Source switch { Recording.Mp4Source.Windows => "Windows", Recording.Mp4Source.Ffmpeg => "ffmpeg", _ => "Not available" },
+            FontSize = 13,
+            Margin = new Thickness(8, 0, 0, 0),
+        };
+
+        // Muted only when nothing makes it: a null Foreground isn't "inherit", it's no brush, and the text vanishes.
+        if (none)
+        {
+            name.Foreground = source.Foreground = Dialogs.MutedBrush;
+        }
+
         var line = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(12, 7),
             Children =
             {
-                new TextBlock { Text = row.Name, Width = 64, FontSize = 13, Foreground = none ? Dialogs.MutedBrush : null },
+                name,
                 Dot(row.Source switch { Recording.Mp4Source.Windows => Palette.Success, Recording.Mp4Source.Ffmpeg => Palette.Accent, _ => Palette.StateEnded }),
-                new TextBlock
-                {
-                    Text = row.Source switch { Recording.Mp4Source.Windows => "Windows", Recording.Mp4Source.Ffmpeg => "ffmpeg", _ => "Not available" },
-                    FontSize = 13,
-                    Margin = new Thickness(8, 0, 0, 0),
-                    Foreground = none ? Dialogs.MutedBrush : null,
-                },
+                source,
             },
         };
         if (row.Detail is { } detail)

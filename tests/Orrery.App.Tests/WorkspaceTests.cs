@@ -465,6 +465,11 @@ public class WorkspaceWindowTests : IDisposable
             Move(middle.X, middle.Y);
             Move(middle.X, 300);
             Assert.False(bar.IsVisible);
+
+            // Showing with the pointer already down in the session (an exit that never came): the next move hides it.
+            bar.IsVisible = true;
+            Move(24, 310);
+            Assert.False(bar.IsVisible);
         }
         finally
         {
