@@ -132,6 +132,9 @@ public class SavedCommandTests
 
         prod.Commands[1].WhenConnected = false;
         Assert.Equal(4, ConnectionStore.SchemaFor(tree.Root));
+
+        prod.Commands[1].Password = CommandPassword.Login;
+        Assert.Equal(5, ConnectionStore.SchemaFor(tree.Root));
     }
 
     [Fact]
@@ -161,6 +164,9 @@ public class SavedCommandTests
         prod.Commands![0].Confirm = true;
         prod.Commands[0].PressEnter = false;
         prod.Commands[0].WhenConnected = true;
+        var root = Guid.NewGuid();
+        prod.Commands[1].Password = CommandPassword.Credential;
+        prod.Commands[1].PasswordCredentialId = root;
         var folder = Path.Combine(Path.GetTempPath(), "orrery-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try
@@ -171,6 +177,7 @@ public class SavedCommandTests
 
             var command = loaded.Commands![0];
             Assert.Equal(("Tail log", "tail -f /var/log/app.log", false, true, true), (command.Name, command.Text, command.PressEnter, command.Confirm, command.WhenConnected));
+            Assert.Equal((CommandPassword.Credential, root), (loaded.Commands[1].Password, loaded.Commands[1].PasswordCredentialId));
         }
         finally
         {
@@ -217,6 +224,32 @@ public class SavedCommandTests
         var tail = ImportReview.Commands(result.Root).Single(c => c.Command.Name == "Tail log").Command;
         Assert.False(tail.WhenConnected);
         Assert.Contains(result.Report.Warnings, w => w.Contains("\"Tail log\"") && w.Contains("when connected"));
+    }
+
+    [Fact]
+    public void An_imported_command_never_types_a_password_until_set_here()
+    {
+        var (tree, prod, _) = Sample();
+        prod.Commands![1].Password = CommandPassword.Credential;
+        prod.Commands[1].PasswordCredentialId = Guid.NewGuid();
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, new Dictionary<Guid, CredentialSummary>(), Now);
+        var result = OrreryImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "export.json");
+
+        var uptime = ImportReview.Commands(result.Root).Single(c => c.Command.Name == "Uptime").Command;
+        Assert.Equal((CommandPassword.None, (Guid?)null), (uptime.Password, uptime.PasswordCredentialId));
+        Assert.False(uptime.AnswersPassword);
+        Assert.Contains(result.Report.Warnings, w => w.Contains("\"Uptime\"") && w.Contains("password"));
+    }
+
+    [Fact]
+    public void Only_a_command_that_presses_enter_answers_a_password_prompt()
+    {
+        Assert.True(new SavedCommand { Name = "Root", Text = "sudo -i", Password = CommandPassword.Login }.AnswersPassword);
+        Assert.False(new SavedCommand { Name = "Root", Text = "sudo -i", Password = CommandPassword.Login, PressEnter = false }.AnswersPassword);
+
+        // A credential that's to be chosen but isn't answers nothing.
+        Assert.False(new SavedCommand { Name = "Root", Text = "su -", Password = CommandPassword.Credential }.AnswersPassword);
     }
 
     [Fact]

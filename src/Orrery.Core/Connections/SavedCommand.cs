@@ -2,6 +2,19 @@ using System.Text.RegularExpressions;
 
 namespace Orrery.Core.Connections;
 
+/// <summary>Which password a saved command types when, once sent, a password prompt shows.</summary>
+public enum CommandPassword
+{
+    /// <summary>None: a prompt is left for the user.</summary>
+    None,
+
+    /// <summary>The password of the credential the connection logs in with, as <c>sudo</c> wants.</summary>
+    Login,
+
+    /// <summary>The password of the credential in <see cref="SavedCommand.PasswordCredentialId"/>, such as root's for <c>su -</c>.</summary>
+    Credential,
+}
+
 /// <summary>
 /// A command saved on a connection or folder, sent to its terminal when picked from the Ctrl+K palette or the
 /// session's menu, and by itself once connected only when it says so (<see cref="WhenConnected"/>).
@@ -29,7 +42,28 @@ public sealed class SavedCommand
     /// </summary>
     public bool WhenConnected { get; set; }
 
-    public SavedCommand Clone() => new() { Name = Name, Text = Text, PressEnter = PressEnter, Confirm = Confirm, WhenConnected = WhenConnected };
+    /// <summary>
+    /// The password to type if, once it's sent, the line the cursor is on is a password prompt; the prompt has to show
+    /// within a few seconds, and the password is typed once, never again if it's refused. Only with Enter pressed.
+    /// </summary>
+    public CommandPassword Password { get; set; }
+
+    /// <summary>The credential whose password is typed, for <see cref="CommandPassword.Credential"/>.</summary>
+    public Guid? PasswordCredentialId { get; set; }
+
+    /// <summary>Whether it answers a password prompt at all.</summary>
+    public bool AnswersPassword => PressEnter && (Password == CommandPassword.Login || Password == CommandPassword.Credential && PasswordCredentialId is not null);
+
+    public SavedCommand Clone() => new()
+    {
+        Name = Name,
+        Text = Text,
+        PressEnter = PressEnter,
+        Confirm = Confirm,
+        WhenConnected = WhenConnected,
+        Password = Password,
+        PasswordCredentialId = PasswordCredentialId,
+    };
 }
 
 /// <summary>A command a connection can send, where it was saved, and whether sending it asks first.</summary>
