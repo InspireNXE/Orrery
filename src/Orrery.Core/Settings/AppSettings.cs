@@ -387,6 +387,15 @@ public sealed record AppSettings
     /// <summary>Null for "never", which the vault takes as no timer.</summary>
     [JsonIgnore]
     public TimeSpan? AutoLockAfter => (AutoLockMinutes ?? DefaultAutoLockMinutes) is > 0 and var minutes ? TimeSpan.FromMinutes(minutes) : null;
+
+    public const int DefaultLogDays = 14;
+    public static readonly TimeSpan DefaultKeepLogsFor = TimeSpan.FromDays(DefaultLogDays);
+
+    /// <summary>Days log files are kept. Null is <see cref="DefaultLogDays"/>.</summary>
+    public int? LogDays { get; init; }
+
+    [JsonIgnore]
+    public TimeSpan KeepLogsFor => TimeSpan.FromDays(LogDays is > 0 and var days ? days : DefaultLogDays);
 }
 
 public sealed class AppSettingsStore(string path)

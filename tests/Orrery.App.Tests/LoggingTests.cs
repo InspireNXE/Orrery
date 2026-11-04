@@ -47,8 +47,9 @@ public class LoggingTests : IDisposable
         Assert.Equal($"orrery-{DateTime.Now:yyyyMMdd}.log", Path.GetFileName(file));
         var text = File.ReadAllText(file);
         Assert.Contains("INF App: Orrery ", text);
-        Assert.Contains("INF App: Portable mode, data in " + _root, text);
-        Assert.Contains("WRN Test: Something odd about server1", text);
+        Assert.Contains("INF App: Portable mode, data in ", text);
+        Assert.Matches("WRN Test: Something odd about host-[0-9a-f]{6}", text);
+        Assert.DoesNotContain("server1", text);
         Assert.Contains("ERR Trace: A library complained", text);
         Assert.Contains("INF App: Orrery closing", text);
     }
@@ -72,6 +73,95 @@ public class LoggingTests : IDisposable
         var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir)));
         Assert.DoesNotContain("Quiet one", text);
         Assert.Contains("DBG Test: Loud one", text);
+    }
+
+    [Fact]
+    public void Names_and_addresses_are_tags_unless_shown_and_showing_them_is_written_down()
+    {
+        AppLog.Start(Location);
+        try
+        {
+            var log = Log.For("Test");
+            log.LogWarning("{Host}: login as {User} refused: {Reason}", "quokka01.mask-test.example", "wombatdeploy", "quokka01.mask-test.example said no to wombatdeploy");
+            log.LogError(new IOException("Connection to 10.123.45.67:22 timed out"), "Couldn't reach \"{Name}\"", "Narwhal payroll");
+            AppLog.ShowNames = true;
+            log.LogWarning("{Host}: login as {User} refused", "quokka02.mask-test.example", "wombatdeploy");
+        }
+        finally
+        {
+            AppLog.ShowNames = false;
+            AppLog.Stop();
+        }
+
+        var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir)));
+        var hidden = text[..text.IndexOf("Names and addresses are shown from here on", StringComparison.Ordinal)];
+        Assert.Matches(@"WRN Test: (host-[0-9a-f]{6}): login as (user-[0-9a-f]{6}) refused: \1 said no to \2", hidden);
+        Assert.Matches(@"ERR Test: Couldn't reach ""name-[0-9a-f]{6}""\r?\nSystem.IO.IOException: Connection to ip-[0-9a-f]{6}:22 timed out", hidden);
+        foreach (var name in new[] { "quokka", "wombat", "10.123.45.67", "Narwhal" })
+        {
+            Assert.DoesNotContain(name, hidden);
+        }
+
+        Assert.Contains("WRN Test: quokka02.mask-test.example: login as wombatdeploy refused", text);
+        Assert.Contains("Names and addresses are hidden again", text);
+    }
+
+    [Fact]
+    public void Old_logs_go_by_age_then_by_size_and_the_newest_always_stays()
+    {
+        var folder = Path.Combine(_root, "prune");
+        Directory.CreateDirectory(folder);
+        var now = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+        string Make(string name, double daysOld, int bytes)
+        {
+            var path = Path.Combine(folder, name);
+            File.WriteAllBytes(path, new byte[bytes]);
+            File.SetLastWriteTimeUtc(path, now.AddDays(-daysOld));
+            return path;
+        }
+
+        var today = Make("orrery-20261104.log", 0, 400);
+        var full = Make("orrery-20261103_001.log", 0.9, 400); // The day's second file, written after the first.
+        var yesterday = Make("orrery-20261103.log", 1, 400);
+        var lastWeek = Make("orrery-20261028.log", 7, 10);
+        var tooOld = Make("orrery-20261001.log", 34, 10);
+        var other = Make("ironrdp.log", 40, 10);
+
+        AppLog.Prune(folder, TimeSpan.FromDays(14), maxTotal: 1000, now, current: null);
+
+        Assert.True(File.Exists(today));
+        Assert.True(File.Exists(full));
+        Assert.False(File.Exists(yesterday)); // Past 1000 bytes in all.
+        Assert.False(File.Exists(lastWeek));
+        Assert.False(File.Exists(tooOld));
+        Assert.True(File.Exists(other)); // Not Orrery's.
+
+        AppLog.Prune(folder, TimeSpan.FromDays(1), maxTotal: 10, now, current: full);
+        Assert.True(File.Exists(today));
+        Assert.True(File.Exists(full));
+    }
+
+    [Fact]
+    public void Deleting_the_logs_takes_today_s_too_and_the_log_carries_on()
+    {
+        AppLog.Start(Location);
+        try
+        {
+            Log.For("Test").LogWarning("Before");
+            File.WriteAllText(Path.Combine(Location.LogDir, "orrery-20261001.log"), "old");
+
+            Assert.Equal(2, AppLog.DeleteLogs(Location));
+            Log.For("Test").LogWarning("After");
+        }
+        finally
+        {
+            AppLog.Stop();
+        }
+
+        var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir)));
+        Assert.DoesNotContain("Before", text);
+        Assert.Contains("Deleted 2 earlier log file(s)", text);
+        Assert.Contains("WRN Test: After", text);
     }
 
     [Fact]
@@ -134,7 +224,37 @@ public class LoggingTests : IDisposable
         Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => b.Content as string == "Open log folder");
         var detailed = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => (c.Content as string)?.StartsWith("Detailed logging") == true);
         Assert.False(detailed.IsChecked);
+        var showNames = Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => c.Content as string == "Show names and addresses in logs");
+        Assert.False(showNames.IsChecked);
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => b.Content as string == "Delete logs");
+        var keepFor = Assert.Single(window.GetVisualDescendants().OfType<ComboBox>(), c => Avalonia.Automation.AutomationProperties.GetName(c) == "Keep logs for");
+        Assert.Equal("14 days", (keepFor.SelectedItem as ComboBoxItem)?.Content);
+
+        keepFor.SelectedItem = keepFor.Items.OfType<ComboBoxItem>().Single(i => i.Content as string == "7 days");
+        Assert.Equal(7, settings.Load().LogDays);
+        Assert.Equal(TimeSpan.FromDays(7), AppLog.KeepFor);
         window.Close();
+        AppLog.KeepFor = Orrery.Core.Settings.AppSettings.DefaultKeepLogsFor;
+    }
+
+    [Fact]
+    public void A_tag_is_looked_up_from_what_the_log_has_seen()
+    {
+        AppLog.Start(Location);
+        try
+        {
+            Log.For("Test").LogInformation("Reached {Host}", "nas.home.example");
+            var tag = Assert.Single(AppLog.Lookup("nas.home.example"), m => m.Kind == LogMaskKind.Host).Tag;
+
+            Assert.Equal($"{tag} is the host nas.home.example", SettingsView.LookupText(tag));
+            Assert.StartsWith("Not seen since Orrery started", SettingsView.LookupText("host-000000"));
+            Assert.Contains($"{tag} (as a host)", SettingsView.LookupText("nas.home.example"));
+            Assert.DoesNotContain("as a host", SettingsView.LookupText("localhost"));
+        }
+        finally
+        {
+            AppLog.Stop();
+        }
     }
 
     [AvaloniaFact]
@@ -160,7 +280,7 @@ public class LoggingTests : IDisposable
             AppLog.Stop();
             var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir)));
             Assert.Matches(@"^ssh-[0-9a-f]{4}$", id);
-            Assert.Contains($"INF Session: [{id}] Opening \"web\" on box:22", text);
+            Assert.Matches($@"INF Session: \[{id}\] Opening ""name-[0-9a-f]{{6}}"" on host-[0-9a-f]{{6}}:22", text);
             Assert.Contains($"INF Session: [{id}] Connected in ", text);
             Assert.Contains($"WRN Session: [{id}] Dropped after 0 s: The network went away", text);
             Assert.Contains($"INF Session: [{openId}] Closed with Orrery after 0 s", text);

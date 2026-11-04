@@ -195,7 +195,7 @@ public partial class App : Application
                 $"Another copy of Orrery is using this data folder:\n{location.DataDir}");
         }
 
-        AppLog.Start(location);
+        AppLog.Start(location, AppSettingsStore.In(location).Load().KeepLogsFor);
         Orrery.Protocols.Rdp.IronRdpLog.StartIfAsked(location.LogDir);
         if (setup is not null)
         {

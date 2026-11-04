@@ -269,6 +269,7 @@ public class HostStatusUiTests : IDisposable
         var targets = Enumerable.Range(0, 10).Select(i => new ProbeTarget(Guid.NewGuid(), $"up{i}.quiet.example", 22)).ToList();
 
         AppLog.Start(location);
+        AppLog.ShowNames = true; // So the host names can be looked for.
         try
         {
             await monitor.CheckAsync(targets, TimeSpan.Zero, TestContext.Current.CancellationToken);
@@ -277,6 +278,7 @@ public class HostStatusUiTests : IDisposable
         }
         finally
         {
+            AppLog.ShowNames = false;
             AppLog.Detailed = false;
             AppLog.Stop();
         }

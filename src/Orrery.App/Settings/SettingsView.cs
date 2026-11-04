@@ -1729,16 +1729,115 @@ sealed class SettingsView : UserControl
             Directory.CreateDirectory(_location.LogDir);
             OpenFolder(_location.LogDir);
         };
+        var deleted = Note(string.Empty);
+        deleted.IsVisible = false;
+        var delete = new Button { Content = "Delete logs" };
+        delete.Click += async (_, _) =>
+        {
+            if (!await Dialogs.ConfirmAsync(Owner, "Delete the logs?",
+                    "Every log file in the log folder is deleted, today's too, and the log starts again in a new file. This can't be undone.", "Delete logs"))
+            {
+                return;
+            }
+
+            int count = AppLog.DeleteLogs(_location);
+            deleted.Text = count == 1 ? "Deleted 1 log file." : $"Deleted {count} log files.";
+            deleted.IsVisible = true;
+            ScreenReader.Announce(deleted, deleted.Text, "Orrery.Logs", ScreenReader.MostRecent);
+        };
+
+        var keepFor = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        int days = (int)_settings.KeepLogsFor.TotalDays;
+        foreach (var choice in LogDayChoices.Contains(days) ? LogDayChoices : [.. LogDayChoices, days])
+        {
+            keepFor.Items.Add(new ComboBoxItem { Content = $"{choice} days", Tag = choice });
+        }
+
+        keepFor.SelectedItem = keepFor.Items.OfType<ComboBoxItem>().First(i => (int)i.Tag! == days);
+        var keepNote = Note(KeepNote(days));
+        keepFor.SelectionChanged += (_, _) =>
+        {
+            if (keepFor.SelectedItem is ComboBoxItem { Tag: int chosen })
+            {
+                _settings = _settings with { LogDays = chosen == AppSettings.DefaultLogDays ? null : chosen };
+                TrySaveSettings();
+                AppLog.KeepFor = _settings.KeepLogsFor;
+                keepNote.Text = KeepNote(chosen);
+            }
+        };
+
         var detailed = new CheckBox { Content = "Detailed logging, for troubleshooting", IsChecked = AppLog.Detailed };
         detailed.IsCheckedChanged += (_, _) => AppLog.Detailed = detailed.IsChecked == true;
+        var showNames = new CheckBox { Content = "Show names and addresses in logs", IsChecked = AppLog.ShowNames };
+        showNames.IsCheckedChanged += (_, _) => AppLog.ShowNames = showNames.IsChecked == true;
+
+        var lookup = new TextBox { FontFamily = Dialogs.MonoFont, PlaceholderText = "host-3f9a2c, or a name or address" };
+        var found = Note(string.Empty);
+        found.IsVisible = false;
+        lookup.TextChanged += (_, _) =>
+        {
+            found.Text = LookupText(lookup.Text ?? string.Empty);
+            found.IsVisible = found.Text.Length > 0;
+        };
 
         return Section("Logs",
             Row("Log folder", path),
-            open,
+            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { open, delete } },
+            deleted,
+            Row("Keep logs for", keepFor),
+            keepNote,
             detailed,
-            Note("One file a day, kept for two weeks. The log records what connected where and what went wrong. It never holds "
-                + "passwords, keys, keystrokes or anything shown on screen. Detailed logging adds more and switches off when Orrery closes."));
+            showNames,
+            Note("Off, the log writes hosts, IP and web addresses, login names, connection and credential names and file paths as tags "
+                + "such as host-3f9a2c, so it can be shared in an issue without saying which servers or people it's about. The same name "
+                + "always gets the same tag. Turn this on to read names yourself; it switches off when Orrery closes."),
+            Row("Look up a tag", lookup),
+            found);
     }
+
+    static readonly int[] LogDayChoices = [7, 14, 30];
+
+    static string KeepNote(int days) =>
+        $"One file a day (a new one past 10 MB), kept for {days} days and to 100 MB in all. The log records what connected and what went "
+        + "wrong. It never holds passwords, keys, keystrokes or anything shown on screen. Detailed logging adds more and switches off when Orrery closes.";
+
+    // Tags are turned back only here, from what Orrery has seen since it started; nothing that could do it is in the log.
+    internal static string LookupText(string text)
+    {
+        if (text.Trim().Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var matches = AppLog.Lookup(text);
+        if (LogMask.IsTag(text))
+        {
+            return matches.Count == 0
+                ? "Not seen since Orrery started. Type the name or address you think it is to see its tag."
+                : string.Join("\n", matches.Select(m => $"{m.Tag} is {Described(m.Kind)} {m.Value}"));
+        }
+
+        return matches.Count == 0 ? "Shown as it is in the log." : "In the log: " + string.Join(", ", matches.Select(m => $"{m.Tag} ({AsA(m.Kind)})"));
+    }
+
+    static string Described(LogMaskKind kind) => kind switch
+    {
+        LogMaskKind.Host => "the host",
+        LogMaskKind.User => "the login name",
+        LogMaskKind.Name => "the name",
+        LogMaskKind.Path => "the file",
+        LogMaskKind.Token => "the token",
+        LogMaskKind.Mac => "the hardware address",
+        _ => "the address",
+    };
+
+    static string AsA(LogMaskKind kind) => kind switch
+    {
+        LogMaskKind.Host => "as a host",
+        LogMaskKind.User => "as a login name",
+        LogMaskKind.Name => "as a name",
+        _ => "as a file",
+    };
 
     // ---- About ----
 

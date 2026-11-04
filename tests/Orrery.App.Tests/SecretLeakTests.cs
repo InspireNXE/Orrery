@@ -56,6 +56,7 @@ public class SecretLeakTests : IDisposable
         var dataKeys = new List<byte[]>();
 
         AppLog.Start(location);
+        AppLog.ShowNames = true; // Names are checked for below; what's tested is that secrets never get in.
         AppLog.Detailed = true;
         try
         {
@@ -160,6 +161,7 @@ public class SecretLeakTests : IDisposable
         }
         finally
         {
+            AppLog.ShowNames = false;
             AppLog.Detailed = false;
             AppLog.Stop();
         }

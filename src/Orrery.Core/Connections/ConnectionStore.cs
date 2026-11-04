@@ -75,9 +75,40 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             }
         }
 
+        LearnNames(tree.Root);
         Logger.LogInformation("Loaded {Connections} connections in {Folders} folders from {Path}", tree.Root.Descendants().OfType<ConnectionEntry>().Count(),
             tree.Root.Descendants().OfType<ConnectionFolder>().Count(), path);
         return tree;
+    }
+
+    // So the log hides these even where only a library's error message names them.
+    static void LearnNames(ConnectionFolder root)
+    {
+        if (Log.Mask is null)
+        {
+            return;
+        }
+
+        foreach (var node in root.Descendants())
+        {
+            Log.Learn(LogMaskKind.Name, node.Name);
+            Log.Learn(LogMaskKind.User, node.Settings?.Username);
+            Log.Learn(LogMaskKind.Host, node.Settings?.Domain);
+            if (node is ConnectionEntry entry)
+            {
+                if (entry.Settings?.Protocol != Protocol.Serial)
+                {
+                    Log.Learn(LogMaskKind.Host, entry.Host);
+                }
+
+                Log.Learn(LogMaskKind.Mac, entry.MacAddress);
+                Log.Learn(LogMaskKind.Web, entry.ManagementUrl);
+                foreach (var forward in entry.PortForwards ?? [])
+                {
+                    Log.Learn(LogMaskKind.Host, forward.DestinationHost);
+                }
+            }
+        }
     }
 
     public void Save(ConnectionTree tree)
