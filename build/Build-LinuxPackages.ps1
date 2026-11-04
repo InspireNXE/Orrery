@@ -232,6 +232,12 @@ foreach ($rid in $Runtimes) {
             & $nfpm package --config $config --packager $format --target $out
             if ($LASTEXITCODE -ne 0) { throw "nfpm failed building the $format for $rid." }
         }
+        # A preview's packages are named with its version as apt and dnf sort it (orrery_0.2.0~preview.1-1_amd64.deb).
+        # GitHub turns "~" into "." in uploaded file names, so name them that way here, or SHA256SUMS wouldn't match
+        # the release. The version inside the package keeps its "~".
+        Get-ChildItem $out -File | Where-Object Name -like '*~*' | ForEach-Object {
+            Move-Item -Force $_.FullName (Join-Path $out ($_.Name -replace '~', '.'))
+        }
     }
     if ($wantAppImage) { Build-AppImage $rid $publish $appImageTool }
 }
