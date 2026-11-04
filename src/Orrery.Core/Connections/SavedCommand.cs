@@ -75,6 +75,29 @@ public static partial class SavedCommands
     public const int MaxLength = 4000;
 
     /// <summary>
+    /// Why <paramref name="command"/> won't answer a password prompt on <paramref name="entry"/> (null for a local shell
+    /// or a quick connect), or null when it may. Only a saved connection gets a password: a typed-in address could be
+    /// any machine. And a chosen credential's password never comes from the defaults for all connections, which reach
+    /// every server; one saved on a folder reaches only the connections in it.
+    /// </summary>
+    public static string? WhyNoPassword(ResolvedCommand command, ConnectionEntry? entry) =>
+        !command.Command.AnswersPassword ? "it doesn't answer password prompts"
+        : entry is null ? "this isn't a saved connection"
+        : command.Command.Password == CommandPassword.Credential && command.From.Parent is null ? "a chosen credential's password isn't typed from the defaults for all connections"
+        : null;
+
+    /// <summary>
+    /// The connections a command saved on <paramref name="owner"/> reaches with its password, for the editor's warning:
+    /// null for a single connection, otherwise what to say about the folder or the defaults.
+    /// </summary>
+    public static string? PasswordReach(ConnectionNode owner) => owner switch
+    {
+        ConnectionEntry => null,
+        ConnectionFolder { Parent: null } => "every saved connection",
+        _ => $"every connection in {owner.Name}",
+    };
+
+    /// <summary>
     /// What <paramref name="entry"/> can send: its own commands, then each folder's up to the top, nearest first. A
     /// name already taken nearer hides the one further out. A guest takes its folders', not its host's: the host is
     /// another machine. Each asks first when it says to, or when Confirm every command is on for the connection.

@@ -243,6 +243,24 @@ public class SavedCommandTests
     }
 
     [Fact]
+    public void Only_a_saved_connection_gets_a_password_and_a_chosen_one_never_from_the_defaults()
+    {
+        var (tree, prod, web) = Sample();
+        var login = new SavedCommand { Name = "Root", Text = "sudo -i", Password = CommandPassword.Login };
+        var root = new SavedCommand { Name = "su", Text = "su -", Password = CommandPassword.Credential, PasswordCredentialId = Guid.NewGuid() };
+
+        Assert.Null(SavedCommands.WhyNoPassword(new ResolvedCommand(login, tree.Root, false), web));
+        Assert.Null(SavedCommands.WhyNoPassword(new ResolvedCommand(root, prod, false), web));
+        Assert.Contains("saved connection", SavedCommands.WhyNoPassword(new ResolvedCommand(login, tree.Root, false), null));
+        Assert.Contains("saved connection", SavedCommands.WhyNoPassword(new ResolvedCommand(root, prod, false), null));
+        Assert.Contains("defaults", SavedCommands.WhyNoPassword(new ResolvedCommand(root, tree.Root, false), web));
+
+        Assert.Null(SavedCommands.PasswordReach(web));
+        Assert.Equal("every connection in Prod", SavedCommands.PasswordReach(prod));
+        Assert.Equal("every saved connection", SavedCommands.PasswordReach(tree.Root));
+    }
+
+    [Fact]
     public void Only_a_command_that_presses_enter_answers_a_password_prompt()
     {
         Assert.True(new SavedCommand { Name = "Root", Text = "sudo -i", Password = CommandPassword.Login }.AnswersPassword);

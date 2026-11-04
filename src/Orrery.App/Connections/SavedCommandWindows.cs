@@ -16,7 +16,8 @@ namespace Orrery.App.Connections;
 /// </summary>
 sealed class ConfirmCommandWindow : Window
 {
-    public ConfirmCommandWindow(string commandName, string text, string target, string? where, bool pressEnter)
+    /// <param name="password">Which password it types if a prompt shows, said under the command; null when none.</param>
+    public ConfirmCommandWindow(string commandName, string text, string target, string? where, bool pressEnter, string? password = null)
     {
         Title = "Send this command?";
         Width = 520;
@@ -41,7 +42,8 @@ sealed class ConfirmCommandWindow : Window
         };
         AutomationProperties.SetName(command, "Command");
         var spoken = $"{commandName} goes to {target}{(where is null ? "" : $", {where}")}. The command: {text}. "
-            + (pressEnter ? "It runs as soon as it's sent." : "It's typed at the prompt without pressing Enter.");
+            + (pressEnter ? "It runs as soon as it's sent." : "It's typed at the prompt without pressing Enter.")
+            + (password is null ? "" : $" {password}");
         AutomationProperties.SetHelpText(this, spoken);
 
         Content = new StackPanel
@@ -68,6 +70,7 @@ sealed class ConfirmCommandWindow : Window
                     FontSize = 12,
                     Foreground = Dialogs.MutedBrush,
                 },
+                new TextBlock { Text = password, FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = password is not null },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { send, cancel } },
             },
         };
@@ -112,6 +115,8 @@ sealed class SavedCommandWindow : Window
         TextWrapping = TextWrapping.Wrap,
         IsVisible = false,
     };
+    readonly TextBlock _passwordReach = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+    readonly ConnectionNode? _owner;
     readonly Button _becomeRoot = new() { Content = "Become root (sudo -i)", Classes = { "link" } };
     readonly TextBlock _hint = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly TextBlock _error = new() { FontSize = 12, Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
@@ -122,6 +127,7 @@ sealed class SavedCommandWindow : Window
         : this(command, places.Count > 0 ? places[0].Label : string.Empty, credentials)
     {
         _places = places;
+        ShowPassword();
         if (places.Count < 2)
         {
             return;
@@ -133,6 +139,7 @@ sealed class SavedCommandWindow : Window
         }
 
         _place.SelectedIndex = 0;
+        _place.SelectionChanged += (_, _) => ShowPassword();
         var panel = (StackPanel)Content!;
         int at = panel.Children.IndexOf(_ownerLine);
         panel.Children[at] = Dialogs.Field("Save on", _place);
@@ -141,16 +148,20 @@ sealed class SavedCommandWindow : Window
     /// <summary>Where the command is to be saved, when the window was given places.</summary>
     public CommandPlace? ChosenPlace => _places.Count == 0 ? null : _places[Math.Max(0, _place.SelectedIndex)];
 
+    /// <summary>Where it's saved, so the editor can say which connections a password it types reaches.</summary>
+    ConnectionNode? SavedOn => ChosenPlace?.Node ?? _owner;
+
     internal ComboBox PlaceBox => _place;
 
     readonly TextBlock _ownerLine = new() { Foreground = Dialogs.MutedBrush, FontSize = 12 };
 
     /// <summary>
     /// With <paramref name="credentials"/>, a password prompt can be answered from a chosen credential as well as the
-    /// connection's login.
+    /// connection's login. With <paramref name="owner"/>, where it's saved, it says which connections that reaches.
     /// </summary>
-    public SavedCommandWindow(SavedCommand? command, string ownerName, ICredentialStore? credentials = null)
+    public SavedCommandWindow(SavedCommand? command, string ownerName, ICredentialStore? credentials = null, ConnectionNode? owner = null)
     {
+        _owner = owner;
         bool adding = command is null;
         Title = adding ? "New command" : "Edit command";
         Width = 520;
@@ -221,6 +232,7 @@ sealed class SavedCommandWindow : Window
                 Dialogs.Field("If it asks for a password", _password),
                 _passwordCredential ?? new Control { IsVisible = false },
                 _passwordNote,
+                _passwordReach,
                 _hint,
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, save } },
@@ -254,7 +266,20 @@ sealed class SavedCommandWindow : Window
         {
             _passwordCredential.IsVisible = enter && choice == CommandPassword.Credential;
         }
+
+        _passwordReach.Text = ReachWarning(enter ? choice : CommandPassword.None);
+        _passwordReach.IsVisible = _passwordReach.Text is not null;
     }
+
+    /// <summary>
+    /// A chosen credential's password, saved on a folder, goes to every connection in it that asks; a server that's
+    /// been broken into could ask just to collect it. From the defaults it isn't typed at all. Each connection's own
+    /// login password is its own, so that isn't warned about.
+    /// </summary>
+    string? ReachWarning(CommandPassword choice) =>
+        choice != CommandPassword.Credential || SavedOn is not { } owner || SavedCommands.PasswordReach(owner) is not { } reach ? null
+        : owner.Parent is null ? "A chosen credential's password isn't typed from the defaults for all connections, which reach every server. Save it on a folder or a connection."
+        : $"This password goes to {reach} that asks for one. A server that's been broken into could ask just to collect it, so save it on the connections that need it.";
 
     /// <summary>The ready-made command for root: <c>sudo -i</c>, answering sudo's prompt with the login's password.</summary>
     internal void BecomeRoot()
@@ -321,6 +346,13 @@ sealed class SavedCommandWindow : Window
         bool pressEnter = _pressEnter.IsChecked == true;
         var password = pressEnter ? PasswordChoice : CommandPassword.None;
         Guid? credential = password == CommandPassword.Credential ? _passwordCredential?.SelectedId : null;
+        if (password == CommandPassword.Credential && SavedOn is ConnectionFolder { Parent: null })
+        {
+            ShowError("Save it on a folder or a connection to type a chosen credential's password, or choose the login password.");
+            _password.Focus();
+            return;
+        }
+
         if (password == CommandPassword.Credential && credential is null)
         {
             ShowError("Choose the credential whose password it types.");
