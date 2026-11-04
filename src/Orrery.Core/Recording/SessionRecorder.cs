@@ -226,15 +226,55 @@ public abstract class SessionRecorder : IDisposable
     }
 }
 
-/// <summary>Records what a terminal session sends back, never what's typed (design §2.1).</summary>
+/// <summary>
+/// Records what a terminal session sends back (design §2.1) and, when <see cref="RecordsTyping"/>, what's typed into it
+/// (§2.4): the view says what was typed, and leaves out passwords Orrery types and typing at a password prompt.
+/// </summary>
 public sealed class TerminalRecorder : SessionRecorder
 {
-    ITerminalSession? _terminal;
+    public const string TypingHeldMarker = "Typing not recorded: password prompt";
 
-    public TerminalRecorder(RecordingWriter writer, RecordingInfo info, int columns, int rows, long maxBytes, Func<TimeSpan>? clock = null)
+    ITerminalSession? _terminal;
+    bool _held;
+
+    /// <param name="recordTyping">
+    /// Record what's typed too; the writer must have been made for it (<see cref="RecordingWriter.Create"/> with typing).
+    /// </param>
+    public TerminalRecorder(RecordingWriter writer, RecordingInfo info, int columns, int rows, long maxBytes, Func<TimeSpan>? clock = null,
+        bool recordTyping = false)
         : base(writer, info, maxBytes, clock)
     {
+        RecordsTyping = recordTyping;
         Resized(columns, rows);
+    }
+
+    /// <summary>What's typed is recorded too.</summary>
+    public bool RecordsTyping { get; }
+
+    /// <summary>
+    /// Text typed into the session: keys as they were sent, or a paste. Recorded only when <see cref="RecordsTyping"/>.
+    /// <paramref name="atPasswordPrompt"/> keeps it out, with a marker the first time for each prompt.
+    /// </summary>
+    public void Typed(string text, bool atPasswordPrompt)
+    {
+        if (!RecordsTyping || text.Length == 0)
+        {
+            return;
+        }
+
+        if (atPasswordPrompt)
+        {
+            if (!_held)
+            {
+                _held = true;
+                Marker(TypingHeldMarker);
+            }
+
+            return;
+        }
+
+        _held = false;
+        Enqueue(RecordingEventType.Input, System.Text.Encoding.UTF8.GetBytes(text));
     }
 
     protected override void OnAttach(IConnectionSession session)

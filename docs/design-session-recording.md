@@ -18,10 +18,13 @@ credential stores (§3) of [design-storage-vault-import.md](design-storage-vault
 - A stolen data folder gives away no more than it does today: recordings are encrypted.
 - Recording never needs the vault unlocked, so a recorded connection opens as quickly as any other.
 - Old recordings are deleted by age and by total size.
+- When a connection asks for it (*Record what's typed too*, off by default), a terminal recording keeps what was
+  typed as well (§2.1.1), with warnings about what that holds.
 
 **Non-goals**
-- Recording what the user types. Terminal recordings hold what the remote side sent back, never keystrokes, so a
-  password typed at a prompt that doesn't echo it isn't recorded.
+- Recording what the user types unless asked. By default terminal recordings hold what the remote side sent back,
+  never keystrokes, so a password typed at a prompt that doesn't echo it isn't recorded.
+- Recording a remote desktop's keys or pointer clicks, even with typing on: its recording is a picture.
 - The clipboard and file transfers. Sound is recorded only for RDP, which plays it through IronRDP (§2.2).
 - Bundling a video encoder. Screen recordings export to Motion-JPEG `.avi` with nothing extra; to MP4 through Windows'
   own encoders on Windows; and through an ffmpeg the user has installed anywhere (§3.4). Bundling ffmpeg would mean
@@ -47,9 +50,26 @@ listens to the same event and writes what arrives, with the time since the recor
   kept as they are, so the player feeds the emulator exactly what the session did; export decodes them.
 - A resize event (`"r"`) each time the terminal's grid changes.
 - A marker event (`"m"`) when the session drops or disconnects, and when a reconnect carries on in the same file.
-- Never an input event (`"i"`).
+- An input event (`"i"`) only with *Record what's typed too* (§2.1.1); never otherwise.
 
 Orrery's notices in the terminal (the grey `»` lines, such as Serial's) are output like any other and are recorded too.
+
+#### 2.1.1 What's typed, when asked
+
+`InheritableSettings.RecordTyping` (off by default) makes a terminal recording keep what's typed, as input events
+with their times. `TerminalView.Typed` reports keys, pastes and saved commands as they're sent to the session; the
+terminal's own replies and mouse reports go straight to the session and aren't reported. What's left out:
+
+- **Passwords Orrery types** (`TerminalView.SendSecret`, for a saved command's or a connection's password) are never
+  reported.
+- **Typing at a password prompt.** Each key is checked against the cursor's line as it's typed
+  (`TerminalPrompt.Classify`); at a password prompt it's held back, and one marker, "Typing not recorded: password
+  prompt", goes on the timeline for each stretch of held typing.
+
+What's kept anyway, and the warning under the switch says so: a password typed at a prompt Orrery doesn't recognize,
+and anything pasted. The recording is encrypted like any other, and anyone who can open it can read what was typed.
+While such a recording runs, the tab, its tooltip and the full-screen bar say "Recording, typing too". A file holding
+input events has header version 2; the reader opens 1 and 2, so files without typing stay as before.
 
 ### 2.2 Remote desktops
 
@@ -138,7 +158,7 @@ chunk…                            XChaCha20-Poly1305 over up to 64 KB of the r
   dropped from the middle or moved between files without the player noticing, and a file cut short reads as "ended
   without being closed" rather than as complete.
 - **Inside a chunk.** Events, run together across chunks as one stream: a type byte, the time in milliseconds
-  (32 bits), the payload's length (32 bits) and the payload. Info, output, resize, marker and end for a terminal; info,
+  (32 bits), the payload's length (32 bits) and the payload. Info, output, resize, marker, input (§2.1.1) and end for a terminal; info,
   resize, key frame, change frame, pointer, audio, marker and end for a screen. The end event is the last one in a closed file.
 - **Header contents.** Nothing about the host or user: the connection's name and protocol are inside the encrypted
   part. The header says only what's needed to open it.
@@ -172,7 +192,7 @@ Exporting is the only way a recording leaves Orrery's encryption. The player's *
 readable by anyone who has the file, then writes it where the user chooses:
 
 - **Terminal recordings:** asciicast v2 (`.cast`), which asciinema's player and asciinema.org play and its `agg` tool
-  turns into a GIF.
+  turns into a GIF. What was typed, if it was kept, is written as `"i"` events.
 - **Screen recordings, built in:** Motion-JPEG in an AVI file (`.avi`), which VLC and Windows Media Player play.
   Frames are encoded as JPEG (quality 85) with SkiaSharp, which Avalonia already ships; the AVI container is written by
   Orrery (RIFF, `hdrl`, `movi` and an `idx1` index). Plain AVI is limited in size, so a long export is split into
@@ -212,7 +232,8 @@ Export runs in the background with progress and *Cancel*; a canceled export dele
 ### 4.1 Per connection
 
 `InheritableSettings.RecordSessions` (`bool?`, inherited like the others; off by default). In the connection editor
-under a new *Recording* group, for every protocol.
+under a new *Recording* group, for every protocol. `InheritableSettings.RecordTyping` (`bool?`, off by default) under
+it, for terminals only, with a warning (§2.1.1) shown while it's on.
 
 ### 4.2 Settings › Recordings
 
@@ -270,7 +291,8 @@ The first time recording is turned on (in a connection, or from a tab), a one-ti
 
 ### 5.2 While recording
 
-- The tab header shows a red dot before the name, with "Recording" for screen readers and in its tooltip.
+- The tab header shows a red dot before the name, with "Recording" (or "Recording, typing too", §2.1.1) for screen
+  readers and in its tooltip.
 - The tab menu shows *Stop recording* (or *Start recording*).
 - The session toolbar shows a red *REC 1:23* pill. Its panel says how long the recording has run and how big it is,
   and changes it for this recording only: frames a second at most (1, 2, 5, 10, 15, 30 or 60; a screen recording's timer takes the new
@@ -388,8 +410,11 @@ at most 1,000 rectangles a frame.
   file, a header edited, every limit, a crafted file at each limit and one byte past it.
 - `RecordingKeysTests`: making the pair once, keeping the private key in a vault and in a fake keychain, a master
   password change, switching stores, a lost key.
-- `TerminalRecorderTests`: output and resizes recorded with times, no input ever, invalid UTF-8 kept, reconnect
+- `TerminalRecorderTests`: output and resizes recorded with times, no input by default, invalid UTF-8 kept, reconnect
   markers, crash recovery (an unclosed file plays).
+- `TypingTests` and `TypingRecordingTests`: typing kept only when asked, in a version 2 file; held at a password prompt
+  with one marker; `SendSecret` never kept; version 1 files still open; `"i"` events in a cast; the switch, its
+  warning and the "Recording, typing too" mark; the player's typed line.
 - `ScreenRecorderTests`: damage merging, the frame rate cap, key frames, XOR round trips, the pointer, resizes, the
   size limit, frames dropped when the queue is full.
 - `RecordingRetentionTests`: age and size limits, files being written or played, files that aren't recordings.

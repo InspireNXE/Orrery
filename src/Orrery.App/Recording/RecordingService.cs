@@ -8,6 +8,7 @@ using Orrery.Core.Diagnostics;
 using Orrery.Core.Recording;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Core.Terminal;
 
 namespace Orrery.App.Recording;
 
@@ -71,8 +72,9 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
     /// Starts recording <paramref name="tab"/>. Asks for the vault only the first time anything is recorded, to keep
     /// the private key in it; after that the public key in settings is enough.
     /// </summary>
+    /// <param name="recordTyping">For a terminal, keep what's typed too (the connection's "Record what's typed too").</param>
     /// <returns>Null when it couldn't start, with why in the problem.</returns>
-    public async Task<(SessionRecorder? Recorder, string? Problem)> StartAsync(SessionTab tab, Window owner)
+    public async Task<(SessionRecorder? Recorder, string? Problem)> StartAsync(SessionTab tab, Window owner, bool recordTyping = false)
     {
         if (!Recordable(tab.View))
         {
@@ -114,7 +116,8 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
             if (tab.View is TerminalView terminal)
             {
                 var (columns, rows) = terminal.GridSize;
-                recorder = new TerminalRecorder(RecordingWriter.Create(path, RecordingKind.Terminal, publicKey), info, columns, rows, settings.RecordingFileBytes);
+                recorder = new TerminalRecorder(RecordingWriter.Create(path, RecordingKind.Terminal, publicKey, typing: recordTyping), info, columns, rows,
+                    settings.RecordingFileBytes, recordTyping: recordTyping);
             }
             else
             {
@@ -147,7 +150,7 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
         };
         Bind(recorder, tab);
         Changed?.Invoke(this, EventArgs.Empty);
-        Logger.LogInformation("Recording started: {File}", Path.GetFileName(recorder.Path));
+        Logger.LogInformation("Recording started: {File}{Typing}", Path.GetFileName(recorder.Path), recorder is TerminalRecorder { RecordsTyping: true } ? ", typing too" : "");
         return (recorder, null);
     }
 
@@ -174,6 +177,24 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
                 view.GridResized += Resized;
                 var (c, r) = view.GridSize;
                 terminal.Resized(c, r);
+                if (terminal.RecordsTyping)
+                {
+                    // Looked at as each key goes, so the prompt is the one the key was typed at.
+                    void Typed(object? sender, string text)
+                    {
+                        if (recorder.IsRecording)
+                        {
+                            terminal.Typed(text, atPasswordPrompt: TerminalPrompt.Classify(view.CursorLine()) == TerminalPromptKind.Password);
+                        }
+                        else
+                        {
+                            view.Typed -= Typed;
+                        }
+                    }
+
+                    view.Typed += Typed;
+                }
+
                 break;
             case (ScreenRecorder screen, RemoteFrameView view):
                 screen.Pointer = () => view.LastRemotePointer;

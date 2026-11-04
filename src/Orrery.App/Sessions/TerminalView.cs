@@ -978,7 +978,7 @@ public sealed class TerminalView : Control
         _ => null,
     };
 
-    void Send(string text)
+    void Send(string text, bool secret = false)
     {
         if (_scrollOffset != 0)
         {
@@ -988,7 +988,17 @@ public sealed class TerminalView : Control
 
         ClearSelection();
         Session.Send(Encoding.UTF8.GetBytes(text));
+        if (!secret)
+        {
+            Typed?.Invoke(this, text);
+        }
     }
+
+    /// <summary>
+    /// Keys, pastes and saved commands sent to the session, as sent, for a recording that keeps typing. Never a password
+    /// Orrery types (<see cref="SendSecret"/>), the terminal's own replies, or mouse reports.
+    /// </summary>
+    public event EventHandler<string>? Typed;
 
     // ---- Mouse: focus, scrolling, selection ----
 
@@ -1263,9 +1273,10 @@ public sealed class TerminalView : Control
 
     /// <summary>
     /// Types a password at a prompt, then Enter: as keys, never pasted (bracketed paste would put the markers in it),
-    /// and not noted as typed for the screen reader, which would otherwise hold it to match against the echo.
+    /// and not noted as typed for the screen reader, which would otherwise hold it to match against the echo, nor told
+    /// to a recording (<see cref="Typed"/>).
     /// </summary>
-    internal void SendSecret(string secret) => Send(secret + "\r");
+    internal void SendSecret(string secret) => Send(secret + "\r", secret: true);
 
     /// <summary>Everything in the scrollback and on screen, as plain text.</summary>
     public string AllText() => _terminal.AllText();

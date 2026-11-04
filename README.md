@@ -327,9 +327,14 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
        alt="The web-01 SSH tab being recorded. The tab has a red dot beside its name, and the session toolbar has a red REC pill reading 0:10. The terminal shows a deploy script running: fetching, installing, building, linking and reloading nginx, then a health check and the last lines of the access log.">
 </p>
 
-- **What's recorded:** what a terminal printed (never what's typed), or what a remote desktop showed, at up to 60
+- **What's recorded:** what a terminal printed, or what a remote desktop showed, at up to 60
   frames a second, taken only when the screen changes, with RDP sound. On Windows, a web page in a tab is recorded
   the same way, from the engine's own picture of the page (no sound); WebKit on Linux and macOS can't give one.
+- **What's typed,** only if you turn on *Record what's typed too* (off by default, terminals only). Keys and pastes
+  go in; passwords Orrery types for you and typing at a password prompt it recognizes don't, and a marker shows
+  where typing was left out. A password typed at any other prompt, or pasted, **is** kept, and anyone who can open
+  the recording can read it. While it's on, the tab and full-screen bar say *Recording, typing too*, and the player
+  shows the typed line under the terminal.
 - **Starting:** the *Record sessions* setting (inherited, so a folder can record everything in it), *Record every
   session* in Settings, or the tab's menu. A red dot on the tab and a *REC* pill show it's on, and in full screen the
   bar at the top says *Recording*; the pill changes the frame rate and sound, or stops. A reconnect carries on in the same file.
@@ -339,7 +344,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Playback** in the *Recordings* panel: ½× to 8×, sound at its pitch up to 4×, Skip idle, Loop, 10-second skips,
   markers for drops and reconnects, volume, Find for terminals with its matches on the timeline, keyboard shortcuts
   (? lists them), and your color correction.
-- **Export** an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
+- **Export** an unencrypted copy: `.cast` for asciinema (with what was typed as input events, if it was kept), Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
   in Settings, which finds one installed by the usual package managers and shows the codecs each route offers.
   Orrery never downloads or bundles ffmpeg; *Get ffmpeg* in Settings links to its download page, with the install

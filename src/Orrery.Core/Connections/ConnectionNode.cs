@@ -178,6 +178,14 @@ public sealed class InheritableSettings
     public bool? RecordSessions { get; set; }
 
     /// <summary>
+    /// A terminal recording of this connection keeps what's typed too, keys and pastes, not only what the session sent
+    /// back (docs/design-session-recording.md §2.4). Passwords Orrery types, and typing at a password prompt it
+    /// recognizes, are left out; one typed at a prompt it doesn't recognize isn't. Null inherits; off by default.
+    /// An older build drops it on save, which turns it off.
+    /// </summary>
+    public bool? RecordTyping { get; set; }
+
+    /// <summary>
     /// Ask before sending any saved command to a session of this connection, whatever the command says, as for a
     /// folder of production machines. Null inherits; off by default.
     /// </summary>
@@ -263,7 +271,7 @@ public sealed class InheritableSettings
     /// </summary>
     public static readonly IReadOnlySet<string> PassedToGuests = new HashSet<string>
     {
-        nameof(JumpHostId), nameof(ShareClipboard), nameof(AutoReconnect), nameof(RecordSessions),
+        nameof(JumpHostId), nameof(ShareClipboard), nameof(AutoReconnect), nameof(RecordSessions), nameof(RecordTyping),
     };
 
     /// <summary>Settings a guest never takes from its host, only from its folders: its login, protocol and display.</summary>

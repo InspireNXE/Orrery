@@ -106,7 +106,7 @@ public sealed class RecorderTests : IDisposable
     }
 
     [Fact]
-    public async Task Terminal_output_and_resizes_are_recorded_with_their_times_and_input_never()
+    public async Task Terminal_output_and_resizes_are_recorded_with_their_times_and_input_never_by_default()
     {
         var session = new FakeTerminal();
         var recorder = new TerminalRecorder(NewWriter(RecordingKind.Terminal), Info, 80, 24, long.MaxValue, () => _now);

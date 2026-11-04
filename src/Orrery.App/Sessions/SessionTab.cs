@@ -284,6 +284,12 @@ sealed class SessionTab
 
     public bool IsRecording => _recorder is { IsRecording: true };
 
+    /// <summary>The recording keeps what's typed too.</summary>
+    public bool RecordsTyping => _recorder is Orrery.Core.Recording.TerminalRecorder { IsRecording: true, RecordsTyping: true };
+
+    /// <summary>"Recording", or "Recording, typing too" when it keeps what's typed, for every place that says so.</summary>
+    public string RecordingText => RecordsTyping ? "Recording, typing too" : "Recording";
+
     /// <summary>A recording started or stopped, for the session toolbar. Raised on the UI thread.</summary>
     public event EventHandler? RecordingChanged;
 
@@ -307,7 +313,8 @@ sealed class SessionTab
     void ShowRecording()
     {
         _recordingDot.IsVisible = IsRecording;
-        Header.Label = IsRecording ? $"{_label}, recording" : _label;
+        ToolTip.SetTip(_recordingDot, RecordingText);
+        Header.Label = IsRecording ? $"{_label}, {RecordingText.ToLowerInvariant()}" : _label;
         RecordingChanged?.Invoke(this, EventArgs.Empty);
     }
 
