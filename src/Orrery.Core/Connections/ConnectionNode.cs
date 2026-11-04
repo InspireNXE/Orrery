@@ -178,6 +178,12 @@ public sealed class InheritableSettings
     public bool? RecordSessions { get; set; }
 
     /// <summary>
+    /// Ask before sending any saved command to a session of this connection, whatever the command says, as for a
+    /// folder of production machines. Null inherits; off by default.
+    /// </summary>
+    public bool? ConfirmCommands { get; set; }
+
+    /// <summary>
     /// A saved SSH connection to go through first (ssh -J); RDP, VNC and Telnet reach the machine through an SSH
     /// tunnel from it. <see cref="NoJumpHost"/> for none; null to inherit.
     /// </summary>
@@ -268,7 +274,7 @@ public sealed class InheritableSettings
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(WebPagesInOrrery),
-        nameof(CheckHostStatus),
+        nameof(CheckHostStatus), nameof(ConfirmCommands),
     };
 
     /// <summary>
@@ -282,6 +288,12 @@ public sealed class InheritableSettings
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(RecordSessions), nameof(WebPagesInOrrery),
         nameof(CheckHostStatus),
     };
+
+    /// <summary>Settings Orrery 0.1.1 doesn't know, written with schema 4 for the same reason.</summary>
+    internal static readonly IReadOnlySet<string> AddedInSchema4 = new HashSet<string> { nameof(ConfirmCommands) };
+
+    /// <summary>Whether this sets anything Orrery 0.1.1 can't keep.</summary>
+    internal bool NeedsSchema4() => SettingProperties.Any(p => AddedInSchema4.Contains(p.Name) && p.GetValue(this) is not null);
 
     /// <summary>Whether this sets anything Orrery 0.1 can't keep: a setting added since, or a protocol added since.</summary>
     internal bool NeedsSchema3() =>
@@ -337,6 +349,12 @@ public abstract class ConnectionNode
     public string Name { get; set; } = string.Empty;
     public string? Notes { get; set; }
     public InheritableSettings Settings { get; set; } = new();
+
+    /// <summary>
+    /// Commands to send to a terminal of this connection, or of every connection in this folder, from the Ctrl+K
+    /// palette or the session's menu. A folder's add to its connections' own. Null when there are none.
+    /// </summary>
+    public List<SavedCommand>? Commands { get; set; }
 
     /// <summary>Where this came from when imported (e.g. "mremoteng:&lt;id&gt;"), to spot re-imports.</summary>
     public string? ImportSourceId { get; set; }

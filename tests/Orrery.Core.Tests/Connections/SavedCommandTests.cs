@@ -1,0 +1,162 @@
+using System.Text;
+using Orrery.Core.Connections;
+using Orrery.Core.Credentials;
+using Orrery.Core.Export;
+using Orrery.Core.Import;
+using Xunit;
+
+namespace Orrery.Core.Tests.Connections;
+
+public class SavedCommandTests
+{
+    static readonly DateTimeOffset Now = new(2026, 11, 4, 12, 0, 0, TimeSpan.Zero);
+
+    static SavedCommand Command(string name, string text, bool confirm = false) => new() { Name = name, Text = text, Confirm = confirm };
+
+    static (ConnectionTree Tree, ConnectionFolder Prod, ConnectionEntry Web) Sample()
+    {
+        var tree = ConnectionTree.Empty();
+        var prod = new ConnectionFolder { Name = "Prod", Commands = [Command("Tail log", "tail -f /var/log/app.log"), Command("Uptime", "uptime")] };
+        var web = new ConnectionEntry { Name = "web-01", Host = "web-01.example", Settings = { Protocol = Protocol.Ssh, Username = "demo" } };
+        tree.Add(prod, tree.Root);
+        tree.Add(web, prod);
+        return (tree, prod, web);
+    }
+
+    [Fact]
+    public void A_connection_gets_its_own_commands_then_its_folders_and_the_nearest_name_wins()
+    {
+        var (tree, _, web) = Sample();
+        tree.Root.Commands = [Command("Disk", "df -h")];
+        web.Commands = [Command("tail LOG", "journalctl -fu web")];
+
+        var commands = SavedCommands.For(web);
+
+        Assert.Equal(["tail LOG", "Uptime", "Disk"], commands.Select(c => c.Command.Name));
+        Assert.Equal("journalctl -fu web", commands[0].Command.Text);
+        Assert.Same(web, commands[0].From);
+    }
+
+    [Fact]
+    public void A_guest_takes_its_folders_commands_not_its_hosts()
+    {
+        var (tree, prod, web) = Sample();
+        web.Commands = [Command("Host only", "virsh list")];
+        var guest = new ConnectionEntry { Name = "vm", Host = "vm.example" };
+        tree.AddGuest(guest, web);
+
+        var names = SavedCommands.For(guest).Select(c => c.Command.Name).ToList();
+
+        Assert.DoesNotContain("Host only", names);
+        Assert.Contains("Uptime", names);
+        Assert.Same(prod, SavedCommands.For(guest).First().From);
+    }
+
+    [Fact]
+    public void Confirm_every_command_on_a_folder_makes_each_one_ask()
+    {
+        var (_, prod, web) = Sample();
+        Assert.All(SavedCommands.For(web), c => Assert.False(c.Confirm));
+
+        prod.Settings.ConfirmCommands = true;
+        Assert.All(SavedCommands.For(web), c => Assert.True(c.Confirm));
+
+        // A connection can turn it off for itself, but a command marked to ask still asks.
+        web.Settings.ConfirmCommands = false;
+        prod.Commands![1].Confirm = true;
+        Assert.Equal([false, true], SavedCommands.For(web).Select(c => c.Confirm));
+    }
+
+    [Fact]
+    public void Placeholders_are_filled_and_a_shells_own_braces_are_left_alone()
+    {
+        var (_, _, web) = Sample();
+        Assert.Equal("ssh demo@web-01.example # web-01 ${host} {a,b} {other}",
+            SavedCommands.Expand("ssh {username}@{HOST} # {name} ${host} {a,b} {other}", web, "demo"));
+        Assert.Equal("as ", SavedCommands.Expand("as {username}", web, null));
+    }
+
+    [Theory]
+    [InlineData("rm -rf /srv/www/old", true)]
+    [InlineData("sudo systemctl restart nginx", true)]
+    [InlineData("DROP TABLE users;", true)]
+    [InlineData("git push --force origin main", true)]
+    [InlineData("Restart-Computer -Force", true)]
+    [InlineData("sudo reboot", true)]
+    [InlineData("tail -f /var/log/nginx/error.log", false)]
+    [InlineData("systemctl status nginx", false)]
+    [InlineData("ls -la ~/rmdir-notes", false)]
+    public void Looks_destructive_flags_commands_that_delete_stop_or_overwrite(string text, bool expected) =>
+        Assert.Equal(expected, SavedCommands.LooksDestructive(text));
+
+    [Fact]
+    public void A_tree_with_commands_or_confirm_every_command_is_written_with_schema_4_and_one_without_stays_older()
+    {
+        var (tree, prod, _) = Sample();
+        Assert.Equal(4, ConnectionStore.SchemaFor(tree.Root));
+
+        prod.Commands = null;
+        Assert.True(ConnectionStore.SchemaFor(tree.Root) < 4);
+
+        prod.Settings.ConfirmCommands = true;
+        Assert.Equal(4, ConnectionStore.SchemaFor(tree.Root));
+    }
+
+    [Fact]
+    public void Commands_survive_saving_and_loading()
+    {
+        var (tree, prod, _) = Sample();
+        prod.Commands![0].Confirm = true;
+        prod.Commands[0].PressEnter = false;
+        var folder = Path.Combine(Path.GetTempPath(), "orrery-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var store = new ConnectionStore(Path.Combine(folder, "connections.json"), Path.Combine(folder, "backups"));
+            store.Save(tree);
+            var loaded = store.Load().Root.Descendants().OfType<ConnectionFolder>().Single(f => f.Name == "Prod");
+
+            var command = loaded.Commands![0];
+            Assert.Equal(("Tail log", "tail -f /var/log/app.log", false, true), (command.Name, command.Text, command.PressEnter, command.Confirm));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Copying_a_folder_copies_its_commands_without_sharing_them()
+    {
+        var (tree, prod, _) = Sample();
+        var copy = (ConnectionFolder)tree.Duplicate(prod);
+
+        copy.Commands![0].Text = "changed";
+        Assert.Equal("tail -f /var/log/app.log", prod.Commands![0].Text);
+    }
+
+    [Fact]
+    public void An_orrery_export_carries_commands_and_the_import_keeps_only_usable_ones()
+    {
+        var (tree, prod, _) = Sample();
+        prod.Commands!.Add(Command("Bad", "echo \u001b[31m"));
+
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.Orrery, new Dictionary<Guid, CredentialSummary>(), Now);
+        var result = OrreryImporter.Import(new MemoryStream(Encoding.UTF8.GetBytes(export.Content)), "export.json");
+
+        var imported = ImportReview.Commands(result.Root);
+        Assert.Equal(["Tail log", "Uptime"], imported.Select(c => c.Command.Name));
+        Assert.Contains(result.Report.Warnings, w => w.Contains("\"Bad\""));
+
+        ImportReview.DropCommands(result.Root);
+        Assert.Empty(ImportReview.Commands(result.Root));
+    }
+
+    [Fact]
+    public void An_mremoteng_export_says_commands_are_lost()
+    {
+        var (tree, _, _) = Sample();
+        var export = ConnectionExporter.Export(tree.Root, ExportFormat.MRemoteNg, new Dictionary<Guid, CredentialSummary>(), Now);
+        Assert.Contains(export.Warnings, w => w.Contains("saved commands"));
+    }
+}

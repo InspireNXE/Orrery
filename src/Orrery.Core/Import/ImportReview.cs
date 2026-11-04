@@ -51,6 +51,19 @@ public static class ImportReview
         return ImportReport.Shorten(warnings);
     }
 
+    /// <summary>Every saved command in <paramref name="root"/>, with the folder or connection it's on.</summary>
+    public static IReadOnlyList<(ConnectionNode Owner, SavedCommand Command)> Commands(ConnectionFolder root) =>
+        root.Descendants().Prepend(root).SelectMany(n => (n.Commands ?? []).Select(c => (n, c))).ToList();
+
+    /// <summary>Takes every saved command out of <paramref name="root"/>, for an import that leaves them behind.</summary>
+    public static void DropCommands(ConnectionFolder root)
+    {
+        foreach (var node in root.Descendants().Prepend(root))
+        {
+            node.Commands = null;
+        }
+    }
+
     /// <summary><paramref name="result"/> with <see cref="Warnings"/> added to its report's.</summary>
     public static ImportResult WithWarnings(ImportResult result) => Warnings(result.Root) is { Count: > 0 } added
         ? result with { Report = result.Report with { Warnings = ImportReport.Shorten([.. result.Report.Warnings, .. added]) } }

@@ -281,6 +281,7 @@ public sealed class ConnectionTree
         copy.Name = node.Name;
         copy.Notes = node.Notes;
         copy.Settings = node.Settings.Clone();
+        copy.Commands = node.Commands?.Select(c => c.Clone()).ToList();
 
         if (node is ConnectionFolder source && copy is ConnectionFolder target)
         {

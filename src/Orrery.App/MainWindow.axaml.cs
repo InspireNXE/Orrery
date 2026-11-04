@@ -1977,6 +1977,10 @@ public partial class MainWindow : Window
                 ShowTab(_tabs[index]);
             }
         }
+        else if (choice is { Alt: true, Command.AltRun: { } alternative })
+        {
+            await alternative();
+        }
         else if (choice?.Command is { } command)
         {
             await command.Run();
@@ -3283,6 +3287,12 @@ public partial class MainWindow : Window
             items.Add(MenuItemFor("Paste", async () => await terminal.PasteAsync(), mac ? "Cmd+V" : "Ctrl+Shift+V", connected));
             items.Add(MenuItemFor("Find…", () => tab.FindBar?.Open(terminal.SelectedText), mac ? "Cmd+F" : "Ctrl+Shift+F"));
             items.Add(new Separator());
+            if (SavedCommandMenuItems(tab, terminal).ToList() is { Count: > 0 } saved)
+            {
+                items.AddRange(saved);
+                items.Add(new Separator());
+            }
+
             items.Add(MenuItemFor("Larger text", () => ChangeTerminalTextSize(1), $"{command}+OemPlus"));
             items.Add(MenuItemFor("Smaller text", () => ChangeTerminalTextSize(-1), $"{command}+OemMinus"));
             items.Add(MenuItemFor("Reset text size", () => ChangeTerminalTextSize(0), $"{command}+D0"));
@@ -3893,6 +3903,11 @@ public partial class MainWindow : Window
         if (choice.SkipAlreadyImported && already > 0)
         {
             result = result.WithoutAlreadyIn(_tree);
+        }
+
+        if (!choice.KeepCommands)
+        {
+            ImportReview.DropCommands(result.Root);
         }
 
         try

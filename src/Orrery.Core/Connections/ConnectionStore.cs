@@ -17,16 +17,19 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
 
-    // 2 added hosts' guests; 3 added the serial and web protocols and the settings in InheritableSettings.AddedInSchema3.
+    // 2 added hosts' guests; 3 added the serial and web protocols and the settings in InheritableSettings.AddedInSchema3;
+    // 4 added saved commands and InheritableSettings.AddedInSchema4.
     // A file is written with the oldest schema that holds it, so older builds keep reading a tree that uses nothing
     // newer, and refuse one that does instead of loading it and dropping what they don't know on save.
-    const int SchemaVersion = 3;
+    const int SchemaVersion = 4;
+    const int SchemaVersionWithSerialAndWeb = 3;
     const int SchemaVersionWithHosts = 2;
     const int SchemaVersionWithoutHosts = 1;
 
     /// <summary>The schema a file holding <paramref name="root"/> needs: the oldest that can hold it.</summary>
     internal static int SchemaFor(ConnectionFolder root) =>
-        root.Descendants().Prepend(root).Any(n => n.Settings.NeedsSchema3()) ? SchemaVersion
+        root.Descendants().Prepend(root).Any(n => n.Commands is { Count: > 0 } || n.Settings.NeedsSchema4()) ? SchemaVersion
+        : root.Descendants().Prepend(root).Any(n => n.Settings.NeedsSchema3()) ? SchemaVersionWithSerialAndWeb
         : root.Descendants().OfType<ConnectionEntry>().Any(e => e.IsHost) ? SchemaVersionWithHosts
         : SchemaVersionWithoutHosts;
 

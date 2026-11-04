@@ -1232,6 +1232,16 @@ public sealed class TerminalView : Control
         Send(TerminalKeys.Paste(text, _terminal.BracketedPaste));
     }
 
+    /// <summary>
+    /// Types a saved command into the session, pasted as one (bracketed, when the shell asked for it) so a several-line
+    /// command can't run half of itself, then Enter if <paramref name="pressEnter"/>.
+    /// </summary>
+    public void SendCommand(string text, bool pressEnter)
+    {
+        NoteTyped(text.ReplaceLineEndings("\n") + (pressEnter ? "\n" : ""));
+        Send(TerminalKeys.Paste(text, _terminal.BracketedPaste) + (pressEnter ? "\r" : ""));
+    }
+
     /// <summary>Everything in the scrollback and on screen, as plain text.</summary>
     public string AllText() => _terminal.AllText();
 
