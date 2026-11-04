@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using Orrery.App.Controls;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
@@ -55,6 +56,8 @@ sealed class SetupWizard : Window
     readonly TextBlock _subtitle = new() { Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
     readonly TextBlock _progress = new() { Foreground = Dialogs.MutedBrush, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
     readonly Notice _message = new(NoticeKind.Error) { IsVisible = false };
+    readonly ScrollViewer _scroll = new();
+    readonly StackPanel _content = new() { Margin = new Thickness(32, 28, 32, 24), Spacing = 6 };
     readonly Button _defaults = new() { Name = "SetupDefaults", Content = "Use defaults" };
     readonly Button _back = new() { Name = "SetupBack", Content = "Back", Padding = new Thickness(16, 6) };
     readonly Button _next = new() { Name = "SetupNext", Content = "Next", Padding = new Thickness(18, 6), IsDefault = true, Classes = { "accent" } };
@@ -69,6 +72,9 @@ sealed class SetupWizard : Window
     readonly TextBox _vaultConfirm = new PasswordBox { Name = "SetupVaultConfirm" };
     readonly StackPanel _vaultFields = new() { Spacing = 10 };
     PasswordMeter _vaultMeter = null!;
+
+    // The vault's fields, under the choice between it and the keychain; null where the vault is the only store.
+    Control? _vaultCard;
 
     readonly List<(FoundImport File, ToggleSwitch Toggle, bool Found)> _imports = [];
     readonly StackPanel _importRows = new() { Spacing = 12 };
@@ -106,7 +112,9 @@ sealed class SetupWizard : Window
 
         Title = "Set up Orrery";
         Width = 760;
-        Height = 520;
+
+        // As tall as the tallest step, worked out before the window first shows (MeasureOverride), then kept.
+        SizeToContent = SizeToContent.Height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = PageBrush;
@@ -184,26 +192,89 @@ sealed class SetupWizard : Window
                         },
                     },
                 }, Dock.Bottom),
-                new ScrollViewer
-                {
-                    Content = new StackPanel
-                    {
-                        Margin = new Thickness(32, 28, 32, 24),
-                        Spacing = 6,
-                        Children =
-                        {
-                            _title,
-                            _subtitle,
-                            new Panel { Margin = new Thickness(0, 14, 0, 0), Children = { pageHost } },
-                            new Panel { Margin = new Thickness(0, 8, 0, 0), Children = { _message } },
-                        },
-                    },
-                },
+                _scroll,
             },
         };
+        _content.Children.AddRange([
+            _title,
+            _subtitle,
+            new Panel { Margin = new Thickness(0, 14, 0, 0), Children = { pageHost } },
+            new Panel { Margin = new Thickness(0, 8, 0, 0), Children = { _message } },
+        ]);
+        _scroll.Content = _content;
 
         GoTo(_steps[0], announce: false);
-        Opened += (_, _) => _next.Focus();
+        Opened += (_, _) =>
+        {
+            // Kept from here on, so an error appearing or a step changing never resizes the window.
+            SizeToContent = SizeToContent.Manual;
+            _next.Focus();
+        };
+    }
+
+    // The steps' room has been worked out.
+    bool _fitted;
+
+    /// <summary>The space beside the step list that a step has, for measuring them.</summary>
+    const double StepListWidth = 148;
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        if (!_fitted && double.IsFinite(availableSize.Width))
+        {
+            _fitted = true;
+            FitTallestPage(availableSize.Width - StepListWidth);
+        }
+
+        return base.MeasureOverride(availableSize);
+    }
+
+    /// <summary>
+    /// Gives the steps the room of the tallest, so the window is sized for it from the start and no step scrolls or
+    /// changes the window's size. Each is measured at its tallest: the Passwords step with the vault's fields open
+    /// and the password advice at its longest, and every step with room for a one-line error under it. Only a screen
+    /// too short for that leaves a step to scroll.
+    /// </summary>
+    void FitTallestPage(double width)
+    {
+        var showing = _current;
+        double tallest = 0;
+        bool vaultShown = _vaultCard?.IsVisible ?? false;
+        if (_vaultCard is not null)
+        {
+            _vaultCard.IsVisible = true;
+        }
+
+        foreach (var step in _steps)
+        {
+            GoTo(step, announce: false);
+            _message.Text = "Error";
+            _message.IsVisible = true;
+            // Showing another step only queues a new measure, and outside a layout pass the old one is kept, so each
+            // step's page and what holds it are marked to be measured again.
+            foreach (Visual changed in new Visual[] { _pages[step], _title, _subtitle, _message })
+            {
+                for (Visual? at = changed; at is Layoutable layoutable && at != _scroll; at = at.GetVisualParent())
+                {
+                    layoutable.InvalidateMeasure();
+                }
+            }
+
+            _content.Measure(new Size(width, double.PositiveInfinity));
+            tallest = Math.Max(tallest, _content.DesiredSize.Height);
+        }
+
+        if (_vaultCard is not null)
+        {
+            _vaultCard.IsVisible = vaultShown;
+        }
+
+        GoTo(showing, announce: false);
+        _content.MinHeight = tallest - _content.Margin.Top - _content.Margin.Bottom;
+        if ((Screens.ScreenFromWindow(this) ?? Screens.Primary) is { } screen)
+        {
+            MaxHeight = screen.WorkingArea.Height / screen.Scaling - 32;
+        }
     }
 
     /// <summary>Raised by Start once every choice is made and checked. Setup leaves closing itself to the caller.</summary>
@@ -577,6 +648,7 @@ sealed class SetupWizard : Window
         }
 
         var vaultCard = Card(_vaultFields);
+        _vaultCard = vaultCard;
         vaultCard.IsVisible = false;
         _vault.IsCheckedChanged += (_, _) => vaultCard.IsVisible = _vault.IsChecked == true;
         return new StackPanel
@@ -723,11 +795,26 @@ sealed class SetupWizard : Window
         }
 
         _needsPassword.Add(path);
-        described.Children.Add(Note(ProtectedNote));
+        described.Children.Add(ProtectedRow());
         AutomationProperties.SetHelpText(toggle, $"{path}. {ProtectedNote}");
     }
 
     internal const string ProtectedNote = "Password-protected. You'll be asked for it after setup.";
+
+    /// <summary>
+    /// The note under a password-protected file: a lock in the accent color and text brighter than the path's, so
+    /// it's seen before setup asks for the password.
+    /// </summary>
+    static Control ProtectedRow()
+    {
+        var icon = StrokeIcon.Create(Icons.Lock, 13);
+        icon.VerticalAlignment = VerticalAlignment.Top;
+        icon.Margin = new Thickness(0, 2, 6, 0);
+        icon.Bind(StrokeIcon.ForegroundProperty, icon.GetResourceObservable("OrreryAccent"));
+        var text = new TextBlock { Text = ProtectedNote, FontSize = 12, TextWrapping = TextWrapping.Wrap };
+        text.Bind(TextBlock.ForegroundProperty, text.GetResourceObservable("OrrerySoftText"));
+        return new DockPanel { Margin = new Thickness(0, 4, 0, 0), Children = { Pane.Docked(icon, Dock.Left), text } };
+    }
 
     /// <summary>The background checks for password-protected files, for tests to wait on.</summary>
     internal Task PasswordChecks => Task.WhenAll(_passwordChecks);
@@ -835,14 +922,13 @@ sealed class SetupWizard : Window
         return radio;
     }
 
-    /// <summary>A name over a muted line; a path's line is in the mono font.</summary>
+    /// <summary>A name over a muted line; a path's line is in the mono font, at the size paths are elsewhere.</summary>
     static Control Described(string title, string line, bool mono = false)
     {
         var detail = new TextBlock { Text = line, Foreground = Dialogs.MutedBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap };
         if (mono)
         {
             detail.FontFamily = Dialogs.MonoFont;
-            detail.FontSize = 11;
         }
 
         return new StackPanel
