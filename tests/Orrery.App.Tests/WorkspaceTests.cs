@@ -662,6 +662,33 @@ public class WorkspaceWindowTests : IDisposable
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void Opening_an_open_connection_goes_to_it_by_default_and_choosing_a_new_session_is_saved_and_announced()
+    {
+        var settings = AppSettingsStore.In(_location);
+        using var vault = new VaultFileStore(_location.FileIn("vault.frv"), autoLockAfter: TimeSpan.FromMinutes(30));
+        var view = new Orrery.App.Settings.SettingsView(_location, settings, vault, () => Task.CompletedTask, () => Task.CompletedTask, () => Task.CompletedTask);
+        bool? changed = null;
+        view.NewSessionOnOpenChanged += (_, on) => changed = on;
+        var window = new Window { Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var choice = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(c => Avalonia.Automation.AutomationProperties.GetName(c) == "Opening a connection that's already open");
+        Assert.Equal(0, choice.SelectedIndex);
+        Assert.False(settings.Load().OpensNewSession);
+
+        choice.SelectedIndex = 1;
+        Assert.True(changed);
+        Assert.True(settings.Load().OpensNewSession);
+
+        choice.SelectedIndex = 0;
+        Assert.False(changed);
+        Assert.False(settings.Load().OpensNewSession);
+        window.Close();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

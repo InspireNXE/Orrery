@@ -204,6 +204,7 @@ public partial class MainWindow
             }
 
             popout.Activate();
+            tab.MarkShown();
             Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
         }
         else

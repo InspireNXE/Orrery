@@ -195,6 +195,7 @@
                   <TreeView.ContextMenu>
                     <ContextMenu>
                       <MenuItem x:Name="ConnectMenuItem" Header="Connect" Click="OnConnectMenuClick" />
+                      <MenuItem x:Name="NewSessionMenuItem" Header="Open new session" Click="OnNewSessionMenuClick" />
                       <MenuItem x:Name="BrowseFilesMenuItem" Header="Browse files (SFTP)" Click="OnBrowseFilesMenuClick" />
                       <MenuItem x:Name="WakeMenuItem" Header="Wake" Click="OnWakeMenuClick" />
                       <MenuItem x:Name="ManagementMenuItem" Header="Open management page" Click="OnManagementMenuClick" />

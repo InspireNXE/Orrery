@@ -176,6 +176,15 @@ public sealed record AppSettings
     [JsonIgnore]
     public bool RemembersRecentConnections => RememberRecentConnections ?? true;
 
+    /// <summary>
+    /// Double-click, Enter or Connect on a connection that's already open: true opens another session, false goes to the
+    /// open one. Null is false. Ctrl+double-click, a middle-click and "Open new session" always open another.
+    /// </summary>
+    public bool? NewSessionOnOpen { get; init; }
+
+    [JsonIgnore]
+    public bool OpensNewSession => NewSessionOnOpen ?? false;
+
     /// <summary>Terminal text size in points. Null is <see cref="DefaultTerminalFontSize"/>.</summary>
     public double? TerminalFontSize { get; init; }
 

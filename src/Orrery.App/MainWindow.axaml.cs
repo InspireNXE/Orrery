@@ -110,8 +110,11 @@ public partial class MainWindow : Window
     readonly HostStatusController _hostStatus;
     readonly TextBlock _noticeText;
     int _noticeVersion;
-    readonly MenuItem _connectMenuItem, _browseFilesMenuItem, _wakeMenuItem, _managementMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
+    readonly MenuItem _connectMenuItem, _newSessionMenuItem, _browseFilesMenuItem, _wakeMenuItem, _managementMenuItem, _addGuestMenuItem, _moveOutOfHostMenuItem, _duplicateMenuItem, _exportMenuItem, _deleteMenuItem;
     readonly List<SessionTab> _tabs = [];
+
+    // Settings: opening a connection that's already open starts another session rather than going to it.
+    bool _newSessionOnOpen;
     SessionTab? _currentTab;
     readonly NetworkWatch _network = new();
 
@@ -213,6 +216,7 @@ public partial class MainWindow : Window
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
         _connectMenuItem = this.FindControl<MenuItem>("ConnectMenuItem")!;
+        _newSessionMenuItem = this.FindControl<MenuItem>("NewSessionMenuItem")!;
         _browseFilesMenuItem = this.FindControl<MenuItem>("BrowseFilesMenuItem")!;
         _wakeMenuItem = this.FindControl<MenuItem>("WakeMenuItem")!;
         _managementMenuItem = this.FindControl<MenuItem>("ManagementMenuItem")!;
@@ -318,6 +322,7 @@ public partial class MainWindow : Window
         _hostStatus.Method = startSettings.HostCheckMethod;
         _hostStatus.Enabled = startSettings.ChecksHostStatus;
         RememberRecentConnections(startSettings.RemembersRecentConnections);
+        _newSessionOnOpen = startSettings.OpensNewSession;
 
         WireTree();
         WireTitleBar();
@@ -472,6 +477,7 @@ public partial class MainWindow : Window
 
         // A host's row also expands on double-click (the tree item does that and marks the event handled), so
         // the expansion is put back: double-click connects, the arrow expands. Double-clicks on the arrow are left alone.
+        // It goes to the connection's open session, if it has one; with Ctrl held it opens another.
         _treeView.AddHandler(DoubleTappedEvent, async (_, e) =>
         {
             if (e.Source is not Visual source || source.FindAncestorOfType<Avalonia.Controls.Primitives.ToggleButton>(includeSelf: true) is not null
@@ -485,7 +491,17 @@ public partial class MainWindow : Window
                 item.IsExpanded = !item.IsExpanded;
             }
 
-            await ConnectAsync(entry);
+            await OpenAsync(entry, newSession: e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control));
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+
+        // A middle-click on a connection always opens another session, as it opens a new tab in a browser.
+        _treeView.AddHandler(PointerReleasedEvent, async (_, e) =>
+        {
+            if (e.InitialPressMouseButton == MouseButton.Middle && RowAt(e.Source)?.Node is ConnectionEntry entry)
+            {
+                e.Handled = true;
+                await OpenAsync(entry, newSession: true);
+            }
         }, RoutingStrategies.Bubble, handledEventsToo: true);
 
         _treeView.KeyDown += async (_, e) =>
@@ -526,6 +542,7 @@ public partial class MainWindow : Window
             int connections = nodes.OfType<ConnectionEntry>().Count();
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
+            _newSessionMenuItem.IsVisible = connections == 1;
             _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
             int wakeable = nodes.OfType<ConnectionEntry>().Count(e => !string.IsNullOrEmpty(e.MacAddress));
             _wakeMenuItem.IsVisible = nodes.OfType<ConnectionEntry>().Any();
@@ -1565,6 +1582,14 @@ public partial class MainWindow : Window
 
     async void OnConnectMenuClick(object? sender, RoutedEventArgs e) => await ConnectSelectedAsync();
 
+    async void OnNewSessionMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (SingleSelectedNode is ConnectionEntry entry)
+        {
+            await OpenAsync(entry, newSession: true);
+        }
+    }
+
     async void OnBrowseFilesMenuClick(object? sender, RoutedEventArgs e)
     {
         if (SingleSelectedNode is ConnectionEntry entry)
@@ -1713,8 +1738,23 @@ public partial class MainWindow : Window
         var selected = SelectedNodes().ToHashSet();
         foreach (var entry in _tree.Root.Descendants().OfType<ConnectionEntry>().Where(selected.Contains).ToList())
         {
-            await ConnectAsync(entry);
+            await OpenAsync(entry);
         }
+    }
+
+    /// <summary>
+    /// Goes to the connection's open session, the one shown last, wherever it is: its tab, or its own window. With none
+    /// open, with <paramref name="newSession"/>, or with Settings saying so, it connects again in a new session.
+    /// </summary>
+    async Task OpenAsync(ConnectionEntry entry, bool newSession = false)
+    {
+        if (!newSession && !_newSessionOnOpen && SessionTab.OpenFor(_tabs, entry.Id) is { } open)
+        {
+            ShowTab(open);
+            return;
+        }
+
+        await ConnectAsync(entry);
     }
 
     async void OnEditDefaultsClick(object? sender, RoutedEventArgs e)
@@ -2966,6 +3006,7 @@ public partial class MainWindow : Window
 
         // A muted tab stays muted when it reconnects.
         tab.IsMuted = old.IsMuted;
+        tab.LastShown = old.LastShown;
 
         // The recording carries on in the same file, with the reconnect marked on its timeline.
         if (old.Recorder is { IsRecording: true } recorder)
@@ -3019,6 +3060,7 @@ public partial class MainWindow : Window
     {
         PlaceInSplit(_currentTab, tab);
         _currentTab = tab;
+        tab?.MarkShown();
         if (tab is not null && chosen && _recordingsShown)
         {
             ShowRecordingsHost(false);
@@ -4311,6 +4353,7 @@ public partial class MainWindow : Window
                 }
             };
             view.RememberRecentConnectionsChanged += (_, on) => RememberRecentConnections(on);
+            view.NewSessionOnOpenChanged += (_, on) => _newSessionOnOpen = on;
             view.PaneModesChanged += (_, modes) => FollowPaneModes(modes.Side, modes.Inspector);
             view.RestartRequested += (_, arguments) => App.Restart(arguments);
             view.TerminalColorsChanged += (_, scheme) =>
