@@ -2966,9 +2966,21 @@ public partial class MainWindow : Window
             web.Changed += (_, _) => RefreshSessionBar(tab);
         }
 
+        // A reconnect is a tab of its own, so each tab sends them once, the first time it connects.
+        bool sentWhenConnected = false;
+        void SendOnceConnected()
+        {
+            if (!sentWhenConnected && tab.Session.State == SessionState.Connected)
+            {
+                sentWhenConnected = true;
+                Dispatcher.UIThread.Post(() => _ = SendWhenConnectedAsync(tab));
+            }
+        }
+
         tab.StateChanged += (_, _) =>
         {
             UpdateTreeStatus();
+            SendOnceConnected();
             if (ShouldReconnect(tab))
             {
                 BeginReconnect(tab);
@@ -2976,6 +2988,7 @@ public partial class MainWindow : Window
 
             RefreshSessionBar(tab);
         };
+        SendOnceConnected();
         return tab;
     }
 

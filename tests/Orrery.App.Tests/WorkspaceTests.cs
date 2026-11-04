@@ -192,6 +192,41 @@ public class WorkspaceWindowTests : IDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>
+    /// A terminal that's connecting until the test says it's connected, keeping what's typed into it and answering
+    /// what's typed with <see cref="Reply"/>, as a server would.
+    /// </summary>
+    sealed class ConnectingTerminal(string host) : ITerminalSession
+    {
+        public ConnectionTarget Target { get; } = new(host, 22, "someone", null);
+        public SessionState State { get; private set; } = SessionState.Connecting;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+        public event Action<byte[]>? DataReceived;
+        public readonly System.Text.StringBuilder Sent = new();
+        public Func<string, string?> Reply { get; set; } = _ => null;
+        public void Output(string text) => DataReceived?.Invoke(System.Text.Encoding.UTF8.GetBytes(text));
+
+        public void Send(ReadOnlySpan<byte> data)
+        {
+            var text = System.Text.Encoding.UTF8.GetString(data);
+            Sent.Append(text);
+            if (Reply(text) is { } reply)
+            {
+                Output(reply);
+            }
+        }
+
+        public void Resize(int columns, int rows) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Connect()
+        {
+            State = SessionState.Connected;
+            StateChanged?.Invoke(this, new SessionStateChangedEventArgs(State, null));
+        }
+    }
+
     public WorkspaceWindowTests()
     {
         _location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
@@ -412,6 +447,195 @@ public class WorkspaceWindowTests : IDisposable
         Assert.Equal(1, workspace.Active);
     }
 
+
+    [AvaloniaFact]
+    public async Task A_saved_connection_sends_its_when_connected_commands_once_connected_folders_first()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var saved = (ConnectionEntry)tree.Find(_saved.Id)!;
+            tree.Root.Commands = [new SavedCommand { Name = "Root first", Text = "echo root", WhenConnected = true }];
+            saved.Commands =
+            [
+                new SavedCommand { Name = "By hand", Text = "uptime" },
+                new SavedCommand { Name = "Into app", Text = "cd /srv/app", WhenConnected = true },
+                new SavedCommand { Name = "Typed only", Text = "tmux attach", WhenConnected = true, PressEnter = false },
+            ];
+
+            var session = new ConnectingTerminal(_saved.Host);
+            var origin = new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask);
+            typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [new Sessions.TerminalView(session), session, origin]);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(string.Empty, session.Sent.ToString());
+
+            session.Connect();
+            session.Output("someone@saved:~$ ");
+            await Until(() => session.Sent.ToString().EndsWith("tmux attach"));
+            Assert.Equal("echo root\rcd /srv/app\rtmux attach", session.Sent.ToString());
+
+            // Once per tab: a later change of state doesn't send them again.
+            session.Connect();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("echo root\rcd /srv/app\rtmux attach", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// Opens <see cref="_saved"/> in a tab with <paramref name="commands"/> sent when connected, its login a vault
+    /// credential whose password is "hunter2", and connects it at a shell prompt.
+    /// </summary>
+    async Task<ConnectingTerminal> ConnectAsync(MainWindow window, Func<string, string?> reply, params SavedCommand[] commands)
+    {
+        var vault = Assert.IsType<VaultFileStore>(VaultAutoLockTests.Private<ICredentialStore>(window, "_credentials"));
+        await vault.UnlockAsync("correct horse battery staple");
+        var login = Guid.NewGuid();
+        await vault.SaveAsync(new Credential(login, "someone's login", CredentialKind.Password, "someone", null, "hunter2"));
+
+        var saved = (ConnectionEntry)VaultAutoLockTests.Private<ConnectionTree>(window, "_tree").Find(_saved.Id)!;
+        saved.Settings.CredentialId = login;
+        saved.Commands = [.. commands];
+
+        var session = new ConnectingTerminal(_saved.Host) { Reply = reply };
+        var origin = new SessionOrigin(_saved.Name, Protocol.Ssh, _saved.Id, () => Task.CompletedTask);
+        typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [new Sessions.TerminalView(session), session, origin]);
+        session.Connect();
+        session.Output("someone@saved:~$ ");
+        return session;
+    }
+
+    static SavedCommand BecomeRoot => new() { Name = "Become root", Text = "sudo -i", WhenConnected = true, Password = CommandPassword.Login };
+    static SavedCommand IntoRoot => new() { Name = "Home", Text = "cd /root", WhenConnected = true };
+
+    [AvaloniaFact]
+    public async Task Become_root_types_the_login_password_at_sudos_prompt_then_carries_on()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var session = await ConnectAsync(window, typed => typed switch
+            {
+                "sudo -i\r" => "\r\n[sudo] password for someone: ",
+                "hunter2\r" => "\r\nroot@saved:~# ",
+                _ => null,
+            }, BecomeRoot, IntoRoot);
+
+            await Until(() => session.Sent.ToString().EndsWith("cd /root\r"));
+            Assert.Equal("sudo -i\rhunter2\rcd /root\r", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task No_password_is_typed_when_sudo_doesnt_ask_for_one()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var session = await ConnectAsync(window, typed => typed == "sudo -i\r" ? "\r\nroot@saved:~# " : null, BecomeRoot, IntoRoot);
+
+            await Until(() => session.Sent.ToString().EndsWith("cd /root\r"));
+            Assert.Equal("sudo -i\rcd /root\r", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task No_prompt_in_time_types_nothing_and_stops_the_rest()
+    {
+        var wait = MainWindow.PasswordWait;
+        MainWindow.PasswordWait = TimeSpan.FromSeconds(1);
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var session = await ConnectAsync(window, typed => typed == "sudo -i\r" ? "\r\nWe trust you have received the usual lecture" : null, BecomeRoot, IntoRoot);
+
+            await Until(() => session.Sent.Length > 0);
+            for (int i = 0; i < 80; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(25);
+            }
+
+            Assert.Equal("sudo -i\r", session.Sent.ToString());
+        }
+        finally
+        {
+            MainWindow.PasswordWait = wait;
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_refused_password_isnt_typed_again()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            var session = await ConnectAsync(window, typed => typed switch
+            {
+                "sudo -i\r" => "\r\n[sudo] password for someone: ",
+                "hunter2\r" => "\r\nSorry, try again.\r\n[sudo] password for someone: ",
+                _ => null,
+            }, BecomeRoot, IntoRoot);
+
+            await Until(() => session.Sent.ToString().Contains("hunter2"));
+            for (int i = 0; i < 60; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(25);
+            }
+
+            Assert.Equal("sudo -i\rhunter2\r", session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task A_quick_connect_terminal_sends_nothing_by_itself()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.Show();
+            VaultAutoLockTests.Private<ConnectionTree>(window, "_tree").Root.Commands = [new SavedCommand { Name = "Root", Text = "sudo -i", WhenConnected = true }];
+            var session = new ConnectingTerminal("typed.example");
+            var origin = new SessionOrigin("typed.example", Protocol.Ssh, null, () => Task.CompletedTask);
+            typeof(MainWindow).GetMethod("AddTab", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [new Sessions.TerminalView(session), session, origin]);
+
+            session.Connect();
+            for (int i = 0; i < 10; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(10);
+            }
+
+            Assert.Equal(string.Empty, session.Sent.ToString());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 
     [AvaloniaFact]
     public async Task The_offer_hides_while_a_session_is_full_screen_and_comes_back_after()
