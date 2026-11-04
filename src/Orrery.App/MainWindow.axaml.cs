@@ -872,8 +872,8 @@ public partial class MainWindow : Window
             }
         }, RoutingStrategies.Tunnel);
 
-        // A local terminal, and popping the current tab out, caught on the way down too so a focused terminal doesn't
-        // take them as Ctrl+T and Ctrl+O.
+        // A local terminal, popping the current tab out and splitting, caught on the way down too so a focused terminal
+        // doesn't take them as Ctrl+T, Ctrl+O and Ctrl+E.
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Handled || _dimmer.IsVisible
@@ -893,7 +893,17 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 PopOut(tab);
             }
+            else if (Input.TabShortcuts.Splits(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()) && _currentTab is { } current
+                && !_settingsHost.IsVisible)
+            {
+                e.Handled = true;
+                ToggleSplit(current);
+            }
         }, RoutingStrategies.Tunnel);
+
+        // Clicking into or tabbing into the other side of a split makes it the current tab.
+        _sessionHost.AddHandler(GotFocusEvent, (_, e) => OnSessionAreaFocus(e.Source));
+        _sessionHost.AddHandler(PointerPressedEvent, (_, e) => OnSessionAreaFocus(e.Source), RoutingStrategies.Tunnel, handledEventsToo: true);
 
         // Drag a tab sideways to move it; it lands where it's let go. Dragged well above or below the strip, it pops
         // out into a window of its own where it's let go. The tab's own click still selects it.
@@ -934,6 +944,8 @@ public partial class MainWindow : Window
             if (_tabDragging)
             {
                 _tabTearing = Input.TabShortcuts.TearsOff(at.Y, _tabStrip.Bounds.Height);
+                _tabSplitSide = _tabTearing ? SplitSideAt(tab, e.GetPosition(this)) : null;
+                ShowSplitPreview(_tabSplitSide);
                 ShowTabDrag(tab, dx, at);
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -944,11 +956,16 @@ public partial class MainWindow : Window
             {
                 int target = _tabDropIndex;
                 bool tearing = _tabTearing;
+                var splitSide = _tabSplitSide;
                 var at = this.PointToScreen(e.GetPosition(this));
                 EndTabDrag();
 
                 // After the release has been through the tab, which is still in the strip until then.
-                if (tearing)
+                if (splitSide is { } onRight)
+                {
+                    Dispatcher.UIThread.Post(() => SplitWith(tab, onRight));
+                }
+                else if (tearing)
                 {
                     Dispatcher.UIThread.Post(() => PopOut(tab, at: at));
                 }
@@ -970,6 +987,9 @@ public partial class MainWindow : Window
 
     // The held tab is far enough above or below the strip to pop out where it's let go.
     bool _tabTearing;
+
+    // Torn off over the session area's left (false) or right (true) edge: it splits there instead of popping out.
+    bool? _tabSplitSide;
 
     // The held tab, drawn over the window while it's dragged.
     TabGhost? _tabGhost;
@@ -1057,7 +1077,8 @@ public partial class MainWindow : Window
         }
 
         _tabGhost?.Remove();
-        (_draggedTab, _tabDragStart, _tabDragging, _tabTearing, _tabGhost) = (null, null, false, false, null);
+        ShowSplitPreview(null);
+        (_draggedTab, _tabDragStart, _tabDragging, _tabTearing, _tabGhost, _tabSplitSide) = (null, null, false, false, null, null);
     }
 
     SessionTab? TabAt(object? source) =>
@@ -1101,6 +1122,9 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        // Full screen is for one session: the other side of a split waits in its tab.
+        EndSplit(tab);
 
         IReadOnlyList<Avalonia.Platform.Screen>? spread = null;
         if (screen is null && tab.View is RemoteFrameView desktopView)
@@ -2967,6 +2991,7 @@ public partial class MainWindow : Window
         {
             _tabStrip.Children[_tabStrip.Children.IndexOf(old.Header)] = tab.Header;
             _sessionHost.Children[_sessionHost.Children.IndexOf(old.Host)] = tab.Host;
+            ReplaceInSplit(old, tab);
             if (current)
             {
                 SelectTab(tab);
@@ -2974,6 +2999,7 @@ public partial class MainWindow : Window
             else
             {
                 tab.IsSelected = false;
+                ShowSplit();
             }
         }
 
@@ -2983,8 +3009,9 @@ public partial class MainWindow : Window
     }
 
     /// <param name="chosen">Chosen or opened, rather than next in line after another closed, so it leaves Recordings.</param>
-    void SelectTab(SessionTab? tab, bool chosen = true)
+    void SelectTab(SessionTab? tab, bool chosen = true, bool focus = true)
     {
+        PlaceInSplit(_currentTab, tab);
         _currentTab = tab;
         if (tab is not null && chosen && _recordingsShown)
         {
@@ -2997,6 +3024,8 @@ public partial class MainWindow : Window
             each.IsSelected = each == tab;
         }
 
+        ShowSplit();
+
         // A pane opened over the sessions to pick this one has done its job; Auto collapses for it.
         if (tab is not null)
         {
@@ -3008,7 +3037,10 @@ public partial class MainWindow : Window
         if (tab is not null)
         {
             tab.Header.BringIntoView();
-            Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
+            if (focus)
+            {
+                Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
+            }
         }
     }
 
@@ -3020,6 +3052,13 @@ public partial class MainWindow : Window
             tab.CancelReconnect();
             tab.Recorder?.Stop();
             int index = StripTabs().IndexOf(tab);
+
+            // The other side of a split takes the whole area.
+            var partner = SplitPartner(tab);
+            if (partner is not null)
+            {
+                EndSplit(select: false);
+            }
             _tabs.Remove(tab);
             if (tab.Popout is { } popout)
             {
@@ -3038,9 +3077,9 @@ public partial class MainWindow : Window
                 ExitFullScreen();
             }
 
-            if (tab == _currentTab)
+            if (tab == _currentTab || partner is not null)
             {
-                SelectTab(strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)], chosen: false);
+                SelectTab(partner ?? (strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)]), chosen: false);
             }
 
             UpdateSessionChrome();
@@ -3385,6 +3424,18 @@ public partial class MainWindow : Window
         yield return tab.Popout is null
             ? MenuItemFor("Pop out", () => PopOut(tab), Input.TabShortcuts.PopOutDescription(mac))
             : MenuItemFor("Back to tabs", () => Rejoin(tab), Input.TabShortcuts.PopOutDescription(mac));
+
+        if (SplitPartner(tab) is not null)
+        {
+            yield return MenuItemFor("End side by side", () => EndSplit(tab), Input.TabShortcuts.SplitDescription(mac));
+        }
+        else if (tab.Popout is null && StripTabs() is { Count: > 1 } strip)
+        {
+            yield return tab != _currentTab || _currentTab is null
+                ? MenuItemFor("Side by side with the current tab", () => SplitWith(tab, onRight: true))
+                : MenuItemFor(strip[^1] == tab ? "Side by side with the previous tab" : "Side by side with the next tab",
+                    () => ToggleSplit(tab), Input.TabShortcuts.SplitDescription(mac));
+        }
 
         if (tab.Origin is { Protocol: Protocol.Ssh, EntryId: { } id } && _tree.Find(id) is ConnectionEntry entry)
         {

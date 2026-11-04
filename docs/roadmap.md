@@ -5,6 +5,8 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 ## Next feature pass
 
 Nothing yet. Session recording and replay is built: see [design-session-recording.md](design-session-recording.md).
+Find in a live terminal, saved commands and two tabs side by side are built (2026-11-04). Saved commands are only
+sent when picked, never on connect, so they don't cover scripted connect below.
 Commands in the Ctrl+K palette are built (2026-11-02): the current session's menu, every session or a folder's,
 and a saved connection's actions, including copying its password. Opening a tunnel from it isn't: port forwards
 belong to an SSH connection's settings.

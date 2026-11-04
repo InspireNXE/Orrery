@@ -48,6 +48,12 @@ public partial class MainWindow
         }
 
         int index = StripTabs().IndexOf(tab);
+        var partner = SplitPartner(tab);
+        if (partner is not null)
+        {
+            EndSplit(select: false);
+        }
+
         var area = _sessionHost.Bounds.Size;
         var origin = _sessionHost.PointToScreen(default);
         _tabStrip.Children.Remove(tab.Header);
@@ -66,10 +72,10 @@ public partial class MainWindow
             web.Covered = false;
         }
 
-        if (current)
+        if (current || partner is not null)
         {
             var strip = StripTabs();
-            SelectTab(strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)], chosen: false);
+            SelectTab(partner ?? (strip.Count == 0 ? null : strip[Math.Min(index, strip.Count - 1)]), chosen: false);
         }
 
         UpdateSessionChrome();
