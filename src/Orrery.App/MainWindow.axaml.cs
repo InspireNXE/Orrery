@@ -82,6 +82,7 @@ public partial class MainWindow : Window
     readonly Control _titleBar, _rail, _statusBar, _tabStripBar;
     readonly Border _fullScreenBar, _fullScreenHotZone;
     readonly TextBlock _fullScreenTitle, _fullScreenHint;
+    readonly StackPanel _fullScreenRecording;
     KeyGesture _fullScreenShortcut;
 
     // Full screen hides every pane and bar; these are what to put back.
@@ -212,6 +213,7 @@ public partial class MainWindow : Window
         _fullScreenHotZone = this.FindControl<Border>("FullScreenHotZone")!;
         _fullScreenTitle = this.FindControl<TextBlock>("FullScreenTitle")!;
         _fullScreenHint = this.FindControl<TextBlock>("FullScreenHint")!;
+        _fullScreenRecording = this.FindControl<StackPanel>("FullScreenRecording")!;
         _fullScreenShortcut = Input.FullScreenShortcut.FromSettings(_settingsStore.Load().FullScreenShortcut);
         _dimmer = this.FindControl<Border>("Dimmer")!;
         _lockVault = this.FindControl<Button>("LockVaultButton")!;
@@ -850,6 +852,7 @@ public partial class MainWindow : Window
         {
             _fullScreenTitle.Text = _currentTab?.Origin.Title;
             _fullScreenHint.Text = $"{Input.FullScreenShortcut.Describe(_fullScreenShortcut)} to leave";
+            ShowFullScreenRecording();
             _fullScreenBar.IsVisible = true;
         };
         // The bar is narrower than the strip that shows it, so leaving one for the other keeps it; it goes once the
@@ -867,6 +870,17 @@ public partial class MainWindow : Window
                 HideFullScreenBarUnlessOver(e);
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    /// <summary>
+    /// Full screen hides the tab strip and its recording dot, so the bar says so instead: only while recording, and
+    /// in the bar's name for a screen reader.
+    /// </summary>
+    void ShowFullScreenRecording()
+    {
+        bool recording = _currentTab?.IsRecording == true;
+        _fullScreenRecording.IsVisible = recording;
+        Avalonia.Automation.AutomationProperties.SetName(_fullScreenBar, recording ? $"{_currentTab!.Origin.Title}, recording" : _currentTab?.Origin.Title);
     }
 
     void HideFullScreenBarUnlessOver(PointerEventArgs e)
@@ -2919,7 +2933,14 @@ public partial class MainWindow : Window
         tab.ReconnectRequested += async (_, _) => await ReconnectAsync(tab);
         tab.Header.ContextMenu = TabMenu(tab);
         tab.RecordingStoppedByItself += (_, reason) => ShowNotice(tab, $"{tab.Origin.Title}: {reason}");
-        tab.RecordingChanged += (_, _) => RefreshSessionBar(tab);
+        tab.RecordingChanged += (_, _) =>
+        {
+            RefreshSessionBar(tab);
+            if (tab == _currentTab)
+            {
+                ShowFullScreenRecording();
+            }
+        };
         HistoryRecorder.Attach(tab, _tree, _history);
 
         // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
