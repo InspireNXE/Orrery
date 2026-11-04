@@ -155,6 +155,13 @@ sealed class SessionTab
         _countdown.Tick += (_, _) => CountDown();
         WireSound();
         Host = new Grid { Children = { view, BuildScreen() } };
+        if (view is TerminalView terminal)
+        {
+            FindBar = new TerminalFindBar(terminal);
+            ((Grid)Host).Children.Insert(1, FindBar);
+            terminal.FindRequested += (_, _) => FindBar.Open(terminal.SelectedText);
+        }
+
         ShowState();
     }
 
@@ -337,6 +344,9 @@ sealed class SessionTab
 
     /// <summary>The view with the connection-lost screen over it; what goes in the session area.</summary>
     public Control Host { get; }
+
+    /// <summary>Find in the scrollback, for a terminal; null for other sessions.</summary>
+    public TerminalFindBar? FindBar { get; }
 
     /// <summary>The window this session is popped out into; null while it's a tab in the main window's strip.</summary>
     public PopoutWindow? Popout { get; set; }

@@ -3281,6 +3281,7 @@ public partial class MainWindow : Window
             string command = mac ? "Cmd" : "Ctrl";
             items.Add(MenuItemFor("Copy", async () => await terminal.CopyAsync(), mac ? "Cmd+C" : "Ctrl+Shift+C", terminal.HasSelection));
             items.Add(MenuItemFor("Paste", async () => await terminal.PasteAsync(), mac ? "Cmd+V" : "Ctrl+Shift+V", connected));
+            items.Add(MenuItemFor("Find…", () => tab.FindBar?.Open(terminal.SelectedText), mac ? "Cmd+F" : "Ctrl+Shift+F"));
             items.Add(new Separator());
             items.Add(MenuItemFor("Larger text", () => ChangeTerminalTextSize(1), $"{command}+OemPlus"));
             items.Add(MenuItemFor("Smaller text", () => ChangeTerminalTextSize(-1), $"{command}+OemMinus"));
