@@ -125,6 +125,9 @@ static class Win
     public const uint ColorSpaceBt709Limited = 0x00000014;
     public const uint ColorSpaceRgbFull = 0x00000000;
     public const uint WsOverlappedWindow = 0x00CF0000;
+    public const uint WsChild = 0x40000000;
+    public const uint WsVisible = 0x10000000;
+    public const uint WsClipSiblings = 0x04000000;
     public const int CwUseDefault = -2147483648;
     public const int CsHRedrawVRedraw = 3;
     public const int WmDestroy = 2;

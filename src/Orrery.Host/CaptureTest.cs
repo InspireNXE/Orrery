@@ -13,8 +13,9 @@ namespace Orrery.Host;
 
 /// <summary>What <c>--capture</c> was asked to do.</summary>
 /// <param name="Send">Where to send the stream over plain UDP (an IP address and port), for OrreryStreamViewer.</param>
+/// <param name="Measure">Time each frame until it shows in a viewer on this desktop (<see cref="LatencyProbe"/>).</param>
 sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1, int Seconds = 10, long? Bitrate = null, string? OutputPath = null,
-    bool Loopback = false, IPEndPoint? Send = null)
+    bool Loopback = false, IPEndPoint? Send = null, bool Measure = false)
 {
     /// <summary>Reads the arguments after <c>--capture</c>, or returns null with <paramref name="error"/> saying what's wrong.</summary>
     public static CaptureOptions? Parse(IReadOnlyList<string> args, out string? error)
@@ -46,6 +47,9 @@ sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1,
                 case "--loopback":
                     options = options with { Loopback = true };
                     continue; // takes no value
+                case "--measure":
+                    options = options with { Measure = true };
+                    continue;
                 default:
                     error = value is null || args[i] is not ("--monitor" or "--codec" or "--seconds" or "--mbps" or "--out" or "--send")
                         ? $"Unknown option {args[i]}."
@@ -59,6 +63,12 @@ sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1,
         if (options.Loopback && options.Send is not null)
         {
             error = "--loopback and --send can't be used together.";
+            return null;
+        }
+
+        if (options.Measure && options.Send is null)
+        {
+            error = "--measure needs --send, to a viewer on this machine.";
             return null;
         }
 
@@ -187,6 +197,12 @@ static class CaptureTest
                 })
                 : null;
             using var sender = options.Send is { } destination ? new UdpMediaSender(destination) : null;
+            if (options.Measure)
+            {
+                ViewerWindow.UsePhysicalPixels();
+            }
+
+            using var probe = options.Measure ? new LatencyProbe(device, immediate, monitor, width, height) : null;
             output.WriteLine($"Encoding {width}x{height} at up to {fps} fps with {Name(options.Codec)}, {bitrate / 1_000_000} Mbps, for {options.Seconds} s"
                 + (loopback is not null ? ", sending each frame over UDP to 127.0.0.1 and back together."
                     : sender is not null ? $", sending to {options.Send} over UDP (start OrreryStreamViewer there first)."
@@ -229,7 +245,9 @@ static class CaptureTest
                 try
                 {
                     surface = context.AllocSurface(Amf.SurfaceBgra, width, height);
+                    probe?.Look(texture, presented);
                     Dxgi.CopyResource(immediate, AmfContext.SurfaceTexture(surface), texture);
+                    probe?.Stamp(AmfContext.SurfaceTexture(surface), stats.Count + 1, presented);
                 }
                 finally
                 {
@@ -283,6 +301,8 @@ static class CaptureTest
                 {
                     file?.Write(frame, (long)Milliseconds(presented - firstPresent));
                 }
+
+                probe?.Read();
             }
 
             Report(output, stats, totalBytes, options.Seconds, startsCorrectly, pointerOnly, reopened);
@@ -291,6 +311,17 @@ static class CaptureTest
             {
                 output.WriteLine($"Sent {stats.Count} frames to {options.Send} in {sender.PacketsSent:N0} datagrams ({sender.BytesSent:N0} bytes).");
             }
+
+            if (probe is not null)
+            {
+                output.WriteLine($"Seen in the viewer: {probe.Latencies.Count} of {stats.Count} frames; viewer not found in {probe.NotVisible} captures"
+                    + $", marker unreadable in {probe.Unreadable}.");
+                if (probe.Latencies.Count > 0)
+                {
+                    output.WriteLine($"  screen to screen      {Spread(probe.Latencies)}  (present here to seen in the viewer, after the compositor)");
+                }
+            }
+
             if (path is not null && stats.Count > 0)
             {
                 output.WriteLine($"Wrote {path}");

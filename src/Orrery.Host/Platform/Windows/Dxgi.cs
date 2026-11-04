@@ -45,8 +45,17 @@ static unsafe class Dxgi
     const int AdapterEnumOutputs = 7;
     const int AdapterGetDesc1 = 10;
     const int OutputGetDesc = 7;
+    const int DeviceCreateTexture2D = 5;
     const int DeviceGetImmediateContext = 40;
+    const int ContextMap = 14;
+    const int ContextUnmap = 15;
+    const int ContextCopySubresourceRegion = 46;
     const int ContextCopyResource = 47;
+    const int ContextUpdateSubresource = 48;
+    const uint UsageStaging = 3;
+    const uint CpuAccessRead = 0x20000;
+    const int MapRead = 1;
+    const uint FormatB8G8R8A8Unorm = 87;
     const int Texture2DGetDesc = 10;
     const int MultithreadSetProtected = 5;
     const int NotFound = unchecked((int)0x887A0002);
@@ -276,6 +285,77 @@ static unsafe class Dxgi
     /// <summary>Queues a GPU copy of one whole texture into another of the same size and format.</summary>
     public static void CopyResource(nint context, nint destination, nint source) =>
         ((delegate* unmanaged[Stdcall]<nint, nint, nint, void>)Slot(context, ContextCopyResource))(context, destination, source);
+
+    /// <summary>D3D11_BOX: a region of a texture, right and bottom exclusive.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Box(int left, int top, int right, int bottom)
+    {
+        public uint Left = (uint)left;
+        public uint Top = (uint)top;
+        public uint Front = 0;
+        public uint Right = (uint)right;
+        public uint Bottom = (uint)bottom;
+        public uint Back = 1;
+    }
+
+    /// <summary>A BGRA texture the CPU can read, for copying small regions of the GPU's frames into; the caller releases it.</summary>
+    public static nint CreateStagingTexture(nint device, int width, int height)
+    {
+        var desc = new Texture2DDesc
+        {
+            Width = (uint)width,
+            Height = (uint)height,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = FormatB8G8R8A8Unorm,
+            SampleCount = 1,
+            Usage = UsageStaging,
+            CpuAccessFlags = CpuAccessRead,
+        };
+        nint texture = 0;
+        Check("ID3D11Device::CreateTexture2D", ((delegate* unmanaged[Stdcall]<nint, Texture2DDesc*, void*, nint*, int>)Slot(device, DeviceCreateTexture2D))(device, &desc, null, &texture));
+        return texture;
+    }
+
+    /// <summary>Queues a copy of <paramref name="region"/> of <paramref name="source"/> to the top-left of <paramref name="destination"/>.</summary>
+    public static void CopyRegion(nint context, nint destination, nint source, Box region) =>
+        ((delegate* unmanaged[Stdcall]<nint, nint, uint, uint, uint, uint, nint, uint, Box*, void>)Slot(context, ContextCopySubresourceRegion))(context, destination, 0, 0, 0, 0, source, 0, &region);
+
+    /// <summary>Queues an upload of BGRA <paramref name="pixels"/> (rows <paramref name="rowPitch"/> bytes apart) into <paramref name="region"/> of a texture.</summary>
+    public static void Upload(nint context, nint texture, Box region, ReadOnlySpan<byte> pixels, int rowPitch)
+    {
+        fixed (byte* data = pixels)
+        {
+            ((delegate* unmanaged[Stdcall]<nint, nint, uint, Box*, void*, uint, uint, void>)Slot(context, ContextUpdateSubresource))(context, texture, 0, &region, data, (uint)rowPitch, 0);
+        }
+    }
+
+    /// <summary>
+    /// Maps a staging texture for reading, waiting for the GPU to finish writing it, and hands its pixels to
+    /// <paramref name="read"/> with their row pitch.
+    /// </summary>
+    public static T ReadStaging<T>(nint context, nint texture, int height, Func<ReadOnlySpan<byte>, int, T> read)
+    {
+        MappedSubresource mapped;
+        Check("ID3D11DeviceContext::Map", ((delegate* unmanaged[Stdcall]<nint, nint, uint, int, uint, MappedSubresource*, int>)Slot(context, ContextMap))(context, texture, 0, MapRead, 0, &mapped));
+        try
+        {
+            return read(new ReadOnlySpan<byte>(mapped.Data, (int)(mapped.RowPitch * height)), (int)mapped.RowPitch);
+        }
+        finally
+        {
+            ((delegate* unmanaged[Stdcall]<nint, nint, uint, void>)Slot(context, ContextUnmap))(context, texture, 0);
+        }
+    }
+
+    /// <summary>D3D11_MAPPED_SUBRESOURCE.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    struct MappedSubresource
+    {
+        public void* Data;
+        public uint RowPitch;
+        public uint DepthPitch;
+    }
 
     public static Texture2DDesc TextureDesc(nint texture)
     {

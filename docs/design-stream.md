@@ -8,8 +8,9 @@ duplicates a monitor and encodes it with AMF, timing every frame and optionally 
 `--loopback` each frame also crosses plain UDP to 127.0.0.1 and is put back together (`FramePacketizer`,
 `FrameAssembler`, `UdpMediaSender`/`Receiver` in Orrery.Streaming); with `--send ip:port` it goes to
 `OrreryStreamViewer`, phase 1's test client, which decodes on the GPU through Media Foundation and presents in a bare
-window (`Orrery.Protocols.Stream/Windows`). Windows to Windows works end to end on one machine; not yet between two,
-nor inside Orrery.
+window (`Orrery.Protocols.Stream/Windows`), or inside an Avalonia window with `--avalonia`. `--measure` times each
+frame from the host's screen to the viewer's on the same desktop, without a camera (§5). Windows to Windows works end
+to end on one machine; not yet between two, nor inside Orrery.
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
@@ -273,6 +274,27 @@ is queued behind it, so the last column is honest about what reached `Present`, 
 all of it is the host's encode. The swapchain reports tearing support, so frames aren't held for a refresh. A
 recording of the screen during the run shows the viewer's picture with the right colors. Glass to glass, two
 machines, and a physical monitor at 120 Hz are still to measure, from a local session rather than RDP.
+
+**To the screen, without a camera** (same day, `--send 127.0.0.1:47990 --measure`). The host draws the frame number
+into the corner of each frame it sends, as 16 black or white squares (`FrameMarker`), and checks every desktop it
+captures for that number inside the viewer's window. The time from a frame's present on the host to the capture that
+first shows it in the viewer covers capture, encode, network, decode, present and the compositor; only the display's
+scan-out and pixel response are left out. The same test ran with the viewer in a bare window and with the same child
+window inside an Avalonia `NativeControlHost` (`OrreryStreamViewer --avalonia`), which is how the popout would show
+it. Median / 95th percentile, about 257 frames each, over RDP:
+
+| Codec | Bare window | Inside Avalonia | Frames read |
+|---|---|---|---|
+| H.264 | 31.25 / 31.84 ms | 31.23 / 31.88 ms | 255 of 257 both |
+| HEVC | 31.26 / 31.73 ms | 31.25 / 31.97 ms | 256 and 255 |
+| AV1 | 31.22 / 31.81 ms | 31.24 / 31.71 ms | 254 and 250 |
+
+Every result is one refresh of RDP's 32 Hz virtual display (31.25 ms): the viewer presents about 4 ms after the
+host's frame, and the compositor shows it on its next refresh. So over RDP this measures the refresh, not OSP. On a
+local 120 Hz monitor the same test should read about 8.3 ms, or less with tearing on a full-screen viewer. What it
+does show: Avalonia's native child window adds nothing measurable, so the popout can host the stream that way
+(option 1 in "Client: decode and present") at no cost seen so far. The few unreadable captures were something
+covering the viewer's corner, not the encoders blurring the squares.
 
 Two such streams at good quality need roughly 150–300 Mbps: fine on wired gigabit, unrealistic on most Wi-Fi, where
 rate control lowers quality before it lets latency grow. The host advertises what its encoders can sustain, and the

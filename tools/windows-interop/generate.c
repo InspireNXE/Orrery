@@ -158,6 +158,9 @@ int main(int argc, char **argv)
     CU("ColorSpaceBt709Limited", *(unsigned int *)&bt709Limited);
     CU("ColorSpaceRgbFull", *(unsigned int *)&rgbFull);
     CU("WsOverlappedWindow", WS_OVERLAPPEDWINDOW);
+    CU("WsChild", WS_CHILD);
+    CU("WsVisible", WS_VISIBLE);
+    CU("WsClipSiblings", WS_CLIPSIBLINGS);
     C("CwUseDefault", CW_USEDEFAULT);
     C("CsHRedrawVRedraw", CS_HREDRAW | CS_VREDRAW);
     C("WmDestroy", WM_DESTROY);

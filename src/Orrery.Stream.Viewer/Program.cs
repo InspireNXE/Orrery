@@ -27,6 +27,7 @@ static class Program
 
         int port = DefaultPort;
         int? seconds = null;
+        bool avalonia = false;
         var codec = VideoCodec.Av1;
         for (int i = 0; i < args.Length; i++)
         {
@@ -42,84 +43,130 @@ static class Program
                 case "--seconds" when int.TryParse(value, CultureInfo.InvariantCulture, out int s) && s > 0:
                     seconds = s;
                     break;
+                case "--avalonia":
+                    avalonia = true;
+                    continue; // takes no value
                 default:
                     Console.WriteLine($"Unknown or invalid option {args[i]}.");
-                    Console.WriteLine($"OrreryStreamViewer [--port N (default {DefaultPort})] [--codec av1|hevc|h264 (default av1)] [--seconds N (close after)]");
+                    Console.WriteLine($"OrreryStreamViewer [--port N (default {DefaultPort})] [--codec av1|hevc|h264 (default av1)] [--seconds N (close after)]"
+                        + " [--avalonia (present inside an Avalonia window)]");
                     return 1;
             }
 
             i++;
         }
 
-        return Run(port, codec, seconds);
+        var session = new StreamSession(port, codec);
+        Console.WriteLine($"Listening on UDP {port} for {codec}{(avalonia ? ", inside an Avalonia window" : "")}. Close the window to stop.");
+        if (avalonia)
+        {
+            AvaloniaViewer.Run(session, seconds);
+        }
+        else
+        {
+            RunBare(session, $"Orrery Stream Viewer: waiting for {codec} on UDP {port}", seconds);
+        }
+
+        return session.Stop(Console.Out);
     }
 
+    /// <summary>Presents into a top-level Win32 window of its own, the shortest path to the screen.</summary>
     [SupportedOSPlatform("windows")]
-    static int Run(int port, VideoCodec codec, int? seconds)
+    static void RunBare(StreamSession session, string title, int? seconds)
     {
-        using var receiver = new UdpMediaReceiver(new IPEndPoint(IPAddress.Any, port));
-        var window = StreamWindow.Open($"Orrery Stream Viewer: waiting for {codec} on UDP {port}", 1280, 720);
+        var window = StreamWindow.Open(title, 1280, 720);
         using var closer = seconds is { } s ? new Timer(_ => window.Close(), null, TimeSpan.FromSeconds(s), Timeout.InfiniteTimeSpan) : null;
-        var stats = new ViewerStats();
-        Exception? failure = null;
-        var worker = new Thread(() =>
+        session.Start(window.Handle, window.SetTitle);
+        StreamWindow.RunMessageLoop();
+    }
+}
+
+/// <summary>
+/// One stream into one window: a thread that receives, decodes and presents, so each frame goes from the socket to
+/// the screen with no queue.
+/// </summary>
+[SupportedOSPlatform("windows")]
+sealed class StreamSession(int port, VideoCodec codec)
+{
+    readonly UdpMediaReceiver _receiver = new(new IPEndPoint(IPAddress.Any, port));
+    readonly ViewerStats _stats = new();
+    Thread? _worker;
+    Exception? _failure;
+    bool _stopped;
+
+    /// <summary>Starts presenting into <paramref name="hwnd"/>, reporting progress through <paramref name="setTitle"/> (called from the worker).</summary>
+    public void Start(nint hwnd, Action<string> setTitle)
+    {
+        _worker = new Thread(() =>
         {
             try
             {
-                Receive(receiver, window, codec, port, stats);
+                Receive(hwnd, setTitle);
             }
             catch (Exception e) when (e is COMException or NotSupportedException)
             {
-                failure = e;
-                window.SetTitle($"Orrery Stream Viewer: {e.Message}");
-                receiver.Dispose();
+                _failure = e;
+                setTitle($"Orrery Stream Viewer: {e.Message}");
+                _receiver.Dispose();
             }
         }) { Name = "Receive, decode, present" };
-        worker.Start();
-        Console.WriteLine($"Listening on UDP {port} for {codec}. Close the window to stop.");
-
-        StreamWindow.RunMessageLoop();
-        receiver.Dispose();
-        worker.Join();
-        if (failure is not null)
-        {
-            Console.WriteLine($"Stopped: {failure.Message}");
-        }
-
-        stats.Report(Console.Out, receiver.Assembler);
-        return failure is null ? 0 : 1;
+        _worker.Start();
     }
 
-    /// <summary>Receives, decodes and presents on one thread, so each frame goes from the socket to the screen with no queue.</summary>
-    [SupportedOSPlatform("windows")]
-    static void Receive(UdpMediaReceiver receiver, StreamWindow window, VideoCodec codec, int port, ViewerStats stats)
+    /// <summary>Stops receiving and waits for the worker, before its window goes away. Safe to call twice.</summary>
+    public void StopReceiving()
+    {
+        _receiver.Dispose();
+        _worker?.Join();
+    }
+
+    /// <summary>Stops, reports what was measured, and returns the exit code.</summary>
+    public int Stop(TextWriter output)
+    {
+        StopReceiving();
+        if (_stopped)
+        {
+            return _failure is null ? 0 : 1;
+        }
+
+        _stopped = true;
+        if (_failure is not null)
+        {
+            output.WriteLine($"Stopped: {_failure.Message}");
+        }
+
+        _stats.Report(output, _receiver.Assembler);
+        return _failure is null ? 0 : 1;
+    }
+
+    void Receive(nint hwnd, Action<string> setTitle)
     {
         _ = CoInitializeEx(0, 0); // COINIT_MULTITHREADED; Media Foundation wants COM on its calling thread.
         nint device = D3D11Presenter.CreateDevice();
         try
         {
             using var decoder = MediaFoundationDecoder.Create(device, codec);
-            using var presenter = new D3D11Presenter(device, window.Handle);
-            window.SetTitle($"Orrery Stream Viewer: {decoder.Name}, waiting on UDP {port}");
+            using var presenter = new D3D11Presenter(device, hwnd);
+            setTitle($"Orrery Stream Viewer: {decoder.Name}, waiting on UDP {port}");
             long lastTitle = Stopwatch.GetTimestamp();
-            receiver.Run(frame =>
+            _receiver.Run(frame =>
             {
                 long received = Stopwatch.GetTimestamp();
                 if (!decoder.Decode(frame.Data, (long)frame.CaptureMicroseconds * 10, out var decoded))
                 {
-                    stats.Waiting++;
+                    _stats.Waiting++;
                     return;
                 }
 
                 long decodedAt = Stopwatch.GetTimestamp();
                 presenter.Present(decoded!);
                 long presented = Stopwatch.GetTimestamp();
-                stats.Add(Milliseconds(decodedAt - received), Milliseconds(presented - decodedAt),
+                _stats.Add(Milliseconds(decodedAt - received), Milliseconds(presented - decodedAt),
                     ClockMilliseconds(presented) - frame.CaptureMicroseconds / 1000.0, decoded!.Width, decoded.Height);
                 if (Milliseconds(presented - lastTitle) >= 1000)
                 {
                     lastTitle = presented;
-                    window.SetTitle($"Orrery Stream Viewer: {decoded.Width}x{decoded.Height} {codec}, {decoder.Name}, {stats.Summary()}"
+                    setTitle($"Orrery Stream Viewer: {decoded.Width}x{decoded.Height} {codec}, {decoder.Name}, {_stats.Summary()}"
                         + (presenter.Tearing ? ", tearing" : ""));
                 }
             });

@@ -7,7 +7,16 @@
     <AssemblyName>OrreryStreamViewer</AssemblyName>
     <Product>Orrery Stream Viewer</Product>
     <Description>Orrery Stream Viewer</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only for the viewer's -avalonia mode, which shows the same child window inside an Avalonia NativeControlHost
+         to measure what Orrery's own window would add. -->
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Orrery.Protocols.Stream\Orrery.Protocols.Stream.csproj" />
