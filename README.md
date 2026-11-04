@@ -134,7 +134,7 @@ Further out: browser access through a tray agent, and scripted connect. See the
 | Telnet | Built in | |
 | Serial | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports) | COM ports and `/dev/tty*`, with speed, data bits, parity, stop bits and flow control |
 | Web (HTTP, HTTPS) | [Avalonia.Controls.WebView](https://www.nuget.org/packages/Avalonia.Controls.WebView): WebView2, WebKit or WebKitGTK | Keeps admin pages in the tree beside the rest; opens in a tab, or your default browser if you choose |
-| Local terminal | Built in | PowerShell, cmd or WSL on Windows; your login shell on Linux and macOS |
+| Local terminal | Built in | PowerShell, cmd or WSL on Windows; your login shell on Linux and macOS. On Windows, *Local terminal as administrator* asks UAC each time and runs the shell in a tab marked Administrator, through a helper that answers only the Orrery that started it; it isn't reopened at the next start |
 
 ### Connecting
 

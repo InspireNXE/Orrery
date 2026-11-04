@@ -229,6 +229,13 @@ public partial class MainWindow
         yield return new PaletteCommand("New connection", group, Run(() => OnNewConnectionClick(null, new RoutedEventArgs())), null) { Keywords = ["add", "create"] };
         yield return new PaletteCommand("New folder", group, Run(() => OnNewFolderClick(null, new RoutedEventArgs()))) { Keywords = ["add", "create"] };
         yield return new PaletteCommand("Local terminal", group, Run(() => OpenLocalTerminal())) { Shortcut = $"{command}+Shift+T", Keywords = ["shell", "console", "powershell", "bash"] };
+        if (OperatingSystem.IsWindows())
+        {
+            yield return new PaletteCommand("Local terminal as administrator", group, Run(() => OpenLocalTerminal(elevated: true)))
+            {
+                Keywords = ["admin", "elevated", "elevate", "uac", "sudo", "powershell", "run as"],
+            };
+        }
         yield return new PaletteCommand("Recordings", group, Run(() => ShowRecordings())) { Keywords = ["playback", "videos"] };
         yield return new PaletteCommand("Import connections…", group, ChooseImportFileAsync) { Keywords = ["mremoteng", "ssh", "config"] };
         yield return new PaletteCommand("Open Remote Desktop file…", group, Run(() => OnOpenRdpFileClick(null, new RoutedEventArgs()))) { Keywords = ["rdp"] };

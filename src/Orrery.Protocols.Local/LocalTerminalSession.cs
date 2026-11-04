@@ -24,18 +24,23 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
     bool _ending;
     Task? _run;
 
-    LocalTerminalSession(LocalShell shell, int columns, int rows, string workingDirectory)
+    LocalTerminalSession(LocalShell shell, int columns, int rows, string workingDirectory, bool elevated)
     {
         Shell = shell;
+        Elevated = elevated;
         (_columns, _rows) = (columns, rows);
         _workingDirectory = workingDirectory;
         Target = new ConnectionTarget(Environment.MachineName, 0, Environment.UserName, null);
     }
 
     public LocalShell Shell { get; }
+
+    /// <summary>Run as administrator, through UAC (<see cref="ElevatedPseudoTerminal"/>). Windows only.</summary>
+    public bool Elevated { get; }
+
     public ConnectionTarget Target { get; }
     public SessionState State { get; private set; } = SessionState.Connecting;
-    public string ProgramName => Shell.Name;
+    public string ProgramName => Elevated ? $"{Shell.Name} (Administrator)" : Shell.Name;
     public int? ExitCode { get; private set; }
 
     /// <summary>The shell's process id once it has started.</summary>
@@ -48,10 +53,16 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
 
     /// <summary>Starts the shell in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
     /// <param name="workingDirectory">Where it starts; the user's home folder when null.</param>
-    public static LocalTerminalSession Start(LocalShell shell, int columns, int rows, string? workingDirectory = null)
+    /// <param name="elevated">Run it as administrator, after a UAC prompt. Windows only.</param>
+    public static LocalTerminalSession Start(LocalShell shell, int columns, int rows, string? workingDirectory = null, bool elevated = false)
     {
+        if (elevated && !OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("Administrator shells are for Windows; elsewhere, use sudo in the shell.");
+        }
+
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var session = new LocalTerminalSession(shell, columns, rows, workingDirectory ?? (Directory.Exists(home) ? home : Environment.CurrentDirectory));
+        var session = new LocalTerminalSession(shell, columns, rows, workingDirectory ?? (Directory.Exists(home) ? home : Environment.CurrentDirectory), elevated);
         session._run = Task.Run(session.RunAsync);
         return session;
     }
@@ -63,11 +74,12 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
         try
         {
             lock (_lock) (columns, rows) = (_columns, _rows);
-            pty = OperatingSystem.IsWindows()
-                ? WindowsPseudoTerminal.Start(Shell, columns, rows, _workingDirectory)
-                : UnixPseudoTerminal.Start(Shell, columns, rows, _workingDirectory);
+            pty = !OperatingSystem.IsWindows() ? UnixPseudoTerminal.Start(Shell, columns, rows, _workingDirectory)
+                : Elevated ? ElevatedPseudoTerminal.Start(Shell, columns, rows, _workingDirectory)
+                : WindowsPseudoTerminal.Start(Shell, columns, rows, _workingDirectory);
         }
-        catch (Exception e) when (e is Win32Exception or DllNotFoundException or EntryPointNotFoundException or IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is Win32Exception or DllNotFoundException or EntryPointNotFoundException or IOException or UnauthorizedAccessException
+            or ElevationException)
         {
             Logger.LogWarning("Couldn't start {Shell} ({Program}): {Message}", Shell.Name, Shell.Program, e.Message);
             SetState(SessionState.Failed, e.Message);
@@ -88,7 +100,8 @@ public sealed class LocalTerminalSession : ITerminalSession, ILocalSession
             }
         }
 
-        Logger.LogInformation("Started {Shell} ({Program}) as process {ProcessId} in {Folder}", Shell.Name, Shell.Program, pty.ProcessId, _workingDirectory);
+        Logger.LogInformation("Started {Shell} ({Program}) as process {ProcessId} in {Folder}{Elevation}", Shell.Name, Shell.Program, pty.ProcessId, _workingDirectory,
+            Elevated ? ", as administrator" : string.Empty);
         if (endedAlready)
         {
             pty.Kill();
