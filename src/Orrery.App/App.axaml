@@ -210,6 +210,11 @@
     <Style Selector="Button.accent">
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+
+    <!-- A one-line box's text sits in the middle, whatever its font; Fluent puts it at the top, which shows in a taller box or a mono font. -->
+    <Style Selector="TextBox:not(TextBox[AcceptsReturn=True])">
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
     <Style Selector="Button.danger">
       <Setter Property="Background" Value="#2A1A1D" />
       <Setter Property="BorderBrush" Value="#4A2A2E" />

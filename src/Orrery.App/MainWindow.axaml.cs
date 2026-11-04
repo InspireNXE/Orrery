@@ -910,8 +910,26 @@ public partial class MainWindow : Window
     SessionTab? _draggedTab;
     Point? _tabDragStart;
 
+    /// <summary>How far one notch of the wheel moves the tab bar, in pixels: about half a tab.</summary>
+    internal const double TabWheelStep = 60;
+
     void WireTabStrip()
     {
+        // The wheel scrolls tabs that don't all fit sideways, as a browser's tab bar does; up goes left.
+        var scroller = this.FindControl<ScrollViewer>("TabScroller")!;
+        scroller.AddHandler(PointerWheelChangedEvent, (_, e) =>
+        {
+            double room = scroller.Extent.Width - scroller.Viewport.Width;
+            double delta = Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y) ? e.Delta.X : e.Delta.Y;
+            if (room <= 0 || delta == 0)
+            {
+                return;
+            }
+
+            scroller.Offset = scroller.Offset.WithX(Math.Clamp(scroller.Offset.X - delta * TabWheelStep, 0, room));
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
+
         // Caught on the way down, as the full-screen shortcut is; TabShortcuts decides what a focused session keeps.
         AddHandler(KeyDownEvent, (_, e) =>
         {
