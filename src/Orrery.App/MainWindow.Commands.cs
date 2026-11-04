@@ -68,7 +68,7 @@ public partial class MainWindow
         {
             item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             return Task.CompletedTask;
-        }) { Shortcut = item.InputGesture?.ToString() };
+        }) { Shortcut = item.InputGesture is { } gesture ? Input.FullScreenShortcut.Describe(gesture) : null };
     }
 
     /// <summary>A session that holds a connection open: not a local shell or a web page, which have none to end.</summary>

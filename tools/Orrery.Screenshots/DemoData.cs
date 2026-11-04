@@ -11,6 +11,7 @@ sealed class DemoData
     public required ConnectionEntry Web01 { get; init; }
     public required ConnectionEntry BuildAgent { get; init; }
     public required ConnectionEntry Db02 { get; init; }
+    public required ConnectionEntry Web02 { get; init; }
 
     /// <summary>Hosts the fake host check reports as down.</summary>
     public static readonly IReadOnlySet<string> DownHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -30,7 +31,8 @@ sealed class DemoData
         var db02 = new ConnectionEntry { Name = "db-02", Host = "db-02.prod.example" };
         tree.Add(bastion, production);
         tree.Add(web01, production);
-        tree.Add(new ConnectionEntry { Name = "web-02", Host = "web-02.prod.example" }, production);
+        var web02 = new ConnectionEntry { Name = "web-02", Host = "web-02.prod.example" };
+        tree.Add(web02, production);
         tree.Add(db02, production);
         var app03 = Rdp("app-03", "app-03.prod.example");
         app03.Settings.JumpHostId = bastion.Id; // Can't be checked from here: the dashed ring.
@@ -50,6 +52,14 @@ sealed class DemoData
         web01.Notes = "Front-end web server. Deploys from build-agent.";
         web01.MacAddress = "02:00:5e:10:00:11";
 
+        // Production's commands reach every server in it; restarting asks first.
+        production.Commands =
+        [
+            new SavedCommand { Name = "Restart nginx", Text = "sudo systemctl restart nginx", Confirm = true },
+            new SavedCommand { Name = "Follow the access log", Text = "tail -f /var/log/nginx/access.log" },
+            new SavedCommand { Name = "Disk space", Text = "df -h /srv" },
+        ];
+
         ConnectionStore.In(location).Save(tree);
         AppSettingsStore.In(location).Save(new AppSettings
         {
@@ -64,7 +74,7 @@ sealed class DemoData
         history.RecordConnected(web01.Id, DateTimeOffset.Now.AddDays(-3));
         history.RecordConnected(db02.Id, DateTimeOffset.Now.AddDays(-12));
 
-        return new DemoData { Tree = tree, Web01 = web01, BuildAgent = buildAgent, Db02 = db02 };
+        return new DemoData { Tree = tree, Web01 = web01, BuildAgent = buildAgent, Db02 = db02, Web02 = web02 };
     }
 
     static ConnectionEntry Ssh(string name, string host) => new() { Name = name, Host = host, Settings = { Protocol = Protocol.Ssh } };
