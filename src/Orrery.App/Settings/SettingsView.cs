@@ -812,6 +812,8 @@ sealed class SettingsView : UserControl
         var ffmpegText = Note(_settings.FfmpegPath is { } chosen ? $"Using {chosen}" : noFfmpeg);
         var chooseFfmpeg = new Button { Content = "Choose ffmpeg…" };
         var clearFfmpeg = new Button { Content = "Don't use ffmpeg", IsVisible = _settings.FfmpegPath is not null };
+        var installFfmpeg = Note(Recording.FfmpegHelp.InstallHint);
+        installFfmpeg.IsVisible = _settings.FfmpegPath is null;
         chooseFfmpeg.Click += async (_, _) =>
         {
             if (TopLevel.GetTopLevel(this) is not { } top)
@@ -840,6 +842,7 @@ sealed class SettingsView : UserControl
             _settings = _settings with { FfmpegPath = path };
             TrySaveSettings();
             clearFfmpeg.IsVisible = true;
+            installFfmpeg.IsVisible = false;
             ffmpegText.Text = $"{info.Version}. MP4 export offers: {(info.Codecs.Count == 0 ? "nothing (this build has no H.264, H.265 or AV1 encoder)" : string.Join(", ", info.Codecs.Select(c => c.Name)))}.";
         };
         clearFfmpeg.Click += (_, _) =>
@@ -847,6 +850,7 @@ sealed class SettingsView : UserControl
             _settings = _settings with { FfmpegPath = null };
             TrySaveSettings();
             clearFfmpeg.IsVisible = false;
+            installFfmpeg.IsVisible = true;
             ffmpegText.Text = noFfmpeg;
         };
 
@@ -865,14 +869,15 @@ sealed class SettingsView : UserControl
             Note("Old recordings are deleted for good, the oldest first, when they pass these limits."),
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { show, open } },
             used,
-            Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg } }),
+            Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg, Recording.FfmpegHelp.DownloadButton() } }),
             ffmpegText,
             Note(OperatingSystem.IsWindows()
                 ? "Export… makes MP4 with Windows' own H.264, H.265 and AV1 encoders, whichever this PC has (AV1 and H.265 often need "
                     + "a recent graphics card or Windows' HEVC extension). An ffmpeg you've installed adds any codec Windows lacks. "
-                    + "Orrery never downloads or bundles ffmpeg."
-                : "Orrery never downloads or bundles ffmpeg. If you've installed it, choose its program here to export screen recordings as MP4: "
-                    + "Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."));
+                    + "Orrery never downloads or bundles ffmpeg: Get ffmpeg opens its download page."
+                : "Orrery never downloads or bundles ffmpeg: Get ffmpeg opens its download page. If you've installed it, choose its "
+                    + "program here to export screen recordings as MP4: Export… then offers H.264, H.265 and AV1, whichever this ffmpeg can make."),
+            installFfmpeg);
     }
 
     static string UsedText(string folder)
