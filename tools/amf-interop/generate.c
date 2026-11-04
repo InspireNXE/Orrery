@@ -121,6 +121,8 @@ int main(int argc, char **argv)
     SLOT(AMFIOCapsVtbl, GetFormatAt, "IOCapsGetFormatAt");
     SLOT(AMFBufferVtbl, GetSize, "BufferGetSize");
     SLOT(AMFBufferVtbl, GetNative, "BufferGetNative");
+    SLOT(AMFSurfaceVtbl, GetPlaneAt, "SurfaceGetPlaneAt");
+    SLOT(AMFPlaneVtbl, GetNative, "PlaneGetNative");
     printf("}\n");
 
     printf("\nenum AMF_RESULT\n{\n");

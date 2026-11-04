@@ -3,7 +3,9 @@
 Status: **Draft**, 2026-11-03 (owner's answers in §12). Scaffolded 2026-11-04: the projects in §3 except
 `Orrery.Host.Service` exist, with the media packet header, codec choice and connection options. Phase 1 started
 2026-11-04: NVENC and AMF bindings generated from their headers (§13) and `OrreryHost --probe`, which lists the GPUs,
-what each can encode, and on AMD encodes test frames with every codec (measured in §5). Nothing streams yet.
+what each can encode, and on AMD encodes test frames with every codec (measured in §5). `OrreryHost --capture`
+duplicates a monitor and encodes it with AMF, timing every frame and optionally writing a playable file (§5). Nothing
+is sent over the network yet.
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
@@ -125,7 +127,7 @@ keyframe as the last resort.
 
 | Platform | API | Notes |
 |---|---|---|
-| Windows | Windows.Graphics.Capture, with DXGI Desktop Duplication as fallback | Stays on the GPU as a D3D11 texture; cursor sent separately so it can be drawn on the client with no delay |
+| Windows | DXGI Desktop Duplication (built, phase 1); Windows.Graphics.Capture later | Stays on the GPU as a D3D11 texture; cursor sent separately so it can be drawn on the client with no delay. Desktop Duplication came first because it is plain COM, like the rest of the host, where WGC needs WinRT (the Windows SDK projection package or hand-written WinRT interop); it captures whole monitors, which is what OSP streams, and is what Parsec and Sunshine use. WGC follows for single windows and for machines where Desktop Duplication fails, such as a monitor wired to a different GPU from the encoder |
 | Linux | xdg-desktop-portal ScreenCast plus PipeWire, DMA-BUF | The portal asks the user once; a restore token avoids asking again. Unattended capture before login isn't possible on Wayland |
 
 ### Host: encode
@@ -226,6 +228,23 @@ frames are the easiest there are, so these are the floor; real content and the c
 
 The same machine's integrated Radeon answers AMF_CODEC_NOT_SUPPORTED for every codec. NVENC hasn't been measured
 yet: no NVIDIA machine has run the probe.
+
+**Capture to bitstream** (2026-11-04, `OrreryHost --capture`, same GPU, one 2560x1440 monitor reporting 32 Hz,
+ordinary desktop use for 5 s per codec, about 160 frames each): DXGI Desktop Duplication hands over each changed frame
+as a BGRA texture, which is copied on the GPU into an AMF surface and encoded as BGRA, the encoder doing the color
+conversion itself. "Present" is the QPC time DXGI reports for the frame; "bitstream" is when the encoded frame is in
+system memory. Median / 95th percentile, after the first frame (about 10 ms while the encoder warms up):
+
+| Codec | Present to capture | Capture to bitstream | Present to bitstream |
+|---|---|---|---|
+| H.264 | 0.09 / 0.17 ms | 3.87 / 4.40 ms | 3.97 / 4.50 ms |
+| HEVC | 0.10 / 0.19 ms | 3.38 / 3.91 ms | 3.50 / 4.05 ms |
+| AV1 | 0.09 / 0.19 ms | 3.29 / 3.76 ms | 3.40 / 3.89 ms |
+
+All three files decode cleanly in FFmpeg at 2560x1440, 4:2:0, BT.709 limited range, and the first frame shows the
+desktop with the right colors. Each run had one frame of about 17 ms, not yet explained (a surface allocation or the
+GPU being busy elsewhere are the first suspects). Not yet tried: a 120 Hz or 4K monitor, a full-screen game, HDR,
+and capture through Windows.Graphics.Capture.
 
 Two such streams at good quality need roughly 150–300 Mbps: fine on wired gigabit, unrealistic on most Wi-Fi, where
 rate control lowers quality before it lets latency grow. The host advertises what its encoders can sustain, and the
@@ -398,9 +417,9 @@ text only.
 
 Each phase ends usable and tested on real hardware, both GPUs where it applies.
 
-1. **Spike, Windows to Windows.** WGC capture, NVENC, plain UDP, D3D11VA decode, a native swapchain in an Avalonia
-   window. Measure glass-to-glass latency (a timer drawn on the host, filmed with the client next to it). Answers
-   whether Avalonia can present fast enough. AMF follows straight after.
+1. **Spike, Windows to Windows.** Desktop Duplication capture into AMF (both done) and NVENC, plain UDP, D3D11VA
+   decode, a native swapchain in an Avalonia window. Measure glass-to-glass latency (a timer drawn on the host, filmed
+   with the client next to it). Answers whether Avalonia can present fast enough.
 2. **Input.** Keyboard and mouse, relative mouse with pointer lock, SDL3 controllers on the client, virtual HID
    gamepad on the host.
 3. **The real protocol.** QUIC over MsQuic, pairing, mutual TLS, FEC, rate control, recovery from loss, full audio

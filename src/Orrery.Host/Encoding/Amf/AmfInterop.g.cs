@@ -95,6 +95,8 @@ static class AmfSlot
     public const int IOCapsGetFormatAt = 7;
     public const int BufferGetSize = 24;
     public const int BufferGetNative = 25;
+    public const int SurfaceGetPlaneAt = 25;
+    public const int PlaneGetNative = 4;
 }
 
 enum AMF_RESULT

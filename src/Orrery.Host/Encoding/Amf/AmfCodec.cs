@@ -41,17 +41,7 @@ static class AmfTestEncoder
     /// </summary>
     public static AmfTestEncode Run(AmfContext context, AmfComponent encoder, AmfCodec codec, int width = 1280, int height = 720, int frames = 30)
     {
-        encoder.SetInt64(codec.Usage, codec.UltraLowLatency);
-        if (codec.Codec == VideoCodec.Av1)
-        {
-            encoder.SetInt64(Amf.Av1EncodingLatencyMode, Amf.Av1EncodingLatencyModeLowest);
-        }
-
-        encoder.SetSize(codec.FrameSize, width, height);
-        encoder.SetRate(codec.FrameRate, 60, 1);
-        encoder.SetInt64(codec.TargetBitrate, 20_000_000);
-        // QueryOutput waits up to this long for a frame instead of returning AMF_REPEAT at once.
-        encoder.SetInt64(codec.QueryTimeout, 1000);
+        Configure(encoder, codec, width, height, 60, 20_000_000);
         encoder.Init(Amf.SurfaceNv12, width, height);
 
         var times = new List<double>(frames);
@@ -89,6 +79,22 @@ static class AmfTestEncoder
         var sorted = times.Skip(1).Order().ToList();
         return new AmfTestEncode(frames, width, height, times[0], sorted.Count > 0 ? sorted[sorted.Count / 2] : times[0],
             first?.Length ?? 0, first is not null && StartsCorrectly(codec.Codec, first));
+    }
+
+    /// <summary>Sets the properties every streaming encoder gets before Init: ultra-low latency, size, rate and bitrate.</summary>
+    public static void Configure(AmfComponent encoder, AmfCodec codec, int width, int height, uint framesPerSecond, long bitrate)
+    {
+        encoder.SetInt64(codec.Usage, codec.UltraLowLatency);
+        if (codec.Codec == VideoCodec.Av1)
+        {
+            encoder.SetInt64(Amf.Av1EncodingLatencyMode, Amf.Av1EncodingLatencyModeLowest);
+        }
+
+        encoder.SetSize(codec.FrameSize, width, height);
+        encoder.SetRate(codec.FrameRate, framesPerSecond, 1);
+        encoder.SetInt64(codec.TargetBitrate, bitrate);
+        // QueryOutput waits up to this long for a frame instead of returning AMF_REPEAT at once.
+        encoder.SetInt64(codec.QueryTimeout, 1000);
     }
 
     /// <summary>

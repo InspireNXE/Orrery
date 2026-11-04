@@ -158,6 +158,16 @@ sealed unsafe class AmfContext : IDisposable
         return surface;
     }
 
+    /// <summary>
+    /// The ID3D11Texture2D behind a surface from <see cref="AllocSurface"/>, for copying a frame into. Owned by the
+    /// surface: not AddRef'd, and valid while the surface is.
+    /// </summary>
+    public static nint SurfaceTexture(nint surface)
+    {
+        nint plane = ((delegate* unmanaged[Stdcall]<nint, nuint, nint>)AmfCom.Slot(surface, AmfSlot.SurfaceGetPlaneAt))(surface, 0);
+        return ((delegate* unmanaged[Stdcall]<nint, nint>)AmfCom.Slot(plane, AmfSlot.PlaneGetNative))(plane);
+    }
+
     public void Dispose()
     {
         if (_context != 0)
