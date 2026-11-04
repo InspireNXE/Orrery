@@ -77,7 +77,12 @@
           <TextBlock x:Name="ModeText" DockPanel.Dock="Right" FontSize="11" Foreground="{StaticResource OrreryMuted}" VerticalAlignment="Center" />
           <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
             <TextBlock x:Name="SessionCountText" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
-            <TextBlock x:Name="StorageText" FontSize="11" Foreground="{StaticResource OrreryMuted}" TextTrimming="CharacterEllipsis" MaxWidth="700" />
+            <!-- The path in the mono font, as paths are everywhere else. -->
+            <StackPanel x:Name="StorageLine" Orientation="Horizontal" Spacing="5">
+              <TextBlock Text="Data:" FontSize="11" Foreground="{StaticResource OrreryMuted}" />
+              <TextBlock x:Name="StorageText" FontSize="11" FontFamily="{StaticResource OrreryMono}" Foreground="{StaticResource OrreryMuted}"
+                         TextTrimming="CharacterEllipsis" MaxWidth="660" />
+            </StackPanel>
             <c:Notice x:Name="DataAccessText" Kind="Warning" IconSize="12" VerticalAlignment="Center" IsVisible="False" />
             <TextBlock x:Name="NoticeText" FontSize="11" Foreground="{StaticResource OrreryMuted}" IsVisible="False" />
           </StackPanel>
@@ -103,13 +108,13 @@
                       ToolTip.Tip="Connections" AutomationProperties.Name="Connections">
                 <c:StrokeIcon Width="20" Height="20" Data="M5 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M8 20h8 M12 16v4" />
               </Button>
-              <Button x:Name="CredentialsRailButton" Classes="icon rail" Click="OnRailClick" Tag="credentials"
-                      ToolTip.Tip="Saved credentials" AutomationProperties.Name="Credentials">
-                <c:StrokeIcon Width="20" Height="20" Data="M4 15a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M11 12l9-9 M17 6l3 3 M15 8l2 2" />
-              </Button>
               <Button x:Name="RecentRailButton" Classes="icon rail" Click="OnRailClick" Tag="recent"
                       ToolTip.Tip="Recent connections" AutomationProperties.Name="Recent">
                 <c:StrokeIcon Width="20" Height="20" Data="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3 2" />
+              </Button>
+              <Button x:Name="CredentialsRailButton" Classes="icon rail" Click="OnRailClick" Tag="credentials"
+                      ToolTip.Tip="Saved credentials" AutomationProperties.Name="Credentials">
+                <c:StrokeIcon Width="20" Height="20" Data="M4 15a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M11 12l9-9 M17 6l3 3 M15 8l2 2" />
               </Button>
               <Button x:Name="RecordingsRailButton" Classes="icon rail" Click="OnRailClick" Tag="recordings"
                       ToolTip.Tip="Recordings" AutomationProperties.Name="Recordings">
@@ -271,7 +276,7 @@
           <Grid>
             <Panel x:Name="SessionHost" Background="#0B0D10" />
             <StackPanel x:Name="EmptyState" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-              <TextBlock Text="No open sessions" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              <TextBlock x:Name="EmptyStateTitle" Text="No open sessions" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
               <TextBlock Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"
                          Text="Double-click a connection, or press Ctrl+K to quick connect." />
               <TextBlock x:Name="EmptyStateLocal" Foreground="{StaticResource OrreryMuted}" HorizontalAlignment="Center"

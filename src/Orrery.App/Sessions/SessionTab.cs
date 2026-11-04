@@ -338,6 +338,9 @@ sealed class SessionTab
     /// <summary>The view with the connection-lost screen over it; what goes in the session area.</summary>
     public Control Host { get; }
 
+    /// <summary>The window this session is popped out into; null while it's a tab in the main window's strip.</summary>
+    public PopoutWindow? Popout { get; set; }
+
     /// <summary>Whether this session got as far as connected, as opposed to failing on the way.</summary>
     public bool HasConnected { get; private set; }
 

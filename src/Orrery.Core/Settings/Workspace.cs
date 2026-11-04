@@ -19,9 +19,11 @@ public enum RestoreSessionsMode
 /// <summary>
 /// One tab to bring back: a saved connection by id, a host typed into quick connect, or a local terminal by the id
 /// of its shell (<paramref name="LocalShell"/>, such as "pwsh" or "wsl:Ubuntu"; Host and Port are unused then).
-/// Holds no login of any kind, so reopening a typed host asks for one again.
+/// Holds no login of any kind, so reopening a typed host asks for one again. <paramref name="Popout"/> is where its
+/// window was when it was popped out of the tabs; null for a tab.
 /// </summary>
-public sealed record WorkspaceTab(Guid? EntryId, string? Host, int Port, Protocol Protocol, bool Files = false, string? LocalShell = null);
+public sealed record WorkspaceTab(Guid? EntryId, string? Host, int Port, Protocol Protocol, bool Files = false, string? LocalShell = null,
+    WindowPlacement? Popout = null);
 
 /// <summary>
 /// Where the window was: its normal (not maximized) position in screen pixels and size in device-independent
@@ -30,7 +32,8 @@ public sealed record WorkspaceTab(Guid? EntryId, string? Host, int Port, Protoco
 public sealed record WindowPlacement(int X, int Y, double Width, double Height, bool Maximized);
 
 /// <summary>
-/// The tabs that were open, in order, and which one was showing, plus where the window was. Kept in
+/// The tabs that were open, in order, and which one was showing, plus where the window was. A session popped out into
+/// a window of its own is among the tabs, in the place it had in the strip, with where its window was. Kept in
 /// <c>workspace.json</c> in the data folder. Which panes were showing lives in <see cref="AppSettings"/>.
 /// </summary>
 public sealed record Workspace
@@ -80,16 +83,19 @@ public sealed record Workspace
         var kept = Keep(t => Enum.IsDefined(t.Protocol)
             && (t.LocalShell is { Length: > 0 and <= MaxShellIdLength } || t.EntryId is not null
                 || (t.Host is { Length: > 0 and <= MaxHostLength } && t.Port is >= 1 and <= 65535)));
-        bool sizeOk = Window is { Width: > 0 and < MaxWindowSize, Height: > 0 and < MaxWindowSize } w && double.IsFinite(w.Width) && double.IsFinite(w.Height);
         return kept with
         {
-            Window = sizeOk ? Window : null,
+            Window = SizeOk(Window) ? Window : null,
             Tabs = [.. kept.Tabs.Take(MaxTabs).Select(t => t.LocalShell is { Length: > 0 }
                 ? t with { EntryId = null, Host = null, Port = 0, Files = false }
-                : t.EntryId is null ? t with { LocalShell = null } : t with { Host = null, Port = 0, LocalShell = null })],
+                : t.EntryId is null ? t with { LocalShell = null } : t with { Host = null, Port = 0, LocalShell = null })
+                .Select(t => SizeOk(t.Popout) ? t : t with { Popout = null })],
             Active = kept.Active < MaxTabs ? kept.Active : -1,
         };
     }
+
+    static bool SizeOk(WindowPlacement? window) =>
+        window is { Width: > 0 and < MaxWindowSize, Height: > 0 and < MaxWindowSize } w && double.IsFinite(w.Width) && double.IsFinite(w.Height);
 
     /// <summary>
     /// The tabs passing <paramref name="keep"/>, with <see cref="Active"/> moved to follow its tab, or to the

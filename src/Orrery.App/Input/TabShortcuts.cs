@@ -77,6 +77,16 @@ static class TabShortcuts
     public static bool OpensLocalTerminal(Key key, KeyModifiers modifiers, FocusPlace place, bool mac) =>
         key == Key.T && modifiers == ((mac ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift) && place != FocusPlace.Desktop;
 
+    /// <summary>
+    /// Ctrl+Shift+O (Cmd+Shift+O on macOS) pops the current tab out into a window of its own, and in that window puts it
+    /// back in the tabs. Taken where Ctrl+Shift+T is: not in a remote desktop, which gets it.
+    /// </summary>
+    public static bool PopsOut(Key key, KeyModifiers modifiers, FocusPlace place, bool mac) =>
+        key == Key.O && modifiers == ((mac ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift) && place != FocusPlace.Desktop;
+
+    /// <summary>For people and menus: "Ctrl+Shift+O", "Cmd+Shift+O".</summary>
+    public static string PopOutDescription(bool mac) => mac ? "Cmd+Shift+O" : "Ctrl+Shift+O";
+
     /// <summary>The index <paramref name="command"/> leads to from <paramref name="current"/>, among <paramref name="count"/> tabs; null for none.</summary>
     public static int? Target(TabCommand command, int current, int count)
     {
@@ -101,6 +111,15 @@ static class TabShortcuts
     /// </summary>
     public static int DropIndex(IReadOnlyList<double> middles, int dragged, double x) =>
         middles.Where((middle, i) => i != dragged && middle < x).Count();
+
+    /// <summary>How far above or below the strip a held tab has to be pulled before letting go pops it out.</summary>
+    public const double TearDistance = 40;
+
+    /// <summary>
+    /// Whether a tab held at <paramref name="y"/> (from the top of a strip <paramref name="stripHeight"/> tall) has been
+    /// pulled far enough off the strip to pop out into a window of its own when it's let go.
+    /// </summary>
+    public static bool TearsOff(double y, double stripHeight) => y < -TearDistance || y > stripHeight + TearDistance;
 
     /// <summary>
     /// Which way the tab at <paramref name="index"/> steps aside while the tab from <paramref name="from"/> is held

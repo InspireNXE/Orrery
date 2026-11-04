@@ -43,6 +43,28 @@ public class TabShortcutsTests
     }
 
     [Fact]
+    public void Ctrl_shift_o_pops_a_tab_out_except_from_a_remote_desktop()
+    {
+        Assert.True(TabShortcuts.PopsOut(Key.O, Ctrl | KeyModifiers.Shift, FocusPlace.App, mac: false));
+        Assert.True(TabShortcuts.PopsOut(Key.O, Ctrl | KeyModifiers.Shift, FocusPlace.Terminal, mac: false));
+        Assert.False(TabShortcuts.PopsOut(Key.O, Ctrl | KeyModifiers.Shift, FocusPlace.Desktop, mac: false));
+        Assert.False(TabShortcuts.PopsOut(Key.O, Ctrl, FocusPlace.App, mac: false)); // Shells use Ctrl+O.
+        Assert.True(TabShortcuts.PopsOut(Key.O, KeyModifiers.Meta | KeyModifiers.Shift, FocusPlace.Terminal, mac: true));
+        Assert.Equal("Cmd+Shift+O", TabShortcuts.PopOutDescription(mac: true));
+    }
+
+    [Theory]
+    [InlineData(20, false)]
+    [InlineData(-30, false)]
+    [InlineData(-41, true)]
+    [InlineData(36 + 30, false)]
+    [InlineData(36 + 41, true)]
+    public void A_tab_pulled_well_off_the_strip_tears_off(double y, bool tears)
+    {
+        Assert.Equal(tears, TabShortcuts.TearsOff(y, stripHeight: 36));
+    }
+
+    [Fact]
     public void A_terminal_gives_up_ctrl_tab_but_keeps_ctrl_w_for_the_shell()
     {
         Assert.Equal(new TabCommand(TabCommandKind.Next), Match(Key.Tab, Ctrl, FocusPlace.Terminal));
