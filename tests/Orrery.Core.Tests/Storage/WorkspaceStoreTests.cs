@@ -31,6 +31,26 @@ public class WorkspaceStoreTests : IDisposable
         Assert.Contains("\"ssh\"", File.ReadAllText(WorkspacePath));
     }
 
+    [Fact]
+    public void A_popped_out_tab_keeps_where_its_window_was_unless_that_makes_no_sense()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(WorkspacePath, """
+            {"tabs": [
+              {"host": "a", "port": 22, "protocol": "ssh", "popout": {"x": 2000, "y": -20, "width": 800, "height": 600, "maximized": true}},
+              {"host": "b", "port": 22, "protocol": "ssh", "popout": {"x": 0, "y": 0, "width": -5, "height": 600}},
+              {"host": "c", "port": 22, "protocol": "ssh"}
+            ]}
+            """);
+
+        var loaded = new WorkspaceStore(WorkspacePath).Load();
+
+        Assert.Equal(new WindowPlacement(2000, -20, 800, 600, true), loaded.Tabs[0].Popout);
+        Assert.Null(loaded.Tabs[1].Popout);
+        Assert.Null(loaded.Tabs[2].Popout);
+        Assert.Equal(3, loaded.Tabs.Count);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -184,9 +204,9 @@ public class WorkspaceStoreTests : IDisposable
     [Fact]
     public void A_remembered_tab_holds_no_login()
     {
-        // The shape is the guarantee: an address and a protocol (or a local shell's id), nothing that could carry a
-        // password or key.
-        Assert.Equal(["EntryId", "Files", "Host", "LocalShell", "Port", "Protocol"], typeof(WorkspaceTab).GetProperties().Select(p => p.Name).Order(StringComparer.Ordinal));
+        // The shape is the guarantee: an address and a protocol (or a local shell's id), and where a popped-out
+        // window was, nothing that could carry a password or key.
+        Assert.Equal(["EntryId", "Files", "Host", "LocalShell", "Popout", "Port", "Protocol"], typeof(WorkspaceTab).GetProperties().Select(p => p.Name).Order(StringComparer.Ordinal));
 
         new WorkspaceStore(WorkspacePath).Save(new Workspace { Tabs = [new WorkspaceTab(null, "box.example", 22, Protocol.Ssh)] });
 

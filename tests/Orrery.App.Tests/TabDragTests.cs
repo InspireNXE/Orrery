@@ -58,7 +58,12 @@ public class TabDragTests : IDisposable
             Dispatcher.UIThread.RunJobs();
 
             Assert.True(VaultAutoLockTests.Private<bool>(window, "_tabDragging"), "the drag should have started");
-            Assert.Equal(distance, ((TranslateTransform)alpha.Header.RenderTransform!).X, 1);
+            // Alpha, lifted, follows the pointer over the window; its empty slot goes to where it will land.
+            window.UpdateLayout();
+            var ghost = Avalonia.Controls.Primitives.OverlayLayer.GetOverlayLayer(window)!.Children.OfType<Border>().Last();
+            double heldLeft = start.X - alpha.Header.Bounds.Width / 2;
+            Assert.Equal(heldLeft + distance, ghost.TranslatePoint(default, window)!.Value.X, 1);
+            Assert.True(alpha.Header.RenderTransform is TranslateTransform { Transitions.Count: > 0 }, "alpha's slot should slide to where it lands");
             Assert.True(bravo.Header.RenderTransform is TranslateTransform { } shift && shift.Transitions is { Count: > 0 },
                 "bravo should be sliding left into alpha's place");
             Assert.True(charlie.Header.RenderTransform is not TranslateTransform { X: not 0 });

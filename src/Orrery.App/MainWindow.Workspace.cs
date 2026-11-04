@@ -102,15 +102,18 @@ public partial class MainWindow
 
         // A management page isn't the connection, which is all a remembered tab can name, so it isn't kept.
         var kept = _tabs.Where(tab => !tab.Origin.ManagementPage).ToList();
-        var tabs = kept.Select(tab => tab.Origin switch
-        {
-            // A local terminal comes back as its shell, not as a connection to this computer's name.
-            { Local: true } local => new WorkspaceTab(null, null, 0, local.Protocol, LocalShell: local.LocalShell ?? Orrery.Protocols.Local.LocalShells.Find(null).Id),
-            { EntryId: { } id } => new WorkspaceTab(id, null, 0, tab.Origin.Protocol, tab.Origin.Files),
-            _ => new WorkspaceTab(null, tab.Session.Target.Host, tab.Session.Target.Port, tab.Origin.Protocol),
-        }).ToList();
+        // A popped-out session is remembered in its place among the tabs, with where its window is.
+        var tabs = kept.Select(tab => Remembered(tab) with { Popout = tab.Popout?.Placement }).ToList();
         return new Workspace { Window = window, Tabs = tabs, Active = _currentTab is null ? -1 : kept.IndexOf(_currentTab) };
     }
+
+    static WorkspaceTab Remembered(SessionTab tab) => tab.Origin switch
+    {
+        // A local terminal comes back as its shell, not as a connection to this computer's name.
+        { Local: true } local => new WorkspaceTab(null, null, 0, local.Protocol, LocalShell: local.LocalShell ?? Orrery.Protocols.Local.LocalShells.Find(null).Id),
+        { EntryId: { } id } => new WorkspaceTab(id, null, 0, tab.Origin.Protocol, tab.Origin.Files),
+        _ => new WorkspaceTab(null, tab.Session.Target.Host, tab.Session.Target.Port, tab.Origin.Protocol),
+    };
 
     /// <summary>Writes the workspace as the window closes; with reopening set to Never, only where the window was.</summary>
     void SaveWorkspace()
@@ -224,9 +227,9 @@ public partial class MainWindow
         _restoring = true;
         try
         {
-            var opened = await WorkspaceRestorer.OpenAllAsync(remembered.Tabs, ReopenTabAsync, stagger ?? WorkspaceRestorer.Stagger,
+            var opened = await WorkspaceRestorer.OpenAllAsync(remembered.Tabs, ReopenAndPlaceAsync, stagger ?? WorkspaceRestorer.Stagger,
                 Task.Delay, _restoreCancel.Token);
-            if (remembered.Active >= 0 && opened[remembered.Active] is { } active && _tabs.Contains(active))
+            if (remembered.Active >= 0 && opened[remembered.Active] is { Popout: null } active && _tabs.Contains(active))
             {
                 SelectTab(active);
             }
@@ -235,6 +238,18 @@ public partial class MainWindow
         {
             _restoring = false;
         }
+    }
+
+    /// <summary>Opens one remembered tab, and pops it out where its window was if it was popped out.</summary>
+    async Task<SessionTab?> ReopenAndPlaceAsync(WorkspaceTab remembered)
+    {
+        var tab = await ReopenTabAsync(remembered);
+        if (tab is not null && remembered.Popout is { } placement)
+        {
+            PopOut(tab, placement);
+        }
+
+        return tab;
     }
 
     /// <summary>
