@@ -54,8 +54,10 @@ static class RecordingControl
             },
         };
         pill.Classes.Add("rec");
-        AutomationProperties.SetName(pill, "Recording");
-        ToolTip.SetTip(pill, "Recording this session. Click to change or stop it.");
+        AutomationProperties.SetName(pill, tab.RecordingText);
+        ToolTip.SetTip(pill, tab.RecordsTyping
+            ? "Recording this session and what's typed into it. Click to change or stop it."
+            : "Recording this session. Click to change or stop it.");
 
         var size = new TextBlock { FontSize = 12, Foreground = Dialogs.MutedBrush };
         void Tick()
@@ -76,7 +78,7 @@ static class RecordingControl
             Spacing = 2,
             Children =
             {
-                new TextBlock { Text = "Recording", FontSize = 14, FontWeight = FontWeight.SemiBold },
+                new TextBlock { Text = tab.RecordingText, FontSize = 14, FontWeight = FontWeight.SemiBold },
                 size,
             },
         });

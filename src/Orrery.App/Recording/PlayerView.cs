@@ -66,6 +66,20 @@ sealed partial class PlayerView : DockPanel, IDisposable
     readonly TextBlock _subtitle = new() { FontSize = 12, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 12, 0) };
     readonly Notice _banner = new(NoticeKind.Warning) { IsVisible = false, Margin = new Thickness(16, 10, 16, 0) };
 
+    // What was typed, for a recording that kept it: the line being typed at this point in it, or the last one entered.
+    readonly TextBlock _typed = new()
+    {
+        FontFamily = Dialogs.MonoFont,
+        FontSize = 12,
+        Foreground = Dialogs.MutedBrush,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        Margin = new Thickness(16, 6),
+    };
+
+    readonly Border _typedBar;
+    readonly StringBuilder _typing = new();
+    string _lastTyped = string.Empty;
+
     // Find, for a terminal: one box holding the search, the count and the arrows.
     readonly TextBox _find = new() { PlaceholderText = "Find in output", Width = 260, VerticalContentAlignment = VerticalAlignment.Center };
     readonly TextBlock _matches = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 6, 0) };
@@ -355,6 +369,9 @@ sealed partial class PlayerView : DockPanel, IDisposable
         Children.Add(Docked(header, Dock.Top));
         Children.Add(Docked(_banner, Dock.Top));
         Children.Add(Docked(bar, Dock.Bottom));
+        _typedBar = new Border { Background = new SolidColorBrush(Color.Parse("#14171C")), Child = _typed, IsVisible = false };
+        AutomationProperties.SetName(_typed, "Typed");
+        Children.Add(Docked(_typedBar, Dock.Bottom));
 
         // The picture runs edge to edge, as a live session's does.
         Children.Add(new Panel { Children = { _stage, _endNote, _keys } });
@@ -780,6 +797,8 @@ sealed partial class PlayerView : DockPanel, IDisposable
         PlaceTicks();
         _findBar.IsVisible = _kind == RecordingKind.Terminal;
         _sound.IsVisible = _entries.Any(e => e.Type == RecordingEventType.Audio);
+        _typedBar.IsVisible = _entries.Any(e => e.Type == RecordingEventType.Input);
+        ShowTyped();
         _banner.Text = _ending switch
         {
             RecordingEnding.Unclosed => "This recording ended without being closed, probably because Orrery stopped while recording.",
@@ -1126,7 +1145,44 @@ sealed partial class PlayerView : DockPanel, IDisposable
         SetGrid(80, 24);
         _next = 0;
         _position = TimeSpan.Zero;
+        _typing.Clear();
+        _lastTyped = string.Empty;
+        ShowTyped();
     }
+
+    /// <summary>Adds typed text to the line: Enter ends it, Backspace takes a character off, other keys' sequences are left out.</summary>
+    internal void Type(string text)
+    {
+        foreach (var part in TypedKeys().Split(text))
+        {
+            foreach (char c in part)
+            {
+                if (c is '\r' or '\n')
+                {
+                    if (_typing.Length > 0)
+                    {
+                        _lastTyped = _typing.ToString();
+                        _typing.Clear();
+                    }
+                }
+                else if (c is '\b' or '\x7f')
+                {
+                    if (_typing.Length > 0) _typing.Length--;
+                }
+                else if (!char.IsControl(c))
+                {
+                    _typing.Append(c);
+                }
+            }
+        }
+
+        ShowTyped();
+    }
+
+    /// <summary>The typed line as the bar shows it.</summary>
+    internal string TypedText => _typed.Text ?? string.Empty;
+
+    void ShowTyped() => _typed.Text = _typing.Length > 0 ? $"Typing: {_typing}" : _lastTyped.Length > 0 ? $"Typed: {_lastTyped}" : "Typed: nothing yet";
 
     void SetGrid(int columns, int rows)
     {
@@ -1143,6 +1199,9 @@ sealed partial class PlayerView : DockPanel, IDisposable
             case RecordingEventType.Output:
                 _terminalSession!.Play(entry.Payload!);
                 return true;
+            case RecordingEventType.Input:
+                Type(Encoding.UTF8.GetString(entry.Payload!));
+                return true;
             case RecordingEventType.Resize when RecordingFile.ReadPair(entry.Payload!) is var (columns, rows) && columns is > 0 and <= 1000 && rows is > 0 and <= 1000:
                 SetGrid(columns, rows);
                 return true;
@@ -1153,6 +1212,10 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
     [GeneratedRegex(@"\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[@-_]|[\x00-\x08\x0b-\x1f\x7f]")]
     private static partial Regex ControlSequences();
+
+    // Arrow keys and the like, and bracketed paste's markers: what a key sent that isn't text.
+    [GeneratedRegex(@"\x1b\[[0-9;]*[~A-Za-z]|\x1bO[A-Za-z]|\x1b.?")]
+    private static partial Regex TypedKeys();
 
     /// <summary>The output as plain text, with which event each character came from, for Find.</summary>
     void BuildText()

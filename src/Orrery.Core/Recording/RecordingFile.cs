@@ -42,6 +42,12 @@ public enum RecordingEventType : byte
 
     /// <summary>Sound the session played: sample rate (32 bits), channels (16 bits), then 16-bit PCM (<see cref="RecordingFile.AudioPayload"/>).</summary>
     Audio = 9,
+
+    /// <summary>
+    /// UTF-8 text typed into a terminal, keys and pastes, when the connection says to record typing too. Only in
+    /// <see cref="RecordingFile.VersionWithTyping"/> files.
+    /// </summary>
+    Input = 10,
 }
 
 /// <summary>What a recording is of, kept inside its encrypted part.</summary>
@@ -109,6 +115,13 @@ public static class RecordingFile
     public const string Extension = ".orrec";
     public const string FormatName = "orrery-recording";
     public const int Version = 1;
+
+    /// <summary>
+    /// A recording that may hold <see cref="RecordingEventType.Input"/>. Only those are written as version 2, so a build
+    /// from before typing could be recorded says it's from a newer Orrery rather than damaged, and every other recording
+    /// still opens there.
+    /// </summary>
+    public const int VersionWithTyping = 2;
     public const int ChunkSize = 64 * 1024;
     public const int MaxHeaderSize = 64 * 1024;
 
@@ -243,15 +256,18 @@ public sealed class RecordingWriter : IDisposable
         }
     }
 
-    /// <summary>Makes a new recording at <paramref name="path"/>, which mustn't exist, sealed to <paramref name="publicKey"/>.</summary>
-    public static RecordingWriter Create(string path, RecordingKind kind, byte[] publicKey)
+    /// <summary>
+    /// Makes a new recording at <paramref name="path"/>, which mustn't exist, sealed to <paramref name="publicKey"/>;
+    /// <paramref name="typing"/> for one that may hold what's typed (<see cref="RecordingFile.VersionWithTyping"/>).
+    /// </summary>
+    public static RecordingWriter Create(string path, RecordingKind kind, byte[] publicKey, bool typing = false)
     {
         var fileKey = RecordingKeys.NewFileKey();
         try
         {
             var sealedKey = RecordingKeys.Seal(publicKey, fileKey);
             var noncePrefix = RandomNumberGenerator.GetBytes(RecordingFile.NoncePrefixSize);
-            var header = new RecordingHeader(RecordingFile.FormatName, RecordingFile.Version, kind, RecordingKeys.KeyId(publicKey),
+            var header = new RecordingHeader(RecordingFile.FormatName, typing ? RecordingFile.VersionWithTyping : RecordingFile.Version, kind, RecordingKeys.KeyId(publicKey),
                 Convert.ToBase64String(sealedKey.EphemeralPublicKey), Convert.ToBase64String(sealedKey.Nonce),
                 Convert.ToBase64String(sealedKey.Ciphertext), Convert.ToBase64String(noncePrefix));
             var headerBytes = JsonSerializer.SerializeToUtf8Bytes(header, RecordingFile.JsonOptions);
@@ -505,7 +521,7 @@ public sealed class RecordingReader : IDisposable
             throw new InvalidDataException(NotOne);
         }
 
-        if (header is not { Format: RecordingFile.FormatName, Version: RecordingFile.Version }
+        if (header is not { Format: RecordingFile.FormatName, Version: RecordingFile.Version or RecordingFile.VersionWithTyping }
             || !Enum.IsDefined(header.Kind) || header.KeyId is null
             || DecodedLength(header.EphemeralPublicKey) != RecordingKeys.KeySize
             || DecodedLength(header.KeyNonce) != RecordingFile.Aead.NonceSize

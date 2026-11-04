@@ -92,6 +92,14 @@ public static class AsciicastExport
                 case RecordingEventType.Marker when wroteHeader:
                     Event(e.Time, "m", Encoding.UTF8.GetString(e.Payload));
                     break;
+                case RecordingEventType.Input:
+                    if (!wroteHeader)
+                    {
+                        Header(80, 24);
+                    }
+
+                    Event(e.Time, "i", Encoding.UTF8.GetString(e.Payload));
+                    break;
             }
         }
 

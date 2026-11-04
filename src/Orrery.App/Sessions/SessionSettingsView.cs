@@ -226,6 +226,11 @@ sealed class SessionSettingsView : UserControl
         yield return ("Share the clipboard", OnOff(saved.ShareClipboard.Value));
         yield return ("Reconnect if it drops", OnOff(saved.AutoReconnect.Value));
         yield return ("Record sessions", OnOff(saved.RecordSessions.Value));
+        if (!rdp && saved.RecordTyping.Value)
+        {
+            yield return ("Record what's typed too", "On");
+        }
+
         if (rdp)
         {
             yield return ("Remote audio", saved.RemoteAudio.Value == RemoteAudio.PlayHere ? "Play here" : "Don't play");

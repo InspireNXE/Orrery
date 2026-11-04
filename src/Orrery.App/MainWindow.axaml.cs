@@ -883,7 +883,13 @@ public partial class MainWindow : Window
     {
         bool recording = _currentTab?.IsRecording == true;
         _fullScreenRecording.IsVisible = recording;
-        Avalonia.Automation.AutomationProperties.SetName(_fullScreenBar, recording ? $"{_currentTab!.Origin.Title}, recording" : _currentTab?.Origin.Title);
+        if (recording)
+        {
+            this.FindControl<TextBlock>("FullScreenRecordingText")!.Text = _currentTab!.RecordingText;
+        }
+
+        Avalonia.Automation.AutomationProperties.SetName(_fullScreenBar,
+            recording ? $"{_currentTab!.Origin.Title}, {_currentTab.RecordingText.ToLowerInvariant()}" : _currentTab?.Origin.Title);
     }
 
     void HideFullScreenBarUnlessOver(PointerEventArgs e)
@@ -3601,6 +3607,15 @@ public partial class MainWindow : Window
             ? SettingsResolver.Resolve(node).RecordSessions.Value
             : _tree.Root.Settings.RecordSessions == true);
 
+    /// <summary>
+    /// Whether a recording of the tab keeps what's typed too: its connection's setting, or the defaults' for a terminal
+    /// opened without one (a local shell, a quick connect).
+    /// </summary>
+    bool RecordsTyping(SessionOrigin origin) =>
+        origin.EntryId is { } id && _tree.Find(id) is { } node
+            ? SettingsResolver.Resolve(node).RecordTyping.Value
+            : _tree.Root.Settings.RecordTyping == true;
+
     async Task StartRecordingAsync(SessionTab tab)
     {
         if (tab.IsRecording || !_tabs.Contains(tab))
@@ -3619,7 +3634,7 @@ public partial class MainWindow : Window
         }
 
         // Asked over the window the session is in, its own if it's popped out.
-        var (recorder, problem) = await _recordings.StartAsync(tab, WindowOf(tab));
+        var (recorder, problem) = await _recordings.StartAsync(tab, WindowOf(tab), recordTyping: RecordsTyping(tab.Origin));
         if (recorder is null)
         {
             ShowNotice(tab, $"{tab.Origin.Title}: {problem}");

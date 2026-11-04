@@ -51,6 +51,15 @@ sealed class PropertiesPanel : UserControl
     readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
     readonly ToggleSwitch _autoReconnect = Switch("AutoReconnect");
     readonly ToggleSwitch _record = Switch("RecordSessions");
+    readonly ToggleSwitch _recordTyping = Switch("RecordTyping");
+
+    /// <summary>What recording typing means, under its switch while it's on.</summary>
+    internal const string RecordTypingWarning = "Everything typed into these terminals goes in their recordings, pastes too. Orrery leaves out "
+        + "passwords it types for you and typing at a password prompt it recognizes, but a password typed at any other prompt, "
+        + "or pasted, is kept. Recordings are encrypted, and anyone who can open one can read what was typed. While it records, "
+        + "the tab says \"Recording, typing too\".";
+
+    readonly Notice _recordTypingWarning = new(NoticeKind.Warning, RecordTypingWarning) { IsVisible = false };
     readonly ToggleSwitch _checkHost = Switch("CheckHostStatus");
     readonly ToggleSwitch _confirmCommands = Switch("ConfirmCommands");
     readonly StackPanel _commandList = new() { Spacing = 6 };
@@ -89,7 +98,7 @@ sealed class PropertiesPanel : UserControl
     readonly Button _choosePort = new() { Content = "Ports…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0, IsVisible = false };
     readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
 
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _checkHostRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
     readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
         _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow, _confirmCommandsRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
@@ -197,8 +206,11 @@ sealed class PropertiesPanel : UserControl
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value));
         _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _recordRow = new InheritRow("Record sessions", _record, () => ShowInherited(r => _record.IsChecked = r.RecordSessions.Value));
-        _recordRow.Tip("Records each session from when it connects: what a terminal printed (never what's typed), or what a remote desktop showed. "
+        _recordRow.Tip("Records each session from when it connects: what a terminal printed (what's typed only with the switch below), or what a remote desktop showed. "
             + "Recordings are encrypted and play in Orrery; the remote side isn't told. A tab's menu can also start or stop one.");
+        _recordTypingRow = new InheritRow("Record what's typed too", _recordTyping, () => ShowInherited(r => _recordTyping.IsChecked = r.RecordTyping.Value));
+        _recordTypingRow.Tip("A terminal recording keeps the keys typed and the text pasted, as well as what the session printed. "
+            + "Passwords Orrery types, and typing at a password prompt it recognizes, are left out.");
         _checkHostRow = new InheritRow("Check whether the host is up", _checkHost, () => ShowInherited(r => _checkHost.IsChecked = r.CheckHostStatus.Value));
         _checkHostRow.Tip("The dot beside the protocol in the tree, from a quick TCP connection or ping, when host checks are on in Settings. "
             + "Off, Orrery doesn't contact the host until you connect.");
@@ -340,7 +352,7 @@ sealed class PropertiesPanel : UserControl
             {
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View), _managementUrlField),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
-                (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View, _checkHostRow.View)),
+                (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View, _recordTypingRow.View, _recordTypingWarning, _checkHostRow.View)),
                 // Near the top, so it isn't lost below every protocol's settings on a folder.
                 _commandsSection,
                 (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
@@ -385,7 +397,7 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
-        _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _sshAgent, _sshLegacy, _jumpHost, _autoReconnect, _record, _checkHost, _enlarge,
+        _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _sshAgent, _sshLegacy, _jumpHost, _autoReconnect, _record, _recordTyping, _checkHost, _enlarge,
             _quality, _colorCorrection, _webPages]);
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
@@ -428,6 +440,11 @@ sealed class PropertiesPanel : UserControl
         _jumpHost.SelectionChanged += (_, _) => MarkDirty();
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _record.IsCheckedChanged += (_, _) => MarkDirty();
+        _recordTyping.IsCheckedChanged += (_, _) =>
+        {
+            MarkDirty();
+            ShowRecordTypingWarning();
+        };
         _checkHost.IsCheckedChanged += (_, _) => MarkDirty();
         _enlarge.IsCheckedChanged += (_, _) => MarkDirty();
         _quality.SelectionChanged += (_, _) => MarkDirty();
@@ -447,7 +464,7 @@ sealed class PropertiesPanel : UserControl
 
         foreach (var row in new[]
                  {
-                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _checkHostRow,
+                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow,
                      _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
                      _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
                      _confirmCommandsRow,
@@ -643,6 +660,9 @@ sealed class PropertiesPanel : UserControl
 
             _recordRow.Load(own.RecordSessions is null, Describe(inherited.RecordSessions));
             _record.IsChecked = own.RecordSessions ?? inherited.RecordSessions.Value;
+
+            _recordTypingRow.Load(own.RecordTyping is null, Describe(inherited.RecordTyping));
+            _recordTyping.IsChecked = own.RecordTyping ?? inherited.RecordTyping.Value;
 
             _checkHostRow.Load(own.CheckHostStatus is null, Describe(inherited.CheckHostStatus));
             _checkHost.IsChecked = own.CheckHostStatus ?? inherited.CheckHostStatus.Value;
@@ -938,6 +958,7 @@ sealed class PropertiesPanel : UserControl
             ColorCorrection = _colorCorrectionRow.Inheriting ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inheriting ? null : _autoReconnect.IsChecked == true,
             RecordSessions = _recordRow.Inheriting ? null : _record.IsChecked == true,
+            RecordTyping = _recordTypingRow.Inheriting ? null : _recordTyping.IsChecked == true,
             CheckHostStatus = _checkHostRow.Inheriting ? null : _checkHost.IsChecked == true,
             ConfirmCommands = _confirmCommandsRow.Inheriting ? null : _confirmCommands.IsChecked == true,
             JumpHostId = _jumpHostRow.Inheriting ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
@@ -1005,6 +1026,10 @@ sealed class PropertiesPanel : UserControl
         _clipboardRow.View.IsVisible = rdp || vnc || host;
         _autoReconnectRow.View.IsVisible = !web || host;
         _recordRow.View.IsVisible = !web || host;
+
+        // Only terminals: a remote desktop's recording is a picture, and its keys never go in.
+        _recordTypingRow.View.IsVisible = all || host || ssh || serial || Is(Protocol.Telnet);
+        ShowRecordTypingWarning();
         _checkHostRow.View.IsVisible = network;
         _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible || _checkHostRow.View.IsVisible;
         // A web page has only the color correction of them.
@@ -1524,6 +1549,9 @@ sealed class PropertiesPanel : UserControl
 
         _jumpHost.SelectedItem = item;
     }
+
+    // Whenever typing would be recorded here, inherited or set here.
+    void ShowRecordTypingWarning() => _recordTypingWarning.IsVisible = _recordTypingRow.View.IsVisible && _recordTyping.IsChecked == true;
 
     void ShowInherited(Action<ResolvedSettings> apply)
     {
