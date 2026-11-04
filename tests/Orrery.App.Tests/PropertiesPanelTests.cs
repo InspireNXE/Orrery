@@ -121,6 +121,56 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaFact]
+    public async Task Save_and_revert_are_only_offered_once_something_has_changed()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers" };
+        var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = new InheritableSettings { Protocol = Protocol.Ssh } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore());
+        var window = new Window { Content = panel, Width = 400, Height = 900 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var buttons = window.GetVisualDescendants().OfType<Button>().ToList();
+        var save = buttons.Single(b => Equals(b.Content, "Save"));
+        var revert = buttons.Single(b => Equals(b.Content, "Revert"));
+        var host = window.GetVisualDescendants().OfType<TextBox>().Single(t => AutomationProperties.GetName(t) == "Host");
+        var clipboard = window.GetVisualDescendants().OfType<ToggleSwitch>().Single(c => c.Name == "ShareClipboard");
+        Assert.False(save.IsEnabled);
+        Assert.False(revert.IsEnabled);
+
+        // An edit, then the same edit undone by hand: nothing to save after all.
+        host.Text = "box2.example";
+        Assert.True(save.IsEnabled);
+        Assert.True(revert.IsEnabled);
+        host.Text = "box.example";
+        Assert.False(save.IsEnabled);
+
+        // Flipped and flipped back, an inherited value is now set here: that's a change, even at the same value.
+        bool shared = clipboard.IsChecked == true;
+        clipboard.IsChecked = !shared;
+        Assert.True(save.IsEnabled);
+        clipboard.IsChecked = shared;
+        Assert.True(save.IsEnabled);
+
+        host.Text = "box2.example";
+        Assert.True(panel.TrySave());
+        Assert.Equal("box2.example", entry.Host);
+        Assert.False(save.IsEnabled);
+        Assert.False(revert.IsEnabled);
+
+        // Another node shown starts clean too.
+        host.Text = "box3.example";
+        await panel.ShowAsync(folder);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(save.IsEnabled);
+    }
+
+    [AvaloniaFact]
     public async Task Changing_an_inherited_value_sets_it_here_and_the_footer_counts_it()
     {
         var tree = ConnectionTree.Empty();

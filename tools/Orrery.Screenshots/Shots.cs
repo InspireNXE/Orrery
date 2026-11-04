@@ -308,7 +308,7 @@ static class Shots
         Invoke(window, "AddTab", view, session, new SessionOrigin(entry.Name, Protocol.Ssh, entry.Id, () => Task.CompletedTask));
     }
 
-    static void SelectTab(MainWindow window, SessionTab tab) => Invoke(window, "SelectTab", tab, true);
+    static void SelectTab(MainWindow window, SessionTab tab) => Invoke(window, "SelectTab", tab, true, true);
 
     static MethodInfo Method(object owner, string name) =>
         owner.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!;
