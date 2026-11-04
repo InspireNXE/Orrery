@@ -189,16 +189,37 @@ public class SetupWizardTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Use_defaults_forgets_a_typed_vault_password()
+    public void Skip_to_the_end_keeps_a_typed_vault_password()
     {
         var window = Open(portable: null, keychain: null);
         var password = VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword");
         password.Text = VaultAutoLockTests.Private<TextBox>(window, "_vaultConfirm").Text = "correct horse battery staple";
 
-        window.UseDefaults();
+        window.SkipToEnd();
 
-        Assert.Null(window.VaultPassword);
-        Assert.Contains(("Passwords", "Encrypted vault, master password when first needed"), window.Summary());
+        Assert.Equal("correct horse battery staple", window.VaultPassword);
+        Assert.Contains(("Passwords", "Encrypted vault, master password set"), window.Summary());
+        Assert.False(VaultAutoLockTests.Private<Notice>(window, "_message").IsVisible);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Skip_to_the_end_says_when_the_master_password_cant_be_used()
+    {
+        var window = Open(portable: null, keychain: null);
+        VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword").Text = "correct horse battery staple";
+        VaultAutoLockTests.Private<TextBox>(window, "_vaultConfirm").Text = "something else entirely";
+
+        window.SkipToEnd();
+
+        var message = VaultAutoLockTests.Private<Notice>(window, "_message");
+        Assert.Equal(SetupStep.Done, window.Current);
+        Assert.True(message.IsVisible);
+        Assert.Contains("don't match", message.Text);
+
+        // Start takes it back to the step to fix it.
+        await window.NextAsync();
+        Assert.Equal(SetupStep.Passwords, window.Current);
         window.Close();
     }
 
@@ -228,13 +249,10 @@ public class SetupWizardTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void Use_defaults_jumps_to_done_and_lists_them()
+    public void Skip_to_the_end_lists_the_defaults_when_nothing_was_changed()
     {
         var window = Open(portable: null, Keychain);
 
-        // Changed, then put back by Use defaults.
-        VaultAutoLockTests.Private<RadioButton>(window, "_vault").IsChecked = true;
-        VaultAutoLockTests.Private<ToggleSwitch>(window, "_previews").IsChecked = true;
         Named(window, "SetupDefaults").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
@@ -258,6 +276,25 @@ public class SetupWizardTests : IDisposable
         // The summary is on screen, each row named for a screen reader.
         Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(),
             t => t.IsEffectivelyVisible && Avalonia.Automation.AutomationProperties.GetName(t) == "Import: mRemoteNG, SSH config");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Skip_to_the_end_keeps_what_was_already_chosen()
+    {
+        var window = Open(portable: null, Keychain);
+        VaultAutoLockTests.Private<RadioButton>(window, "_vault").IsChecked = true;
+        VaultAutoLockTests.Private<ToggleSwitch>(window, "_previews").IsChecked = true;
+        VaultAutoLockTests.Private<RadioButton>(window, "_download").IsChecked = true;
+        window.GetVisualDescendants().OfType<ToggleSwitch>().Single(t => Avalonia.Automation.AutomationProperties.GetName(t) == "Import mRemoteNG").IsChecked = false;
+
+        window.SkipToEnd();
+
+        var choices = window.Choices;
+        Assert.Equal(CredentialStoreKind.VaultFile, choices.Passwords);
+        Assert.True(choices.UpdatePreviews);
+        Assert.Equal(UpdateAction.Download, choices.WhenUpdateFound);
+        Assert.Equal([Found()[1].Path], choices.Imports);
         window.Close();
     }
 
@@ -319,7 +356,7 @@ public class SetupWizardTests : IDisposable
         SetupResult? result = null;
         window.Completed += r => result = r;
 
-        window.UseDefaults();
+        window.SkipToEnd();
         await window.NextAsync();
         window.Close();
 
