@@ -92,8 +92,11 @@ sealed class PropertiesPanel : UserControl
     readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
         _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow, _confirmCommandsRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
-    readonly Button _connect, _save;
+    readonly Button _connect, _save, _revert;
     readonly List<InheritRow> _rows = [];
+
+    /// <summary>Every field the editor saves from, for telling whether anything has changed.</summary>
+    readonly List<Control> _fields = [];
     readonly TextBlock _setHere = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly Control _editorView, _root;
     readonly ContentControl _body = new();
@@ -121,6 +124,9 @@ sealed class PropertiesPanel : UserControl
     bool _loading;
     bool _dirty;
     int _showVersion;
+
+    /// <summary>Every field as the node was shown or last saved, to tell a real edit from one put back by hand.</summary>
+    string _clean = string.Empty;
 
     /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, shown where nothing in the tree sets it.</param>
     /// <param name="history">When connections last connected, shown under the name.</param>
@@ -202,7 +208,7 @@ sealed class PropertiesPanel : UserControl
         _commandsSection = Pane.Section("Commands", Pane.Rows(_confirmCommandsRow.View), _commandList, addCommand,
             new TextBlock
             {
-                Text = "Sent to the terminal from Ctrl+K or the session's menu, never by themselves. A folder's go to every connection in it. Changes here are saved at once.",
+                Text = "Sent to the terminal from Ctrl+K or the session's menu, never by themselves. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.",
                 FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap,
             });
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
@@ -304,8 +310,8 @@ sealed class PropertiesPanel : UserControl
 
         _save = new Button { Content = "Save", Margin = new Thickness(8, 0, 0, 0) };
         _save.Click += (_, _) => TrySave();
-        var revert = new Button { Content = "Revert" };
-        revert.Click += async (_, _) =>
+        _revert = new Button { Content = "Revert" };
+        _revert.Click += async (_, _) =>
         {
             if (_node is not null)
             {
@@ -326,20 +332,21 @@ sealed class PropertiesPanel : UserControl
 
         var editor = new StackPanel
         {
-            Spacing = 20,
+            Spacing = 10,
             Margin = new Thickness(16, 4, 16, 16),
             Children =
             {
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View), _managementUrlField),
                 (_credentialsSection = Pane.RowSection("Credentials", _credentialRow.View, _usernameRow.View, _domainRow.View, _keyFileRow.View)),
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View, _checkHostRow.View)),
+                // Near the top, so it isn't lost below every protocol's settings on a folder.
+                _commandsSection,
                 (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
                 (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
                 (_serialSection = Pane.RowSection("Serial line", _baudRateRow.View, _dataBitsRow.View, _parityRow.View, _stopBitsRow.View, _flowControlRow.View)),
                 (_tunnelSection = Pane.RowSection("SSH tunnels", _jumpHostRow.View, _forwardsField)),
-                _commandsSection,
                 _webSection,
                 _wakeSection,
                 _notesField,
@@ -349,7 +356,7 @@ sealed class PropertiesPanel : UserControl
         _editorView = Pane.WithFooter(editor, new StackPanel
         {
             Spacing = 8,
-            Children = { _error, _connect, new DockPanel { Children = { Pane.Docked(_save, Dock.Right), Pane.Docked(revert, Dock.Right), _setHere } } },
+            Children = { _error, _connect, new DockPanel { Children = { Pane.Docked(_save, Dock.Right), Pane.Docked(_revert, Dock.Right), _setHere } } },
         });
 
         _sessionBadge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 1), Background = new SolidColorBrush(Color.Parse("#4A3812")), Child = _sessionCount, VerticalAlignment = VerticalAlignment.Center };
@@ -377,8 +384,11 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
+        _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _sshAgent, _sshLegacy, _jumpHost, _autoReconnect, _record, _checkHost, _enlarge,
+            _quality, _colorCorrection, _webPages]);
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
+            _fields.Add(box);
             // TextChanged comes later, after the panel has finished filling the fields, so it took filling them for
             // an edit; the text itself is watched instead.
             box.PropertyChanged += (_, e) =>
@@ -424,11 +434,13 @@ sealed class PropertiesPanel : UserControl
         _webPages.SelectionChanged += (_, _) => MarkDirty();
         foreach (var box in new[] { _remoteAudio, _fullScreenOn, _scaling, _dataBits, _parity, _stopBits, _flowControl })
         {
+            _fields.Add(box);
             box.SelectionChanged += (_, _) => MarkDirty();
         }
 
         foreach (var toggle in new[] { _shareAllDrives, _adminSession, _viewOnly, _confirmCommands })
         {
+            _fields.Add(toggle);
             toggle.IsCheckedChanged += (_, _) => MarkDirty();
         }
 
@@ -695,7 +707,7 @@ sealed class PropertiesPanel : UserControl
             if (version == _showVersion)
             {
                 _loading = false;
-                _dirty = false;
+                MarkClean();
             }
         }
     }
@@ -741,7 +753,14 @@ sealed class PropertiesPanel : UserControl
             if (version == _showVersion)
             {
                 _loading = false;
-                _dirty = dirty;
+                if (dirty)
+                {
+                    MarkDirty();
+                }
+                else
+                {
+                    MarkClean();
+                }
             }
         }
     }
@@ -750,7 +769,7 @@ sealed class PropertiesPanel : UserControl
     public Task RefreshCredentialsAsync() => CredentialsChangedAsync(null);
 
     /// <summary>Forgets the edits not yet applied, for a node about to be deleted.</summary>
-    public void DiscardEdits() => _dirty = false;
+    public void DiscardEdits() => MarkClean();
 
     /// <summary>Applies the edits to the node. True when none are left unsaved; false, with a message shown, if something is invalid.</summary>
     public bool TrySave()
@@ -953,7 +972,7 @@ sealed class PropertiesPanel : UserControl
             entry.ManagementUrl = managementUrl;
         }
 
-        _dirty = false;
+        MarkClean();
         _error.IsVisible = false;
         _title.Text = name;
         _tree.NotifyChanged();
@@ -1106,9 +1125,57 @@ sealed class PropertiesPanel : UserControl
     {
         if (!_loading)
         {
-            _dirty = true;
+            _dirty = EditorState() != _clean;
+            ShowDirty();
             CountSetHere();
         }
+    }
+
+    /// <summary>What's shown is what's saved: Save and Revert have nothing to do.</summary>
+    void MarkClean()
+    {
+        _clean = EditorState();
+        _dirty = false;
+        ShowDirty();
+    }
+
+    void ShowDirty() => _save.IsEnabled = _revert.IsEnabled = _dirty;
+
+    /// <summary>
+    /// Every field in the editor, hidden ones too, and whether each row inherits, as one string. Typing a change and
+    /// then typing it back leaves it as it was, so the pane is clean again.
+    /// </summary>
+    string EditorState()
+    {
+        var state = new System.Text.StringBuilder();
+        foreach (var control in _fields)
+        {
+            switch (control)
+            {
+                case TextBox box:
+                    state.Append(box.Text).Append('\u001F');
+                    break;
+                case ToggleButton toggle:
+                    state.Append(toggle.IsChecked).Append('\u001F');
+                    break;
+                case CredentialPicker picker:
+                    state.Append(picker.SelectedId).Append('\u001F');
+                    break;
+                case ComboBox box:
+                    state.Append(box.SelectedIndex).Append('\u001F');
+                    break;
+                case DisplayPicker displays:
+                    state.AppendJoin(',', displays.Chosen).Append('\u001F');
+                    break;
+            }
+        }
+
+        foreach (var row in _rows)
+        {
+            state.Append(row.Inheriting ? 'i' : 'o');
+        }
+
+        return state.ToString();
     }
 
     /// <summary>"4 set on this connection": the rows shown that don't inherit.</summary>
@@ -1465,8 +1532,7 @@ sealed class PropertiesPanel : UserControl
         static readonly IBrush LabelBrush = new SolidColorBrush(Color.Parse("#C3C9D3")).ToImmutable();
         static readonly IBrush OwnBrush = new SolidColorBrush(Color.Parse("#E6E9EE")).ToImmutable();
         static readonly IBrush InheritedBrush = new SolidColorBrush(Color.Parse("#7D8693")).ToImmutable();
-        static readonly IBrush CardBrush = new SolidColorBrush(Color.Parse("#1A1F27")).ToImmutable();
-        static readonly IBrush CardBorderBrush = new SolidColorBrush(Color.Parse("#2A3240")).ToImmutable();
+        static readonly IBrush EditorBrush = new SolidColorBrush(Color.Parse("#111317")).ToImmutable();
 
         readonly string _label;
         readonly Control _editor;
@@ -1475,7 +1541,16 @@ sealed class PropertiesPanel : UserControl
         readonly bool _canPreview;
         readonly Func<string>? _describe;
         readonly Ellipse _dot = new() { Width = 6, Height = 6, Fill = DotBrush, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
-        readonly TextBlock _value = new() { FontSize = 13, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+        // The value takes only the room it needs, up to a limit, so the name beside it reads in full.
+        readonly TextBlock _value = new()
+        {
+            FontSize = 13,
+            TextAlignment = TextAlignment.Right,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 140,
+            Margin = new Thickness(10, 0, 0, 0),
+        };
         readonly TextBlock _hint = new() { FontSize = 11, Foreground = InheritedBrush, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         readonly Button _useInherited = new() { Content = "Use that instead", Classes = { "link" } };
         readonly Button _header;
@@ -1507,7 +1582,7 @@ sealed class PropertiesPanel : UserControl
             _header = new Button
             {
                 Classes = { "setting" },
-                Content = new Grid { ColumnDefinitions = new ColumnDefinitions("14,*,*"), Children = { _dot, name, _value } },
+                Content = new Grid { ColumnDefinitions = new ColumnDefinitions("14,*,Auto"), Children = { _dot, name, _value } },
             };
             _header.Click += (_, _) => Expanded = !Expanded;
 
@@ -1520,15 +1595,13 @@ sealed class PropertiesPanel : UserControl
             };
             AutomationProperties.SetName(_useInherited, $"{label}: use the inherited value");
 
+            // Opened, the editor is a darker band across its section's card, not a card of its own inside it.
             _card = new Border
             {
                 IsVisible = false,
-                Background = CardBrush,
-                BorderBrush = CardBorderBrush,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(10),
-                Margin = new Thickness(-10, 2),
+                Background = EditorBrush,
+                Padding = new Thickness(Pane.CardPadding, 10),
+                Margin = new Thickness(-Pane.CardPadding, 0, -Pane.CardPadding, 6),
                 Child = new StackPanel
                 {
                     Spacing = 8,
