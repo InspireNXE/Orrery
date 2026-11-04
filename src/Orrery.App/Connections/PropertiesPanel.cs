@@ -1519,23 +1519,22 @@ sealed class PropertiesPanel : UserControl
             return;
         }
 
-        if (await new SavedCommandWindow(command, node.Parent is null ? "the defaults for all connections" : node.Name, _credentials, node).ShowDialog<SavedCommand?>(owner) is not { } saved
+        // A command saved on several places is changed on all of them; the Commands page says where they are.
+        IReadOnlyList<CommandCopy> copies = command is null ? [] : SavedCommands.Copies(_tree.Root, node, command);
+        var places = copies.Count > 0 ? copies.Select(c => c.Owner).ToList() : [node];
+        string name = node.Parent is null ? "the defaults for all connections" : node.Name;
+        if (places.Count > 1)
+        {
+            name += places.Count == 2 ? " and 1 other place" : $" and {places.Count - 1} other places";
+        }
+
+        if (await new SavedCommandWindow(command, name, _credentials, places).ShowDialog<SavedCommand?>(owner) is not { } saved
             || _node != node)
         {
             return;
         }
 
-        var commands = node.Commands ??= [];
-        int at = command is null ? -1 : commands.IndexOf(command);
-        if (at >= 0)
-        {
-            commands[at] = saved;
-        }
-        else
-        {
-            commands.Add(saved);
-        }
-
+        SavedCommands.Save(copies, saved, places);
         _tree.NotifyChanged();
         ShowCommands();
     }

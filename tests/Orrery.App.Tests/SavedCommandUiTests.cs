@@ -165,31 +165,82 @@ public class SavedCommandUiTests
         tree.Add(web, prod);
         var owner = new Window();
         owner.Show();
-        var window = new SavedCommandWindow(null,
-            [new CommandPlace("web-01 only", web), new CommandPlace("Everything in Production", prod), new CommandPlace("Every connection", tree.Root)]);
+        var window = new SavedCommandWindow(null, tree, [web]);
         var result = window.ShowDialog<SavedCommand?>(owner);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Same(web, window.ChosenPlace?.Node);
-        Assert.Equal(3, window.PlaceBox.ItemCount);
-        window.PlaceBox.SelectedIndex = 2;
+        Assert.Equal([web], window.ChosenPlaces);
+        var picker = window.PlacePicker!;
+        picker.Choose(tree.Root, true);
         window.TextBox.Text = "uptime";
         window.Save();
 
+        // The defaults cover web-01, so it isn't saved on it again.
         Assert.Equal("uptime", (await result)?.Text);
-        Assert.Same(tree.Root, window.ChosenPlace?.Node);
+        Assert.Equal([tree.Root], window.ChosenPlaces);
         owner.Close();
     }
 
     [AvaloniaFact]
-    public void With_only_one_place_the_editor_just_names_it()
+    public void With_no_connections_the_editor_just_names_the_defaults()
     {
         var tree = ConnectionTree.Empty();
-        var window = new SavedCommandWindow(null, [new CommandPlace("Every connection", tree.Root)]);
+        var window = new SavedCommandWindow(null, tree, [tree.Root]);
 
-        Assert.Same(tree.Root, window.ChosenPlace?.Node);
-        Assert.Contains(window.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "On Every connection");
-        Assert.DoesNotContain(window.PlaceBox, window.GetLogicalDescendants());
+        Assert.Equal([tree.Root], window.ChosenPlaces);
+        Assert.Contains(window.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "On the defaults for all connections");
+        Assert.Null(window.PlacePicker);
+    }
+
+    [AvaloniaFact]
+    public void Several_places_can_be_ticked_and_a_folder_covers_what_is_in_it_but_a_host_not_its_guests()
+    {
+        var tree = ConnectionTree.Empty();
+        var prod = new ConnectionFolder { Name = "Production" };
+        var web = new ConnectionEntry { Name = "web-01", Host = "web-01.example" };
+        var db = new ConnectionEntry { Name = "db-01", Host = "db-01.example" };
+        var vm = new ConnectionEntry { Name = "vm-01", Host = "vm-01.example" };
+        var other = new ConnectionEntry { Name = "other", Host = "other.example" };
+        tree.Add(prod, tree.Root);
+        tree.Add(web, prod);
+        tree.Add(db, prod);
+        tree.AddGuest(vm, web);
+        tree.Add(other, tree.Root);
+        var window = new SavedCommandWindow(null, tree, [web]);
+        window.Show();
+        var picker = window.PlacePicker!;
+
+        // A guest is listed under its host, and ticking the host doesn't tick it: it's another machine.
+        Assert.Contains("guest of web-01", AutomationProperties.GetName(picker.BoxFor(vm)!));
+        Assert.True(picker.BoxFor(vm)!.IsEnabled);
+        Assert.False(picker.BoxFor(vm)!.IsChecked);
+        picker.Choose(vm, true);
+        picker.Choose(other, true);
+        Assert.Equal([web, vm, other], window.ChosenPlaces);
+        Assert.Equal("It reaches 3 saved connections.", picker.ReachText.Text);
+
+        // The folder covers everything in it, guests too: those show ticked, can't be changed, and aren't saved again.
+        picker.Choose(prod, true);
+        Assert.Equal([prod, other], window.ChosenPlaces);
+        Assert.False(picker.BoxFor(db)!.IsEnabled);
+        Assert.True(picker.BoxFor(db)!.IsChecked);
+        Assert.False(picker.BoxFor(vm)!.IsEnabled);
+
+        // Unticked, what was ticked before it comes back.
+        picker.Choose(prod, false);
+        Assert.Equal([web, vm, other], window.ChosenPlaces);
+        Assert.False(picker.BoxFor(db)!.IsChecked);
+
+        // Nothing ticked: it says so and doesn't save.
+        foreach (var node in new ConnectionNode[] { web, vm, other })
+        {
+            picker.Choose(node, false);
+        }
+
+        window.TextBox.Text = "uptime";
+        window.Save();
+        Assert.True(window.IsVisible);
+        window.Close();
     }
 
     [AvaloniaFact]
@@ -238,8 +289,7 @@ public class SavedCommandUiTests
         tree.Add(web, prod);
         var owner = new Window();
         owner.Show();
-        var window = new SavedCommandWindow(null,
-            [new CommandPlace("web-01 only", web), new CommandPlace("Everything in Production", prod), new CommandPlace("Every connection", tree.Root)], new NoCredentials());
+        var window = new SavedCommandWindow(null, tree, [web], new NoCredentials());
         var result = window.ShowDialog<SavedCommand?>(owner);
         Dispatcher.UIThread.RunJobs();
         window.TextBox.Text = "su -";
@@ -254,11 +304,12 @@ public class SavedCommandUiTests
         Assert.True(Shows(SavedCommandWindow.PasswordRisk));
         Assert.True(Shows(SavedCommandWindow.Safer));
         Assert.Null(Warning());
-        window.PlaceBox.SelectedIndex = 1;
+        window.PlacePicker!.Choose(web, false);
+        window.PlacePicker.Choose(prod, true);
         Dispatcher.UIThread.RunJobs();
         Assert.Contains("every connection in it gets this password", Warning());
 
-        window.PlaceBox.SelectedIndex = 2;
+        window.PlacePicker.Choose(tree.Root, true);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(SavedCommandWindow.NotFromDefaults, Warning());
         window.Save();
@@ -280,7 +331,7 @@ public class SavedCommandUiTests
         var tree = ConnectionTree.Empty();
         var console = new ConnectionEntry { Name = "switch", Host = "COM3", Settings = { Protocol = Protocol.Serial } };
         tree.Add(console, tree.Root);
-        var window = new SavedCommandWindow(null, "switch", new NoCredentials(), console);
+        var window = new SavedCommandWindow(null, "switch", new NoCredentials(), [console]);
         window.Show();
         bool Plain() => window.GetVisualDescendants().OfType<Notice>().Any(n => n.IsEffectivelyVisible && n.Text == SavedCommandWindow.PlainText);
 

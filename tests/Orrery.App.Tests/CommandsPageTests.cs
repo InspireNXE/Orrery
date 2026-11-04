@@ -61,10 +61,10 @@ public class CommandsPageTests
         Dispatcher.UIThread.RunJobs();
         var editor = pane.Editor!;
         editor.NameBox.Text = "restart web";
-        // The places are the defaults, then the tree in order: Servers, then web-01.
-        Assert.Equal(2, editor.PlaceBox.SelectedIndex);
-        editor.PlaceBox.SelectedIndex = 1;
-        Assert.Same(folder, editor.ChosenPlace!.Node);
+        Assert.Equal([entry], editor.ChosenPlaces);
+        editor.PlacePicker!.Choose(entry, false);
+        editor.PlacePicker.Choose(folder, true);
+        Assert.Equal([folder], editor.ChosenPlaces);
 
         Assert.True(pane.Save());
         Assert.Null(entry.Commands);
@@ -110,6 +110,91 @@ public class CommandsPageTests
         pane.UpdateSend();
         Assert.True(Send().IsVisible);
         Assert.Equal("Send to web-01", Send().Content);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Ticking_several_places_saves_linked_copies_listed_once_under_several_places()
+    {
+        var (tree, folder, entry) = Tree();
+        var other = new ConnectionEntry { Name = "db-01", Host = "db-01.example" };
+        tree.Add(other, tree.Root);
+        var panel = new CommandsPanel(tree);
+        var pane = new CommandEditorPane(tree, new PropertiesPanelTests.EmptyCredentialStore(), _ => null);
+        panel.Editor = pane;
+        var window = new Window { Content = new DockPanel { Children = { panel, pane } }, Width = 900, Height = 700 };
+        window.Show();
+
+        pane.Show(new CommandAt(entry, entry.Commands![0]));
+        Dispatcher.UIThread.RunJobs();
+        pane.Editor!.PlacePicker!.Choose(other, true);
+        Assert.True(pane.Save());
+
+        Assert.Single(entry.Commands);
+        Assert.Single(other.Commands!);
+        Assert.Equal(entry.Commands[0].LinkId, other.Commands![0].LinkId);
+        var linked = Assert.Single(panel.Listed, c => c.Copies.Count == 2);
+        Assert.Equal([entry, other], linked.Owners);
+
+        // Edited once, both change.
+        pane.Editor!.TextBox.Text = "sudo systemctl reload nginx";
+        Assert.True(pane.Save());
+        Assert.Equal("sudo systemctl reload nginx", other.Commands![0].Text);
+
+        // A linked command has no one order to move in, and Delete says it takes every copy.
+        panel.ShowMenuFor(panel.Listed.Single(c => c.Copies.Count == 2));
+        Assert.False(panel.UpItem.IsVisible);
+        Assert.Equal("Delete from all 2 places…", panel.DeleteItem.Header);
+        Assert.Equal("New command…", panel.NewItem.Header);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_menu_on_a_command_offers_what_fits_it_and_on_a_group_a_new_command_there()
+    {
+        var (tree, folder, entry) = Tree();
+        entry.Commands!.Add(new SavedCommand { Name = "logs", Text = "journalctl -f" });
+        var panel = new CommandsPanel(tree);
+        var pane = new CommandEditorPane(tree, new PropertiesPanelTests.EmptyCredentialStore(),
+            at => at.Command.Name == "logs" ? new CommandSendTarget("Send to web-01", () => Task.CompletedTask) : null);
+        panel.Editor = pane;
+        var window = new Window { Content = new DockPanel { Children = { panel, pane } }, Width = 900, Height = 700 };
+        window.Show();
+        var restart = panel.Listed.Single(c => c.Command.Name == "restart");
+        var logs = panel.Listed.Single(c => c.Command.Name == "logs");
+
+        panel.ShowMenuFor(restart);
+        Assert.False(panel.SendItem.IsVisible);
+        Assert.False(panel.UpItem.IsEnabled);
+        Assert.True(panel.DownItem.IsEnabled);
+        Assert.Equal("New command on web-01…", panel.NewItem.Header);
+
+        panel.ShowMenuFor(logs);
+        Assert.True(panel.SendItem.IsVisible);
+        Assert.Equal("Send to web-01", panel.SendItem.Header);
+        Assert.False(panel.DownItem.IsEnabled);
+
+        // On a group's header, or the space under the list.
+        panel.ShowMenuFor(folder);
+        Assert.False(panel.DeleteItem.IsVisible);
+        Assert.Equal("New command on Servers…", panel.NewItem.Header);
+        panel.ShowMenuFor(tree.Root);
+        Assert.Equal("New command on the defaults…", panel.NewItem.Header);
+        panel.ShowMenuFor(null);
+        Assert.Equal("New command…", panel.NewItem.Header);
+
+        ConnectionNode? asked = null;
+        panel.NewRequested += (_, place) => asked = place;
+        panel.ShowMenuFor(folder);
+        panel.NewItem.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
+        Assert.Same(folder, asked);
+
+        // Move and Duplicate.
+        pane.Move(logs, -1);
+        Assert.Equal(["logs", "restart"], entry.Commands.Select(c => c.Name));
+        pane.Duplicate(restart);
+        Assert.Equal(["logs", "restart", "restart copy"], entry.Commands.Select(c => c.Name));
+        Assert.Equal("restart copy", pane.Shown!.Command.Name);
         window.Close();
     }
 }

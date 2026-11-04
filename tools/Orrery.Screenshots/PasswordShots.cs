@@ -49,10 +49,10 @@ static class PasswordShots
         tree.Add(console, prod);
 
         // Become root on the connection itself: the risk, and the safer way.
-        await EditorAsync(output, "1-editor-connection-become-root.png", new SavedCommandWindow(null, "web-01", credentials, web), w => w.BecomeRoot());
+        await EditorAsync(output, "1-editor-connection-become-root.png", new SavedCommandWindow(null, "web-01", credentials, [web]), w => w.BecomeRoot());
 
         // root's password chosen on a folder that has a serial console in it: who it reaches, and that it's unencrypted.
-        await EditorAsync(output, "2-editor-folder-chosen-credential.png", new SavedCommandWindow(null, "Production", credentials, prod), async w =>
+        await EditorAsync(output, "2-editor-folder-chosen-credential.png", new SavedCommandWindow(null, "Production", credentials, [prod]), async w =>
         {
             w.TextBox.Text = "su -";
             w.NameBox.Text = "Root shell";
@@ -62,7 +62,7 @@ static class PasswordShots
 
         // The same on the defaults for all connections: refused, and Save says why.
         await EditorAsync(output, "3-editor-defaults-chosen-credential.png",
-            new SavedCommandWindow(null, "the defaults for all connections", credentials, tree.Root), async w =>
+            new SavedCommandWindow(null, "the defaults for all connections", credentials, [tree.Root]), async w =>
             {
                 w.TextBox.Text = "su -";
                 w.NameBox.Text = "Root shell";
@@ -73,7 +73,7 @@ static class PasswordShots
 
         // The login password on the defaults: allowed, with where it reaches.
         await EditorAsync(output, "4-editor-defaults-login.png",
-            new SavedCommandWindow(null, "the defaults for all connections", credentials, tree.Root), w => w.BecomeRoot());
+            new SavedCommandWindow(null, "the defaults for all connections", credentials, [tree.Root]), w => w.BecomeRoot());
 
         await ShowAsync(output, "5-ask-first.png", new ConfirmCommandWindow("Become root", "sudo -i", "web-01", "web-01.prod.example · Production",
             pressEnter: true, password: "If it asks for a password, Orrery types web-01's login password."));

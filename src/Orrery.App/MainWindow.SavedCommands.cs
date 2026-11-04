@@ -361,21 +361,10 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Where a new command from a terminal can be saved: its connection alone, each folder it's in, or every
-    /// connection. A terminal without a saved connection can only use the defaults.
+    /// Where a new command from a terminal starts out ticked: its connection, or for a terminal without a saved
+    /// connection, the defaults (the only place it can send from). Any others can be ticked as well.
     /// </summary>
-    List<CommandPlace> CommandPlacesFor(SessionTab tab)
-    {
-        var places = new List<CommandPlace>();
-        if (EntryFor(tab) is { } entry)
-        {
-            places.Add(new CommandPlace($"{entry.Name} only", entry));
-            places.AddRange(entry.Ancestors().Where(f => f.Parent is not null).Select(f => new CommandPlace($"Everything in {f.Name}", f)));
-        }
-
-        places.Add(new CommandPlace("Every connection, and terminals without one", _tree.Root));
-        return places;
-    }
+    IReadOnlyList<ConnectionNode> CommandPlacesFor(SessionTab tab) => EntryFor(tab) is { } entry ? [entry] : [_tree.Root];
 
     /// <summary>
     /// The side panel's Commands page and the editor it opens in the right-hand pane. A new command starts on the
@@ -409,7 +398,7 @@ public partial class MainWindow
         // A command deleted or moved elsewhere (from a connection's settings, say) isn't left open to save back.
         _tree.Changed += (_, _) =>
         {
-            if (editor.Shown is { } shown && shown.Owner.Commands?.Contains(shown.Command) != true)
+            if (editor.Shown is { } shown && shown.Copies.Any(c => c.Owner.Commands?.Contains(c.Command) != true))
             {
                 editor.Clear();
             }
@@ -421,7 +410,7 @@ public partial class MainWindow
     CommandSendTarget? CommandSendTargetFor(CommandAt at)
     {
         if (_currentTab is not { View: TerminalView } tab || tab.Session.State != SessionState.Connected
-            || CommandSourceFor(tab).Commands.FirstOrDefault(c => c.Command == at.Command) is not { } resolved)
+            || CommandSourceFor(tab).Commands.FirstOrDefault(c => at.Has(c.Command)) is not { } resolved)
         {
             return null;
         }
@@ -433,16 +422,26 @@ public partial class MainWindow
     async Task NewCommandAsync(SessionTab tab, TerminalView terminal, string? seed)
     {
         var owner = TopLevel.GetTopLevel(terminal) as Window ?? this;
-        var window = new SavedCommandWindow(null, CommandPlacesFor(tab), _credentials) { Seed = seed };
-        if (await window.ShowDialog<SavedCommand?>(owner) is not { } saved || window.ChosenPlace is not { } place || _tree.Find(place.Node.Id) is null)
+        var window = new SavedCommandWindow(null, _tree, CommandPlacesFor(tab), _credentials) { Seed = seed };
+        if (await window.ShowDialog<SavedCommand?>(owner) is not { } saved)
         {
             return;
         }
 
-        (place.Node.Commands ??= []).Add(saved);
+        var places = window.ChosenPlaces.Where(p => p == _tree.Root || _tree.Find(p.Id) is not null).ToList();
+        if (places.Count == 0)
+        {
+            return;
+        }
+
+        SavedCommands.Save([], saved, places);
         _tree.NotifyChanged();
-        _properties.CommandsChanged(place.Node);
-        string where = place.Node.Parent is null ? "the defaults for all connections" : place.Node.Name;
+        foreach (var place in places)
+        {
+            _properties.CommandsChanged(place);
+        }
+
+        string where = places.Count > 1 ? $"{places.Count} places" : places[0].Parent is null ? "the defaults for all connections" : places[0].Name;
         ShowNotice($"Saved \"{saved.Name}\" on {where}. It's under Commands in the session's menu and in Ctrl+K.");
         if (_tabs.Contains(tab))
         {

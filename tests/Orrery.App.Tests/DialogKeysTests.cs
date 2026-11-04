@@ -50,7 +50,7 @@ public class DialogKeysTests
         var owner = new Window();
         owner.Show();
         var tree = ConnectionTree.Empty();
-        var window = new SavedCommandWindow(null, [new CommandPlace("Every connection", tree.Root)]);
+        var window = new SavedCommandWindow(null, tree, [tree.Root]);
         var result = window.ShowDialog<SavedCommand?>(owner);
         Dispatcher.UIThread.RunJobs();
 
@@ -69,7 +69,7 @@ public class DialogKeysTests
         var owner = new Window();
         owner.Show();
         var tree = ConnectionTree.Empty();
-        var window = new SavedCommandWindow(null, [new CommandPlace("Every connection", tree.Root)]);
+        var window = new SavedCommandWindow(null, tree, [tree.Root]);
         _ = window.ShowDialog<SavedCommand?>(owner);
         Dispatcher.UIThread.RunJobs();
 

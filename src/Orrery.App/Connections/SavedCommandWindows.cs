@@ -80,17 +80,14 @@ sealed class ConfirmCommandWindow : Window
 }
 
 
-/// <summary>Somewhere a new command can be saved: a connection, a folder, or the defaults (the tree's top).</summary>
-sealed record CommandPlace(string Label, ConnectionNode Node);
-
 /// <summary>
 /// The fields of a saved command: its name, what's typed, whether Enter is pressed, whether it asks first, and which
 /// password it types. In the editor window, and in the right-hand pane beside the Commands page.
 /// </summary>
 sealed class SavedCommandEditor : StackPanel
 {
-    IReadOnlyList<CommandPlace> _places = [];
-    readonly ComboBox _place = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    CommandPlacePicker? _picker;
+    IReadOnlyList<ConnectionNode>? _fixedPlaces;
 
     readonly TextBox _name = new() { PlaceholderText = "Tail the nginx error log" };
     readonly TextBox _text = new()
@@ -130,8 +127,9 @@ sealed class SavedCommandEditor : StackPanel
     internal const string NotFromDefaults = "A chosen credential's password isn't typed from the defaults for all connections, which reach every "
         + "server. Save it on a folder or a connection, or choose the login password.";
 
-    readonly ConnectionNode? _owner;
+    readonly IReadOnlyList<ConnectionNode> _owners;
     readonly Guid? _credentialId;
+    readonly Guid? _linkId;
     readonly Button _becomeRoot = new() { Content = "Become root (sudo -i)", Classes = { "link" } };
     readonly TextBlock _hint = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     readonly TextBlock _error = new() { FontSize = 12, Foreground = Dialogs.DangerBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
@@ -140,13 +138,14 @@ sealed class SavedCommandEditor : StackPanel
 
     /// <summary>
     /// With <paramref name="credentials"/>, a password prompt can be answered from a chosen credential as well as the
-    /// connection's login. With <paramref name="owner"/>, where it's saved, it says which connections that reaches.
+    /// connection's login. With <paramref name="owners"/>, where it's saved, it says which connections that reaches.
     /// </summary>
     /// <param name="saveKeys">What saves it, for the line under the command, such as "Ctrl+Enter adds it".</param>
-    public SavedCommandEditor(SavedCommand? command, string ownerName, ICredentialStore? credentials = null, ConnectionNode? owner = null, string? saveKeys = null)
+    public SavedCommandEditor(SavedCommand? command, string ownerName, ICredentialStore? credentials = null, IReadOnlyList<ConnectionNode>? owners = null, string? saveKeys = null)
     {
-        _owner = owner;
+        _owners = owners ?? [];
         _credentialId = command?.PasswordCredentialId;
+        _linkId = command?.LinkId;
         Spacing = 12;
         _passwordNotes.Children.AddRange([_passwordRisk, _passwordReach, _passwordPlain, _passwordSafer]);
 
@@ -207,36 +206,36 @@ sealed class SavedCommandEditor : StackPanel
         _ownerLine.Text = $"On {ownerName}";
     }
 
-    /// <summary>Offers <paramref name="places"/> to save it on, with <paramref name="selected"/> chosen, in place of the line naming one.</summary>
-    public void UsePlaces(IReadOnlyList<CommandPlace> places, int selected = 0)
+    /// <summary>
+    /// Offers the tree's places to save it on, any number of them, with <paramref name="chosen"/> ticked, in place of
+    /// the line naming one. A tree with no connections has only the defaults, so it keeps the line.
+    /// </summary>
+    public void UsePlaces(ConnectionTree tree, IEnumerable<ConnectionNode> chosen)
     {
-        _places = places;
-        ShowPassword();
-        if (places.Count < 2)
+        if (tree.Root.Children.Count == 0)
         {
+            _fixedPlaces = [tree.Root];
+            ShowPassword();
             return;
         }
 
-        foreach (var place in places)
-        {
-            _place.Items.Add(new ComboBoxItem { Content = place.Label });
-        }
-
-        _place.SelectedIndex = Math.Clamp(selected, 0, places.Count - 1);
-        _place.SelectionChanged += (_, _) => ShowPassword();
-        Children[Children.IndexOf(_ownerLine)] = Dialogs.Field("Save on", _place);
+        _picker = new CommandPlacePicker(tree, chosen);
+        AutomationProperties.SetName(_picker, "Save on");
+        _picker.Changed += (_, _) => ShowPassword();
+        Children[Children.IndexOf(_ownerLine)] = Dialogs.Field("Save on", _picker);
+        ShowPassword();
     }
 
     /// <summary>Lists the credentials, with the command's chosen, once the editor is on screen.</summary>
     public Task LoadAsync() => _passwordCredential?.RefreshAsync(_credentialId) ?? Task.CompletedTask;
 
-    /// <summary>Where the command is to be saved, when the editor was given places.</summary>
-    public CommandPlace? ChosenPlace => _places.Count == 0 ? null : _places[Math.Max(0, _place.SelectedIndex)];
+    /// <summary>Where the command is to be saved, when the editor was given places; empty otherwise.</summary>
+    public IReadOnlyList<ConnectionNode> ChosenPlaces => _picker?.Chosen ?? _fixedPlaces ?? [];
 
     /// <summary>Where it's saved, so the editor can say which connections a password it types reaches.</summary>
-    ConnectionNode? SavedOn => ChosenPlace?.Node ?? _owner;
+    IReadOnlyList<ConnectionNode> SavedOn => _picker is not null || _fixedPlaces is not null ? ChosenPlaces : _owners;
 
-    internal ComboBox PlaceBox => _place;
+    internal CommandPlacePicker? PlacePicker => _picker;
     internal TextBox NameBox => _name;
     internal TextBox TextBox => _text;
     internal CheckBox ConfirmBox => _confirm;
@@ -267,7 +266,7 @@ sealed class SavedCommandEditor : StackPanel
         _passwordReach.Kind = kind;
         _passwordReach.Text = reach;
         _passwordReach.IsVisible = reach is not null;
-        _passwordPlain.IsVisible = choice != CommandPassword.None && SavedOn is { } owner && SavedCommands.ReachesUnencrypted(owner);
+        _passwordPlain.IsVisible = choice != CommandPassword.None && SavedOn.Any(SavedCommands.ReachesUnencrypted);
     }
 
     /// <summary>
@@ -277,21 +276,44 @@ sealed class SavedCommandEditor : StackPanel
     /// </summary>
     (NoticeKind Kind, string? Text) ReachNotice(CommandPassword choice)
     {
-        if (choice == CommandPassword.None || SavedOn is not { } owner || SavedCommands.PasswordReach(owner) is not { } reach)
+        var places = SavedOn;
+        var folders = places.OfType<ConnectionFolder>().ToList();
+        if (choice == CommandPassword.None || places.Count == 0)
         {
             return (NoticeKind.Info, null);
         }
 
         if (choice == CommandPassword.Login)
         {
+            if (folders.Count == 0)
+            {
+                return (NoticeKind.Info, null);
+            }
+
+            string reach = folders.Count == 1 ? SavedCommands.PasswordReach(folders[0])!
+                : folders.Any(f => f.Parent is null) ? "every saved connection"
+                : $"every connection in {Names(folders)}";
             return (NoticeKind.Info, $"Saved here, it reaches {reach}. Each types its own login password, and only on saved connections.");
         }
 
-        return owner.Parent is null
-            ? (NoticeKind.Error, NotFromDefaults)
-            : (NoticeKind.Warning, $"Saved on {owner.Name}, so every connection in it gets this password when it asks. One server there that's been broken "
-                + "into could ask just to collect it. Save it on the connections that need it.");
+        if (folders.Any(f => f.Parent is null))
+        {
+            return (NoticeKind.Error, NotFromDefaults);
+        }
+
+        if (folders.Count > 0)
+        {
+            return (NoticeKind.Warning, $"Saved on {Names(folders)}, so every connection in {(folders.Count == 1 ? "it" : "them")} gets this password when it asks. "
+                + "One server there that's been broken into could ask just to collect it. Save it on the connections that need it.");
+        }
+
+        return places.Count > 1
+            ? (NoticeKind.Info, $"Each of the {places.Count} connections it's saved on gets this password when it asks.")
+            : (NoticeKind.Info, null);
     }
+
+    static string Names(IReadOnlyList<ConnectionFolder> nodes) =>
+        nodes.Count == 1 ? nodes[0].Name : $"{string.Join(", ", nodes.Take(nodes.Count - 1).Select(n => n.Name))} and {nodes[^1].Name}";
 
     /// <summary>The ready-made command for root: <c>sudo -i</c>, answering sudo's prompt with the login's password.</summary>
     internal void BecomeRoot()
@@ -347,7 +369,12 @@ sealed class SavedCommandEditor : StackPanel
         bool pressEnter = _pressEnter.IsChecked == true;
         var password = pressEnter ? PasswordChoice : CommandPassword.None;
         Guid? credential = password == CommandPassword.Credential ? _passwordCredential?.SelectedId : null;
-        if (password == CommandPassword.Credential && SavedOn is ConnectionFolder { Parent: null })
+        if (_picker is not null && _picker.Chosen.Count == 0)
+        {
+            return Fail("Tick at least one place to save it on.", _picker);
+        }
+
+        if (password == CommandPassword.Credential && SavedOn.Any(n => n.Parent is null))
         {
             return Fail("It can't be saved like this: see the red message above.", _password);
         }
@@ -367,6 +394,7 @@ sealed class SavedCommandEditor : StackPanel
             WhenConnected = _whenConnected.IsChecked == true,
             Password = password,
             PasswordCredentialId = credential,
+            LinkId = _linkId,
         };
     }
 
@@ -393,12 +421,12 @@ sealed class SavedCommandWindow : Window
     internal const string Safer = SavedCommandEditor.Safer;
     internal const string NotFromDefaults = SavedCommandEditor.NotFromDefaults;
 
-    /// <summary>A new command from a terminal, saved on whichever of <paramref name="places"/> is chosen (the first to begin with).</summary>
-    public SavedCommandWindow(SavedCommand? command, IReadOnlyList<CommandPlace> places, ICredentialStore? credentials = null)
-        : this(command, places.Count > 0 ? places[0].Label : string.Empty, credentials) => Editor.UsePlaces(places);
+    /// <summary>A new command from a terminal, saved on whichever of the tree's places are ticked (<paramref name="chosen"/> to begin with).</summary>
+    public SavedCommandWindow(SavedCommand? command, ConnectionTree tree, IReadOnlyList<ConnectionNode> chosen, ICredentialStore? credentials = null)
+        : this(command, "the defaults for all connections", credentials) => Editor.UsePlaces(tree, chosen);
 
-    /// <inheritdoc cref="SavedCommandEditor(SavedCommand?, string, ICredentialStore?, ConnectionNode?, string?)"/>
-    public SavedCommandWindow(SavedCommand? command, string ownerName, ICredentialStore? credentials = null, ConnectionNode? owner = null)
+    /// <inheritdoc cref="SavedCommandEditor(SavedCommand?, string, ICredentialStore?, IReadOnlyList{ConnectionNode}?, string?)"/>
+    public SavedCommandWindow(SavedCommand? command, string ownerName, ICredentialStore? credentials = null, IReadOnlyList<ConnectionNode>? owners = null)
     {
         bool adding = command is null;
         Title = adding ? "New command" : "Edit command";
@@ -407,7 +435,7 @@ sealed class SavedCommandWindow : Window
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = Dialogs.PanelBrush;
-        Editor = new SavedCommandEditor(command, ownerName, credentials, owner,
+        Editor = new SavedCommandEditor(command, ownerName, credentials, owners,
             $"{(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Enter {(adding ? "adds" : "saves")} it");
 
         // Enter in the name saves; in the command it's a new line, and Ctrl+Enter saves (DialogKeys).
@@ -437,11 +465,11 @@ sealed class SavedCommandWindow : Window
 
     public SavedCommandEditor Editor { get; }
 
-    public CommandPlace? ChosenPlace => Editor.ChosenPlace;
+    public IReadOnlyList<ConnectionNode> ChosenPlaces => Editor.ChosenPlaces;
 
     public string? Seed { set => Editor.Seed = value; }
 
-    internal ComboBox PlaceBox => Editor.PlaceBox;
+    internal CommandPlacePicker? PlacePicker => Editor.PlacePicker;
     internal TextBox NameBox => Editor.NameBox;
     internal TextBox TextBox => Editor.TextBox;
     internal CheckBox ConfirmBox => Editor.ConfirmBox;
