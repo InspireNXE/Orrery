@@ -4,6 +4,7 @@ using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.Core.Connections;
 
@@ -243,14 +244,16 @@ sealed class QuickConnectWindow : Window
             _query.Focus();
         };
 
-        // Like a menu: clicking anywhere else dismisses it.
-        Deactivated += (_, _) =>
+        // Like a menu: clicking anywhere else dismisses it. Closed once the click has finished activating the window
+        // it landed on: closing in the middle of that handover leaves Windows to activate another app instead, which
+        // comes up over Orrery and takes the click.
+        Deactivated += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             if (!_closing)
             {
                 Finish(null);
             }
-        };
+        });
 
         Refresh();
     }
