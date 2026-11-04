@@ -435,6 +435,39 @@ sealed record Mp4Route(string Name, SystemCodec? System, FfmpegCodec? Ffmpeg)
     }
 }
 
+/// <summary>
+/// Where to get ffmpeg, for Settings and the export dialog. Orrery only points the way: it never downloads or bundles
+/// ffmpeg (docs/design-session-recording.md §1), so the link is the project's own download page.
+/// </summary>
+static class FfmpegHelp
+{
+    public static readonly Uri DownloadPage = new("https://ffmpeg.org/download.html");
+
+    /// <summary>How to install ffmpeg here, and how to find the program to choose.</summary>
+    public static string InstallHint =>
+        OperatingSystem.IsWindows()
+            ? "To install it, run winget install Gyan.FFmpeg in a terminal; where.exe ffmpeg in a new terminal then shows the program to choose."
+            : OperatingSystem.IsMacOS()
+                ? "To install it with Homebrew, run brew install ffmpeg in Terminal; which ffmpeg then shows the program to choose."
+                : "To install it, use your distribution's ffmpeg package (on Fedora, RPM Fusion's: the default ffmpeg-free can't make "
+                    + "H.264 or H.265); which ffmpeg then shows the program to choose.";
+
+    /// <summary>A button that opens <see cref="DownloadPage"/> in the browser.</summary>
+    public static Button DownloadButton()
+    {
+        var button = new Button { Content = "Get ffmpeg" };
+        ToolTip.SetTip(button, DownloadPage.AbsoluteUri);
+        button.Click += (_, _) =>
+        {
+            if (MainWindow.OpenInBrowser(DownloadPage) is { } problem)
+            {
+                Log.For("Recording").LogWarning("Couldn't open ffmpeg's download page: {Message}", problem);
+            }
+        };
+        return button;
+    }
+}
+
 sealed record ExportChoice(Mp4Route? Route, bool SkipIdle);
 
 /// <summary>Asks what a screen recording should become: AVI, or MP4 with a codec Windows or the chosen ffmpeg has.</summary>
@@ -480,16 +513,25 @@ sealed class ExportChoiceWindow : Window
         {
             panel.Children.Add(new TextBlock
             {
-                Text = OperatingSystem.IsWindows()
-                    ? "This Windows has no video encoders of its own (an N edition, or Server without Media Foundation). For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings."
-                    : "For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings.",
+                Text = (OperatingSystem.IsWindows()
+                    ? "This Windows has no video encoders of its own (an N edition, or Server without Media Foundation). For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings. "
+                    : "For MP4, choose an ffmpeg you've installed in Settings › Sessions › Recordings. ") + FfmpegHelp.InstallHint,
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 12,
                 Foreground = Dialogs.MutedBrush,
             });
         }
 
-        panel.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, export } });
+        var buttons = new DockPanel { LastChildFill = false };
+        if (routes.Count == 0 && !hasFfmpeg)
+        {
+            buttons.Children.Add(FfmpegHelp.DownloadButton());
+        }
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { cancel, export } };
+        DockPanel.SetDock(actions, Dock.Right);
+        buttons.Children.Add(actions);
+        panel.Children.Add(buttons);
         Content = panel;
         AutomationProperties.SetHelpText(this, RecordingExport.Warning);
     }

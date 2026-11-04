@@ -317,7 +317,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   (? lists them), and your color correction.
 - **Export** an unencrypted copy: `.cast` for asciinema, Motion-JPEG `.avi`, or MP4 (H.264, H.265 or AV1). On
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
-  in Settings. Orrery never downloads or bundles ffmpeg. See
+  in Settings. Orrery never downloads or bundles ffmpeg; *Get ffmpeg* in Settings links to its download page, with
+  the install command for your system. See
   [the design notes](docs/design-session-recording.md).
 
 <p align="center">

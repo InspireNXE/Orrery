@@ -226,6 +226,11 @@ under a new *Recording* group, for every protocol.
 - *Record remote desktop sound* (on by default), with its size: about 11 MB a minute while sound plays.
 - *Put connection names in file names* (on by default).
 - *ffmpeg for MP4 export* (*ffmpeg (optional)* on Windows): none by default; *Choose…* picks the executable (§3.4).
+  *Get ffmpeg* opens https://ffmpeg.org/download.html in the browser, and while none is chosen a note says how to
+  install it here: `winget install Gyan.FFmpeg` on Windows, `brew install ffmpeg` on macOS, the distribution's package
+  on Linux (RPM Fusion's on Fedora, whose `ffmpeg-free` has no H.264 or H.265 encoder). The export dialog shows the
+  same link and note when it can offer no MP4 at all. Orrery points the way and nothing more: a download from inside
+  it would make Orrery answer for a third party's executable, which the user's own package manager does better.
 - *Show recordings* (opens the Recordings section, §5.3), *Open the recordings folder*, and the space recordings use now.
 - Which MP4 codec isn't a setting: *Export…* on a screen recording lists AVI and each of H.264, H.265 and AV1 that
   Windows or the chosen ffmpeg can make.

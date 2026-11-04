@@ -626,6 +626,22 @@ public sealed class RecordingUiTests : IDisposable
         Assert.Empty(Mp4Route.All([], null));
     }
 
+    [AvaloniaFact]
+    public void Export_links_to_ffmpeg_only_when_it_can_offer_no_mp4()
+    {
+        static bool Links(ExportChoiceWindow window)
+        {
+            window.Show();
+            var links = window.GetVisualDescendants().OfType<Button>().Any(b => Equals(b.Content, "Get ffmpeg"));
+            window.Close();
+            return links;
+        }
+
+        Assert.True(Links(new ExportChoiceWindow([], hasFfmpeg: false)));
+        Assert.False(Links(new ExportChoiceWindow(Mp4Route.All([new SystemCodec("H.264", Guid.NewGuid(), false)], null), hasFfmpeg: false)));
+        Assert.False(Links(new ExportChoiceWindow([], hasFfmpeg: true)));
+    }
+
     async Task<(PlayerView Player, Window Window, string Path)> OpenTerminalRecording(string name, double width = 1000)
     {
         var publicKey = await RecordingKeys.EnsureAsync(_credentials);
