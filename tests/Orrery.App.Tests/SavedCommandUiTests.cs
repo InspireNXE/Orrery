@@ -179,8 +179,10 @@ public class SavedCommandUiTests
 
         var texts = window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
         Assert.Contains("tail -f /var/log/app.log", texts);
-        // Keys, not a sentence, so the command's text keeps the room.
-        Assert.Contains("Run  ↵   ·   type only  Shift+↵", texts);
+        // The row says what Enter does, as every row does; Shift+Enter's action is with the other keys in the footer.
+        Assert.Contains("Run  ↵", texts);
+        Assert.True(window.AltHint.IsVisible);
+        Assert.Equal("Shift+↵ type only", string.Concat(window.AltHint.Inlines!.OfType<Avalonia.Controls.Documents.Run>().Select(r => r.Text)));
         window.KeyPress(Key.Enter, RawInputModifiers.Shift, PhysicalKey.Enter, null);
         Dispatcher.UIThread.RunJobs();
 
