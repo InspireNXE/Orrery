@@ -282,7 +282,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Pane layouts** (Settings › General, or the pin in each pane's header), for the side panel and the properties
   pane: Pinned docks it; Over the session leaves a strip and opens over the sessions; Hidden leaves no strip (the
   window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; on
-  Linux and macOS it opens beside a web page, since nothing can be drawn over the page there. Drag a pane's inner edge to resize it.
+  Linux and macOS it opens beside a web page, since nothing can be drawn over the page there. Drag a pane's inner edge to resize it. Panes start the way
+  they were left: their widths, a pinned pane put away with its shortcut stays away, and the side panel opens on
+  Recent if that's where it was (Credentials and Recordings start on Connections).
 - **Last connected** shows in the properties pane ("3 days ago", exact time on hover), with a newer failed attempt
   if there was one.
 
