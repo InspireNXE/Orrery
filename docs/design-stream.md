@@ -1,6 +1,7 @@
 # Orrery design: Orrery Stream Protocol and Orrery Host
 
-Status: **Draft**, 2026-11-03 (owner's answers in §12). Nothing is built.
+Status: **Draft**, 2026-11-03 (owner's answers in §12). Scaffolded 2026-11-04: the projects in §3 except
+`Orrery.Host.Service` exist, with the media packet header, codec choice and connection options; nothing streams yet.
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
