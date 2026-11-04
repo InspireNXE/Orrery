@@ -18,6 +18,13 @@ public enum Protocol
 
     /// <summary>A web page over TLS, opened in the default browser rather than a tab.</summary>
     Https,
+
+    /// <summary>
+    /// A shell on this computer in a terminal tab. The connection's host is the shell's id ("pwsh", "wsl:Ubuntu"),
+    /// empty for the one chosen in Settings; <see cref="ConnectionEntry.StartFolder"/> and
+    /// <see cref="ConnectionEntry.RunAsAdministrator"/> say how it starts.
+    /// </summary>
+    Local,
 }
 
 public static class ProtocolInfo
@@ -32,6 +39,7 @@ public static class ProtocolInfo
         Protocol.Serial => 0,
         Protocol.Http => 80,
         Protocol.Https => 443,
+        Protocol.Local => 0,
         _ => throw new ArgumentOutOfRangeException(nameof(protocol)),
     };
 
@@ -40,14 +48,17 @@ public static class ProtocolInfo
     /// <summary>Opens in the default browser: no tab, no session, nothing to reconnect.</summary>
     public static bool IsWeb(Protocol protocol) => protocol is Protocol.Http or Protocol.Https;
 
-    /// <summary>Reached over the network at a host and port, so it can have a jump host and a host check. Not a serial port.</summary>
-    public static bool UsesNetwork(Protocol protocol) => protocol != Protocol.Serial;
+    /// <summary>Reached over the network at a host and port, so it can have a jump host and a host check. Not a serial port or a local shell.</summary>
+    public static bool UsesNetwork(Protocol protocol) => protocol is not (Protocol.Serial or Protocol.Local);
 
     /// <summary>A remote desktop drawn in a tab (RDP, VNC).</summary>
     public static bool IsDesktop(Protocol protocol) => protocol is Protocol.Rdp or Protocol.Vnc;
 
     /// <summary>The protocols Orrery 0.1 can't read, so a file using them is written with a newer schema.</summary>
     internal static bool AddedInSchema3(Protocol protocol) => protocol is Protocol.Serial or Protocol.Http or Protocol.Https;
+
+    /// <summary>The protocols Orrery 0.1.2 can't read.</summary>
+    internal static bool AddedInSchema6(Protocol protocol) => protocol is Protocol.Local;
 }
 
 /// <summary>RDP: where the remote computer's sound goes.</summary>
@@ -300,6 +311,9 @@ public sealed class InheritableSettings
     /// <summary>Settings Orrery 0.1.1 doesn't know, written with schema 4 for the same reason.</summary>
     internal static readonly IReadOnlySet<string> AddedInSchema4 = new HashSet<string> { nameof(ConfirmCommands) };
 
+    /// <summary>Whether this uses a protocol Orrery 0.1.2 can't read.</summary>
+    internal bool NeedsSchema6() => Protocol is { } protocol && ProtocolInfo.AddedInSchema6(protocol);
+
     /// <summary>Whether this sets anything Orrery 0.1.1 can't keep.</summary>
     internal bool NeedsSchema4() => SettingProperties.Any(p => AddedInSchema4.Contains(p.Name) && p.GetValue(this) is not null);
 
@@ -437,6 +451,13 @@ public sealed class ConnectionEntry : ConnectionNode
     /// the connection itself, never inherited. Null when not set. Written normalized by the properties pane and the importers.
     /// </summary>
     public string? ManagementUrl { get; set; }
+
+    /// <summary>Local: the folder the shell starts in; null for the home folder. A leading ~ is the home folder. Not inherited.</summary>
+    public string? StartFolder { get; set; }
+
+    /// <summary>Local, on Windows: run the shell as administrator, after a UAC prompt. Written only when true. Not inherited.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool RunAsAdministrator { get; set; }
 
     /// <summary>SSH: ports to forward while the session is open. Null when there are none.</summary>
     public List<PortForward>? PortForwards { get; set; }

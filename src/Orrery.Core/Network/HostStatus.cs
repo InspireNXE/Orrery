@@ -38,7 +38,7 @@ public sealed record ProbeTarget(Guid Id, string Host, int Port)
         var resolved = SettingsResolver.Resolve(entry);
         if (!ProtocolInfo.UsesNetwork(resolved.Protocol.Value))
         {
-            whyNot = "a serial port on this computer, not a host on the network";
+            whyNot = resolved.Protocol.Value == Protocol.Local ? "a shell on this computer, not a host on the network" : "a serial port on this computer, not a host on the network";
             return null;
         }
 

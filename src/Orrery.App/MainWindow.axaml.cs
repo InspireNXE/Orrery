@@ -2145,6 +2145,14 @@ public partial class MainWindow : Window
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
+        // A local shell's host is the shell, and empty is the one chosen in Settings.
+        if (protocol == Protocol.Local)
+        {
+            ConnectLog.LogInformation("Opening \"{Name}\": a local shell{Elevation}", entry.Name, entry.RunAsAdministrator ? ", as administrator" : string.Empty);
+            OpenLocalTerminal(string.IsNullOrWhiteSpace(entry.Host) ? null : entry.Host, entry.RunAsAdministrator, entry);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(entry.Host))
         {
             await Dialogs.ShowMessageAsync(this, $"\"{entry.Name}\" has no host", protocol == Protocol.Serial
@@ -2455,13 +2463,16 @@ public partial class MainWindow : Window
     /// A shell on this computer in a new tab, starting in the home folder: <paramref name="shellId"/>, or the one
     /// chosen in settings. Duplicating or restarting the tab opens the same shell again.
     /// </summary>
-    void OpenLocalTerminal(string? shellId = null, bool elevated = false)
+    /// <param name="entry">The saved connection it's opened from, which names the tab and says where it starts.</param>
+    void OpenLocalTerminal(string? shellId = null, bool elevated = false, ConnectionEntry? entry = null)
     {
         var shell = LocalShells.Find(shellId ?? _settingsStore.Load().LocalShell);
         elevated &= OperatingSystem.IsWindows();
-        var origin = new SessionOrigin(elevated ? $"{shell.Name} (Administrator)" : shell.Name, Protocol.Ssh, null, () =>
+        var name = entry?.Name ?? shell.Name;
+        var folder = StartFolder(entry?.StartFolder);
+        var origin = new SessionOrigin(elevated ? $"{name} (Administrator)" : name, Protocol.Ssh, entry?.Id, () =>
         {
-            OpenLocalTerminal(shell.Id, elevated);
+            OpenLocalTerminal(shell.Id, elevated, entry);
             return Task.CompletedTask;
         })
         {
@@ -2472,13 +2483,31 @@ public partial class MainWindow : Window
         LocalTerminalSession? started = null;
         Open(origin, () =>
         {
-            var session = started = LocalTerminalSession.Start(shell, 80, 24, elevated: elevated);
+            var session = started = LocalTerminalSession.Start(shell, 80, 24, folder, elevated);
             return (NewTerminalView(session), session);
         });
         if (elevated && _tabs.LastOrDefault(t => t.Session == started) is { } tab)
         {
             tab.Warning.Show(ElevatedWarning);
         }
+    }
+
+    /// <summary>A saved local shell's starting folder, with ~ for the home folder; null (the home folder) when it's unset or gone.</summary>
+    internal static string? StartFolder(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return null;
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        folder = folder.Trim();
+        if (folder == "~" || folder.StartsWith("~/", StringComparison.Ordinal) || folder.StartsWith("~\\", StringComparison.Ordinal))
+        {
+            folder = Path.Combine(home, folder.Length > 2 ? folder[2..] : string.Empty);
+        }
+
+        return Directory.Exists(folder) ? folder : null;
     }
 
     internal const string ElevatedWarning = "Administrator shell. Whatever it runs runs as administrator, and while this tab is open, "

@@ -110,8 +110,8 @@ public partial class MainWindow
 
     static WorkspaceTab Remembered(SessionTab tab) => tab.Origin switch
     {
-        // A local terminal comes back as its shell, not as a connection to this computer's name.
-        { Local: true } local => new WorkspaceTab(null, null, 0, local.Protocol, LocalShell: local.LocalShell ?? Orrery.Protocols.Local.LocalShells.Find(null).Id),
+        // A saved one comes back as its connection; any other local terminal as its shell, not as a connection to this computer's name.
+        { Local: true, EntryId: null } local => new WorkspaceTab(null, null, 0, local.Protocol, LocalShell: local.LocalShell ?? Orrery.Protocols.Local.LocalShells.Find(null).Id),
         { EntryId: { } id } => new WorkspaceTab(id, null, 0, tab.Origin.Protocol, tab.Origin.Files),
         _ => new WorkspaceTab(null, tab.Session.Target.Host, tab.Session.Target.Port, tab.Origin.Protocol),
     };
