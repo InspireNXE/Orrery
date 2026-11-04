@@ -224,6 +224,35 @@ public class SetupWizardTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void Tab_goes_from_the_page_to_the_buttons_and_then_the_step_list()
+    {
+        var window = Open(Portable(), keychain: null);
+        var choose = window.GetVisualDescendants().OfType<Button>().Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "Choose a folder");
+        choose.Focus();
+
+        // The focused control's name, or the step list's when focus is on one of its steps.
+        string? Tab(RawInputModifiers modifiers = RawInputModifiers.None)
+        {
+            window.KeyPress(Key.Tab, modifiers, PhysicalKey.Tab, null);
+            Dispatcher.UIThread.RunJobs();
+            var focused = window.FocusManager?.GetFocusedElement() as Control;
+            return focused?.FindAncestorOfType<ListBox>(includeSelf: true)?.Name ?? focused?.Name;
+        }
+
+        Assert.Equal("SetupDefaults", Tab());
+        Assert.Equal("SetupNext", Tab()); // Back is off on the first step.
+        Assert.Equal("SetupSteps", Tab());
+        Tab();
+        Assert.Equal(VaultAutoLockTests.Private<RadioButton>(window, "_besideApp"), window.FocusManager?.GetFocusedElement());
+        Tab(RawInputModifiers.Shift);
+        Assert.Equal("SetupNext", Tab(RawInputModifiers.Shift));
+        window.Close();
+    }
+
+    static string? StepListHasFocus(Window window) =>
+        (window.FocusManager?.GetFocusedElement() as Control)?.FindAncestorOfType<ListBox>(includeSelf: true)?.Name;
+
+    [AvaloniaFact]
     public async Task Back_is_off_on_the_first_step_and_next_says_start_on_the_last()
     {
         var window = Open(portable: null, Keychain);
