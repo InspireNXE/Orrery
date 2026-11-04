@@ -32,8 +32,10 @@ public partial class MainWindow
     PaneMode _sideMode, _inspectorMode;
     bool _sideFloating, _inspectorFloating;
 
-    // A pinned pane put away with its shortcut or toggle, until it's shown again. Not saved: the mode stays pinned.
+    // A pinned pane put away with its shortcut or toggle, until it's shown again. Saved, so it starts the way it was
+    // left; the mode stays pinned.
     bool _sideHiddenForNow, _inspectorHiddenForNow;
+    (bool Side, bool Inspector) _savedPutAway;
 
     // Opened by pointing rather than clicking, so leaving closes them.
     bool _sideHovered, _inspectorHovered;
@@ -54,6 +56,9 @@ public partial class MainWindow
         var settings = _settingsStore.Load();
         _sideMode = settings.SidePanel;
         _inspectorMode = settings.Inspector;
+        _sideHiddenForNow = _sideMode == PaneMode.Expanded && settings.SidePanelPutAway == true;
+        _inspectorHiddenForNow = _inspectorMode == PaneMode.Expanded && settings.InspectorPutAway == true;
+        _savedPutAway = (_sideHiddenForNow, _inspectorHiddenForNow);
         _sidePanelToggle.ContextMenu = ModeMenu("Side panel", () => _sideMode, SetSidePanelMode);
         _inspectorToggle.ContextMenu = ModeMenu("Settings pane", () => _inspectorMode, SetInspectorMode);
 
@@ -91,6 +96,19 @@ public partial class MainWindow
         _sidePanel.AddHandler(KeyDownEvent, OnFloatingKeyDown);
         _propertiesHost.AddHandler(KeyDownEvent, OnFloatingKeyDown);
         AddHandler(PointerPressedEvent, OnPanesPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+
+        // The page it was left on, when that's Recent; Connections otherwise.
+        if (settings.SidePanelPage == "recent")
+        {
+            _side = "recent";
+            foreach (var (name, (_, view)) in _sides)
+            {
+                view.IsVisible = name == _side;
+            }
+
+            _recentPanel.Refresh();
+        }
+
         ApplyPanes();
     }
 
@@ -148,6 +166,31 @@ public partial class MainWindow
         ToolTip.SetTip(_sidePanelToggle, Tip("side panel", "Ctrl+B", _sideMode, _sidePanel.IsVisible));
         ToolTip.SetTip(_inspectorToggle, Tip("settings pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
         FitPanes();
+        SavePutAway();
+    }
+
+    /// <summary>Keeps whether each pinned pane is put away, when that changed, so the next start opens the same.</summary>
+    void SavePutAway()
+    {
+        if ((_sideHiddenForNow, _inspectorHiddenForNow) == _savedPutAway)
+        {
+            return;
+        }
+
+        _savedPutAway = (_sideHiddenForNow, _inspectorHiddenForNow);
+        SaveLayout(s => s with { SidePanelPutAway = _sideHiddenForNow ? true : null, InspectorPutAway = _inspectorHiddenForNow ? true : null });
+    }
+
+    void SaveLayout(Func<AppSettings, AppSettings> change)
+    {
+        try
+        {
+            _settingsStore.Save(change(_settingsStore.Load()));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.For("App").LogWarning("Couldn't save the layout: {Message}", e.Message);
+        }
     }
 
     /// <summary>The room pinned panes have together: the window less the rail and what the sessions keep.</summary>
@@ -538,17 +581,7 @@ public partial class MainWindow
         ApplyPanes();
     }
 
-    void SavePaneModes()
-    {
-        try
-        {
-            _settingsStore.Save(_settingsStore.Load() with { SidePanelMode = _sideMode, InspectorMode = _inspectorMode });
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            Log.For("App").LogWarning("Couldn't save the layout: {Message}", e.Message);
-        }
-    }
+    void SavePaneModes() => SaveLayout(s => s with { SidePanelMode = _sideMode, InspectorMode = _inspectorMode });
 
     /// <summary>The toggle's right-click menu: the three modes, the current one checked.</summary>
     static ContextMenu ModeMenu(string pane, Func<PaneMode> current, Action<PaneMode> choose)

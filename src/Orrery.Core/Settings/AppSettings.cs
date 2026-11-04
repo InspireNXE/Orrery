@@ -134,6 +134,18 @@ public sealed record AppSettings
 
     static PaneMode Offered(PaneMode mode) => mode == PaneMode.Auto ? PaneMode.Collapsed : mode;
 
+    /// <summary>A pinned side panel was put away (Ctrl+B, its toggle) when Orrery closed, so it starts put away. Null is shown.</summary>
+    public bool? SidePanelPutAway { get; init; }
+
+    /// <summary>A pinned right-hand pane was put away (Ctrl+Alt+B, its toggle) when Orrery closed. Null is shown.</summary>
+    public bool? InspectorPutAway { get; init; }
+
+    /// <summary>
+    /// The side panel's page when Orrery closed: "recent" starts on Recent; anything else (null) on Connections.
+    /// Credentials and Recordings aren't kept, since opening them asks for the vault or covers the sessions.
+    /// </summary>
+    public string? SidePanelPage { get; init; }
+
     /// <summary>The side panel's width as last dragged, in device-independent units. Null is the default.</summary>
     public double? SidePanelWidth { get; init; }
 

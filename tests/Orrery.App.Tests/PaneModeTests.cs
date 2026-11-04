@@ -178,6 +178,58 @@ public class PaneModeTests : IDisposable
         }
     }
 
+    [AvaloniaFact]
+    public void Panes_put_away_stay_away_at_the_next_start_and_come_back_once_shown()
+    {
+        var window = Open(new AppSettings());
+        Click(window, "SidePanelToggle");
+        Click(window, "InspectorToggle");
+        window.Close();
+        Assert.True(AppSettingsStore.In(Location).Load().SidePanelPutAway);
+        Assert.True(AppSettingsStore.In(Location).Load().InspectorPutAway);
+
+        window = Open(AppSettingsStore.In(Location).Load());
+        try
+        {
+            var side = VaultAutoLockTests.Private<Border>(window, "_sidePanel");
+            Assert.False(side.IsVisible);
+            Assert.False(VaultAutoLockTests.Private<Border>(window, "_propertiesHost").IsVisible);
+
+            // Still pinned: shown again, it's beside the sessions, and the next start shows it too.
+            Click(window, "SidePanelToggle");
+            Assert.True(side.IsVisible);
+            Assert.Equal(1, Grid.GetColumn(side));
+            Assert.Null(AppSettingsStore.In(Location).Load().SidePanelPutAway);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void The_side_panel_starts_on_Recent_when_it_was_left_there()
+    {
+        var window = Open(new AppSettings());
+        Click(window, "RecentRailButton");
+        window.Close();
+        Assert.Equal("recent", AppSettingsStore.In(Location).Load().SidePanelPage);
+
+        window = Open(AppSettingsStore.In(Location).Load());
+        try
+        {
+            Assert.True(window.FindControl<Control>("RecentSide")!.IsVisible);
+            Assert.False(window.FindControl<Control>("ConnectionsSide")!.IsVisible);
+
+            Click(window, "ConnectionsRailButton");
+            Assert.Null(AppSettingsStore.In(Location).Load().SidePanelPage);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     static void Click(Window window, string name)
     {
         window.FindControl<Button>(name)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

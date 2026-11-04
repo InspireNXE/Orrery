@@ -783,6 +783,11 @@ public partial class MainWindow : Window
         }
 
         _side = side;
+        if (side is "connections" or "recent")
+        {
+            SaveLayout(s => s with { SidePanelPage = side == "recent" ? side : null });
+        }
+
         ShowRecordingsHost(side == "recordings");
         foreach (var (name, (_, view)) in _sides)
         {
