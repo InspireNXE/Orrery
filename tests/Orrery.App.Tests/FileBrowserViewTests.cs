@@ -57,6 +57,9 @@ public class FileBrowserViewTests
         }
     }
 
+    static bool ShowsFailure(FileBrowserView view) =>
+        view.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text?.StartsWith("Connection failed: ") == true);
+
     static SftpItem Item(string name, bool folder = false) => new(name, "/srv/" + name, folder, false, 10, DateTime.Now, "rw-r--r--");
 
     static List<string?> Headers(IReadOnlyList<FileBrowserView.FileMenuEntry?> menu) => menu.Select(e => e?.Header).ToList();
@@ -108,13 +111,16 @@ public class FileBrowserViewTests
         window.Show();
         try
         {
+            // Until the view has shown the failure, not just the session reached it: the state change is posted from
+            // the session's thread, and showing it after the rows below turns the list off, so no menu opens.
             var until = DateTime.UtcNow.AddSeconds(30);
-            while (session.State != SessionState.Failed && DateTime.UtcNow < until)
+            while (!ShowsFailure(view) && DateTime.UtcNow < until)
             {
                 await Task.Delay(50);
+                Dispatcher.UIThread.RunJobs();
             }
 
-            Dispatcher.UIThread.RunJobs();
+            Assert.True(ShowsFailure(view));
             var list = view.ShowForTests([Item("a.txt"), Item("logs", folder: true)]);
             Dispatcher.UIThread.RunJobs();
             list.SelectedItems!.Add(list.Items[0]);
