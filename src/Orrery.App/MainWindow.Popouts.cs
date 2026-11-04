@@ -302,8 +302,11 @@ public partial class MainWindow
                 Activate();
                 OpenLocalTerminal();
             }
-            else if (e.Key == Key.K && e.KeyModifiers == (mac ? KeyModifiers.Meta : KeyModifiers.Control))
+            else if (Input.TabShortcuts.OpensQuickConnect(e.Key, e.KeyModifiers, place, mac)
+                || (e.Key == Key.K && e.KeyModifiers == (mac ? KeyModifiers.Meta : KeyModifiers.Control) && place == Input.FocusPlace.App))
             {
+                // As in the main window: plain Ctrl+K is a session's own (the shell's delete to the end of the line),
+                // and Ctrl+Shift+K opens quick connect from a terminal.
                 e.Handled = true;
                 Activate();
                 _ = OpenQuickConnectAsync();
