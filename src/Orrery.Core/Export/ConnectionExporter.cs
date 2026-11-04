@@ -53,7 +53,7 @@ public static class ConnectionExporter
     /// <summary>Marks an Orrery export file, so it isn't mistaken for connections.json or anything else.</summary>
     internal const string OrreryFormatName = "orrery-connections";
     /// <summary>The newest schema the importer reads. Files are written with the oldest that holds them, as connections.json is.</summary>
-    internal const int OrrerySchemaVersion = 5;
+    internal const int OrrerySchemaVersion = 6;
 
     public static ExportFormat? FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
@@ -197,7 +197,8 @@ public static class ConnectionExporter
     {
         ConnectionNode copy = node switch
         {
-            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, ManagementUrl = entry.ManagementUrl, PortForwards = entry.PortForwards?.ToList() },
+            ConnectionEntry entry => new ConnectionEntry { Id = entry.Id, Host = entry.Host, MacAddress = entry.MacAddress, WakeBroadcast = entry.WakeBroadcast, ManagementUrl = entry.ManagementUrl, StartFolder = entry.StartFolder,
+                RunAsAdministrator = entry.RunAsAdministrator, PortForwards = entry.PortForwards?.ToList() },
             ConnectionFolder folder => new ConnectionFolder { Id = folder.Id, Expanded = folder.Expanded },
             _ => throw new NotSupportedException(node.GetType().Name),
         };
@@ -393,8 +394,9 @@ public static class ConnectionExporter
         return output.ToString();
     }
 
-    /// <summary>Whether mRemoteNG can hold the connection: every protocol but a serial port.</summary>
-    static bool InMRemoteNg(ConnectionNode node) => node is not ConnectionEntry entry || SettingsResolver.Resolve(entry).Protocol.Value != Protocol.Serial;
+    /// <summary>Whether mRemoteNG can hold the connection: every protocol but a serial port and a local shell.</summary>
+    static bool InMRemoteNg(ConnectionNode node) =>
+        node is not ConnectionEntry entry || SettingsResolver.Resolve(entry).Protocol.Value is not (Protocol.Serial or Protocol.Local);
 
     /// <param name="passwordFor">A connection's encrypted password, or empty.</param>
     static IEnumerable<XElement> MRemoteNgNodes(IEnumerable<ConnectionNode> nodes, Func<ConnectionNode, string> passwordFor) =>

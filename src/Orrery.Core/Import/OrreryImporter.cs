@@ -257,6 +257,13 @@ public static class OrreryImporter
                     warnings.Add($"{copy.Name}: its management URL isn't an http or https address, so it was left out.");
                 }
             }
+
+            // A shell run as administrator is turned on only by the user here, never by a file from somewhere else.
+            toEntry.StartFolder = string.IsNullOrWhiteSpace(fromEntry.StartFolder) ? null : fromEntry.StartFolder.Trim();
+            if (fromEntry.RunAsAdministrator)
+            {
+                warnings.Add($"{copy.Name}: it ran as administrator; turn that on again in its settings if you want it.");
+            }
         }
 
         // An .rdp file's id isn't taken from a file: opening that .rdp later would connect to whatever entry carries it.

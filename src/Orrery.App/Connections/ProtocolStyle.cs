@@ -13,6 +13,7 @@ static class ProtocolStyle
     static readonly IBrush TelnetBack = Brush("#2E2445"), TelnetFore = Brush("#C9B0FF");
     static readonly IBrush SerialBack = Brush("#3A2230"), SerialFore = Brush("#F2A7C8");
     static readonly IBrush WebBack = Brush("#173538"), WebFore = Brush("#7FD8DE");
+    static readonly IBrush LocalBack = Brush("#33331A"), LocalFore = Brush("#E6E08A");
 
     public static IBrush Background(Protocol protocol) => protocol switch
     {
@@ -21,6 +22,7 @@ static class ProtocolStyle
         Protocol.Telnet => TelnetBack,
         Protocol.Serial => SerialBack,
         Protocol.Http or Protocol.Https => WebBack,
+        Protocol.Local => LocalBack,
         _ => RdpBack,
     };
 
@@ -31,13 +33,14 @@ static class ProtocolStyle
         Protocol.Telnet => TelnetFore,
         Protocol.Serial => SerialFore,
         Protocol.Http or Protocol.Https => WebFore,
+        Protocol.Local => LocalFore,
         _ => RdpFore,
     };
 
     /// <summary>Remote desktops get a monitor, terminals a prompt, serial ports a connector and web pages a globe.</summary>
     public static string Icon(Protocol protocol) => protocol switch
     {
-        Protocol.Ssh or Protocol.Telnet => Icons.Terminal,
+        Protocol.Ssh or Protocol.Telnet or Protocol.Local => Icons.Terminal,
         Protocol.Serial => Icons.SerialPort,
         Protocol.Http or Protocol.Https => Icons.Globe,
         _ => Icons.Monitor,

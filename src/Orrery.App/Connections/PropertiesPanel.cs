@@ -77,6 +77,9 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _managementUrl = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "https://10.20.0.1:8443" };
     readonly Control _managementUrlField;
     readonly Control _wakeSection;
+    readonly TextBox _startFolder = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "~" };
+    readonly ToggleSwitch _runAsAdmin = Switch("RunAsAdministrator");
+    readonly Control _localSection;
 
     readonly ComboBox _remoteAudio = Choices("RemoteAudio", (RemoteAudio.PlayHere, "Play on this computer"), (RemoteAudio.DoNotPlay, "Don't play"));
     readonly ToggleSwitch _shareAllDrives = Switch("ShareAllDrives");
@@ -295,7 +298,17 @@ sealed class PropertiesPanel : UserControl
         _stopBitsRow = new InheritRow("Stop bits", _stopBits, () => ShowInherited(r => Choose(_stopBits, r.StopBits.Value)));
         _flowControlRow = new InheritRow("Flow control", _flowControl, () => ShowInherited(r => Choose(_flowControl, r.FlowControl.Value)));
         _flowControlRow.Tip("Serial: how the two ends pause each other. Most consoles use none; use what the device's manual says.");
-        _choosePort.Click += (_, _) => ShowSerialPorts();
+        _choosePort.Click += (_, _) =>
+        {
+            if (_hostLabel.Text == "Shell")
+            {
+                ShowShells();
+            }
+            else
+            {
+                ShowSerialPorts();
+            }
+        };
         AutomationProperties.SetName(_choosePort, "Choose a serial port on this computer");
         ToolTip.SetTip(_choosePort, "The serial ports on this computer");
 
@@ -321,6 +334,31 @@ sealed class PropertiesPanel : UserControl
         ToolTip.SetTip(_managementUrl, "A web page for managing this machine, such as a firewall's or a server's out-of-band console. "
             + "Open management page in the connection's right-click menu opens it in the browser. Set here only; folders don't pass it on.");
         _notesField = Pane.Section("Notes", _notes);
+
+        var browseStart = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0 };
+        browseStart.Click += async (_, _) => await BrowseStartFolderAsync();
+        AutomationProperties.SetName(browseStart, "Browse for the starting folder");
+        AutomationProperties.SetName(_startFolder, "Starting folder");
+        ToolTip.SetTip(_startFolder, "Where the shell starts; empty or ~ is your home folder. A WSL shell starts in its own home folder.");
+        AutomationProperties.SetName(_runAsAdmin, "Run as administrator");
+        _localSection = Pane.Section("Local terminal",
+            Dialogs.Field("Starting folder", new DockPanel { Children = { Pane.Docked(browseStart, Dock.Right), _startFolder } }),
+            new StackPanel
+            {
+                IsVisible = OperatingSystem.IsWindows(),
+                Spacing = 4,
+                Children =
+                {
+                    new DockPanel { Children = { Pane.Docked(_runAsAdmin, Dock.Right), new TextBlock { Text = "Run as administrator", VerticalAlignment = VerticalAlignment.Center } } },
+                    new TextBlock
+                    {
+                        Text = "Windows asks each time it opens. The tab is marked Administrator, and isn't reopened when Orrery next starts.",
+                        FontSize = 11,
+                        Foreground = Dialogs.MutedBrush,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            });
 
         _save = new Button { Content = "Save", Margin = new Thickness(8, 0, 0, 0) };
         _save.Click += (_, _) => TrySave();
@@ -360,6 +398,7 @@ sealed class PropertiesPanel : UserControl
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
                 (_serialSection = Pane.RowSection("Serial line", _baudRateRow.View, _dataBitsRow.View, _parityRow.View, _stopBitsRow.View, _flowControlRow.View)),
+                _localSection,
                 (_tunnelSection = Pane.RowSection("SSH tunnels", _jumpHostRow.View, _forwardsField)),
                 _webSection,
                 _wakeSection,
@@ -399,7 +438,7 @@ sealed class PropertiesPanel : UserControl
 
         _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _sshAgent, _sshLegacy, _jumpHost, _autoReconnect, _record, _recordTyping, _checkHost, _enlarge,
             _quality, _colorCorrection, _webPages]);
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _startFolder, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
             _fields.Add(box);
             // TextChanged comes later, after the panel has finished filling the fields, so it took filling them for
@@ -456,7 +495,7 @@ sealed class PropertiesPanel : UserControl
             box.SelectionChanged += (_, _) => MarkDirty();
         }
 
-        foreach (var toggle in new[] { _shareAllDrives, _adminSession, _viewOnly, _confirmCommands })
+        foreach (var toggle in new[] { _shareAllDrives, _adminSession, _viewOnly, _confirmCommands, _runAsAdmin })
         {
             _fields.Add(toggle);
             toggle.IsCheckedChanged += (_, _) => MarkDirty();
@@ -716,6 +755,8 @@ sealed class PropertiesPanel : UserControl
             _mac.Text = (node as ConnectionEntry)?.MacAddress;
             _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
             _managementUrl.Text = (node as ConnectionEntry)?.ManagementUrl;
+            _startFolder.Text = (node as ConnectionEntry)?.StartFolder;
+            _runAsAdmin.IsChecked = (node as ConnectionEntry)?.RunAsAdministrator == true;
             ShowSections(own.Protocol ?? inherited.Protocol.Value);
 
             Content = _root;
@@ -992,6 +1033,8 @@ sealed class PropertiesPanel : UserControl
             entry.MacAddress = mac;
             entry.WakeBroadcast = broadcast;
             entry.ManagementUrl = managementUrl;
+            entry.StartFolder = string.IsNullOrWhiteSpace(_startFolder.Text) ? null : _startFolder.Text.Trim();
+            entry.RunAsAdministrator = _runAsAdmin.IsChecked == true && OperatingSystem.IsWindows();
         }
 
         MarkClean();
@@ -1028,7 +1071,7 @@ sealed class PropertiesPanel : UserControl
         _recordRow.View.IsVisible = !web || host;
 
         // Only terminals: a remote desktop's recording is a picture, and its keys never go in.
-        _recordTypingRow.View.IsVisible = all || host || ssh || serial || Is(Protocol.Telnet);
+        _recordTypingRow.View.IsVisible = all || host || ssh || serial || Is(Protocol.Telnet) || Is(Protocol.Local);
         ShowRecordTypingWarning();
         _checkHostRow.View.IsVisible = network;
         _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible || _checkHostRow.View.IsVisible;
@@ -1044,17 +1087,54 @@ sealed class PropertiesPanel : UserControl
         _forwardsField.IsVisible = _node is ConnectionEntry && protocol == Protocol.Ssh;
         _tunnelSection.IsVisible = _jumpHostRow.View.IsVisible || _forwardsField.IsVisible;
         // Terminals only: SSH, Telnet and serial. A folder's reach every connection in it.
-        _commandsSection.IsVisible = all || protocol is Protocol.Ssh or Protocol.Telnet or Protocol.Serial;
+        _commandsSection.IsVisible = all || protocol is Protocol.Ssh or Protocol.Telnet or Protocol.Serial or Protocol.Local;
         _wakeSection.IsVisible = _node is ConnectionEntry && network;
-        _managementUrlField.IsVisible = _node is ConnectionEntry;
+        _managementUrlField.IsVisible = _node is ConnectionEntry && network;
         // Web connections, and any machine's management page.
         _webSection.IsVisible = network;
+        _localSection.IsVisible = _node is ConnectionEntry && protocol == Protocol.Local;
 
-        // A serial port is named where a host would be; a web page's host can have a path after it.
-        _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";
+        // A serial port and a local shell are named where a host would be; a web page's host can have a path after it.
+        bool local = protocol == Protocol.Local;
+        _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : local ? "Shell" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";
         AutomationProperties.SetName(_host, _hostLabel.Text);
-        _host.PlaceholderText = protocol == Protocol.Serial ? (OperatingSystem.IsWindows() ? "COM3" : "/dev/ttyUSB0") : ProtocolInfo.IsWeb(protocol) ? "router.lan/admin" : null;
-        _choosePort.IsVisible = protocol == Protocol.Serial && _node is ConnectionEntry;
+        _host.PlaceholderText = protocol == Protocol.Serial ? (OperatingSystem.IsWindows() ? "COM3" : "/dev/ttyUSB0")
+            : local ? "The one chosen in Settings" : ProtocolInfo.IsWeb(protocol) ? "router.lan/admin" : null;
+        _choosePort.IsVisible = (protocol == Protocol.Serial || local) && _node is ConnectionEntry;
+        _choosePort.Content = local ? "Shells…" : "Ports…";
+        AutomationProperties.SetName(_choosePort, local ? "Choose a shell on this computer" : "Choose a serial port on this computer");
+        ToolTip.SetTip(_choosePort, local ? "The shells on this computer" : "The serial ports on this computer");
+    }
+
+    /// <summary>The shells on this computer, to fill the host with their ids, and one for the shell chosen in Settings.</summary>
+    void ShowShells()
+    {
+        var chosen = new MenuItem { Header = "The one chosen in Settings" };
+        chosen.Click += (_, _) => _host.Text = string.Empty;
+        List<Control> items = [chosen, new Separator()];
+        foreach (var shell in Orrery.Protocols.Local.LocalShells.Available())
+        {
+            var item = new MenuItem { Header = shell.Name };
+            item.Click += (_, _) => _host.Text = shell.Id;
+            items.Add(item);
+        }
+
+        PopupMenu.ShowAt(_choosePort, items, PlacementMode.BottomEdgeAlignedRight);
+    }
+
+    /// <summary>Fills the starting folder from the folder picker, with ~ for the home folder.</summary>
+    async Task BrowseStartFolderAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+        {
+            return;
+        }
+
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where the shell starts", AllowMultiple = false });
+        if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path)
+        {
+            _startFolder.Text = WithHome(path.TrimEnd('/', '\\') is { Length: > 0 } trimmed ? trimmed : path);
+        }
     }
 
     /// <summary>The serial ports on this computer, to fill the host with.</summary>

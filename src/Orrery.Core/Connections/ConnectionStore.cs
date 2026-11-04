@@ -18,10 +18,12 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
 
     // 2 added hosts' guests; 3 added the serial and web protocols and the settings in InheritableSettings.AddedInSchema3;
-    // 4 added saved commands and InheritableSettings.AddedInSchema4; 5 added commands sent when connected and answering a password prompt.
+    // 4 added saved commands and InheritableSettings.AddedInSchema4; 5 added commands sent when connected and answering a password prompt;
+    // 6 added local shells as connections.
     // A file is written with the oldest schema that holds it, so older builds keep reading a tree that uses nothing
     // newer, and refuse one that does instead of loading it and dropping what they don't know on save.
-    const int SchemaVersion = 5;
+    const int SchemaVersion = 6;
+    const int SchemaVersionWithCommandsWhenConnected = 5;
     const int SchemaVersionWithCommands = 4;
     const int SchemaVersionWithSerialAndWeb = 3;
     const int SchemaVersionWithHosts = 2;
@@ -29,7 +31,8 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
     /// <summary>The schema a file holding <paramref name="root"/> needs: the oldest that can hold it.</summary>
     internal static int SchemaFor(ConnectionFolder root) =>
-        root.Descendants().Prepend(root).Any(n => n.Commands?.Any(c => c.WhenConnected || c.Password != CommandPassword.None) == true) ? SchemaVersion
+        root.Descendants().Prepend(root).Any(n => n.Settings.NeedsSchema6()) ? SchemaVersion
+        : root.Descendants().Prepend(root).Any(n => n.Commands?.Any(c => c.WhenConnected || c.Password != CommandPassword.None) == true) ? SchemaVersionWithCommandsWhenConnected
         : root.Descendants().Prepend(root).Any(n => n.Commands is { Count: > 0 } || n.Settings.NeedsSchema4()) ? SchemaVersionWithCommands
         : root.Descendants().Prepend(root).Any(n => n.Settings.NeedsSchema3()) ? SchemaVersionWithSerialAndWeb
         : root.Descendants().OfType<ConnectionEntry>().Any(e => e.IsHost) ? SchemaVersionWithHosts
@@ -96,7 +99,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             Log.Learn(LogMaskKind.Host, node.Settings?.Domain);
             if (node is ConnectionEntry entry)
             {
-                if (entry.Settings?.Protocol != Protocol.Serial)
+                if (entry.Settings?.Protocol is not (Protocol.Serial or Protocol.Local))
                 {
                     Log.Learn(LogMaskKind.Host, entry.Host);
                 }
