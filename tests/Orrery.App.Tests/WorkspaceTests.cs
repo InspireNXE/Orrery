@@ -325,6 +325,34 @@ public class WorkspaceWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void The_wheel_scrolls_tabs_that_do_not_fit()
+    {
+        var window = NewWindow();
+        window.Width = 1000;
+        window.Show();
+        for (int i = 0; i < 20; i++)
+        {
+            AddTab(window, new IdleSession($"host-{i}"), new SessionOrigin($"a-long-host-name-{i}", Protocol.Ssh, null, () => Task.CompletedTask));
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        var scroller = window.FindControl<ScrollViewer>("TabScroller")!;
+        scroller.Offset = default;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(scroller.Extent.Width > scroller.Viewport.Width);
+        var over = scroller.TranslatePoint(new Point(scroller.Bounds.Width / 2, scroller.Bounds.Height / 2), window)!.Value;
+
+        // Down goes right, up comes back, and it stops at the start.
+        window.MouseWheel(over, new Vector(0, -1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(MainWindow.TabWheelStep, scroller.Offset.X);
+        window.MouseWheel(over, new Vector(0, 2));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, scroller.Offset.X);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void An_administrator_shell_is_not_reopened_at_the_next_start()
     {
         var window = NewWindow();
