@@ -75,6 +75,7 @@ machine yet, hence the 🧪.
 | Web pages, in a tab or your browser | ✅ | 🧪 | 🧪 [^webkit] |
 | Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
+| Pop a tab out into its own window | 🧪 | 🧪 | 🧪 |
 | **Remote desktops** | | | |
 | Fit the window and follow resizes | ✅ | 🧪 | 🧪 |
 | Clipboard | ✅ text, images, files | 🧪 text, images, files [^files] | 🧪 text, images, files [^files] |
@@ -185,6 +186,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   click away, with a Copy button.
 - **Reconnects** happen on their own, waiting longer each time (up to a minute), and at once when the network
   returns. A refused login or an untrusted host key or certificate is never retried.
+- **Pop out** a tab into a window of its own, from its menu, the session toolbar, Ctrl+Shift+O, or by dragging it
+  off the tab strip. The window has the session's toolbar and its own full screen. *Back to tabs*, the shortcut
+  again, or closing the window puts it back where it was in the strip; dragging the name in its bar onto the tab
+  strip puts it back where you let go. It keeps running throughout.
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
   *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.
@@ -298,8 +303,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   reopening the sessions that were open; *When I quit* waits instead. The .deb, .rpm and macOS copies point you to
   the release. Later, Skip this version, previews and downloading in the background are in Settings. A preview
   copy is offered the next preview unless you turn previews off.
-- Orrery remembers the window and open tabs and can reopen them at start: ask, always or never. Quick-connect hosts
-  come back by address and ask for their login again. Never also stops saving the tab list and deletes the saved
+- Orrery remembers the window and open tabs and can reopen them at start: ask, always or never. A popped-out tab
+  comes back in its own window, where it was. Quick-connect hosts come back by address and ask for their login again. Never also stops saving the tab list and deletes the saved
   one; window size, position and panes are still kept.
 - Turning off *Remember recent connections* deletes the Recent list and last-connected times, and records nothing
   until it's back on.
@@ -361,6 +366,7 @@ On macOS, Cmd takes the place of Ctrl.
 | --- | --- |
 | Ctrl+K | Quick connect; `>` for commands |
 | Ctrl+Shift+T | Local terminal |
+| Ctrl+Shift+O | Pop the tab out into its own window, or put it back |
 | Ctrl+Shift+A, Ctrl+Shift+C, Ctrl+Shift+V (Cmd+A, Cmd+C, Cmd+V on macOS) | In a terminal: select all, copy, paste |
 | Ctrl+, | Settings |
 | Ctrl+B | Show or hide the side panel, over the sessions unless it's pinned; the mode stays as it is |
@@ -374,7 +380,7 @@ On macOS, Cmd takes the place of Ctrl.
 | Delete | Delete the selected rows |
 
 A focused remote session gets keys first, so these go to the remote machine. Full screen, Ctrl+Alt+Home and
-Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T works from a terminal, not from a remote desktop.
+Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T and Ctrl+Shift+O work from a terminal, not from a remote desktop.
 
 ## Where your data lives
 
