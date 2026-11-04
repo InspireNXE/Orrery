@@ -100,7 +100,7 @@ public partial class MainWindow
                 Detail = source.Expand(command.Command.Text),
                 AltRun = command.Command.PressEnter ? () => SendSavedCommandAsync(tab, command, pressEnter: false) : null,
                 AltHint = command.Command.PressEnter ? "type only" : null,
-                Keywords = ["send", "run", "command", command.From.Parent is null ? "defaults" : command.From.Name],
+                Keywords = ["send", "run", "saved", "command", command.From.Parent is null ? "defaults" : command.From.Name],
             };
         }
     }

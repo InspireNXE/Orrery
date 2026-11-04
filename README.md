@@ -204,12 +204,23 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Saved commands:** an SSH, Telnet or serial connection, or a folder, can keep commands for its terminals. Ones
   on the defaults for all connections reach every terminal, local shells and quick connects included. Add them in
   the properties pane under Commands, from *Commands › New command…* in the session's menu or Ctrl+K, which asks
-  whether it's for this connection, a folder it's in, or every connection, or with *Save selection as command…*. They're listed under Commands in the session's menu and in Ctrl+K, where Enter
+  whether it's for this connection, a folder it's in, or every connection, or with *Save selection as command…*. They're listed under Commands in the session's menu and in Ctrl+K (`>saved` lists them), where Enter
   sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
   are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
   host, with Cancel focused; the editor ticks it for commands that look like they delete, stop or overwrite something, such as
   `rm -rf` or `systemctl stop`. *Confirm every command* asks before all of them, for a connection or a whole
   folder. Nothing is sent on connect. Imported commands are listed in the import preview, unticked.
+
+<p align="center">
+  <img src="docs/images/side-by-side.png" width="720"
+       alt="Two SSH tabs side by side: web-01 on the left, with its find bar open on nginx showing 2 of 2 and the matches marked in the text, and web-02 on the right showing nginx's status and error log. The properties pane is hidden.">
+</p>
+
+<p align="center">
+  <img src="docs/images/saved-commands.png" width="720"
+       alt="Quick connect open over the main window with >saved typed in. Under Saved commands · web-01 it lists New saved command…, then Restart nginx, Follow the access log and Disk space, each with the command it sends beneath its name.">
+</p>
+
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.
 - **Management page:** give a connection a URL, such as a firewall's admin page or an out-of-band console, and
   *Open management page* opens it in a tab. Folders don't pass it on. Web pages go to your default browser instead if you choose that in Settings, or for one connection or folder.

@@ -70,7 +70,7 @@ static class Shots
                 Save(compared, output, "interface-colors.png");
             }
 
-            await QuickConnectAsync(window, output);
+            await QuickConnectAsync(window, output, "web", "quick-connect.png");
 
             SelectTab(window, tabs[2]);
             Select(window, demo.Db02.Id);
@@ -83,6 +83,8 @@ static class Shots
             await RecordingAsync(window, web, tabs[0], demo.Web01.Id, output);
 
             await SettingsAsync(window, location, output);
+
+            await SideBySideAsync(window, demo, web, tabs[0], output);
 
             using var preview = await RenderAsync(SocialPreview(hero, new Bitmap(icon)), 1280, 640);
             Save(preview, output, "social-preview.png");
@@ -117,17 +119,21 @@ static class Shots
         hostStatus.Enabled = true;
     }
 
-    /// <summary>Quick connect drawn over the dimmed window where it opens, with a query typed in.</summary>
-    static async Task QuickConnectAsync(MainWindow window, string output)
+    /// <summary>
+    /// Quick connect drawn over the dimmed window where it opens, with <paramref name="typed"/> typed in; with
+    /// <paramref name="commands"/>, the current session's commands too.
+    /// </summary>
+    static async Task QuickConnectAsync(MainWindow window, string output, string typed, string name, bool commands = false)
     {
         var dimmer = Private<Border>(window, "_dimmer");
         dimmer.IsVisible = true;
         var open = Private<List<SessionTab>>(window, "_tabs").Select(t => new OpenSession(t.Origin.Title, t.Address, t.Origin.Protocol, t.Origin.Label)).ToList();
-        var quick = new QuickConnectWindow(Private<ConnectionTree>(window, "_tree"), open);
+        var palette = commands ? (IReadOnlyList<PaletteCommand>)Method(window, "PaletteCommands").Invoke(window, [])! : null;
+        var quick = new QuickConnectWindow(Private<ConnectionTree>(window, "_tree"), open, palette);
         _ = quick.ShowOver(window);
         await SettleAsync();
         var query = quick.GetVisualDescendants().OfType<TextBox>().First();
-        query.Text = "web";
+        query.Text = typed;
         query.CaretIndex = query.Text.Length;
         await SettleAsync();
 
@@ -140,7 +146,7 @@ static class Shots
         Canvas.SetTop(box, 96); // QuickConnectWindow.TopOffset
         canvas.Children.Add(box);
         using var composed = await RenderAsync(canvas, Width, Height);
-        Save(composed, output, "quick-connect.png");
+        Save(composed, output, name);
 
         quick.Close();
         dimmer.IsVisible = false;
@@ -197,6 +203,37 @@ static class Shots
         panel.Stage.Close();
         var connections = Private<Dictionary<string, (Button RailButton, Control View)>>(window, "_sides")["connections"].RailButton;
         Invoke(window, "OnRailClick", connections, new Avalonia.Interactivity.RoutedEventArgs());
+        await SettleAsync();
+    }
+
+    /// <summary>
+    /// web-01 and web-02 side by side, web-01 finding "nginx" in its scrollback; then Ctrl+K's saved commands for web-01,
+    /// which it has from Production.
+    /// </summary>
+    static async Task SideBySideAsync(MainWindow window, DemoData demo, DemoTerminal web, SessionTab webTab, string output)
+    {
+        var twin = new DemoTerminal(demo.Web02.Host, SessionState.Connected);
+        AddTab(window, demo.Web02, twin);
+        var tabs = Private<List<SessionTab>>(window, "_tabs");
+        SelectTab(window, webTab);
+        Select(window, demo.Web01.Id);
+        Invoke(window, "SplitWith", webTab, false, tabs[^1]);
+        Invoke(window, "ToggleInspector");
+        await SettleAsync(10);
+        twin.Output(DemoShell.Twin);
+        webTab.FindBar!.Open("nginx");
+        await SettleAsync(10);
+        using (var split = Capture(window))
+        {
+            Save(split, output, "side-by-side.png");
+        }
+
+        webTab.FindBar.Close();
+        Invoke(window, "ToggleInspector");
+        SelectTab(window, webTab);
+        await SettleAsync(10);
+        await QuickConnectAsync(window, output, ">saved", "saved-commands.png", commands: true);
+        Invoke(window, "EndSplit", webTab, true);
         await SettleAsync();
     }
 

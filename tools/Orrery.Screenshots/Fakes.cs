@@ -70,6 +70,20 @@ static class DemoShell
         {Prompt}
         """;
 
+    /// <summary>What web-02 shows beside web-01: the same server's twin, its nginx checked.</summary>
+    public static readonly string Twin = $"""
+        Last login: Sat Oct 31 09:14:02 2026 from 10.20.8.15
+        {Prompt.Replace("web-01", "web-02")}systemctl status nginx --no-pager
+        {Green}●{Reset} nginx.service - A high performance web server
+             Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled)
+             Active: {Green}active (running){Reset} since Thu 2026-10-29; 2 days ago
+           Main PID: 1203 (nginx)
+        {Prompt.Replace("web-01", "web-02")}tail -n 4 /var/log/nginx/error.log
+        2026/10/31 10:41:57 [warn] 1204#1204: upstream response is buffered
+        2026/10/31 10:42:03 [notice] 1204#1204: signal process started
+        {Prompt.Replace("web-01", "web-02")}
+        """;
+
     /// <summary>What web-01 prints while it's recorded, a step at a time: a cleared screen, then a deploy.</summary>
     public static readonly string[] Recorded =
     [
