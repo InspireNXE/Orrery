@@ -333,7 +333,7 @@ sealed class PropertiesPanel : UserControl
         var editor = new StackPanel
         {
             Spacing = 10,
-            Margin = new Thickness(16, 4, 16, 16),
+            Margin = new Thickness(16, 12, 16, 16),
             Children =
             {
                 Pane.Section("Connection", _nameField, _hostField, Pane.Rows(_protocolRow.View, _portRow.View), _managementUrlField),
@@ -374,12 +374,11 @@ sealed class PropertiesPanel : UserControl
         {
             Children =
             {
-                Pane.Docked(new StackPanel
+                Pane.Docked(Pane.HeaderStrip(new StackPanel
                 {
                     Spacing = 14,
-                    Margin = new Thickness(16, 16, 16, 12),
                     Children = { Pane.Header(_tile, _title, _path, _lastConnected, _lastFailed), _tabStrip },
-                }, Dock.Top),
+                }), Dock.Top),
                 _body,
             },
         };

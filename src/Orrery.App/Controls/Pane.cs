@@ -97,6 +97,15 @@ static class Pane
         Child = content,
     };
 
+    /// <summary>The pane's header, pinned over the scrolling content and set off from it by the footer's line.</summary>
+    public static Control HeaderStrip(Control content) => new Border
+    {
+        BorderBrush = LineBrush,
+        BorderThickness = new Thickness(0, 0, 0, 1),
+        Padding = new Thickness(16, 16, 16, 12),
+        Child = content,
+    };
+
     /// <summary>A scrolling body with a footer pinned under it.</summary>
     public static Control WithFooter(Control body, Control footer) => new DockPanel
     {

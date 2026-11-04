@@ -109,7 +109,7 @@ sealed class SessionSettingsView : UserControl
             }
         };
 
-        var body = new StackPanel { Margin = new Thickness(16, 0, 16, 16) };
+        var body = new StackPanel { Margin = new Thickness(16, 12, 16, 16) };
         body.Children.Add(Note("Changes here reach the open tab at once and last until it closes. Saved settings stay as they are unless you keep a change."));
         foreach (var item in _items)
         {
