@@ -51,6 +51,12 @@ public sealed class SavedCommand
     /// <summary>The credential whose password is typed, for <see cref="CommandPassword.Credential"/>.</summary>
     public Guid? PasswordCredentialId { get; set; }
 
+    /// <summary>
+    /// Shared by the copies of one command saved on several places, so editing it edits them all; null for a command
+    /// saved in one place. A version of Orrery that doesn't know it keeps the copies as separate commands.
+    /// </summary>
+    public Guid? LinkId { get; set; }
+
     /// <summary>Whether it answers a password prompt at all.</summary>
     public bool AnswersPassword => PressEnter && (Password == CommandPassword.Login || Password == CommandPassword.Credential && PasswordCredentialId is not null);
 
@@ -63,16 +69,101 @@ public sealed class SavedCommand
         WhenConnected = WhenConnected,
         Password = Password,
         PasswordCredentialId = PasswordCredentialId,
+        LinkId = LinkId,
     };
 }
 
 /// <summary>A command a connection can send, where it was saved, and whether sending it asks first.</summary>
 public sealed record ResolvedCommand(SavedCommand Command, ConnectionNode From, bool Confirm);
 
+/// <summary>One copy of a command and the connection, folder or defaults (the tree's top) it's saved on.</summary>
+public sealed record CommandCopy(ConnectionNode Owner, SavedCommand Command);
+
 public static partial class SavedCommands
 {
     /// <summary>Longest command text kept: enough for a short script, not a file.</summary>
     public const int MaxLength = 4000;
+
+    /// <summary>Every copy of <paramref name="command"/> (on <paramref name="owner"/>) in the tree, in tree order: itself alone unless it's linked.</summary>
+    public static IReadOnlyList<CommandCopy> Copies(ConnectionFolder root, ConnectionNode owner, SavedCommand command) =>
+        command.LinkId is not { } link
+            ? [new CommandCopy(owner, command)]
+            : [.. root.Descendants().Prepend(root).SelectMany(n => (n.Commands ?? []).Where(c => c.LinkId == link).Select(c => new CommandCopy(n, c)))];
+
+    /// <summary>
+    /// Every command in the tree, the copies of a linked one together, in the order they're first met: the defaults'
+    /// first, then the tree's.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<CommandCopy>> All(ConnectionFolder root)
+    {
+        var sets = new List<List<CommandCopy>>();
+        var linked = new Dictionary<Guid, List<CommandCopy>>();
+        foreach (var node in root.Descendants().Prepend(root))
+        {
+            foreach (var command in node.Commands ?? [])
+            {
+                var copy = new CommandCopy(node, command);
+                if (command.LinkId is not { } link)
+                {
+                    sets.Add([copy]);
+                }
+                else if (linked.TryGetValue(link, out var set))
+                {
+                    set.Add(copy);
+                }
+                else
+                {
+                    linked[link] = set = [copy];
+                    sets.Add(set);
+                }
+            }
+        }
+
+        return sets;
+    }
+
+    /// <summary>
+    /// Saves <paramref name="command"/> on each of <paramref name="places"/>, in place of <paramref name="old"/>'s copies:
+    /// where one was, it's replaced where it was listed; a new place adds it at the end; a place no longer chosen
+    /// loses it. Copies on more than one place share a link. Returns the copies saved, in the order of the places.
+    /// </summary>
+    public static IReadOnlyList<CommandCopy> Save(IReadOnlyList<CommandCopy> old, SavedCommand command, IReadOnlyList<ConnectionNode> places)
+    {
+        Guid? link = places.Count > 1 ? old.Select(c => c.Command.LinkId).FirstOrDefault(id => id is not null) ?? Guid.NewGuid() : null;
+        Delete(old.Where(c => !places.Contains(c.Owner)));
+        var saved = new List<CommandCopy>();
+        foreach (var place in places.Distinct())
+        {
+            var copy = command.Clone();
+            copy.LinkId = link;
+            var list = place.Commands ??= [];
+            int at = old.FirstOrDefault(c => c.Owner == place) is { } was ? list.IndexOf(was.Command) : -1;
+            if (at >= 0)
+            {
+                list[at] = copy;
+            }
+            else
+            {
+                list.Add(copy);
+            }
+
+            saved.Add(new CommandCopy(place, copy));
+        }
+
+        return saved;
+    }
+
+    /// <summary>Takes each copy off its place, leaving no empty list behind.</summary>
+    public static void Delete(IEnumerable<CommandCopy> copies)
+    {
+        foreach (var (owner, command) in copies.ToList())
+        {
+            if (owner.Commands is { } list && list.Remove(command) && list.Count == 0)
+            {
+                owner.Commands = null;
+            }
+        }
+    }
 
     /// <summary>
     /// Why <paramref name="command"/> won't answer a password prompt on <paramref name="entry"/> (null for a local shell

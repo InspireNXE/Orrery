@@ -205,8 +205,12 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   matches are marked in the text and as ticks down the scroll bar. Selected text is searched for straight away.
 - **Saved commands:** an SSH, Telnet or serial connection, or a folder, can keep commands for its terminals. Ones
   on the defaults for all connections reach every terminal, local shells and quick connects included. Add them in
-  the properties pane under Commands, from *Commands › New command…* in the session's menu or Ctrl+K, which asks
-  whether it's for this connection, a folder it's in, or every connection, or with *Save selection as command…*. They're listed under Commands in the session's menu and in Ctrl+K (`>saved` lists them), where Enter
+  the properties pane under Commands, from *Commands › New command…* in the session's menu or Ctrl+K, or with
+  *Save selection as command…*. *Save on* ticks where it goes: the terminal's own connection to begin with, and
+  any others, folders or the defaults as well. A guest is listed under its host but isn't ticked with it, since it's
+  another machine; a ticked folder covers everything in it, guests included, so those rows show ticked and grayed
+  out. Saved on several places, a command keeps a linked copy on each, and editing it edits them all (an older
+  Orrery reads the copies as separate commands). They're listed under Commands in the session's menu and in Ctrl+K (`>saved` lists them), where Enter
   sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
   are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
   host, with Cancel focused; the editor ticks it for commands that look like they delete, stop or overwrite something, such as
@@ -217,10 +221,13 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   beside a command in the properties pane move it up or down, which is the order the menus list them and the
   order they're sent in when connected.
 - **Commands page:** the Commands button in the rail lists every saved command in one place, grouped by where it's
-  saved (the defaults first, then folders and connections in tree order), with a filter that matches names, text
-  and places. Choosing one opens it in the right-hand pane to edit; changing *Save on* moves it there. + adds one,
-  starting on the connection or folder selected in the tree. When the current tab is a connected terminal that has
-  the command, *Send to* (its name) saves any changes and sends it, asking first if it says to.
+  saved (the defaults first, then those on several places, then folders and connections in tree order), with a
+  filter that matches names, text and places. Choosing one opens it in the right-hand pane to edit; ticking or
+  unticking places under *Save on* adds it there or takes it off. + adds one, starting on the connection or folder
+  selected in the tree. When the current tab is a connected terminal that has the command, *Send to* (its name)
+  saves any changes and sends it, asking first if it says to. Right-click a command for Send to, Edit, Duplicate,
+  Copy command, Move up and down (for one on a single place), a new command on its place, and Delete (Delete key
+  too); right-click a group for a new command there.
 - **Becoming root:** a command can answer a password prompt (*If it asks for a password*) with the connection's
   login password or a saved credential's, such as root's for `su -`. *Become root* in the editor fills in `sudo -i`
   answered with the login password. Any program on a server can show a password prompt, so use it only on servers you
