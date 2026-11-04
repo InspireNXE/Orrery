@@ -27,10 +27,20 @@ public class CaptureTests
     [InlineData(new[] { "--seconds", "0" }, "--seconds 0 isn't valid.")]
     [InlineData(new[] { "--monitor" }, "Unknown option --monitor.")]
     [InlineData(new[] { "--fps", "60" }, "Unknown option --fps.")]
+    [InlineData(new[] { "--send", "viewer.local:47990" }, "--send viewer.local:47990 isn't valid.")]
+    [InlineData(new[] { "--send", "10.0.0.5" }, "--send 10.0.0.5 isn't valid.")]
+    [InlineData(new[] { "--loopback", "--send", "10.0.0.5:47990" }, "--loopback and --send can't be used together.")]
     public void Bad_options_say_what_is_wrong(string[] args, string expected)
     {
         Assert.Null(CaptureOptions.Parse(args, out var error));
         Assert.Equal(expected, error);
+    }
+
+    [Fact]
+    public void Send_takes_an_address_and_port()
+    {
+        var options = CaptureOptions.Parse(["--send", "10.0.0.5:47990"], out _);
+        Assert.Equal(new System.Net.IPEndPoint(System.Net.IPAddress.Parse("10.0.0.5"), 47990), options!.Send);
     }
 
     [Theory]

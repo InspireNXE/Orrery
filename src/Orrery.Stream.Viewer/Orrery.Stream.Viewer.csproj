@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Phase 1's test client for OSP (docs/design-stream.md §11): receives a stream from OrreryHost (capture, sending to this machine)
+       over plain UDP, decodes it and shows it in a bare window, timing each frame. Windows only; not packaged. The
+       real client is the popout inside Orrery. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>OrreryStreamViewer</AssemblyName>
+    <Product>Orrery Stream Viewer</Product>
+    <Description>Orrery Stream Viewer</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Orrery.Protocols.Stream\Orrery.Protocols.Stream.csproj" />
+  </ItemGroup>
+</Project>

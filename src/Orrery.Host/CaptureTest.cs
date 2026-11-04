@@ -12,7 +12,9 @@ using Orrery.Streaming;
 namespace Orrery.Host;
 
 /// <summary>What <c>--capture</c> was asked to do.</summary>
-sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1, int Seconds = 10, long? Bitrate = null, string? OutputPath = null, bool Loopback = false)
+/// <param name="Send">Where to send the stream over plain UDP (an IP address and port), for OrreryStreamViewer.</param>
+sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1, int Seconds = 10, long? Bitrate = null, string? OutputPath = null,
+    bool Loopback = false, IPEndPoint? Send = null)
 {
     /// <summary>Reads the arguments after <c>--capture</c>, or returns null with <paramref name="error"/> saying what's wrong.</summary>
     public static CaptureOptions? Parse(IReadOnlyList<string> args, out string? error)
@@ -38,17 +40,26 @@ sealed record CaptureOptions(int Monitor = 0, VideoCodec Codec = VideoCodec.Av1,
                 case "--out" when !string.IsNullOrWhiteSpace(value):
                     options = options with { OutputPath = value };
                     break;
+                case "--send" when IPEndPoint.TryParse(value ?? "", out var destination) && destination.Port != 0:
+                    options = options with { Send = destination };
+                    break;
                 case "--loopback":
                     options = options with { Loopback = true };
                     continue; // takes no value
                 default:
-                    error = value is null || args[i] is not ("--monitor" or "--codec" or "--seconds" or "--mbps" or "--out")
+                    error = value is null || args[i] is not ("--monitor" or "--codec" or "--seconds" or "--mbps" or "--out" or "--send")
                         ? $"Unknown option {args[i]}."
                         : $"{args[i]} {value} isn't valid.";
                     return null;
             }
 
             i++;
+        }
+
+        if (options.Loopback && options.Send is not null)
+        {
+            error = "--loopback and --send can't be used together.";
+            return null;
         }
 
         error = null;
@@ -167,9 +178,19 @@ static class CaptureTest
                 : null;
             using var file = path is null ? null : new BitstreamFile(File.Create(path), options.Codec, width, height);
             // With --loopback the file is written from the frames that came back over UDP, which proves they arrive whole.
-            using var loopback = options.Loopback ? new Loopback(f => file?.Write(f.Data, (long)(f.CaptureMicroseconds / 1000))) : null;
+            ulong? firstReceived = null;
+            using var loopback = options.Loopback
+                ? new Loopback(f =>
+                {
+                    firstReceived ??= f.CaptureMicroseconds;
+                    file?.Write(f.Data, (long)((f.CaptureMicroseconds - firstReceived.Value) / 1000));
+                })
+                : null;
+            using var sender = options.Send is { } destination ? new UdpMediaSender(destination) : null;
             output.WriteLine($"Encoding {width}x{height} at up to {fps} fps with {Name(options.Codec)}, {bitrate / 1_000_000} Mbps, for {options.Seconds} s"
-                + (loopback is null ? "." : ", sending each frame over UDP to 127.0.0.1 and back together.")
+                + (loopback is not null ? ", sending each frame over UDP to 127.0.0.1 and back together."
+                    : sender is not null ? $", sending to {options.Send} over UDP (start OrreryStreamViewer there first)."
+                    : ".")
                 + " A frame is only captured when something on the monitor changes, so move a window or play a video.");
 
             var stats = new List<FrameTiming>();
@@ -250,9 +271,13 @@ static class CaptureTest
 
                 stats.Add(new FrameTiming(Milliseconds(captured - presented), Milliseconds(encoded - captured), frame.Length));
                 totalBytes += frame.Length;
+                // Frames carry their present time on this machine's QPC clock, so a viewer here can time the whole trip.
+                ulong presentMicroseconds = (ulong)(presented / (Stopwatch.Frequency / 1_000_000.0));
+                sender?.SendFrame(frame, new MediaPacketHeader(MediaKind.Video, stats.Count == 1 ? MediaPacketFlags.Recovery : MediaPacketFlags.None,
+                    0, (uint)stats.Count, 0, 0, presentMicroseconds));
                 if (loopback is not null)
                 {
-                    loopback.Send(frame, (ulong)(Milliseconds(presented - firstPresent) * 1000), recovery: stats.Count == 1);
+                    loopback.Send(frame, presentMicroseconds, recovery: stats.Count == 1);
                 }
                 else
                 {
@@ -262,6 +287,10 @@ static class CaptureTest
 
             Report(output, stats, totalBytes, options.Seconds, startsCorrectly, pointerOnly, reopened);
             loopback?.Finish(output);
+            if (sender is not null)
+            {
+                output.WriteLine($"Sent {stats.Count} frames to {options.Send} in {sender.PacketsSent:N0} datagrams ({sender.BytesSent:N0} bytes).");
+            }
             if (path is not null && stats.Count > 0)
             {
                 output.WriteLine($"Wrote {path}");

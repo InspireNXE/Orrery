@@ -6,7 +6,10 @@ Status: **Draft**, 2026-11-03 (owner's answers in §12). Scaffolded 2026-11-04: 
 what each can encode, and on AMD encodes test frames with every codec (measured in §5). `OrreryHost --capture`
 duplicates a monitor and encodes it with AMF, timing every frame and optionally writing a playable file (§5); with
 `--loopback` each frame also crosses plain UDP to 127.0.0.1 and is put back together (`FramePacketizer`,
-`FrameAssembler`, `UdpMediaSender`/`Receiver` in Orrery.Streaming). No decoding or client yet.
+`FrameAssembler`, `UdpMediaSender`/`Receiver` in Orrery.Streaming); with `--send ip:port` it goes to
+`OrreryStreamViewer`, phase 1's test client, which decodes on the GPU through Media Foundation and presents in a bare
+window (`Orrery.Protocols.Stream/Windows`). Windows to Windows works end to end on one machine; not yet between two,
+nor inside Orrery.
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
@@ -153,7 +156,7 @@ AV1 encoding needs an RTX 40 or RX 7000 series card or newer; the host advertise
 
 | Platform | Decode | Present |
 |---|---|---|
-| Windows | D3D11VA (DXVA), or Media Foundation | D3D11 flip-model swapchain, tearing allowed, VRR |
+| Windows | Media Foundation's decoders on a D3D11 device, which decode through DXVA (built, phase 1) | D3D11 flip-model swapchain, tearing allowed, VRR; the D3D11 video processor converts NV12 to RGB into the back buffer (built) |
 | Linux (Wayland) | VA-API to DMA-BUF | Vulkan, in a native Wayland window from SDL3 (below) |
 | macOS | VideoToolbox | Metal layer |
 
@@ -252,6 +255,24 @@ nothing dropped, rejected or duplicated; 3 to 5 datagrams per frame on average. 
 to having it reassembled: 0.04 ms median, 0.09 to 0.18 ms 95th percentile, about 6.5 ms worst (once per run, likely
 the receiving thread being scheduled late). Loopback has no loss or real network delay, so this only shows the
 packetizing costs next to nothing; pacing, loss and FEC are measured once a second machine receives.
+
+**Decode and present** (same day, `OrreryHost --capture --send 127.0.0.1:47990` into `OrreryStreamViewer` on the
+same machine, over RDP, 8 s per codec, about 257 frames each). Every frame sent was shown, none dropped. The decoders
+were Windows' own: the H.264 decoder in Windows, and the HEVC and AV1 Video Extensions from the Store. "Host present"
+is the QPC time DXGI gave the frame on the host; "here" is when the viewer's `Present` call returned, before the
+frame is on the glass. Median / 95th percentile:
+
+| Codec | Received to decoded | Decoded to presented | Host present to viewer present |
+|---|---|---|---|
+| H.264 | 0.21 / 0.31 ms | 0.20 / 0.28 ms | 4.32 / 4.83 ms |
+| HEVC | 0.13 / 0.29 ms | 0.13 / 0.24 ms | 3.86 / 4.58 ms |
+| AV1 | 0.12 / 0.21 ms | 0.12 / 0.22 ms | 3.72 / 4.35 ms |
+
+"Decoded" is when Media Foundation hands the frame back, and the GPU may still be decoding it; the presenter's work
+is queued behind it, so the last column is honest about what reached `Present`, but not about the display. Almost
+all of it is the host's encode. The swapchain reports tearing support, so frames aren't held for a refresh. A
+recording of the screen during the run shows the viewer's picture with the right colors. Glass to glass, two
+machines, and a physical monitor at 120 Hz are still to measure, from a local session rather than RDP.
 
 Two such streams at good quality need roughly 150–300 Mbps: fine on wired gigabit, unrealistic on most Wi-Fi, where
 rate control lowers quality before it lets latency grow. The host advertises what its encoders can sustain, and the
@@ -424,9 +445,10 @@ text only.
 
 Each phase ends usable and tested on real hardware, both GPUs where it applies.
 
-1. **Spike, Windows to Windows.** Desktop Duplication capture into AMF (both done) and NVENC, plain UDP, D3D11VA
-   decode, a native swapchain in an Avalonia window. Measure glass-to-glass latency (a timer drawn on the host, filmed
-   with the client next to it). Answers whether Avalonia can present fast enough.
+1. **Spike, Windows to Windows.** Desktop Duplication capture into AMF, plain UDP, Media Foundation decode and a
+   flip-model swapchain in a bare window (all done, `OrreryStreamViewer`); NVENC; the same swapchain in an Avalonia
+   window. Measure glass-to-glass latency (a timer drawn on the host, filmed with the client next to it). Answers
+   whether Avalonia can present fast enough.
 2. **Input.** Keyboard and mouse, relative mouse with pointer lock, SDL3 controllers on the client, virtual HID
    gamepad on the host.
 3. **The real protocol.** QUIC over MsQuic, pairing, mutual TLS, FEC, rate control, recovery from loss, full audio
@@ -473,6 +495,8 @@ Each is checked (source, version, hash, license) before it's added, and none is 
 |---|---|---|
 | NVENC header | **Used, not shipped** | FFmpeg's nv-codec-headers `n12.1.14.1` (NVENC API 12.1, MIT), `nvEncodeAPI.h` SHA-256 `dbdaa8bcbc2b9325bd24bc68b36170a8432411518040e8d4c8421608cf217425`. `tools/nvenc-interop` fetches it, refuses any other hash, and generates `NvEncInterop.g.cs` with MSVC, so offsets, GUIDs and bitfield masks come from the compiler. The driver supplies the library at run time; API 12.1 needs driver 531.61 or later on Windows, 530.41.03 on Linux |
 | AMF headers | **Used, not shipped** | GPUOpen-LibrariesAndSDKs/AMF `v1.4.36` (2025-04-29), 29 headers from `amf/public/include` (core, encoders, caps), MIT; each file's SHA-256 is pinned in `tools/amf-interop/Generate-AmfInterop.ps1`, and each was checked against the git blob hash at that tag when pinned. The generator compiles them as C, so vtable slots come from the headers' C vtable structs. The headers open with AMD's "Notice Regarding Standards": no license to codec patents (H.264 and HEVC among them), and any royalties owed are the user's. That's about codec patents, not the MIT code; see the open question in §14. AMF 1.4.36 runs on drivers whose runtime is 1.4.36 or later (this machine's is 1.5.3) |
+| Windows SDK headers | **Used, not shipped** | The locally installed SDK (10.0.26100.0 here) and MSVC compile `tools/windows-interop/generate.c`, which prints the vtable slots, GUIDs, constants and struct layouts the client's Media Foundation, D3D11 video, DXGI and window calls use (`WindowsInterop.g.cs`). Only those ABI numbers come out; nothing is downloaded |
+| Windows video decoders | **Runtime, the user's** | Media Foundation picks the decoder Windows has. H.264 is part of Windows (not N editions without the Media Feature Pack). HEVC and AV1 come from the Microsoft Store's HEVC Video Extensions (2.5.48 here; sold for a small fee where the PC maker didn't include it) and AV1 Video Extension (2.0.35 here, free). Decoding through Windows' own decoders leaves the codec licensing with Microsoft and the user; the viewer says which extension to install when one is missing |
 | SDL3 | **Vetted, waiting for approval** | Official release 3.4.18 (2026-10-02) from libsdl-org/SDL. 3.4.20 came out 2026-11-03 and is left until it has been out a couple of weeks. SHA-256 from GitHub's asset digests: `SDL3-3.4.18-win32-x64.zip` `75c2c0fc74e7d1206aaedc22893a35887332f4f85f5c8b74fddc10d177985f2c`, `SDL3-3.4.18-win32-arm64.zip` `a95910a1a19260a7d17ca041cf47af13d1aa600b4ee8f0005ddc1e8e942f5086`, `SDL3-3.4.18.dmg` `c1adf3da91108dbc3e4205da5dacebc203085d283fa89e86eb2c889abd03a853`, source `SDL3-3.4.18.tar.gz` `9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3` (GPG-signed, `.sig` alongside). zlib license. No Linux binaries upstream: build from the signed tarball in CI, or use the distro's when it's new enough |
 | SDL3 C# binding | **Recommended: our own** | We need perhaps 40 functions (windows, events, gamepads, rumble, clipboard, properties), so a thin P/Invoke layer of our own over the official binaries, like NVENC's, avoids a dependency. Alternatives seen: `ppy/SDL3-CS` (MIT, NuGet, ships natives ppy builds themselves, last 2026-10-02); `edwardgushchin/SDL3-CS` (zlib, active); `flibitijibibo/SDL3-CS` (zlib, single generated file, last commit 2026-07-07) |
 
