@@ -201,9 +201,11 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Find** in a terminal (Ctrl+Shift+F, Cmd+F on macOS, or Find… in its right-click menu) searches the screen and
   its scrollback as you type, newest match first. Enter goes back through older ones and Shift+Enter forward;
   matches are marked in the text and as ticks down the scroll bar. Selected text is searched for straight away.
-- **Saved commands:** a connection or folder can keep commands for its terminals, in the properties pane under
-  Commands, or with *Save as command…* on a selection. They're listed under Commands in the session's menu and in
-  Ctrl+K, where Enter sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
+- **Saved commands:** an SSH, Telnet or serial connection, or a folder, can keep commands for its terminals. Ones
+  on the defaults for all connections reach every terminal, local shells and quick connects included. Add them in
+  the properties pane under Commands, from *Commands › New command…* in the session's menu or Ctrl+K, which asks
+  whether it's for this connection, a folder it's in, or every connection, or with *Save selection as command…*. They're listed under Commands in the session's menu and in Ctrl+K, where Enter
+  sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
   are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
   host, with Cancel focused; the editor ticks it for commands that look like they delete, stop or overwrite something, such as
   `rm -rf` or `systemctl stop`. *Confirm every command* asks before all of them, for a connection or a whole
