@@ -872,8 +872,8 @@ public partial class MainWindow : Window
             }
         }, RoutingStrategies.Tunnel);
 
-        // A local terminal, popping the current tab out and splitting, caught on the way down too so a focused terminal
-        // doesn't take them as Ctrl+T, Ctrl+O and Ctrl+E.
+        // A local terminal, popping the current tab out, splitting and quick connect, caught on the way down too so a
+        // focused terminal doesn't take them as Ctrl+T, Ctrl+O, Ctrl+E and Ctrl+K.
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Handled || _dimmer.IsVisible
@@ -898,6 +898,11 @@ public partial class MainWindow : Window
             {
                 e.Handled = true;
                 ToggleSplit(current);
+            }
+            else if (Input.TabShortcuts.OpensQuickConnect(e.Key, e.KeyModifiers, FocusPlaceOf(e.Source), OperatingSystem.IsMacOS()))
+            {
+                e.Handled = true;
+                _ = OpenQuickConnectAsync();
             }
         }, RoutingStrategies.Tunnel);
 
@@ -1928,7 +1933,8 @@ public partial class MainWindow : Window
 
     void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        // A focused session swallows keys first, so Ctrl+K inside a remote desktop goes to the remote machine.
+        // A focused session swallows keys first, so Ctrl+K inside a remote desktop goes to the remote machine, and in a
+        // terminal to the shell; Ctrl+Shift+K opens quick connect from a terminal.
         var modifier = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
         if (e.Key == Key.K && e.KeyModifiers == modifier)
         {
