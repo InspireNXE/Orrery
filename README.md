@@ -450,6 +450,10 @@ One file a day, kept two weeks, in `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs
 never passwords, keys, keystrokes or screen contents. Settings opens the folder, and has a detailed logging switch
 that turns itself off when Orrery closes.
 
+They do name your connections, hosts and IP addresses, usernames, saved credentials' names, host key and certificate
+fingerprints and file paths (detailed logging adds SFTP paths). None of that logs anyone in, but together it maps your
+network, so read a log over before sharing it, and remove what you'd rather not send.
+
 </details>
 
 ## Building

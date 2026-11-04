@@ -852,7 +852,22 @@ public partial class MainWindow : Window
             _fullScreenHint.Text = $"{Input.FullScreenShortcut.Describe(_fullScreenShortcut)} to leave";
             _fullScreenBar.IsVisible = true;
         };
-        _fullScreenBar.PointerExited += (_, _) => _fullScreenBar.IsVisible = false;
+        // The bar is narrower than the strip that shows it, so leaving one for the other keeps it; it goes once the
+        // pointer is over neither. Otherwise sliding off the bar along the top edge showed it again, and moving down
+        // from there, never over the bar, left it showing.
+        _fullScreenBar.PointerExited += (_, e) => HideFullScreenBarUnlessOver(e);
+        _fullScreenHotZone.PointerExited += (_, e) => HideFullScreenBarUnlessOver(e);
+    }
+
+    void HideFullScreenBarUnlessOver(PointerEventArgs e)
+    {
+        static bool Over(Control control, PointerEventArgs e) =>
+            control.IsVisible && new Rect(control.Bounds.Size).Contains(e.GetPosition(control));
+
+        if (!Over(_fullScreenBar, e) && !Over(_fullScreenHotZone, e))
+        {
+            _fullScreenBar.IsVisible = false;
+        }
     }
 
     void OnExitFullScreenClick(object? sender, RoutedEventArgs e) => ExitFullScreen();

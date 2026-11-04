@@ -1263,8 +1263,25 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             await loops;
         }
 
+        // Done with the connection, so it's closed now rather than when the stream is collected; that also ends the
+        // read a cancelled ReadPdu left in flight, which is then looked at.
+        CloseConnection();
+        if (_framed is { } framed)
+        {
+            DrainStrandedRead(framed);
+        }
+
         _route?.Dispose();
     }
+
+    /// <summary>
+    /// Observes the stream read that a cancelled <see cref="Framed{TS}.ReadPdu(CancellationToken)"/> leaves in flight
+    /// for the next read to finish. When the session ends there's no next read, so its failure once the connection
+    /// closes or the server resets it went unobserved, and was logged as an unobserved task exception.
+    /// </summary>
+    internal static void DrainStrandedRead<TS>(Framed<TS> framed) where TS : Stream =>
+        _ = framed.ReadPdu(CancellationToken.None).ContinueWith(read => _ = read.Exception, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     /// <summary>
     /// Closes the TLS stream and the socket under it, which ends a read or write stuck on a dead connection, and the

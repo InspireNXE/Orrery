@@ -110,6 +110,17 @@ public class UpdaterTests : IDisposable
     }
 
     [Fact]
+    public void Before_a_swap_every_assembly_the_app_refers_to_is_loaded()
+    {
+        // A single-file Orrery can't load one once a new build is at its path, so they're all loaded beforehand.
+        UpdateFiles.LoadEveryAssembly();
+
+        var loaded = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name).ToHashSet();
+        Assert.Contains("System.Diagnostics.Process", loaded);
+        Assert.All(typeof(UpdateFiles).Assembly.GetReferencedAssemblies(), name => Assert.Contains(name.Name, loaded));
+    }
+
+    [Fact]
     public async Task Offers_the_newer_release_with_this_copys_file()
     {
         WriteRelease(new() { [PortableZip] = [1, 2, 3], ["Orrery-Setup-0.2.0.exe"] = [4] });
