@@ -25,6 +25,9 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
     /// <summary>Run this command instead, once the palette has closed.</summary>
     public PaletteCommand? Command { get; init; }
 
+    /// <summary>Run the command's Shift+Enter action (<see cref="PaletteCommand.AltRun"/>) instead.</summary>
+    public bool Alt { get; init; }
+
     static readonly (string Scheme, Protocol Protocol)[] Schemes =
     [
         ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet),
@@ -426,8 +429,10 @@ sealed class QuickConnectWindow : Window
     }
 
     void AddCommand(PaletteCommand command) =>
-        AddItem(CommandRow(command), new QuickConnectChoice(null, null, 0) { Command = command }, "Run",
-            command.Shortcut is { } shortcut ? $"{command.Title}, {command.Group}, {shortcut}" : $"{command.Title}, {command.Group}");
+        AddItem(CommandRow(command), new QuickConnectChoice(null, null, 0) { Command = command },
+            command.AltHint is { } alt ? $"Run · Shift+Enter {alt}" : "Run",
+            string.Join(", ", new[] { command.Title, command.Detail, command.Group, command.Shortcut, command.AltHint is { } hint ? $"Shift+Enter to {hint}" : null }
+                .Where(s => !string.IsNullOrEmpty(s))));
 
     static string DirectText(QuickConnectChoice choice) => $"{DirectVerb(choice)}{DirectAddress(choice)}";
 
@@ -593,7 +598,30 @@ sealed class QuickConnectWindow : Window
             row.Children.Add(Chip(shortcut));
         }
 
-        return row;
+        if (command.Detail is not { Length: > 0 } detail)
+        {
+            return row;
+        }
+
+        // A saved command's text, on one line under its name, so what will be typed is in view before it's picked.
+        return new StackPanel
+        {
+            Spacing = 2,
+            Children =
+            {
+                row,
+                new TextBlock
+                {
+                    Text = detail.ReplaceLineEndings(" ⏎ "),
+                    FontFamily = Dialogs.MonoFont,
+                    FontSize = 12,
+                    Foreground = SoftBrush,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 460,
+                    Margin = new Thickness(26, 0, 0, 0),
+                },
+            },
+        };
     }
 
     static Control ActionRow(string label) => new StackPanel
@@ -702,6 +730,14 @@ sealed class QuickConnectWindow : Window
                 break;
             case Key.Up when count > 0:
                 Select((_selected - 1 + count) % count);
+                e.Handled = true;
+                break;
+            case Key.Enter when e.KeyModifiers == KeyModifiers.Shift:
+                if (_selected >= 0 && _items[_selected].Choice is { Command.AltRun: not null } alternative)
+                {
+                    Finish(alternative with { Alt = true });
+                }
+
                 e.Handled = true;
                 break;
             case Key.Enter when e.KeyModifiers == KeyModifiers.Alt:

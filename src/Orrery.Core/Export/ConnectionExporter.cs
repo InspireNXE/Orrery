@@ -53,7 +53,7 @@ public static class ConnectionExporter
     /// <summary>Marks an Orrery export file, so it isn't mistaken for connections.json or anything else.</summary>
     internal const string OrreryFormatName = "orrery-connections";
     /// <summary>The newest schema the importer reads. Files are written with the oldest that holds them, as connections.json is.</summary>
-    internal const int OrrerySchemaVersion = 3;
+    internal const int OrrerySchemaVersion = 4;
 
     public static ExportFormat? FormatFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
@@ -205,6 +205,7 @@ public static class ConnectionExporter
         copy.Notes = node.Notes;
         copy.ImportSourceId = node.ImportSourceId;
         copy.Settings = node.Settings.Clone();
+        copy.Commands = node.Commands?.Select(c => c.Clone()).ToList();
         if (node is ConnectionFolder source && copy is ConnectionFolder target)
         {
             foreach (var child in source.Children)
@@ -358,6 +359,7 @@ public static class ConnectionExporter
             var resolved = SettingsResolver.Resolve(entry);
             Lost("Jump hosts", resolved.JumpHostId.Value is not null);
             Lost("Session recording", resolved.RecordSessions.Value);
+            Lost("Saved commands", SavedCommands.For(entry).Count > 0);
             Lost("Port forwards", entry.PortForwards is { Count: > 0 });
             Lost("Wake-on-LAN broadcast addresses", entry.WakeBroadcast is not null);
             Lost("Management URLs", entry.ManagementUrl is not null);
