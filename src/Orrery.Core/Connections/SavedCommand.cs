@@ -4,7 +4,7 @@ namespace Orrery.Core.Connections;
 
 /// <summary>
 /// A command saved on a connection or folder, sent to its terminal when picked from the Ctrl+K palette or the
-/// session's menu. Never sent by itself: nothing runs on connect.
+/// session's menu, and by itself once connected only when it says so (<see cref="WhenConnected"/>).
 /// </summary>
 public sealed class SavedCommand
 {
@@ -23,7 +23,13 @@ public sealed class SavedCommand
     /// <summary>Ask before sending it, showing the command and where it goes.</summary>
     public bool Confirm { get; set; }
 
-    public SavedCommand Clone() => new() { Name = Name, Text = Text, PressEnter = PressEnter, Confirm = Confirm };
+    /// <summary>
+    /// Sent by itself each time a terminal of a saved connection connects, reconnects included, after the commands of
+    /// the folders around it. One that asks first still asks.
+    /// </summary>
+    public bool WhenConnected { get; set; }
+
+    public SavedCommand Clone() => new() { Name = Name, Text = Text, PressEnter = PressEnter, Confirm = Confirm, WhenConnected = WhenConnected };
 }
 
 /// <summary>A command a connection can send, where it was saved, and whether sending it asks first.</summary>
@@ -41,6 +47,17 @@ public static partial class SavedCommands
     /// </summary>
     public static IReadOnlyList<ResolvedCommand> For(ConnectionEntry entry) =>
         Collect(entry.Ancestors().Prepend<ConnectionNode>(entry), SettingsResolver.Resolve(entry).ConfirmCommands.Value);
+
+    /// <summary>
+    /// What <paramref name="entry"/> sends by itself once connected, in order: the defaults' first, then each folder's
+    /// inwards, then its own, each in the order it's listed, so a folder's set-up comes before a connection's own. A
+    /// command hidden by a nearer one of the same name isn't sent, whether or not the nearer one is sent.
+    /// </summary>
+    public static IReadOnlyList<ResolvedCommand> WhenConnected(ConnectionEntry entry)
+    {
+        var nearestFirst = entry.Ancestors().Prepend<ConnectionNode>(entry).ToList();
+        return [.. For(entry).Where(c => c.Command.WhenConnected).OrderByDescending(c => nearestFirst.IndexOf(c.From))];
+    }
 
     /// <summary>
     /// What a terminal opened without a saved connection can send, such as a local shell or a quick connect: the

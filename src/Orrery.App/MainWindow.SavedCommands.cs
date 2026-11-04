@@ -109,11 +109,12 @@ public partial class MainWindow
     /// Types a saved command into the tab's terminal. When it asks first and would run (Enter pressed), the prompt
     /// shows it and where it goes; typed without Enter, nothing runs until the user presses it, so it doesn't ask.
     /// </summary>
-    internal async Task SendSavedCommandAsync(SessionTab tab, ResolvedCommand command, bool pressEnter)
+    /// <param name="focus">Put the focus in the terminal after; off for those sent by themselves, which may be in a tab not shown.</param>
+    internal async Task<bool> SendSavedCommandAsync(SessionTab tab, ResolvedCommand command, bool pressEnter, bool focus = true)
     {
         if (!_tabs.Contains(tab) || tab.View is not TerminalView terminal)
         {
-            return;
+            return false;
         }
 
         var source = CommandSourceFor(tab);
@@ -123,8 +124,12 @@ public partial class MainWindow
             var owner = TopLevel.GetTopLevel(terminal) as Window ?? this;
             if (!await new ConfirmCommandWindow(command.Command.Name, text, source.Name, source.Where, pressEnter).ShowDialog<bool>(owner))
             {
-                terminal.Focus();
-                return;
+                if (focus)
+                {
+                    terminal.Focus();
+                }
+
+                return false;
             }
         }
 
@@ -132,12 +137,40 @@ public partial class MainWindow
         if (tab.Session.State != SessionState.Connected)
         {
             ShowNotice($"{source.Name} isn't connected, so \"{command.Command.Name}\" wasn't sent.");
-            return;
+            return false;
         }
 
         terminal.SendCommand(text, pressEnter);
-        terminal.Focus();
+        if (focus)
+        {
+            terminal.Focus();
+        }
+
         CommandLog.LogInformation("Sent the saved command \"{Command}\" to \"{Name}\"{Enter}", command.Command.Name, source.Name, pressEnter ? "" : " without Enter");
+        return true;
+    }
+
+    /// <summary>
+    /// Sends the commands a saved connection's terminal sends by itself once connected, in order. One that asks first
+    /// asks; turning it down, or the session dropping, stops the rest, since a later one may count on it. A local
+    /// shell or a quick connect sends none.
+    /// </summary>
+    async Task SendWhenConnectedAsync(SessionTab tab)
+    {
+        if (tab.View is not TerminalView || EntryFor(tab) is not { } entry || SavedCommands.WhenConnected(entry) is not { Count: > 0 } commands)
+        {
+            return;
+        }
+
+        CommandLog.LogInformation("Sending {Count} saved command(s) to \"{Name}\" now that it's connected", commands.Count, entry.Name);
+        foreach (var command in commands)
+        {
+            if (!await SendSavedCommandAsync(tab, command, command.Command.PressEnter, focus: false))
+            {
+                CommandLog.LogInformation("Stopped sending \"{Name}\"'s commands at \"{Command}\"", entry.Name, command.Command.Name);
+                return;
+            }
+        }
     }
 
     /// <summary>
