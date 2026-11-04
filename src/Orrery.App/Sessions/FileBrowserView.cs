@@ -159,12 +159,21 @@ sealed class FileBrowserView : DockPanel
 
         menu.Opening += (_, _) => Fill();
         _list.ContextMenu = menu;
-        // The list opens the menu on a right release that nothing else took; a right-click soon after a left one can
-        // lose it that way, so a release that didn't open it opens it here, once the release is done with.
+        // A right press while the left is still down (a quick left-then-right click overlaps like that) joins the left
+        // press, so the list sees only a left click and no menu. A press the right button joined opens the menu as
+        // the buttons come up.
+        bool rightJoined = false;
+        _list.AddHandler(PointerPressedEvent, (_, _) => rightJoined = false, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        _list.AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            var point = e.GetCurrentPoint(_list).Properties;
+            rightJoined |= point.IsRightButtonPressed && point.IsLeftButtonPressed;
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         _list.AddHandler(PointerReleasedEvent, (_, e) =>
         {
-            if (e.InitialPressMouseButton == MouseButton.Right)
+            if (e.InitialPressMouseButton == MouseButton.Left && rightJoined)
             {
+                rightJoined = false;
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (!menu.IsOpen && _list.IsEffectivelyEnabled && _list.IsEffectivelyVisible)
