@@ -235,6 +235,11 @@
             <DockPanel>
               <!-- Hide or show the panes on either side, for more room for the session. -->
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" Margin="8,0,0,4" VerticalAlignment="Center">
+                <!-- Every open tab in a list, as a browser's tab search, for when they're squeezed or scrolled away. -->
+                <Button x:Name="TabListButton" Classes="icon small" Click="OnTabListClick" IsVisible="False"
+                        ToolTip.Tip="All tabs" AutomationProperties.Name="All tabs">
+                  <c:StrokeIcon Width="16" Height="16" Data="M6 9l6 6 6-6" />
+                </Button>
                 <Button x:Name="SidePanelToggle" Classes="icon small" Click="OnToggleSidePanelClick"
                         AutomationProperties.Name="Toggle side panel">
                   <c:StrokeIcon Width="16" Height="16" Data="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M9 4v16" />
@@ -246,7 +251,7 @@
               </StackPanel>
             <ScrollViewer x:Name="TabScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
               <StackPanel Orientation="Horizontal" Spacing="2">
-                <StackPanel x:Name="TabStrip" Orientation="Horizontal" Spacing="2" VerticalAlignment="Bottom"
+                <s:TabStripPanel x:Name="TabStrip" Spacing="2" VerticalAlignment="Bottom"
                             AutomationProperties.Name="Sessions" AutomationProperties.AccessibilityView="Control" AutomationProperties.ControlTypeOverride="Tab" />
                 <Button Classes="icon" Width="32" Height="32" Margin="2,0,0,1" VerticalAlignment="Bottom" CornerRadius="6"
                         Click="OnQuickConnectClick" ToolTip.Tip="New session (Ctrl+K)" AutomationProperties.Name="New session">

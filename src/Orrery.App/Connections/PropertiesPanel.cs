@@ -161,7 +161,8 @@ sealed class PropertiesPanel : UserControl
         _credential = new CredentialPicker(credentials);
         _tile = Pane.Tile(_tileIcon);
 
-        foreach (var protocol in Enum.GetValues<Protocol>())
+        // A shell on this computer first, then the rest in the order they were added.
+        foreach (var protocol in Enum.GetValues<Protocol>().OrderBy(p => p != Protocol.Local))
         {
             _protocol.Items.Add(new ComboBoxItem { Content = ProtocolInfo.Label(protocol), Tag = protocol });
         }

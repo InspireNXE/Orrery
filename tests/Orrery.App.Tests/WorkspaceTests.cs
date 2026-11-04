@@ -352,6 +352,74 @@ public class WorkspaceWindowTests : IDisposable
         window.Close();
     }
 
+    [Theory]
+    [InlineData(new[] { 100.0, 100.0 }, 300.0, double.PositiveInfinity)]
+    [InlineData(new[] { 100.0, 100.0, 100.0 }, 240.0, 80.0)]
+    [InlineData(new[] { 40.0, 200.0, 200.0 }, 240.0, 100.0)]
+    public void Tabs_that_do_not_fit_share_what_is_left_after_the_narrow_ones(double[] widths, double room, double share) =>
+        Assert.Equal(share, TabStripPanel.Share(widths, room));
+
+    [AvaloniaFact]
+    public void Tabs_narrow_to_fit_then_show_only_their_state_and_the_strip_scrolls_last()
+    {
+        var window = NewWindow();
+        window.Width = 1200;
+        window.Show();
+        var scroller = window.FindControl<ScrollViewer>("TabScroller")!;
+        var strip = window.FindControl<TabStripPanel>("TabStrip")!;
+        var headers = new List<SessionTabHeader>();
+        void Add(int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                AddTab(window, new IdleSession($"h{headers.Count}"), new SessionOrigin($"a-rather-long-host-name-{headers.Count}", Protocol.Ssh, null, () => Task.CompletedTask));
+                headers.Add(strip.Children.OfType<SessionTabHeader>().Last());
+            }
+
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        Add(2);
+        Assert.All(headers, h => Assert.False(h.Compact));
+        Assert.True(scroller.Extent.Width <= scroller.Viewport.Width + 1);
+
+        // More than fit at full width: narrowed, still with their names, and nothing to scroll.
+        Add(4);
+        Assert.True(headers[0].Bounds.Width < headers[0].FullWidth);
+        Assert.True(scroller.Extent.Width <= scroller.Viewport.Width + 1);
+
+        // Many: just their state, at their narrowest, and then the strip scrolls.
+        Add(30);
+        Assert.All(headers, h => Assert.True(h.Compact));
+        Assert.True(scroller.Extent.Width > scroller.Viewport.Width);
+
+        // Closing most of them gives the names back.
+        foreach (var header in headers.Skip(2).ToList())
+        {
+            strip.Children.Remove(header);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+        Assert.All(headers.Take(2), h => Assert.False(h.Compact));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_tab_list_is_offered_once_there_are_two_tabs()
+    {
+        var window = NewWindow();
+        window.Show();
+        var list = window.FindControl<Button>("TabListButton")!;
+        AddTab(window, new IdleSession("one"), new SessionOrigin("one", Protocol.Ssh, null, () => Task.CompletedTask));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(list.IsVisible);
+
+        AddTab(window, new IdleSession("two"), new SessionOrigin("two", Protocol.Ssh, null, () => Task.CompletedTask));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(list.IsVisible);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public void An_administrator_shell_is_not_reopened_at_the_next_start()
     {

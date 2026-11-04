@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     readonly TreeView _treeView;
     readonly TextBox _filter;
     readonly TextBlock _treeEmptyState;
-    readonly StackPanel _tabStrip;
+    readonly TabStripPanel _tabStrip;
     readonly Panel _sessionHost;
     readonly Control _emptyState;
     readonly TextBlock _emptyStateTitle;
@@ -185,7 +185,7 @@ public partial class MainWindow : Window
         _treeView = this.FindControl<TreeView>("Tree")!;
         _filter = this.FindControl<TextBox>("FilterBox")!;
         _treeEmptyState = this.FindControl<TextBlock>("TreeEmptyState")!;
-        _tabStrip = this.FindControl<StackPanel>("TabStrip")!;
+        _tabStrip = this.FindControl<TabStripPanel>("TabStrip")!;
         _sessionHost = this.FindControl<Panel>("SessionHost")!;
         _emptyState = this.FindControl<Control>("EmptyState")!;
         _emptyStateTitle = this.FindControl<TextBlock>("EmptyStateTitle")!;
@@ -905,6 +905,23 @@ public partial class MainWindow : Window
 
     void OnExitFullScreenClick(object? sender, RoutedEventArgs e) => ExitFullScreen();
 
+    /// <summary>Every tab in the strip's order, the current one in bold, to go to one that's squeezed or scrolled out of sight.</summary>
+    void OnTabListClick(object? sender, RoutedEventArgs e)
+    {
+        var items = StripTabs().Select(tab =>
+        {
+            var item = new MenuItem
+            {
+                Header = $"{tab.Origin.Title} · {tab.Origin.Label}",
+                FontWeight = tab == _currentTab ? FontWeight.SemiBold : FontWeight.Normal,
+            };
+            ToolTip.SetTip(item, $"{tab.Address} · {tab.StateText}");
+            item.Click += (_, _) => SelectTab(tab);
+            return (Control)item;
+        }).ToList();
+        Controls.PopupMenu.ShowAt((Control)sender!, items, PlacementMode.BottomEdgeAlignedRight);
+    }
+
     // ---- Tab strip keys and dragging ----
 
     SessionTab? _draggedTab;
@@ -917,6 +934,19 @@ public partial class MainWindow : Window
     {
         // The wheel scrolls tabs that don't all fit sideways, as a browser's tab bar does; up goes left.
         var scroller = this.FindControl<ScrollViewer>("TabScroller")!;
+
+        // The tabs narrow to fit the bar, less the new-session buttons beside them, before it scrolls.
+        scroller.SizeChanged += (_, _) =>
+        {
+            var row = (Panel)_tabStrip.Parent!;
+            double buttons = row.Children.Where(c => c != _tabStrip && c.IsVisible).Sum(c => c.Bounds.Width + c.Margin.Left + c.Margin.Right)
+                + ((row as StackPanel)?.Spacing ?? 0) * (row.Children.Count - 1);
+            _tabStrip.Room = scroller.Bounds.Width - buttons;
+        };
+
+        // A list of every tab once there's more than one to choose from.
+        var tabList = this.FindControl<Button>("TabListButton")!;
+        _tabStrip.Children.CollectionChanged += (_, _) => tabList.IsVisible = StripTabs().Count > 1;
         scroller.AddHandler(PointerWheelChangedEvent, (_, e) =>
         {
             double room = scroller.Extent.Width - scroller.Viewport.Width;
