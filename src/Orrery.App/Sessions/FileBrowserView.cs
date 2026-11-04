@@ -4,6 +4,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -18,7 +19,9 @@ namespace Orrery.App.Sessions;
 /// <summary>
 /// Files on an SSH server, in a session tab beside its terminal: browse folders, upload (button or drop files
 /// in), download, make folders, rename and delete. One transfer runs at a time, with progress and Cancel;
-/// browsing goes on meanwhile. Keys: Enter opens, Backspace goes up, F2 renames, Delete deletes, F5 refreshes.
+/// browsing goes on meanwhile. Keys: Enter opens, Backspace goes up, F2 renames, Delete deletes, F5 refreshes,
+/// Ctrl+Shift+C copies paths, Ctrl+Shift+N makes a folder (Cmd on macOS). Right-click opens a menu of the same for
+/// what's selected, or for the folder on empty space (<see cref="MenuFor"/>).
 /// </summary>
 sealed class FileBrowserView : DockPanel
 {
@@ -45,7 +48,7 @@ sealed class FileBrowserView : DockPanel
 
         var up = ToolButton(Icons.Up, "Up a folder (Backspace)", () => _ = OpenAsync(SftpSession.Parent(_current)));
         var refresh = ToolButton(Icons.Refresh, "Refresh (F5)", () => _ = OpenAsync(_current));
-        var newFolder = ToolButton(Icons.FolderPlus, "New folder", () => _ = NewFolderAsync());
+        var newFolder = ToolButton(Icons.FolderPlus, $"New folder ({(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Shift+N)", () => _ = NewFolderAsync());
         var upload = ToolButton(Icons.Upload, "Upload", null);
         upload.Flyout = new MenuFlyout
         {
@@ -110,7 +113,9 @@ sealed class FileBrowserView : DockPanel
             }
         };
         AutomationProperties.SetName(_list, "Files");
-        AutomationProperties.SetHelpText(_list, "Enter opens, Backspace goes up a folder, F2 renames, Delete deletes, F5 refreshes.");
+        AutomationProperties.SetHelpText(_list, "Enter opens, Backspace goes up a folder, F2 renames, Delete deletes, F5 refreshes, "
+            + $"{(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Shift+C copies the path, {(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+Shift+N makes a folder. "
+            + "The menu key or Shift+F10 opens the menu.");
         AutomationProperties.SetName(_path, "Folder path");
         AutomationProperties.SetHelpText(_path, "Type a folder and press Enter to open it.");
         AutomationProperties.SetName(_progress, "Transfer progress");
@@ -132,6 +137,26 @@ sealed class FileBrowserView : DockPanel
             }
         };
         _list.KeyDown += OnListKeyDown;
+        // Right-click on a row selects it (the list does that); on empty space it clears the selection, so the menu
+        // is the folder's own. The menu is built as it opens, from what's selected then.
+        _list.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (e.GetCurrentPoint(_list).Properties.IsRightButtonPressed
+                && (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true) is null)
+            {
+                _list.SelectedItems?.Clear();
+            }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        var menu = new ContextMenu();
+        menu.Opening += (_, _) =>
+        {
+            menu.Items.Clear();
+            foreach (var entry in MenuFor(Selected(), _transfer is not null))
+            {
+                menu.Items.Add(entry is null ? new Separator() : MenuItemFor(entry));
+            }
+        };
+        _list.ContextMenu = menu;
         DragDrop.SetAllowDrop(_list, true);
         _list.AddHandler(DragDrop.DragOverEvent, (_, e) => e.DragEffects = e.DataTransfer.Contains(DataFormat.File) && _transfer is null ? DragDropEffects.Copy : DragDropEffects.None);
         _list.AddHandler(DragDrop.DropEvent, (_, e) =>
@@ -246,8 +271,15 @@ sealed class FileBrowserView : DockPanel
     void OnListKeyDown(object? sender, KeyEventArgs e)
     {
         var selected = Selected();
+        var command = (OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift;
         switch (e.Key)
         {
+            case Key.C when e.KeyModifiers == command:
+                _ = CopyAsync(selected.Count > 0 ? string.Join(Environment.NewLine, selected.Select(i => i.FullPath)) : _current);
+                break;
+            case Key.N when e.KeyModifiers == command:
+                _ = NewFolderAsync();
+                break;
             case Key.Enter when selected.Count == 1:
                 _ = OpenItemAsync(selected[0]);
                 break;
@@ -274,6 +306,99 @@ sealed class FileBrowserView : DockPanel
     }
 
     List<SftpItem> Selected() => _list.SelectedItems?.OfType<SftpItem>().ToList() ?? [];
+
+    // ---- The right-click menu ----
+
+    /// <summary>What a right-click menu item does.</summary>
+    internal enum FileAction { Open, Download, Rename, Delete, CopyPath, CopyName, UploadFiles, UploadFolder, NewFolder, Refresh }
+
+    /// <summary>One item in the right-click menu, with the key that does the same shown beside it.</summary>
+    internal sealed record FileMenuEntry(string Header, FileAction Action, string? Shortcut = null, bool Enabled = true);
+
+    /// <summary>
+    /// The right-click menu for what's selected; null entries are separators. One file: download, rename, delete and
+    /// copy its path or name; a folder opens first; several: download, delete or copy their paths; nothing (empty
+    /// space): upload, new folder, refresh and copy the folder's path. A transfer under way leaves downloads and
+    /// uploads off, as the toolbar does.
+    /// </summary>
+    internal static IReadOnlyList<FileMenuEntry?> MenuFor(IReadOnlyList<SftpItem> selected, bool busy)
+    {
+        var command = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
+        return selected switch
+        {
+            [] =>
+            [
+                new("Upload files…", FileAction.UploadFiles, Enabled: !busy),
+                new("Upload a folder…", FileAction.UploadFolder, Enabled: !busy),
+                new("New folder…", FileAction.NewFolder, $"{command}+Shift+N"),
+                null,
+                new("Refresh", FileAction.Refresh, "F5"),
+                new("Copy this folder's path", FileAction.CopyPath, $"{command}+Shift+C"),
+            ],
+            [var one] =>
+            [
+                .. one.IsDirectory
+                    ? (FileMenuEntry[])[new("Open", FileAction.Open), new("Download…", FileAction.Download, Enabled: !busy)]
+                    : [new("Download…", FileAction.Download, Enabled: !busy)],
+                null,
+                new("Rename…", FileAction.Rename, "F2"),
+                new("Delete…", FileAction.Delete, "Delete"),
+                null,
+                new("Copy path", FileAction.CopyPath, $"{command}+Shift+C"),
+                new("Copy name", FileAction.CopyName),
+            ],
+            _ =>
+            [
+                new($"Download {selected.Count} items…", FileAction.Download, Enabled: !busy),
+                null,
+                new("Rename…", FileAction.Rename, "F2", Enabled: false),
+                new($"Delete {selected.Count} items…", FileAction.Delete, "Delete"),
+                null,
+                new("Copy paths", FileAction.CopyPath, $"{command}+Shift+C"),
+            ],
+        };
+    }
+
+    MenuItem MenuItemFor(FileMenuEntry entry)
+    {
+        var item = new MenuItem { Header = entry.Header, IsEnabled = entry.Enabled };
+        if (entry.Shortcut is { } shortcut)
+        {
+            item.InputGesture = KeyGesture.Parse(shortcut.Replace("Cmd", "Meta"));
+        }
+
+        item.Click += (_, _) => Do(entry.Action);
+        return item;
+    }
+
+    void Do(FileAction action)
+    {
+        var selected = Selected();
+        _ = action switch
+        {
+            FileAction.Open when selected is [var one] => OpenItemAsync(one),
+            FileAction.Download => DownloadAsync(selected),
+            FileAction.Rename => RenameAsync(),
+            FileAction.Delete => DeleteSelectedAsync(),
+            FileAction.CopyPath => CopyAsync(selected.Count > 0 ? string.Join(Environment.NewLine, selected.Select(i => i.FullPath)) : _current),
+            FileAction.CopyName when selected is [var one] => CopyAsync(one.Name),
+            FileAction.UploadFiles => PickAndUploadAsync(folders: false),
+            FileAction.UploadFolder => PickAndUploadAsync(folders: true),
+            FileAction.NewFolder => NewFolderAsync(),
+            FileAction.Refresh => OpenAsync(_current),
+            _ => Task.CompletedTask,
+        };
+    }
+
+    async Task CopyAsync(string text)
+    {
+        if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+        {
+            await clipboard.SetTextAsync(text);
+            _status.Kind = NoticeKind.Info;
+            _status.Text = text.Contains('\n') ? "Copied the paths." : $"Copied {text}";
+        }
+    }
 
     void UpdateButtons()
     {
