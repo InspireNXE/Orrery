@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -21,7 +19,7 @@ enum UpdateChoice
 }
 
 /// <summary>Words and numbers the update screens share.</summary>
-static partial class UpdateText
+static class UpdateText
 {
     const double Megabyte = 1024 * 1024;
 
@@ -39,42 +37,6 @@ static partial class UpdateText
         CopyKind.Development => "This copy runs from a build, so it doesn't update itself. Download it from GitHub.",
         _ => "This release has no checked file for this copy of Orrery. Download it from GitHub.",
     };
-
-    /// <summary>
-    /// Release notes as plain text that reads well: GitHub's Markdown without the heading marks, emphasis and link
-    /// targets, and bullets as bullets. Nothing else is changed.
-    /// </summary>
-    public static string ReadableNotes(string markdown)
-    {
-        var text = new StringBuilder();
-        foreach (var raw in markdown.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
-        {
-            var line = raw.TrimEnd();
-            var trimmed = line.TrimStart();
-            var indent = line[..(line.Length - trimmed.Length)];
-            if (HeadingMark().Match(trimmed) is { Success: true } heading)
-            {
-                trimmed = trimmed[heading.Length..];
-            }
-            else if (trimmed.StartsWith("* ", StringComparison.Ordinal) || trimmed.StartsWith("- ", StringComparison.Ordinal))
-            {
-                trimmed = "• " + trimmed[2..];
-            }
-
-            trimmed = Link().Replace(trimmed, "$1");
-            trimmed = trimmed.Replace("**", "", StringComparison.Ordinal).Replace("__", "", StringComparison.Ordinal).Replace("`", "", StringComparison.Ordinal);
-            text.Append(indent).Append(trimmed).Append('\n');
-        }
-
-        var result = text.ToString().Trim('\n');
-        return result.Length == 0 ? "No notes came with this release." : result;
-    }
-
-    [GeneratedRegex(@"^#{1,6}\s+")]
-    private static partial Regex HeadingMark();
-
-    [GeneratedRegex(@"!?\[([^\]]*)\]\([^)]*\)")]
-    private static partial Regex Link();
 }
 
 /// <summary>
@@ -110,7 +72,7 @@ sealed class UpdateDetailsWindow : Window
         }
 
         Summary = new TextBlock { Text = string.Join(" · ", facts), Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
-        Notes = new SelectableTextBlock { Text = UpdateText.ReadableNotes(release.Notes), TextWrapping = TextWrapping.Wrap, LineHeight = 19 };
+        Notes = new MarkdownView(release.Notes, page => OpenPage(page), release.Page, empty: "No notes came with this release.");
         AutomationProperties.SetName(Notes, "Release notes");
         var notesBox = new Border
         {
@@ -181,7 +143,7 @@ sealed class UpdateDetailsWindow : Window
     /// <summary>"You have 0.1.0 · 45.2 MB", with "preview" for a preview.</summary>
     internal TextBlock Summary { get; }
 
-    internal SelectableTextBlock Notes { get; }
+    internal MarkdownView Notes { get; }
 
     /// <summary>Why the release can't be installed from here; hidden when it can.</summary>
     internal TextBlock Why { get; }

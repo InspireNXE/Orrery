@@ -235,6 +235,11 @@
         "resolved": "1.0.22",
         "contentHash": "KPD9SloJFclrsjnhABu7dzWrcyYkwPbvx5l1gRSPAX/0n+OBtSiVCKtGFv4n+ecWUHU0tCG9LSSwoZZx673zBQ=="
       },
+      "Markdig": {
+        "type": "Transitive",
+        "resolved": "1.4.1",
+        "contentHash": "laiWlBRnwVqQlY9eWR56+uteUVtR+LpGw0doMSpirFuxdplSi3V59UOGRTepJaE8hJvfKGcCoguIZ8jmUHcEnA=="
+      },
       "MicroCom.Runtime": {
         "type": "Transitive",
         "resolved": "0.11.6",
@@ -564,13 +569,14 @@
           "Avalonia.Desktop": "[12.1.5, )",
           "Avalonia.Fonts.Inter": "[12.1.5, )",
           "Avalonia.Themes.Fluent": "[12.1.5, )",
-          "Orrery.Core": "[0.1.0, )",
-          "Orrery.Protocols.Local": "[0.1.0, )",
-          "Orrery.Protocols.Rdp": "[0.1.0, )",
-          "Orrery.Protocols.Serial": "[0.1.0, )",
-          "Orrery.Protocols.Ssh": "[0.1.0, )",
-          "Orrery.Protocols.Telnet": "[0.1.0, )",
-          "Orrery.Protocols.Vnc": "[0.1.0, )",
+          "Markdig": "[1.4.1, )",
+          "Orrery.Core": "[0.1.2-dev, )",
+          "Orrery.Protocols.Local": "[0.1.2-dev, )",
+          "Orrery.Protocols.Rdp": "[0.1.2-dev, )",
+          "Orrery.Protocols.Serial": "[0.1.2-dev, )",
+          "Orrery.Protocols.Ssh": "[0.1.2-dev, )",
+          "Orrery.Protocols.Telnet": "[0.1.2-dev, )",
+          "Orrery.Protocols.Vnc": "[0.1.2-dev, )",
           "Serilog": "[4.4.0, )",
           "Serilog.Extensions.Logging": "[10.0.0, )",
           "Serilog.Sinks.File": "[7.0.0, )"
@@ -587,41 +593,41 @@
       "orrery.protocols.local": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.0, )"
+          "Orrery.Core": "[0.1.2-dev, )"
         }
       },
       "orrery.protocols.rdp": {
         "type": "Project",
         "dependencies": {
           "Devolutions.IronRdp": "[2026.10.29-orrery.10, )",
-          "Orrery.Core": "[0.1.0, )"
+          "Orrery.Core": "[0.1.2-dev, )"
         }
       },
       "orrery.protocols.serial": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.0, )",
+          "Orrery.Core": "[0.1.2-dev, )",
           "System.IO.Ports": "[10.0.14, )"
         }
       },
       "orrery.protocols.ssh": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.0, )",
+          "Orrery.Core": "[0.1.2-dev, )",
           "SSH.NET": "[2026.0.0, )"
         }
       },
       "orrery.protocols.telnet": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.0, )"
+          "Orrery.Core": "[0.1.2-dev, )"
         }
       },
       "orrery.protocols.vnc": {
         "type": "Project",
         "dependencies": {
           "Community.MarcusW.VncClient": "[2.0.8, )",
-          "Orrery.Core": "[0.1.0, )"
+          "Orrery.Core": "[0.1.2-dev, )"
         }
       }
     },
