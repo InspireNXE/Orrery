@@ -42,7 +42,7 @@
 
           <Button x:Name="QuickConnectButton" Grid.Column="1" Classes="search"
                   HorizontalAlignment="Stretch" MaxWidth="520" Height="30" VerticalAlignment="Center"
-                  Click="OnQuickConnectClick" ToolTip.Tip="Quick connect (Ctrl+K)"
+                  Click="OnQuickConnectClick" ToolTip.Tip="Quick connect (Ctrl+K, or Ctrl+Shift+K from a terminal)"
                   AutomationProperties.Name="Quick connect">
             <DockPanel>
               <Border DockPanel.Dock="Right" BorderBrush="{StaticResource OrreryControlBorder}" BorderThickness="1"

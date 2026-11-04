@@ -384,7 +384,7 @@ On macOS, Cmd takes the place of Ctrl.
 
 | Keys | Action |
 | --- | --- |
-| Ctrl+K | Quick connect; `>` for commands |
+| Ctrl+K | Quick connect; `>` for commands. From a terminal, where Ctrl+K is the shell's, Ctrl+Shift+K |
 | Ctrl+Shift+T | Local terminal |
 | Ctrl+Shift+O | Pop the tab out into its own window, or put it back |
 | Ctrl+Shift+E | Show the tab side by side with the next, or end side by side |
@@ -402,8 +402,8 @@ On macOS, Cmd takes the place of Ctrl.
 | Delete | Delete the selected rows |
 
 A focused remote session gets keys first, so these go to the remote machine. Full screen, Ctrl+Alt+Home and
-Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T, Ctrl+Shift+O and Ctrl+Shift+E work from a terminal, not from a
-remote desktop.
+Ctrl+Alt+End always reach Orrery. Ctrl+Shift+T, Ctrl+Shift+O, Ctrl+Shift+E and Ctrl+Shift+K work from a terminal,
+not from a remote desktop.
 
 ## Where your data lives
 

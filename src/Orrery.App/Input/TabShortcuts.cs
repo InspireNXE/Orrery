@@ -94,6 +94,13 @@ static class TabShortcuts
     public static bool Splits(Key key, KeyModifiers modifiers, FocusPlace place, bool mac) =>
         key == Key.E && modifiers == ((mac ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift) && place != FocusPlace.Desktop;
 
+    /// <summary>
+    /// Ctrl+Shift+K (Cmd+Shift+K on macOS) opens quick connect from a terminal, where plain Ctrl+K belongs to the shell
+    /// (delete to the end of the line). Taken where Ctrl+Shift+T is: not in a remote desktop, which gets it.
+    /// </summary>
+    public static bool OpensQuickConnect(Key key, KeyModifiers modifiers, FocusPlace place, bool mac) =>
+        key == Key.K && modifiers == ((mac ? KeyModifiers.Meta : KeyModifiers.Control) | KeyModifiers.Shift) && place != FocusPlace.Desktop;
+
     /// <summary>For people and menus: "Ctrl+Shift+E", "Cmd+Shift+E".</summary>
     public static string SplitDescription(bool mac) => mac ? "Cmd+Shift+E" : "Ctrl+Shift+E";
 
