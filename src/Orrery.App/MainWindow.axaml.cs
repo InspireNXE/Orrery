@@ -172,6 +172,9 @@ public partial class MainWindow : Window
                 + "Settings › Move data can move them to a folder only you can use.");
         }
         this.FindControl<TextBlock>("ModeText")!.Text = location.Mode == StorageMode.Portable ? "Portable" : "Installed";
+
+        // Elsewhere a shell elevates itself, with sudo.
+        this.FindControl<MenuItem>("ElevatedTerminalMenuItem")!.IsVisible = OperatingSystem.IsWindows();
         if (OperatingSystem.IsMacOS())
         {
             this.FindControl<TextBlock>("QuickConnectShortcut")!.Text = "⌘K";
@@ -2446,24 +2449,36 @@ public partial class MainWindow : Window
     /// A shell on this computer in a new tab, starting in the home folder: <paramref name="shellId"/>, or the one
     /// chosen in settings. Duplicating or restarting the tab opens the same shell again.
     /// </summary>
-    void OpenLocalTerminal(string? shellId = null)
+    void OpenLocalTerminal(string? shellId = null, bool elevated = false)
     {
         var shell = LocalShells.Find(shellId ?? _settingsStore.Load().LocalShell);
-        var origin = new SessionOrigin(shell.Name, Protocol.Ssh, null, () =>
+        elevated &= OperatingSystem.IsWindows();
+        var origin = new SessionOrigin(elevated ? $"{shell.Name} (Administrator)" : shell.Name, Protocol.Ssh, null, () =>
         {
-            OpenLocalTerminal(shell.Id);
+            OpenLocalTerminal(shell.Id, elevated);
             return Task.CompletedTask;
         })
         {
             Local = true,
             LocalShell = shell.Id,
+            Elevated = elevated,
         };
+        LocalTerminalSession? started = null;
         Open(origin, () =>
         {
-            var session = LocalTerminalSession.Start(shell, 80, 24);
+            var session = started = LocalTerminalSession.Start(shell, 80, 24, elevated: elevated);
             return (NewTerminalView(session), session);
         });
+        if (elevated && _tabs.LastOrDefault(t => t.Session == started) is { } tab)
+        {
+            tab.Warning.Show(ElevatedWarning);
+        }
     }
+
+    internal const string ElevatedWarning = "Administrator shell. Whatever it runs runs as administrator, and while this tab is open, "
+        + "anything else running as you could reach it through Orrery. Close it when you're done.";
+
+    void OnElevatedTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal(elevated: true);
 
     void StartTelnet(SessionOrigin origin, ConnectionTarget target, IReadOnlyList<SshHop>? jumps = null) => Open(origin, () =>
     {

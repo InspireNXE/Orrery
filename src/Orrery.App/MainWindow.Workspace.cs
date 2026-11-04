@@ -101,7 +101,8 @@ public partial class MainWindow
             : null;
 
         // A management page isn't the connection, which is all a remembered tab can name, so it isn't kept.
-        var kept = _tabs.Where(tab => !tab.Origin.ManagementPage).ToList();
+        // Nor is an administrator shell: reopening it would ask for UAC as Orrery starts.
+        var kept = _tabs.Where(tab => !tab.Origin.ManagementPage && !tab.Origin.Elevated).ToList();
         // A popped-out session is remembered in its place among the tabs, with where its window is.
         var tabs = kept.Select(tab => Remembered(tab) with { Popout = tab.Popout?.Placement }).ToList();
         return new Workspace { Window = window, Tabs = tabs, Active = _currentTab is null ? -1 : kept.IndexOf(_currentTab) };

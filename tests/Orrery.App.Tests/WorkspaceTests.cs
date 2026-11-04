@@ -325,6 +325,29 @@ public class WorkspaceWindowTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void An_administrator_shell_is_not_reopened_at_the_next_start()
+    {
+        var window = NewWindow();
+        window.Show();
+        AddTab(window, new IdleSession(Environment.MachineName), new SessionOrigin("PowerShell 7 (Administrator)", Protocol.Ssh, null, () => Task.CompletedTask)
+        {
+            Local = true,
+            LocalShell = "pwsh",
+            Elevated = true,
+        });
+        AddTab(window, new IdleSession(Environment.MachineName), new SessionOrigin("PowerShell 7", Protocol.Ssh, null, () => Task.CompletedTask)
+        {
+            Local = true,
+            LocalShell = "pwsh",
+        });
+        Dispatcher.UIThread.RunJobs();
+
+        window.Close();
+
+        Assert.Equal([new WorkspaceTab(null, null, 0, Protocol.Ssh, LocalShell: "pwsh")], new WorkspaceStore(WorkspaceFile).Load().Tabs);
+    }
+
+    [AvaloniaFact]
     public void Closing_remembers_the_window_and_whether_it_was_maximized()
     {
         var window = NewWindow();

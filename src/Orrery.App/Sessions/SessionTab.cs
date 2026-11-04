@@ -30,6 +30,9 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
     /// <summary>A local terminal's shell, by id ("pwsh", "wsl:Ubuntu"), so it can be opened again the same way.</summary>
     public string? LocalShell { get; init; }
 
+    /// <summary>A local shell run as administrator: marked in its tab, and not reopened at the next start.</summary>
+    public bool Elevated { get; init; }
+
     /// <summary>
     /// A connection's management page in a tab: not the connection itself, so it isn't added to Recent or counted as
     /// connecting.
