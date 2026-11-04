@@ -36,6 +36,11 @@ sealed class SettingsView : UserControl
         ("5 minutes", 5), ("15 minutes", 15), ("30 minutes", 30), ("1 hour", 60), ("4 hours", 240), ("Never", 0),
     ];
 
+    static readonly (string Label, int Minutes)[] UpdateCheckChoices =
+    [
+        ("30 minutes", 30), ("1 hour", 60), ("4 hours", 240), ("12 hours", 720), ("Day", 1440),
+    ];
+
     static readonly IBrush PageBrush = new SolidColorBrush(Color.Parse("#0E1014")).ToImmutable();
 
     readonly DataLocation _location;
@@ -1598,6 +1603,24 @@ sealed class SettingsView : UserControl
         var current = _updates?.CurrentVersion ?? ReleaseVersion.Current;
         var version = new TextBlock { Text = _updates is { UsesOtherFeed: true } ? $"Orrery {current} (test feed)" : $"Orrery {current}" };
 
+        var every = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = _settings.ChecksForUpdates };
+        int minutes = (int)_settings.UpdateCheckInterval.TotalMinutes;
+        foreach (var (label, value) in UpdateCheckChoices.Any(c => c.Minutes == minutes) ? UpdateCheckChoices : [.. UpdateCheckChoices, ($"{minutes} minutes", minutes)])
+        {
+            every.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+        }
+
+        every.SelectedItem = every.Items.OfType<ComboBoxItem>().First(i => (int)i.Tag! == minutes);
+        every.SelectionChanged += (_, _) =>
+        {
+            if (!_loading && every.SelectedItem is ComboBoxItem { Tag: int chosen })
+            {
+                _settings = _settings with { UpdateCheckMinutes = chosen == AppSettings.DefaultUpdateCheckMinutes ? null : chosen };
+                TrySaveSettings();
+                _updates?.SettingsChanged();
+            }
+        };
+
         var automatic = new CheckBox { Content = "Check automatically", IsChecked = _settings.ChecksForUpdates };
         automatic.IsCheckedChanged += (_, _) =>
         {
@@ -1609,6 +1632,7 @@ sealed class SettingsView : UserControl
             _settings = _settings with { UpdateChecks = automatic.IsChecked == true };
             TrySaveSettings();
             _updates?.SettingsChanged();
+            every.IsEnabled = _settings.ChecksForUpdates;
         };
 
         var choices = new (string Label, UpdateAction Action)[]
@@ -1655,6 +1679,7 @@ sealed class SettingsView : UserControl
         var section = Section("Updates",
             Row("Version", version),
             automatic,
+            Row("Then every", every),
             new TextBlock { Text = "When one is out" },
             whenFound,
             previews,
@@ -1672,11 +1697,16 @@ sealed class SettingsView : UserControl
                 Margin = new Thickness(12, 0, 0, 0),
             };
             check.Click += async (_, _) => await CheckNowAsync(updates, check, result);
-            section.Children.Add(new DockPanel { Children = { Pane.Docked(check, Dock.Left), result } });
+            var whatsNew = new Button { Content = "What's new" };
+            whatsNew.Click += async (_, _) => await updates.ShowWhatsNewAsync();
+            section.Children.Add(new DockPanel
+            {
+                Children = { Pane.Docked(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { check, whatsNew } }, Dock.Left), result },
+            });
             UpdateCheckResult = result;
         }
 
-        section.Children.Add(Note("Checks GitHub. Sends only your version."));
+        section.Children.Add(Note("Checks GitHub as Orrery starts, then on that schedule while it's open. Sends only your version."));
         return section;
     }
 

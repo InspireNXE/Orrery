@@ -353,8 +353,16 @@ public sealed record AppSettings
     /// <summary>A release the user chose to skip, by version: it isn't offered again, a later one is.</summary>
     public string? SkippedUpdateVersion { get; init; }
 
-    /// <summary>When the last automatic check for updates ran, so the next waits a day.</summary>
+    /// <summary>When the last automatic check for updates ran, so the next waits <see cref="UpdateCheckInterval"/>.</summary>
     public DateTimeOffset? LastUpdateCheck { get; init; }
+
+    public const int DefaultUpdateCheckMinutes = 60;
+
+    /// <summary>Minutes between automatic update checks while Orrery stays open. Null is <see cref="DefaultUpdateCheckMinutes"/>.</summary>
+    public int? UpdateCheckMinutes { get; init; }
+
+    [JsonIgnore]
+    public TimeSpan UpdateCheckInterval => TimeSpan.FromMinutes(UpdateCheckMinutes is > 0 and var minutes ? minutes : DefaultUpdateCheckMinutes);
 
     [JsonIgnore]
     public TimeSpan? RecordingKeepFor => (RecordingKeepDays ?? DefaultRecordingKeepDays) is > 0 and var days ? TimeSpan.FromDays(days) : null;

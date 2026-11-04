@@ -19,6 +19,9 @@ public static class ReleaseFeed
     /// <summary>Orrery's releases on GitHub, newest first.</summary>
     public static readonly Uri GitHub = new("https://api.github.com/repos/InspireNXE/Orrery/releases?per_page=20");
 
+    /// <summary>The releases page people read, for everything older than the list holds.</summary>
+    public static readonly Uri ReleasesPage = new("https://github.com/InspireNXE/Orrery/releases");
+
     /// <summary>The largest release list read; GitHub's for 20 releases is far smaller.</summary>
     public const long MaxBytes = 2 * 1024 * 1024;
 

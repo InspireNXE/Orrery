@@ -151,7 +151,7 @@ sealed class UpdateDetailsWindow : Window
     /// <summary>Update, or Open download page when it can't be installed from here.</summary>
     internal Button Primary { get; }
 
-    static void OpenPage(Uri? page)
+    internal static void OpenPage(Uri? page)
     {
         if (page is not null && MainWindow.OpenInBrowser(page) is { } problem)
         {

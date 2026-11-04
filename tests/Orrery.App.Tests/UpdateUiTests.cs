@@ -56,6 +56,11 @@ public class UpdateUiTests : IDisposable
             return Failure is { } failure ? Task.FromException<UpdateOffer?>(failure) : Task.FromResult(Offer);
         }
 
+        public IReadOnlyList<Release> Releases { get; set; } = [];
+
+        public Task<IReadOnlyList<Release>> GetReleasesAsync(CancellationToken cancellationToken) =>
+            Failure is { } failure ? Task.FromException<IReadOnlyList<Release>>(failure) : Task.FromResult(Releases);
+
         public Task<DownloadedUpdate> DownloadAsync(UpdateOffer offer, IProgress<long>? progress, CancellationToken cancellationToken) =>
             Download?.Task ?? Task.FromResult(Downloaded(offer));
 
@@ -366,21 +371,22 @@ public class UpdateUiTests : IDisposable
         var fake = new FakeUpdates();
         using var updates = Controller(fake, time);
 
-        _settings.Save(new AppSettings { LastUpdateCheck = Now - TimeSpan.FromHours(2) });
+        _settings.Save(new AppSettings { LastUpdateCheck = Now - TimeSpan.FromMinutes(20) });
         await updates.CheckIfDueAsync();
         Assert.Equal(0, fake.Checks);
-        Assert.Equal(UpdateController.LongestWait, updates.NextLook);
+        Assert.Equal(TimeSpan.FromMinutes(40), updates.NextLook);
 
-        time.Now = Now + TimeSpan.FromHours(23);
+        time.Now = Now + TimeSpan.FromMinutes(40);
         await updates.CheckIfDueAsync();
         Assert.Equal(1, fake.Checks);
         Assert.Equal(time.Now, _settings.Load().LastUpdateCheck);
+        Assert.Equal(TimeSpan.FromHours(1), updates.NextLook);
 
-        _settings.Save(_settings.Load() with { LastUpdateCheck = Now - TimeSpan.FromHours(23.5) });
+        _settings.Save(_settings.Load() with { LastUpdateCheck = Now - TimeSpan.FromHours(3.5), UpdateCheckMinutes = 240 });
         time.Now = Now;
         await updates.CheckIfDueAsync();
         Assert.Equal(1, fake.Checks);
-        Assert.Equal(TimeSpan.FromHours(0.5), updates.NextLook);
+        Assert.Equal(TimeSpan.FromMinutes(30), updates.NextLook);
     }
 
     [AvaloniaFact]
@@ -413,13 +419,69 @@ public class UpdateUiTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void The_first_check_waits_a_few_seconds_after_the_window_opens()
+    public async Task Orrery_checks_as_it_starts_however_recent_the_last_check_was_then_on_the_schedule()
     {
-        using var updates = Controller(new FakeUpdates());
+        _settings.Save(new AppSettings { LastUpdateCheck = Now - TimeSpan.FromMinutes(5), UpdateCheckMinutes = 30 });
+        var fake = new FakeUpdates();
+        using var updates = Controller(fake);
 
         updates.Start();
+        Assert.Equal(TimeSpan.Zero, updates.NextLook);
 
-        Assert.Equal(UpdateController.FirstCheckDelay, updates.NextLook);
+        await updates.CheckIfDueAsync();
+        Assert.Equal(1, fake.Checks);
+        Assert.Equal(TimeSpan.FromMinutes(30), updates.NextLook);
+
+        await updates.CheckIfDueAsync();
+        Assert.Equal(1, fake.Checks); // Only the first was the start's.
+    }
+
+    [AvaloniaFact]
+    public async Task A_failed_check_is_tried_again_no_later_than_the_schedule_says()
+    {
+        _settings.Save(new AppSettings { UpdateCheckMinutes = 30 });
+        var fake = new FakeUpdates { Failure = new UpdateException("No network.") };
+        using var updates = Controller(fake);
+
+        await updates.CheckIfDueAsync();
+
+        Assert.Equal(TimeSpan.FromMinutes(30), updates.NextLook);
+    }
+
+    // ---- What's new ----
+
+    static Release ReleaseOf(string version, string notes, bool prerelease = false) =>
+        OfferOf(version, notes: notes, prerelease: prerelease).Release;
+
+    [AvaloniaFact]
+    public async Task Whats_new_lists_releases_newest_first_with_this_copy_s_notes_open()
+    {
+        var fake = new FakeUpdates { Releases = [ReleaseOf("0.0.9", "Older."), ReleaseOf("0.2.0-preview.1", "Next.", prerelease: true), ReleaseOf("0.1.0", "**Ours.**")] };
+        var window = new WhatsNewWindow(fake.GetReleasesAsync, fake.CurrentVersion, testFeed: false);
+
+        await window.LoadAsync();
+
+        var entries = window.Releases.Children.OfType<WhatsNewWindow.Entry>().ToList();
+        Assert.Equal(["0.2.0-preview.1", "0.1.0", "0.0.9"], entries.Select(e => e.Release.Version.ToString()));
+        Assert.Contains("preview", entries[0].Heading);
+        Assert.EndsWith("this copy", entries[1].Heading);
+        Assert.Equal([false, true, false], entries.Select(e => e.Expanded));
+        Assert.False(window.Status.IsVisible);
+
+        Click(entries[0].Toggle);
+        Assert.True(entries[0].Expanded);
+    }
+
+    [AvaloniaFact]
+    public async Task Whats_new_says_why_when_the_notes_can_t_be_got()
+    {
+        var fake = new FakeUpdates { Failure = new UpdateException("GitHub didn't answer.") };
+        var window = new WhatsNewWindow(fake.GetReleasesAsync, fake.CurrentVersion, testFeed: false);
+
+        await window.LoadAsync();
+
+        Assert.Equal("Couldn't get the release notes: GitHub didn't answer.", window.Status.Text);
+        Assert.Empty(window.Releases.Children);
     }
 
     // ---- Settings ----
@@ -441,7 +503,12 @@ public class UpdateUiTests : IDisposable
         Assert.True(section.IsEffectivelyVisible);
         var texts = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
         Assert.Contains("Orrery 0.1.0", texts);
-        Assert.Contains("Checks GitHub. Sends only your version.", texts);
+        Assert.Contains("Checks GitHub as Orrery starts, then on that schedule while it's open. Sends only your version.", texts);
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "What's new"));
+        var every = window.GetVisualDescendants().OfType<ComboBox>().Single(c => Avalonia.Automation.AutomationProperties.GetName(c) == "Then every");
+        Assert.Equal("1 hour", (every.SelectedItem as ComboBoxItem)?.Content);
+        every.SelectedItem = every.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Content, "4 hours"));
+        Assert.Equal(240, _settings.Load().UpdateCheckMinutes);
 
         CheckBox Box(string content) => window.GetVisualDescendants().OfType<CheckBox>().Single(c => Equals(c.Content, content));
         RadioButton Radio(string content) => window.GetVisualDescendants().OfType<RadioButton>().Single(r => r.GroupName == "WhenUpdateFound" && Equals(r.Content, content));
@@ -451,6 +518,7 @@ public class UpdateUiTests : IDisposable
         Assert.True(Radio("Download it").IsChecked);
 
         Box("Check automatically").IsChecked = false;
+        Assert.False(every.IsEnabled);
         Box("Previews").IsChecked = false;
         Radio("Ask me").IsChecked = true;
         var saved = _settings.Load();
