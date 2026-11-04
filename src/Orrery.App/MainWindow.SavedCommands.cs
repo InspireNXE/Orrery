@@ -1,10 +1,13 @@
 using Avalonia.Controls;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Connections;
+using Orrery.App.Credentials;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
+using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
+using Orrery.Core.Terminal;
 
 namespace Orrery.App;
 
@@ -109,11 +112,12 @@ public partial class MainWindow
     /// Types a saved command into the tab's terminal. When it asks first and would run (Enter pressed), the prompt
     /// shows it and where it goes; typed without Enter, nothing runs until the user presses it, so it doesn't ask.
     /// </summary>
-    internal async Task SendSavedCommandAsync(SessionTab tab, ResolvedCommand command, bool pressEnter)
+    /// <param name="focus">Put the focus in the terminal after; off for those sent by themselves, which may be in a tab not shown.</param>
+    internal async Task<bool> SendSavedCommandAsync(SessionTab tab, ResolvedCommand command, bool pressEnter, bool focus = true)
     {
         if (!_tabs.Contains(tab) || tab.View is not TerminalView terminal)
         {
-            return;
+            return false;
         }
 
         var source = CommandSourceFor(tab);
@@ -123,8 +127,12 @@ public partial class MainWindow
             var owner = TopLevel.GetTopLevel(terminal) as Window ?? this;
             if (!await new ConfirmCommandWindow(command.Command.Name, text, source.Name, source.Where, pressEnter).ShowDialog<bool>(owner))
             {
-                terminal.Focus();
-                return;
+                if (focus)
+                {
+                    terminal.Focus();
+                }
+
+                return false;
             }
         }
 
@@ -132,12 +140,141 @@ public partial class MainWindow
         if (tab.Session.State != SessionState.Connected)
         {
             ShowNotice($"{source.Name} isn't connected, so \"{command.Command.Name}\" wasn't sent.");
+            return false;
+        }
+
+        long before = terminal.Received;
+        terminal.SendCommand(text, pressEnter);
+        if (focus)
+        {
+            terminal.Focus();
+        }
+
+        CommandLog.LogInformation("Sent the saved command \"{Command}\" to \"{Name}\"{Enter}", command.Command.Name, source.Name, pressEnter ? "" : " without Enter");
+        return !(pressEnter && command.Command.AnswersPassword) || await AnswerPasswordAsync(tab, terminal, command.Command, source, before);
+    }
+
+    /// <summary>How long a command has to bring up its password prompt, and the shell to come back after it's answered.</summary>
+    internal static TimeSpan PasswordWait { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>How long a command sent when connected waits for the shell's prompt before it's typed anyway.</summary>
+    internal static TimeSpan ShellWait { get; set; } = TimeSpan.FromSeconds(15);
+
+    bool Live(SessionTab tab) => _tabs.Contains(tab) && tab.Session.State == SessionState.Connected;
+
+    /// <summary>
+    /// After a command that answers a password prompt: types the password once, if a password prompt is what shows.
+    /// A shell prompt instead (sudo didn't ask) is fine; no prompt at all, a password that can't be had, or the prompt
+    /// coming back after the answer stops there, with nothing more typed. True when it's safe to carry on.
+    /// </summary>
+    async Task<bool> AnswerPasswordAsync(SessionTab tab, TerminalView terminal, SavedCommand command, CommandSource source, long before)
+    {
+        var shown = await TerminalPromptWatch.WaitAsync(terminal, PasswordWait, before, () => !Live(tab));
+        if (!Live(tab))
+        {
+            return false;
+        }
+
+        if (shown == TerminalPromptKind.Shell)
+        {
+            CommandLog.LogInformation("\"{Command}\" on \"{Name}\" didn't ask for a password, so none was typed", command.Name, source.Name);
+            return true;
+        }
+
+        if (shown == TerminalPromptKind.None)
+        {
+            CommandLog.LogWarning("No password prompt came after \"{Command}\" on \"{Name}\", so none was typed", command.Name, source.Name);
+            ShowNotice($"No password prompt came after \"{command.Name}\" on {source.Name}, so none was typed.");
+            return false;
+        }
+
+        if (await CommandPasswordAsync(command, source, TopLevel.GetTopLevel(terminal) as Window ?? this) is not { } credential)
+        {
+            return false;
+        }
+
+        // The vault may have asked to be unlocked meanwhile: the prompt has to be the one still showing.
+        if (!Live(tab) || TerminalPrompt.Classify(terminal.CursorLine()) != TerminalPromptKind.Password)
+        {
+            ShowNotice($"The password prompt after \"{command.Name}\" on {source.Name} went away, so no password was typed.");
+            return false;
+        }
+
+        long typed = terminal.Received;
+        terminal.SendSecret(credential.Secret);
+        CommandLog.LogInformation("Answered the password prompt after \"{Command}\" on \"{Name}\" with credential \"{Credential}\"",
+            command.Name, source.Name, credential.Name);
+
+        if (await TerminalPromptWatch.WaitAsync(terminal, PasswordWait, typed, () => !Live(tab)) == TerminalPromptKind.Password)
+        {
+            CommandLog.LogWarning("The password for \"{Command}\" on \"{Name}\" wasn't taken; not typed again", command.Name, source.Name);
+            ShowNotice($"{source.Name} didn't take the password from \"{credential.Name}\". Type it yourself, or check the credential.");
+            return false;
+        }
+
+        return Live(tab);
+    }
+
+    /// <summary>
+    /// The credential whose password a command types: the connection's login, or the one the command names. Null, having
+    /// said why, when there's none, it isn't a password, or the vault stays locked.
+    /// </summary>
+    async Task<Credential?> CommandPasswordAsync(SavedCommand command, CommandSource source, Window owner)
+    {
+        Guid? id = command.Password == CommandPassword.Credential ? command.PasswordCredentialId
+            : source.Entry is { } entry ? SettingsResolver.Resolve(entry).CredentialId.Value
+            : null;
+        if (id is null)
+        {
+            ShowNotice($"{source.Name} has no saved login whose password \"{command.Name}\" could type, so none was typed.");
+            return null;
+        }
+
+        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, owner))
+        {
+            return null;
+        }
+
+        if (await _credentials.GetAsync(id.Value) is not { Kind: CredentialKind.Password } credential)
+        {
+            ShowNotice($"\"{command.Name}\" answers with a credential that's gone or isn't a password, so none was typed.");
+            return null;
+        }
+
+        return credential;
+    }
+
+    /// <summary>
+    /// Sends the commands a saved connection's terminal sends by itself once connected, in order. One that asks first
+    /// asks; turning it down, or the session dropping, stops the rest, since a later one may count on it. A local
+    /// shell or a quick connect sends none.
+    /// </summary>
+    async Task SendWhenConnectedAsync(SessionTab tab)
+    {
+        if (tab.View is not TerminalView terminal || EntryFor(tab) is not { } entry || SavedCommands.WhenConnected(entry) is not { Count: > 0 } commands)
+        {
             return;
         }
 
-        terminal.SendCommand(text, pressEnter);
-        terminal.Focus();
-        CommandLog.LogInformation("Sent the saved command \"{Command}\" to \"{Name}\"{Enter}", command.Command.Name, source.Name, pressEnter ? "" : " without Enter");
+        CommandLog.LogInformation("Sending {Count} saved command(s) to \"{Name}\" now that it's connected", commands.Count, entry.Name);
+        foreach (var command in commands)
+        {
+            // Each waits for the shell, so it isn't read by the one before (sudo taking it for the password). One whose
+            // prompt doesn't come in time (one Orrery doesn't know) is typed anyway, as the shell reads ahead; a password
+            // prompt nobody answered stops them.
+            if (await TerminalPromptWatch.WaitAsync(terminal, ShellWait, stop: () => !Live(tab)) == TerminalPromptKind.Password)
+            {
+                ShowNotice($"{entry.Name} is asking for a password, so its commands weren't sent.");
+                CommandLog.LogInformation("Stopped sending \"{Name}\"'s commands at \"{Command}\": a password prompt is showing", entry.Name, command.Command.Name);
+                return;
+            }
+
+            if (!await SendSavedCommandAsync(tab, command, command.Command.PressEnter, focus: false))
+            {
+                CommandLog.LogInformation("Stopped sending \"{Name}\"'s commands at \"{Command}\"", entry.Name, command.Command.Name);
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -161,7 +298,7 @@ public partial class MainWindow
     async Task NewCommandAsync(SessionTab tab, TerminalView terminal, string? seed)
     {
         var owner = TopLevel.GetTopLevel(terminal) as Window ?? this;
-        var window = new SavedCommandWindow(null, CommandPlacesFor(tab)) { Seed = seed };
+        var window = new SavedCommandWindow(null, CommandPlacesFor(tab), _credentials) { Seed = seed };
         if (await window.ShowDialog<SavedCommand?>(owner) is not { } saved || window.ChosenPlace is not { } place || _tree.Find(place.Node.Id) is null)
         {
             return;

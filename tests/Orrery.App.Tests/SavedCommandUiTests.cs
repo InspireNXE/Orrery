@@ -99,6 +99,60 @@ public class SavedCommandUiTests
     }
 
     [AvaloniaFact]
+    public async Task Become_root_fills_in_sudo_answered_with_the_login_password()
+    {
+        var owner = new Window();
+        owner.Show();
+        var window = new SavedCommandWindow(null, "web-01", new NoCredentials());
+        var result = window.ShowDialog<SavedCommand?>(owner);
+        Dispatcher.UIThread.RunJobs();
+        window.PressEnterBox.IsChecked = false;
+
+        window.BecomeRoot();
+        window.Save();
+        var saved = await result;
+
+        Assert.NotNull(saved);
+        Assert.Equal(("Become root", "sudo -i", true, CommandPassword.Login), (saved!.Name, saved.Text, saved.PressEnter, saved.Password));
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_command_without_enter_answers_no_password_and_a_credential_has_to_be_chosen()
+    {
+        var owner = new Window();
+        owner.Show();
+        var window = new SavedCommandWindow(null, "web-01", new NoCredentials());
+        var result = window.ShowDialog<SavedCommand?>(owner);
+        Dispatcher.UIThread.RunJobs();
+        window.TextBox.Text = "su -";
+
+        window.PasswordChoice = CommandPassword.Credential;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.PasswordCredentialPicker!.IsVisible);
+        window.Save();
+        Assert.True(window.IsVisible);
+
+        window.PressEnterBox.IsChecked = false;
+        Assert.False(window.PasswordBox.IsEnabled);
+        window.Save();
+        var saved = await result;
+
+        Assert.Equal((CommandPassword.None, (Guid?)null), (saved!.Password, saved.PasswordCredentialId));
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public void Without_the_vault_the_editor_offers_only_the_login_password()
+    {
+        var window = new SavedCommandWindow(new SavedCommand { Name = "Root", Text = "su -", Password = CommandPassword.Credential, PasswordCredentialId = Guid.NewGuid() }, "web-01");
+
+        Assert.Equal(2, window.PasswordBox.ItemCount);
+        Assert.Null(window.PasswordCredentialPicker);
+        Assert.Equal(CommandPassword.None, window.PasswordChoice);
+    }
+
+    [AvaloniaFact]
     public async Task A_new_command_from_a_terminal_can_go_on_the_connection_a_folder_or_every_connection()
     {
         var tree = ConnectionTree.Empty();
