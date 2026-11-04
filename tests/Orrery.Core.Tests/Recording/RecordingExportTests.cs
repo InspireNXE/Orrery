@@ -289,6 +289,27 @@ public sealed class RecordingExportTests : IDisposable
     }
 
     [Fact]
+    public void Ffmpeg_is_looked_for_in_winget_packages_newest_first_then_the_usual_places()
+    {
+        var local = Path.Combine(_dir, "local");
+        var packages = Path.Combine(local, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe");
+        Directory.CreateDirectory(Path.Combine(packages, "ffmpeg-7.0-full_build"));
+        Directory.CreateDirectory(Path.Combine(packages, "ffmpeg-8.0-full_build"));
+        Directory.CreateDirectory(Path.Combine(local, "Microsoft", "WinGet", "Packages", "Some.Other.Tool"));
+
+        var places = Ffmpeg.WindowsPlaces(local, Path.Combine(_dir, "pf"), Path.Combine(_dir, "pd"), Path.Combine(_dir, "home")).ToList();
+
+        Assert.Equal(Path.Combine(packages, "ffmpeg-8.0-full_build", "bin", "ffmpeg.exe"), places[0]);
+        Assert.Equal(Path.Combine(packages, "ffmpeg-7.0-full_build", "bin", "ffmpeg.exe"), places[1]);
+        Assert.Equal(Path.Combine(local, "Microsoft", "WinGet", "Links", "ffmpeg.exe"), places[2]);
+        Assert.Contains(Path.Combine(_dir, "home", "scoop", "apps", "ffmpeg", "current", "bin", "ffmpeg.exe"), places);
+        Assert.Contains(Path.Combine(_dir, "pd", "chocolatey", "bin", "ffmpeg.exe"), places);
+        Assert.All(places, p => Assert.StartsWith(_dir, p));
+        Assert.Equal("/opt/homebrew/bin/ffmpeg", Ffmpeg.UnixPlaces(macOS: true).First());
+        Assert.Equal("/usr/bin/ffmpeg", Ffmpeg.UnixPlaces(macOS: false).First());
+    }
+
+    [Fact]
     public void Retention_deletes_old_then_oldest_and_never_what_is_in_use()
     {
         var now = DateTime.UtcNow;

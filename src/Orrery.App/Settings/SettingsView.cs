@@ -808,12 +808,64 @@ sealed class SettingsView : UserControl
             OpenFolder(folder);
         };
 
-        var noFfmpeg = OperatingSystem.IsWindows() ? "None chosen: MP4 uses Windows' own encoders." : "None chosen: screen recordings export as AVI only.";
-        var ffmpegText = Note(_settings.FfmpegPath is { } chosen ? $"Using {chosen}" : noFfmpeg);
+        // What MP4 export would use now: Windows' codecs (read once) and the chosen ffmpeg, run to read its version and
+        // encoders. With none that runs, the places installers use are looked in, and one found is offered, not taken.
+        IReadOnlyList<Core.Recording.SystemCodec>? systemCodecs = null;
+        string? foundFfmpeg = null;
+        int refreshes = 0;
+        var ffmpegText = Note("Checking…");
         var chooseFfmpeg = new Button { Content = "Choose ffmpeg…" };
         var clearFfmpeg = new Button { Content = "Don't use ffmpeg", IsVisible = _settings.FfmpegPath is not null };
         var installFfmpeg = Note(Recording.FfmpegHelp.InstallHint);
-        installFfmpeg.IsVisible = _settings.FfmpegPath is null;
+        installFfmpeg.IsVisible = false;
+        var foundText = Note(string.Empty);
+        var useFound = new Button { Content = "Use it", Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(useFound, Dock.Right);
+        var found = new DockPanel { IsVisible = false, Children = { useFound, foundText } };
+
+        async Task RefreshFfmpegAsync()
+        {
+            var mine = ++refreshes;
+            ffmpegText.Text = "Checking…";
+            systemCodecs ??= OperatingSystem.IsWindows() ? await Task.Run(Core.Recording.MediaFoundation.Codecs) : [];
+            var chosen = _settings.FfmpegPath;
+            var info = chosen is null ? null : await Core.Recording.Ffmpeg.ProbeAsync(chosen);
+            var candidate = info is null ? await Task.Run(Core.Recording.Ffmpeg.Find) : null;
+            if (mine != refreshes)
+            {
+                return;
+            }
+
+            foundFfmpeg = candidate == chosen ? null : candidate;
+            ffmpegText.Text = Recording.FfmpegHelp.Status(systemCodecs, chosen, info);
+            clearFfmpeg.IsVisible = chosen is not null;
+            foundText.Text = $"Found ffmpeg at {foundFfmpeg}.";
+            found.IsVisible = foundFfmpeg is not null;
+            installFfmpeg.IsVisible = info is null && foundFfmpeg is null;
+        }
+
+        async Task UseFfmpegAsync(string path)
+        {
+            ffmpegText.Text = "Checking…";
+            if (await Core.Recording.Ffmpeg.ProbeAsync(path) is null)
+            {
+                ffmpegText.Text = $"{path} isn't an ffmpeg Orrery could run. Nothing changed.";
+                return;
+            }
+
+            _settings = _settings with { FfmpegPath = path };
+            TrySaveSettings();
+            await RefreshFfmpegAsync();
+        }
+
+        _ = RefreshFfmpegAsync();
+        useFound.Click += async (_, _) =>
+        {
+            if (foundFfmpeg is { } path)
+            {
+                await UseFfmpegAsync(path);
+            }
+        };
         chooseFfmpeg.Click += async (_, _) =>
         {
             if (TopLevel.GetTopLevel(this) is not { } top)
@@ -831,27 +883,13 @@ sealed class SettingsView : UserControl
                 return;
             }
 
-            ffmpegText.Text = "Checking…";
-            var info = await Core.Recording.Ffmpeg.ProbeAsync(path);
-            if (info is null)
-            {
-                ffmpegText.Text = "That isn't an ffmpeg Orrery could run. Nothing changed.";
-                return;
-            }
-
-            _settings = _settings with { FfmpegPath = path };
-            TrySaveSettings();
-            clearFfmpeg.IsVisible = true;
-            installFfmpeg.IsVisible = false;
-            ffmpegText.Text = $"{info.Version}. MP4 export offers: {(info.Codecs.Count == 0 ? "nothing (this build has no H.264, H.265 or AV1 encoder)" : string.Join(", ", info.Codecs.Select(c => c.Name)))}.";
+            await UseFfmpegAsync(path);
         };
-        clearFfmpeg.Click += (_, _) =>
+        clearFfmpeg.Click += async (_, _) =>
         {
             _settings = _settings with { FfmpegPath = null };
             TrySaveSettings();
-            clearFfmpeg.IsVisible = false;
-            installFfmpeg.IsVisible = true;
-            ffmpegText.Text = noFfmpeg;
+            await RefreshFfmpegAsync();
         };
 
         return Section("Recordings",
@@ -871,6 +909,7 @@ sealed class SettingsView : UserControl
             used,
             Row(OperatingSystem.IsWindows() ? "ffmpeg (optional)" : "ffmpeg for MP4 export", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { chooseFfmpeg, clearFfmpeg, Recording.FfmpegHelp.DownloadButton() } }),
             ffmpegText,
+            found,
             Note(OperatingSystem.IsWindows()
                 ? "Export… makes MP4 with Windows' own H.264, H.265 and AV1 encoders, whichever this PC has (AV1 and H.265 often need "
                     + "a recent graphics card or Windows' HEVC extension). An ffmpeg you've installed adds any codec Windows lacks. "
