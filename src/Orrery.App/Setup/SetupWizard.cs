@@ -160,38 +160,40 @@ sealed class SetupWizard : Window
             }
         }, RoutingStrategies.Tunnel);
 
+        var sidebar = new Border
+        {
+            Background = Dialogs.PanelBrush,
+            BorderBrush = Pane.LineBrush,
+            BorderThickness = new Thickness(0, 0, 1, 0),
+            Width = 148,
+            Padding = new Thickness(0, 20),
+            Child = _stepList,
+        };
+        var footer = new Border
+        {
+            BorderBrush = Pane.LineBrush,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(32, 12, 20, 12),
+            Child = new DockPanel
+            {
+                Children =
+                {
+                    Pane.Docked(new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        Children = { _defaults, _back, _next },
+                    }, Dock.Right),
+                    _progress,
+                },
+            },
+        };
         Content = new DockPanel
         {
             Children =
             {
-                Pane.Docked(new Border
-                {
-                    Background = Dialogs.PanelBrush,
-                    BorderBrush = Pane.LineBrush,
-                    BorderThickness = new Thickness(0, 0, 1, 0),
-                    Width = 148,
-                    Padding = new Thickness(0, 20),
-                    Child = _stepList,
-                }, Dock.Left),
-                Pane.Docked(new Border
-                {
-                    BorderBrush = Pane.LineBrush,
-                    BorderThickness = new Thickness(0, 1, 0, 0),
-                    Padding = new Thickness(32, 12, 20, 12),
-                    Child = new DockPanel
-                    {
-                        Children =
-                        {
-                            Pane.Docked(new StackPanel
-                            {
-                                Orientation = Orientation.Horizontal,
-                                Spacing = 8,
-                                Children = { _defaults, _back, _next },
-                            }, Dock.Right),
-                            _progress,
-                        },
-                    },
-                }, Dock.Bottom),
+                Pane.Docked(sidebar, Dock.Left),
+                Pane.Docked(footer, Dock.Bottom),
                 _scroll,
             },
         };
@@ -202,6 +204,15 @@ sealed class SetupWizard : Window
             new Panel { Margin = new Thickness(0, 8, 0, 0), Children = { _message } },
         ]);
         _scroll.Content = _content;
+
+        // Tab goes through the step's page, then the buttons under it, then the step list, rather than the order
+        // they're docked in, which put the step list between the page and the buttons.
+        // Each is made a group of its own, as a container's index is otherwise passed over for its controls' own.
+        foreach (var (part, index) in new Control[] { _scroll, footer, sidebar }.Select((p, i) => (p, i)))
+        {
+            KeyboardNavigation.SetTabNavigation(part, KeyboardNavigationMode.Local);
+            KeyboardNavigation.SetTabIndex(part, index);
+        }
 
         GoTo(_steps[0], announce: false);
         Opened += (_, _) =>
