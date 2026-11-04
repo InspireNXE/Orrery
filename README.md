@@ -329,8 +329,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   frames a second, taken only when the screen changes, with RDP sound. On Windows, a web page in a tab is recorded
   the same way, from the engine's own picture of the page (no sound); WebKit on Linux and macOS can't give one.
 - **Starting:** the *Record sessions* setting (inherited, so a folder can record everything in it), *Record every
-  session* in Settings, or the tab's menu. A red dot on the tab and a *REC* pill show it's on; the pill changes the
-  frame rate and sound, or stops. A reconnect carries on in the same file.
+  session* in Settings, or the tab's menu. A red dot on the tab and a *REC* pill show it's on, and in full screen the
+  bar at the top says *Recording*; the pill changes the frame rate and sound, or stops. A reconnect carries on in the same file.
 - **Encrypted,** sealed to a key kept with your saved credentials: recording never asks for the vault, playing does,
   and locking the vault closes the player. Recordings live in `recordings/` in the data folder, readable only by
   you; old ones are deleted by age and total size.
@@ -655,6 +655,24 @@ Orrery is built with AI assistance. Its code, tests and documentation are writte
 [Claude Code](https://claude.com/claude-code), Anthropic's coding agent, under the maintainer's direction: they
 decide what goes in and try it out. Every commit says so with a `Co-Authored-By: Claude`
 trailer. The security audits above were run the same way.
+
+## Disclaimer
+
+Orrery is provided as is, without warranty of any kind, as the [MIT license](LICENSE) says: use it at your own risk.
+The authors aren't liable for any damage, data loss or security breach that comes from using it.
+
+- **It acts for you.** It connects with the logins you save, sends the commands you save (by themselves on connect,
+  if you set that) and types passwords at prompts when a command is set to. Check what a command does, where it's
+  saved and which connections that reaches before turning those on.
+- **Use it only where you're allowed to.** You're responsible for having permission to reach the servers and desktops
+  you connect to, and for what's done on them through Orrery.
+- **Keep your own backups.** The vault can't be opened without its master password, and nothing can recover it.
+  Recordings and the connection tree are files you should back up as you would any other.
+- **Its safeguards reduce risk; they don't remove it.** Host-key checks, the encrypted vault and the checks around
+  typed passwords are there to catch mistakes and some attacks, not to make an untrusted or compromised server safe
+  to use.
+- **It's built with AI assistance** (see [How it's made](#how-its-made)), reviewed and tried by the maintainer, and
+  still a preview: expect bugs, and report security issues as [SECURITY.md](SECURITY.md) says.
 
 ## License and credits
 
