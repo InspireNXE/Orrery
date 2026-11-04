@@ -66,7 +66,7 @@ src/
   Orrery.Protocols.Stream/    client: session, decoders, presenter, input capture, SDL3 controllers
   Orrery.Host/                host: tray app, capture, encoders, input injection, audio, pairing UI
   Orrery.Host.Service/        Windows SYSTEM service and secure-desktop helper (phase 4)
-drivers/                      virtual gamepad and IddCx display (phase 6)
+drivers/                      virtual gamepad, IddCx display, virtual audio (phase 6)
 ```
 
 `Orrery.Streaming` has no UI and no platform code, so both sides and the tests can use it.
@@ -278,7 +278,8 @@ New settings for OSP:
 | Connection | Host, port, paired certificate (fingerprint, **Pair…**, **Forget**) |
 | Video | Codec (Auto, AV1, HEVC, H.264), resolution (match client, or fixed), frame rate, bitrate (Auto or a cap), monitor |
 | Input | Relative mouse (Auto, On, Off), controller passthrough, gamepad type to emulate |
-| Session | Audio, clipboard, open in popout by default |
+| Audio | Where sound plays (here, on the host, both, off), output device, microphone (off or a device), push-to-talk key |
+| Session | Clipboard, open in popout by default |
 
 Credentials, Wake-on-LAN, host status and folder inheritance work as for every protocol. **Jump host is disabled**
 for OSP, with a note: "UDP can't go through SSH tunnels; use a VPN to reach this host from outside its network."
@@ -289,9 +290,44 @@ for OSP, with a note: "UDP can't go through SSH tunnels; use a VPN to reach this
 
 ### Audio
 
-Host: WASAPI loopback on Windows, PipeWire on Linux. Opus at a low frame size (5 to 10 ms) over datagrams, with light
-FEC. Client playback through the same audio path RDP uses today (`IAudioSession`), or a lower-latency one if that adds
-too much delay. Microphone passthrough is a later addition.
+Full audio both ways: the host's sound played on the client, and the client's microphone heard on the host.
+
+**Sound from the host**
+- **Capture:** WASAPI loopback of the host's output on Windows; a PipeWire monitor of the default sink on Linux.
+- **Channels:** stereo, 5.1 and 7.1. The client says what its output device has; the host captures in that layout
+  (setting its virtual speaker to match, below) and downmixes when it can't. Games that output surround keep it.
+- **Encoding:** Opus at 48 kHz, 5 ms frames, multistream for surround, about 128 kbps for stereo and 256–512 kbps for
+  7.1. Sent as datagrams with light FEC (Opus's in-band FEC plus our packet FEC), with packet-loss concealment for
+  what still goes missing.
+- **Latency and sync:** a small adaptive jitter buffer on the client (target 10–20 ms on a LAN). Audio and video
+  carry the host's capture timestamps; the client keeps them within a frame of each other, nudging audio playback rate
+  slightly rather than dropping or inserting sound.
+- **Playback:** a low-latency output path. The current `IAudioOutput` (IronRDP's native output on CPAL) is tried first;
+  if its buffering adds too much delay, OSP gets its own (WASAPI with `IAudioClient3` small periods on Windows,
+  PipeWire on Linux, Core Audio on macOS). The client can pick an output device instead of the default.
+- **Orrery features that already work for RDP keep working:** OSP implements `IAudioSession` and `IAudioTap`, so the
+  tab's mute button, the "playing sound" indicator and session recording get the sound unchanged.
+- **Where it plays**, per connection: **play here** (and silence the host's speakers while streaming, as Parsec
+  does), **play on the host**, **both**, or **off**. That's RDP's `RemoteAudio` with two more choices; OSP gets its
+  own setting so RDP's stays as it is.
+
+**Microphone to the host**
+- The client captures its chosen microphone (WASAPI, PipeWire, Core Audio), encodes Opus at 10–20 ms frames with
+  in-band FEC, and sends it as datagrams. Off by default; turning it on asks for the OS's microphone permission where
+  there is one (macOS, Wayland portals, Windows privacy settings).
+- The host plays it into a **virtual microphone** that games, Discord and voice chat see as an input device.
+  - Linux: a PipeWire virtual source, created and removed by the host. No driver needed.
+  - Windows: a virtual audio device. That's another driver; it goes with phase 6's signed drivers, as one virtual
+    audio driver providing both a speaker (below) and a microphone. Until then, the host can send the microphone to an
+    existing virtual cable the user installed, chosen in its settings.
+- Push-to-talk on a hotkey and a mute toggle in the overlay.
+- Echo cancellation isn't ours to do: with "play here", the client's own OS and headset handle it, as with any voice
+  chat.
+
+**Headless hosts.** A Windows machine with no sound card has nothing to capture. The virtual speaker from the same
+driver fixes that, and also lets the host match the client's channel layout exactly. Linux uses a PipeWire null sink.
+
+**Host policy** per client (§6) covers sound (on or off) and the microphone (allowed or not).
 
 ### Clipboard
 
@@ -343,20 +379,23 @@ Each phase ends usable and tested on real hardware, both GPUs where it applies.
    whether Avalonia can present fast enough. AMF follows straight after.
 2. **Input.** Keyboard and mouse, relative mouse with pointer lock, SDL3 controllers on the client, virtual HID
    gamepad on the host.
-3. **The real protocol.** QUIC over MsQuic, pairing, mutual TLS, FEC, rate control, recovery from loss, Opus audio,
-   and the full clipboard: text, images and files both ways (§10). OSP appears in Orrery's tree and properties pane.
+3. **The real protocol.** QUIC over MsQuic, pairing, mutual TLS, FEC, rate control, recovery from loss, full audio
+   (sound in stereo to 7.1, microphone to a PipeWire source or an existing virtual cable), the full clipboard (text,
+   images and files both ways), and several monitors once one works (§5, §10). OSP appears in Orrery's tree and
+   properties pane.
 4. **The Windows service.** SYSTEM service plus a helper that follows the active desktop: works at the login screen and on
    UAC prompts, survives sign-out, runs unattended.
 5. **Linux host, Wayland only.** Portal and PipeWire capture, VA-API encoding, uinput. Linux and macOS clients get
    their decode and present paths here too, the Linux one in an SDL3 Wayland window. A Wayland host can't stream the
    login screen or run before someone logs in: each session belongs to its compositor and the greeter is off limits.
    Linux hosts need a logged-in session (auto-login if unattended); there's no equivalent of phase 4.
-6. **Signed drivers.** XInput-compatible gamepad and IddCx virtual display for headless machines. Needs an EV
+6. **Signed drivers.** XInput-compatible gamepad, IddCx virtual display for headless machines, and a virtual audio
+   device (speaker and microphone). Needs an EV
    certificate and Microsoft attestation signing through Partner Center ([code-signing.md](code-signing.md) covers the
    rest of signing). Tackled when we get there.
 
-Later, maybe: a couch mode that opens a saved stream full screen in a popout and is driven by a controller; microphone
-passthrough; file transfer; several monitors at once.
+Later, maybe: a couch mode that opens a saved stream full screen in a popout and is driven by a controller; a
+file-transfer panel beyond the clipboard.
 
 ---
 
@@ -374,12 +413,15 @@ passthrough; file transfer; several monitors at once.
   Wayland window (§5).
 - **Multi-display, HDR, VRR, 12-bit together?** All but 12-bit; 10-bit HDR is the ceiling (§5, display capabilities).
 - **Clipboard?** (2026-11-04) The same as RDP: text, images and files, to and from the host (§10).
+- **Audio?** (2026-11-04) Full audio: sound from the host including surround, and the microphone to the host (§10).
 
 ## 13. Open questions
 
 - Default UDP port.
 - Which PAKE and which library, after a license and maintenance check.
 - SDL3 window or native surface in Avalonia for the popout on Windows and macOS (measure in phase 1).
+- Whether the existing `IAudioOutput` is low-latency enough for streaming, or OSP needs its own output (measure in phase 3).
+- Which Opus binding to ship (libopus is BSD; the .NET wrapper needs a license and maintenance check).
 - Which SDL3 version supports HDR through Wayland's color-management protocol, and which compositors we test on.
 - Whether input over a reliable stream adds measurable latency (measure in phase 3).
 - Which AV1 encode and decode generations the two test GPUs are.
