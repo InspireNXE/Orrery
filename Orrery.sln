@@ -51,6 +51,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orrery.Host", "src\Orrery.H
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orrery.Streaming.Tests", "tests\Orrery.Streaming.Tests\Orrery.Streaming.Tests.csproj", "{38F68C7F-F6F2-4A1F-9473-6CCAFBA9B733}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orrery.Host.Tests", "tests\Orrery.Host.Tests\Orrery.Host.Tests.csproj", "{AD75224E-0D51-4698-AD1F-246111FCE5CF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -313,6 +315,18 @@ Global
 		{38F68C7F-F6F2-4A1F-9473-6CCAFBA9B733}.Release|x64.Build.0 = Release|Any CPU
 		{38F68C7F-F6F2-4A1F-9473-6CCAFBA9B733}.Release|x86.ActiveCfg = Release|Any CPU
 		{38F68C7F-F6F2-4A1F-9473-6CCAFBA9B733}.Release|x86.Build.0 = Release|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Debug|x64.Build.0 = Debug|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Debug|x86.Build.0 = Debug|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Release|x64.ActiveCfg = Release|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Release|x64.Build.0 = Release|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Release|x86.ActiveCfg = Release|Any CPU
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -339,5 +353,6 @@ Global
 		{1A4D5421-2AB9-4484-8983-BC8FC00D7F9C} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{96559682-318F-4182-8DAA-22212106597A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{38F68C7F-F6F2-4A1F-9473-6CCAFBA9B733} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{AD75224E-0D51-4698-AD1F-246111FCE5CF} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

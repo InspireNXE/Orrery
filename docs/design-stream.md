@@ -1,7 +1,9 @@
 # Orrery design: Orrery Stream Protocol and Orrery Host
 
 Status: **Draft**, 2026-11-03 (owner's answers in §12). Scaffolded 2026-11-04: the projects in §3 except
-`Orrery.Host.Service` exist, with the media packet header, codec choice and connection options; nothing streams yet.
+`Orrery.Host.Service` exist, with the media packet header, codec choice and connection options. Phase 1 started
+2026-11-04: NVENC bindings generated from the header (§13) and `OrreryHost --probe`, which lists the GPUs and what
+each NVIDIA one can encode. Nothing streams yet.
 Scope: a low-latency desktop and game streaming protocol in the spirit of Parsec, direct connect only, with the
 client inside Orrery and the host as a separate companion app. MIT throughout.
 
@@ -416,7 +418,17 @@ file-transfer panel beyond the clipboard.
 - **Clipboard?** (2026-11-04) The same as RDP: text, images and files, to and from the host (§10).
 - **Audio?** (2026-11-04) Full audio: sound from the host including surround, and the microphone to the host (§10).
 
-## 13. Open questions
+## 13. Dependencies
+
+Each is checked (source, version, hash, license) before it's added, and none is added without the owner's approval.
+
+| Dependency | Status | Details |
+|---|---|---|
+| NVENC header | **Used, not shipped** | FFmpeg's nv-codec-headers `n12.1.14.1` (NVENC API 12.1, MIT), `nvEncodeAPI.h` SHA-256 `dbdaa8bcbc2b9325bd24bc68b36170a8432411518040e8d4c8421608cf217425`. `tools/nvenc-interop` fetches it, refuses any other hash, and generates `NvEncInterop.g.cs` with MSVC, so offsets, GUIDs and bitfield masks come from the compiler. The driver supplies the library at run time; API 12.1 needs driver 531.61 or later on Windows, 530.41.03 on Linux |
+| SDL3 | **Vetted, waiting for approval** | Official release 3.4.18 (2026-10-02) from libsdl-org/SDL. 3.4.20 came out 2026-11-03 and is left until it has been out a couple of weeks. SHA-256 from GitHub's asset digests: `SDL3-3.4.18-win32-x64.zip` `75c2c0fc74e7d1206aaedc22893a35887332f4f85f5c8b74fddc10d177985f2c`, `SDL3-3.4.18-win32-arm64.zip` `a95910a1a19260a7d17ca041cf47af13d1aa600b4ee8f0005ddc1e8e942f5086`, `SDL3-3.4.18.dmg` `c1adf3da91108dbc3e4205da5dacebc203085d283fa89e86eb2c889abd03a853`, source `SDL3-3.4.18.tar.gz` `9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3` (GPG-signed, `.sig` alongside). zlib license. No Linux binaries upstream: build from the signed tarball in CI, or use the distro's when it's new enough |
+| SDL3 C# binding | **Recommended: our own** | We need perhaps 40 functions (windows, events, gamepads, rumble, clipboard, properties), so a thin P/Invoke layer of our own over the official binaries, like NVENC's, avoids a dependency. Alternatives seen: `ppy/SDL3-CS` (MIT, NuGet, ships natives ppy builds themselves, last 2026-10-02); `edwardgushchin/SDL3-CS` (zlib, active); `flibitijibibo/SDL3-CS` (zlib, single generated file, last commit 2026-07-07) |
+
+## 14. Open questions
 
 - Default UDP port.
 - Which PAKE and which library, after a license and maintenance check.
