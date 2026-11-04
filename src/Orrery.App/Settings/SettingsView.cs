@@ -123,7 +123,7 @@ sealed class SettingsView : UserControl
 
         var pages = new (string Name, Control[] Sections)[]
         {
-            ("General", [StartupSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
+            ("General", [StartupSection(), OpeningSection(), LayoutSection(), KeyboardSection(), HostStatusSection()]),
             ("Appearance", [.. ColorSections(), AccessibilitySection()]),
             ("Sessions", [RemoteDesktopSection(), WebPagesSection(), LocalTerminalSection(), RecordingSection()]),
             ("Data and security", [StorageSection(), CredentialsSection(), ImportSection()]),
@@ -242,6 +242,9 @@ sealed class SettingsView : UserControl
 
     /// <summary>Remembering recent connections was turned on or off; off means clearing what's kept.</summary>
     public event EventHandler<bool>? RememberRecentConnectionsChanged;
+
+    /// <summary>What opening a connection that's already open does was changed: true opens another session.</summary>
+    public event EventHandler<bool>? NewSessionOnOpenChanged;
 
     /// <summary>A pane mode was chosen, and saved: the side panel's, then the right-hand pane's.</summary>
     public event EventHandler<(PaneMode Side, PaneMode Inspector)>? PaneModesChanged;
@@ -1070,6 +1073,41 @@ sealed class SettingsView : UserControl
                 + "and asks for the login again."),
             recent,
             Note(recentNote));
+    }
+
+    // ---- Opening connections ----
+
+    Control OpeningSection()
+    {
+        var choice = new ComboBox
+        {
+            MinWidth = 160,
+            ItemsSource = new[]
+            {
+                new ComboBoxItem { Content = "Go to its open session", Tag = false },
+                new ComboBoxItem { Content = "Open a new session", Tag = true },
+            },
+            SelectedIndex = _settings.OpensNewSession ? 1 : 0,
+        };
+        AutomationProperties.SetName(choice, "Opening a connection that's already open");
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (_loading || choice.SelectedItem is not ComboBoxItem { Tag: bool newSession })
+            {
+                return;
+            }
+
+            _settings = _settings with { NewSessionOnOpen = newSession };
+            if (TrySaveSettings())
+            {
+                NewSessionOnOpenChanged?.Invoke(this, newSession);
+            }
+        };
+
+        return Section("Opening connections",
+            Row("Double-click a connection that's already open", choice),
+            Note("This goes for Enter and Connect too. With several sessions open to it, it goes to the one used last; with none, it opens one. "
+                + "Ctrl+double-click, a middle-click, or Open new session on its right-click menu always opens another."));
     }
 
     // ---- Remote desktops ----

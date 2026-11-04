@@ -360,6 +360,22 @@ sealed class SessionTab
     /// <summary>Set when the user disconnected or closed it, so its ending isn't treated as a drop.</summary>
     public bool EndedByUser { get; set; }
 
+    /// <summary>When it was last shown, as a count that only goes up, so opening its connection again goes to the latest.</summary>
+    public long LastShown { get; set; }
+
+    static long _shown;
+
+    /// <summary>Marks it as the session shown last.</summary>
+    public void MarkShown() => LastShown = Interlocked.Increment(ref _shown);
+
+    /// <summary>
+    /// The session a connection already has open, the one shown most recently, or null. Its file browser and its management
+    /// page are left out: they aren't the session that opening the connection makes.
+    /// </summary>
+    public static SessionTab? OpenFor(IEnumerable<SessionTab> tabs, Guid entryId) =>
+        tabs.Where(t => t.Origin.EntryId == entryId && !t.Origin.Files && !t.Origin.ManagementPage)
+            .MaxBy(t => t.LastShown);
+
     /// <summary>
     /// The settings a running remote desktop can't take up, as they were saved when it opened, so the settings pane
     /// asks for a reconnect only once one of them is saved differently.
