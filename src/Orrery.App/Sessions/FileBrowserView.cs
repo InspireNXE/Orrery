@@ -148,15 +148,34 @@ sealed class FileBrowserView : DockPanel
             }
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         var menu = new ContextMenu();
-        menu.Opening += (_, _) =>
+        void Fill()
         {
             menu.Items.Clear();
             foreach (var entry in MenuFor(Selected(), _transfer is not null))
             {
                 menu.Items.Add(entry is null ? new Separator() : MenuItemFor(entry));
             }
-        };
+        }
+
+        menu.Opening += (_, _) => Fill();
         _list.ContextMenu = menu;
+        // The list opens the menu on a right release that nothing else took; a right-click soon after a left one can
+        // lose it that way, so a release that didn't open it opens it here, once the release is done with.
+        _list.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            if (e.InitialPressMouseButton == MouseButton.Right)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!menu.IsOpen && _list.IsEffectivelyEnabled && _list.IsEffectivelyVisible)
+                    {
+                        // Open alone doesn't raise Opening, which a right-click's own menu does.
+                        Fill();
+                        menu.Open(_list);
+                    }
+                });
+            }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         DragDrop.SetAllowDrop(_list, true);
         _list.AddHandler(DragDrop.DragOverEvent, (_, e) => e.DragEffects = e.DataTransfer.Contains(DataFormat.File) && _transfer is null ? DragDropEffects.Copy : DragDropEffects.None);
         _list.AddHandler(DragDrop.DropEvent, (_, e) =>
@@ -205,6 +224,16 @@ sealed class FileBrowserView : DockPanel
 
     /// <summary>What's listed, for tests.</summary>
     internal IReadOnlyList<SftpItem> Items => _list.ItemsSource as IReadOnlyList<SftpItem> ?? [];
+
+    /// <summary>Shows <paramref name="items"/> as if listed from the server, for tests that have no server.</summary>
+    internal ListBox ShowForTests(IReadOnlyList<SftpItem> items)
+    {
+        _message.IsVisible = false;
+        _browser.IsVisible = _browser.IsEnabled = true;
+        _browser.Opacity = 1;
+        _list.ItemsSource = items;
+        return _list;
+    }
 
     void ShowState(SessionState state, string? message)
     {

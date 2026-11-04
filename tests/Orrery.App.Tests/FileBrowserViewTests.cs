@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Sockets;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Sessions;
@@ -90,6 +93,56 @@ public class FileBrowserViewTests
 
         // A menu would show Enter as "Return", so Open and Download leave it off, as the connection tree's menu does.
         Assert.DoesNotContain(FileBrowserView.MenuFor([Item("a")], false), e => e?.Shortcut == "Enter");
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_right_click_after_a_left_one_opens_the_menu_even_when_the_release_was_taken(bool taken)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"orrery-known-hosts-{Guid.NewGuid():N}.json");
+        var validator = new HostKeyValidator(new JsonCertificateTrustStore(path), _ => Task.FromResult(CertificateTrustDecision.Reject));
+        var session = SftpSession.Start(new ConnectionTarget("127.0.0.1", ClosedPort(), "me", null), new SshLogin("me", "pw"), validator);
+        var view = new FileBrowserView(session);
+        var window = new Window { Content = view, Width = 900, Height = 500 };
+        window.Show();
+        try
+        {
+            var until = DateTime.UtcNow.AddSeconds(30);
+            while (session.State != SessionState.Failed && DateTime.UtcNow < until)
+            {
+                await Task.Delay(50);
+            }
+
+            Dispatcher.UIThread.RunJobs();
+            var list = view.ShowForTests([Item("a.txt"), Item("logs", folder: true)]);
+            Dispatcher.UIThread.RunJobs();
+            if (taken)
+            {
+                // Stands in for whatever takes the release in the real app, so the list doesn't open the menu itself.
+                window.AddHandler(InputElement.PointerReleasedEvent, (_, e) => e.Handled = e.InitialPressMouseButton == MouseButton.Right,
+                    Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            }
+
+            list.SelectedItems!.Add(list.Items[0]);
+            var row = list.GetVisualDescendants().OfType<ListBoxItem>().Last();
+            var at = row.TranslatePoint(new Avalonia.Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(at, MouseButton.Left);
+            window.MouseUp(at, MouseButton.Left);
+            window.MouseDown(at, MouseButton.Right);
+            window.MouseUp(at, MouseButton.Right);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(list.ContextMenu!.IsOpen);
+            Assert.Equal("Open", list.ContextMenu.Items.OfType<MenuItem>().First().Header);
+            list.ContextMenu.Close();
+        }
+        finally
+        {
+            window.Close();
+            await session.DisposeAsync();
+            File.Delete(path);
+        }
     }
 
     [AvaloniaFact]
