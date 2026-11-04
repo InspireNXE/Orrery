@@ -54,6 +54,44 @@ public class FileBrowserViewTests
         }
     }
 
+    static SftpItem Item(string name, bool folder = false) => new(name, "/srv/" + name, folder, false, 10, DateTime.Now, "rw-r--r--");
+
+    static List<string?> Headers(IReadOnlyList<FileBrowserView.FileMenuEntry?> menu) => menu.Select(e => e?.Header).ToList();
+
+    [Fact]
+    public void The_right_click_menu_fits_what_is_selected()
+    {
+        Assert.Equal(["Download…", null, "Rename…", "Delete…", null, "Copy path", "Copy name"], Headers(FileBrowserView.MenuFor([Item("nginx.conf")], busy: false)));
+        Assert.Equal(["Open", "Download…", null, "Rename…", "Delete…", null, "Copy path", "Copy name"], Headers(FileBrowserView.MenuFor([Item("assets", folder: true)], busy: false)));
+        Assert.Equal(["Upload files…", "Upload a folder…", "New folder…", null, "Refresh", "Copy this folder's path"], Headers(FileBrowserView.MenuFor([], busy: false)));
+
+        var several = FileBrowserView.MenuFor([Item("a"), Item("b"), Item("c")], busy: false);
+        Assert.Equal(["Download 3 items…", null, "Rename…", "Delete 3 items…", null, "Copy paths"], Headers(several));
+        Assert.False(several.Single(e => e?.Action == FileBrowserView.FileAction.Rename)!.Enabled);
+    }
+
+    [Fact]
+    public void A_transfer_under_way_turns_off_downloads_and_uploads_in_the_menu()
+    {
+        Assert.False(FileBrowserView.MenuFor([Item("nginx.conf")], busy: true).Single(e => e?.Action == FileBrowserView.FileAction.Download)!.Enabled);
+        Assert.All(FileBrowserView.MenuFor([], busy: true).Where(e => e?.Action is FileBrowserView.FileAction.UploadFiles or FileBrowserView.FileAction.UploadFolder),
+            e => Assert.False(e!.Enabled));
+        Assert.True(FileBrowserView.MenuFor([Item("nginx.conf")], busy: true).Single(e => e?.Action == FileBrowserView.FileAction.Delete)!.Enabled);
+    }
+
+    [Fact]
+    public void Menu_shortcuts_are_gestures_a_menu_can_show()
+    {
+        foreach (var entry in new[] { FileBrowserView.MenuFor([], false), FileBrowserView.MenuFor([Item("a")], false), FileBrowserView.MenuFor([Item("a"), Item("b")], false) }
+                     .SelectMany(m => m).OfType<FileBrowserView.FileMenuEntry>().Where(e => e.Shortcut is not null))
+        {
+            Avalonia.Input.KeyGesture.Parse(entry.Shortcut!.Replace("Cmd", "Meta"));
+        }
+
+        // A menu would show Enter as "Return", so Open and Download leave it off, as the connection tree's menu does.
+        Assert.DoesNotContain(FileBrowserView.MenuFor([Item("a")], false), e => e?.Shortcut == "Enter");
+    }
+
     [AvaloniaFact]
     public void A_file_tab_is_labeled_SFTP()
     {

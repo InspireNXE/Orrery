@@ -181,7 +181,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **SSH keys:** a connection or folder can name a key file. Orrery tries a saved key, then the file, then your
   agent, then the password. The file is read on each connect, never copied. Passphrases are asked for and can be
   saved. On Linux and macOS, Orrery warns when others can read the key.
-- **SFTP browser** beside the terminal: upload, drop in, download, rename, delete, new folder.
+- **SFTP browser** beside the terminal: upload, drop in, download, rename, delete, new folder, copy paths, from the toolbar, keys or a right-click menu.
 - **Clipboard** is shared unless turned off for a connection or folder. RDP carries text, images and files; VNC,
   text. On Linux and macOS, remote files download when copied (up to 1 GB), with progress and Cancel at the foot of
   the desktop. Not yet tried on a real Mac or Linux machine.
