@@ -154,11 +154,15 @@ sealed class SessionTab
 
         _countdown.Tick += (_, _) => CountDown();
         WireSound();
-        Host = new Grid { Children = { view, BuildScreen() } };
+        // The warning bar above the session, pushing it down rather than covering its top lines: what a warning is
+        // about (a password shown on screen) may be just there.
+        var layers = new Grid { Children = { view, BuildScreen() } };
+        DockPanel.SetDock(Warning, Dock.Top);
+        Host = new DockPanel { Children = { Warning, layers } };
         if (view is TerminalView terminal)
         {
             FindBar = new TerminalFindBar(terminal);
-            ((Grid)Host).Children.Insert(1, FindBar);
+            layers.Children.Insert(1, FindBar);
             terminal.FindRequested += (_, _) => FindBar.Open(terminal.SelectedText);
         }
 
@@ -347,6 +351,9 @@ sealed class SessionTab
 
     /// <summary>Find in the scrollback, for a terminal; null for other sessions.</summary>
     public TerminalFindBar? FindBar { get; }
+
+    /// <summary>A warning over the session that stays until dismissed, for what a saved command typing a password did.</summary>
+    public SessionWarningBar Warning { get; } = new();
 
     /// <summary>The window this session is popped out into; null while it's a tab in the main window's strip.</summary>
     public PopoutWindow? Popout { get; set; }

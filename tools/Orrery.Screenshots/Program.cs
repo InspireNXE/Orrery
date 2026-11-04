@@ -14,7 +14,10 @@ static class Program
     static int Main(string[] args)
     {
         var root = RepoRoot();
-        var output = args.Length > 0 ? Path.GetFullPath(args[0]) : Path.Combine(root, "docs", "images");
+
+        // --password-prompts <folder>: the windows a command that types a password shows, for review, not the README's.
+        bool passwords = args is ["--password-prompts", _];
+        var output = passwords ? Path.GetFullPath(args[1]) : args.Length > 0 ? Path.GetFullPath(args[0]) : Path.Combine(root, "docs", "images");
         var icon = Path.Combine(root, "src", "Orrery.App", "Assets", "orrery.png");
         Directory.CreateDirectory(output);
 
@@ -30,7 +33,7 @@ static class Program
         {
             try
             {
-                await Shots.TakeAllAsync(output, icon);
+                await (passwords ? PasswordShots.TakeAllAsync(output) : Shots.TakeAllAsync(output, icon));
             }
             catch (Exception e)
             {

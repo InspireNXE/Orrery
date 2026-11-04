@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Connections;
+using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
@@ -160,7 +161,7 @@ public partial class MainWindow
         if (SavedCommands.WhyNoPassword(command, source.Entry) is { } why)
         {
             CommandLog.LogInformation("\"{Command}\" on \"{Name}\" won't type a password: {Why}", command.Command.Name, source.Name, why);
-            ShowNotice($"\"{command.Command.Name}\" won't type a password on {source.Name}: {why}. Type it yourself if it asks.");
+            Warn(tab, $"\"{command.Command.Name}\" didn't type a password on {source.Name}: {why}. Type it yourself if it asks.");
             return true;
         }
 
@@ -198,6 +199,16 @@ public partial class MainWindow
     bool Live(SessionTab tab) => _tabs.Contains(tab) && tab.Session.State == SessionState.Connected;
 
     /// <summary>
+    /// Says what a command typing a password did or didn't do in a bar over its session that stays until dismissed,
+    /// and in the status line too, since the tab may not be the one showing.
+    /// </summary>
+    void Warn(SessionTab tab, string text, NoticeKind kind = NoticeKind.Warning)
+    {
+        tab.Warning.Show(text, kind);
+        ShowNotice(tab, text);
+    }
+
+    /// <summary>
     /// After a command that answers a password prompt: types the password once, if a password prompt is what shows.
     /// A shell prompt instead (sudo didn't ask) is fine; no prompt at all, a password that can't be had, or the prompt
     /// coming back after the answer stops there, with nothing more typed. True when it's safe to carry on.
@@ -219,31 +230,56 @@ public partial class MainWindow
         if (shown == TerminalPromptKind.None)
         {
             CommandLog.LogWarning("No password prompt came after \"{Command}\" on \"{Name}\", so none was typed", command.Name, source.Name);
-            ShowNotice($"No password prompt came after \"{command.Name}\" on {source.Name}, so none was typed.");
+            Warn(tab, $"No password prompt came after \"{command.Name}\" on {source.Name}, so no password was typed.");
             return false;
         }
 
-        if (await CommandPasswordAsync(command, source, TopLevel.GetTopLevel(terminal) as Window ?? this) is not { } credential)
+        if (await CommandPasswordAsync(tab, command, source, TopLevel.GetTopLevel(terminal) as Window ?? this) is not { } credential)
         {
             return false;
         }
 
         // The vault may have asked to be unlocked meanwhile: the prompt has to be the one still showing.
-        if (!Live(tab) || TerminalPrompt.Classify(terminal.CursorLine()) != TerminalPromptKind.Password)
+        var prompt = terminal.CursorLine();
+        if (!Live(tab) || TerminalPrompt.Classify(prompt) != TerminalPromptKind.Password)
         {
-            ShowNotice($"The password prompt after \"{command.Name}\" on {source.Name} went away, so no password was typed.");
+            Warn(tab, $"The password prompt after \"{command.Name}\" on {source.Name} went away while the vault was unlocked, so no password was typed.");
             return false;
         }
 
+        // The login password only where it's that login's: not for another user the session logged in as, nor at a
+        // prompt that asks for someone else's.
+        if (command.Password == CommandPassword.Login
+            && SavedCommands.WhyNotLogin(credential.Username, source.Username, TerminalPrompt.PromptUser(prompt)) is { } wrongUser)
+        {
+            CommandLog.LogWarning("Didn't type a password after \"{Command}\" on \"{Name}\": {Why}", command.Name, source.Name, wrongUser);
+            Warn(tab, $"No password was typed after \"{command.Name}\" on {source.Name}: {wrongUser}. Type it yourself if it's right.");
+            return false;
+        }
+
+        bool shownBefore = terminal.ScreenText().Contains(credential.Secret, StringComparison.Ordinal);
         long typed = terminal.Received;
         terminal.SendSecret(credential.Secret);
         CommandLog.LogInformation("Answered the password prompt after \"{Command}\" on \"{Name}\" with credential \"{Credential}\"",
             command.Name, source.Name, credential.Name);
 
-        if (await TerminalPromptWatch.WaitAsync(terminal, PasswordWait, typed, () => !Live(tab)) == TerminalPromptKind.Password)
+        var after = await TerminalPromptWatch.WaitAsync(terminal, PasswordWait, typed, () => !Live(tab));
+
+        // A real password prompt doesn't show what's typed. One that did (a program printing "Password:" and reading
+        // the line) has put the password on screen, in the scrollback, and in a recording if there is one.
+        if (Live(tab) && !shownBefore && terminal.ScreenText().Contains(credential.Secret, StringComparison.Ordinal))
+        {
+            CommandLog.LogWarning("The password typed after \"{Command}\" on \"{Name}\" showed on screen: the prompt wasn't hiding it", command.Name, source.Name);
+            Warn(tab, $"Security: the password from \"{credential.Name}\" showed on screen after \"{command.Name}\" on {source.Name}, so that prompt "
+                + $"wasn't a real password prompt. It's in the scrollback{(tab.IsRecording ? " and in this session's recording" : "")}. Change that password.",
+                NoticeKind.Error);
+            return false;
+        }
+
+        if (after == TerminalPromptKind.Password)
         {
             CommandLog.LogWarning("The password for \"{Command}\" on \"{Name}\" wasn't taken; not typed again", command.Name, source.Name);
-            ShowNotice($"{source.Name} didn't take the password from \"{credential.Name}\". Type it yourself, or check the credential.");
+            Warn(tab, $"{source.Name} didn't take the password from \"{credential.Name}\", so it wasn't typed again. Type it yourself, or check the credential.");
             return false;
         }
 
@@ -254,25 +290,27 @@ public partial class MainWindow
     /// The credential whose password a command types: the connection's login, or the one the command names. Null, having
     /// said why, when there's none, it isn't a password, or the vault stays locked.
     /// </summary>
-    async Task<Credential?> CommandPasswordAsync(SavedCommand command, CommandSource source, Window owner)
+    async Task<Credential?> CommandPasswordAsync(SessionTab tab, SavedCommand command, CommandSource source, Window owner)
     {
         Guid? id = command.Password == CommandPassword.Credential ? command.PasswordCredentialId
             : source.Entry is { } entry ? SettingsResolver.Resolve(entry).CredentialId.Value
             : null;
         if (id is null)
         {
-            ShowNotice($"{source.Name} has no saved login whose password \"{command.Name}\" could type, so none was typed.");
+            Warn(tab, $"{source.Name} has no saved login whose password \"{command.Name}\" could type, so none was typed.");
             return null;
         }
 
-        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, owner))
+        if (!await VaultUnlockWindow.EnsureUnlockedAsync(_credentials, owner,
+                $"{source.Name} is asking for a password after \"{command.Name}\". Unlock the vault for Orrery to type it, or cancel to type it yourself."))
         {
+            Warn(tab, $"The vault stayed locked, so no password was typed after \"{command.Name}\" on {source.Name}. Type it yourself.", NoticeKind.Info);
             return null;
         }
 
         if (await _credentials.GetAsync(id.Value) is not { Kind: CredentialKind.Password } credential)
         {
-            ShowNotice($"\"{command.Name}\" answers with a credential that's gone or isn't a password, so none was typed.");
+            Warn(tab, $"\"{command.Name}\" answers with a credential that's gone or isn't a password, so none was typed.");
             return null;
         }
 
@@ -297,10 +335,20 @@ public partial class MainWindow
             // Each waits for the shell, so it isn't read by the one before (sudo taking it for the password). One whose
             // prompt doesn't come in time (one Orrery doesn't know) is typed anyway, as the shell reads ahead; a password
             // prompt nobody answered stops them.
-            if (await TerminalPromptWatch.WaitAsync(terminal, ShellWait, stop: () => !Live(tab)) == TerminalPromptKind.Password)
+            var shown = await TerminalPromptWatch.WaitAsync(terminal, ShellWait, stop: () => !Live(tab));
+            if (shown == TerminalPromptKind.Password)
             {
-                ShowNotice($"{entry.Name} is asking for a password, so its commands weren't sent.");
+                Warn(tab, $"{entry.Name} is asking for a password Orrery wasn't set to type, so the commands it sends when connected weren't sent.");
                 CommandLog.LogInformation("Stopped sending \"{Name}\"'s commands at \"{Command}\": a password prompt is showing", entry.Name, command.Command.Name);
+                return;
+            }
+
+            // Not one that types a password, though: typed at a prompt Orrery doesn't know (Telnet's login:), it's
+            // anyone's guess what reads it and the password after it.
+            if (shown != TerminalPromptKind.Shell && command.Command.AnswersPassword)
+            {
+                Warn(tab, $"{entry.Name} didn't show a shell prompt, so \"{command.Command.Name}\", which types a password, wasn't sent, nor the commands after it.");
+                CommandLog.LogInformation("Stopped sending \"{Name}\"'s commands at \"{Command}\": no shell prompt for a command that types a password", entry.Name, command.Command.Name);
                 return;
             }
 

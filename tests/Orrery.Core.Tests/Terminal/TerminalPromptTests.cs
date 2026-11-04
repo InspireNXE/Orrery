@@ -40,6 +40,17 @@ public class TerminalPromptTests
         Assert.Equal(kind, TerminalPrompt.Classify(line));
     }
 
+    [Theory]
+    [InlineData("[sudo] password for riley:", "riley")]
+    [InlineData("[sudo] password for riley: ", "riley")]
+    [InlineData("riley@web-01's password:", "riley")]
+    [InlineData("Password:", null)]
+    [InlineData("riley@web-01:~$", null)]
+    public void A_prompt_names_whose_password_it_wants(string line, string? user)
+    {
+        Assert.Equal(user, TerminalPrompt.PromptUser(line));
+    }
+
     [Fact]
     public void A_long_line_is_output_not_a_prompt()
     {

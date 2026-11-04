@@ -3,6 +3,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
@@ -70,7 +71,7 @@ sealed class ConfirmCommandWindow : Window
                     FontSize = 12,
                     Foreground = Dialogs.MutedBrush,
                 },
-                new TextBlock { Text = password, FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = password is not null },
+                new Notice(NoticeKind.Warning, password) { IsVisible = password is not null },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { send, cancel } },
             },
         };
@@ -107,15 +108,21 @@ sealed class SavedCommandWindow : Window
     // Only with Enter pressed: the prompt comes from running it.
     readonly ComboBox _password = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly CredentialPicker? _passwordCredential;
-    readonly TextBlock _passwordNote = new()
-    {
-        Text = "Typed once, and only if a password prompt shows within a few seconds of sending it. Nothing is typed at a shell prompt.",
-        FontSize = 12,
-        Foreground = Dialogs.MutedBrush,
-        TextWrapping = TextWrapping.Wrap,
-        IsVisible = false,
-    };
-    readonly TextBlock _passwordReach = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+
+    // What typing a password means, shown whenever it would: the risk always, then which connections it reaches, and
+    // whether it crosses the line unencrypted. Notices, so each has an icon and is read out as a warning.
+    readonly Notice _passwordRisk = new(NoticeKind.Warning, PasswordRisk);
+    readonly Notice _passwordReach = new(NoticeKind.Warning) { IsVisible = false };
+    readonly Notice _passwordPlain = new(NoticeKind.Warning, PlainText) { IsVisible = false };
+    readonly Notice _passwordSafer = new(NoticeKind.Info, Safer);
+    readonly StackPanel _passwordNotes = new() { Spacing = 8, IsVisible = false };
+
+    internal const string PasswordRisk = "Orrery types this password once, and only if a password prompt shows within 10 seconds of sending "
+        + "the command, never at a shell prompt. Any program on the server can show a prompt like that, so use this only on servers you trust.";
+    internal const string PlainText = "It reaches a Telnet or serial connection. Those don't encrypt anything, so on them this password crosses the "
+        + "line as plain text, as the login does.";
+    internal const string Safer = "Safer where you can: a NOPASSWD sudoers rule for the commands you need, or a key to log in as root. "
+        + "Neither keeps a sudo password in Orrery.";
     readonly ConnectionNode? _owner;
     readonly Button _becomeRoot = new() { Content = "Become root (sudo -i)", Classes = { "link" } };
     readonly TextBlock _hint = new() { FontSize = 12, Foreground = Dialogs.WarningBrush, TextWrapping = TextWrapping.Wrap, IsVisible = false };
@@ -163,6 +170,7 @@ sealed class SavedCommandWindow : Window
     {
         _owner = owner;
         bool adding = command is null;
+        _passwordNotes.Children.AddRange([_passwordRisk, _passwordReach, _passwordPlain, _passwordSafer]);
         Title = adding ? "New command" : "Edit command";
         Width = 520;
         SizeToContent = SizeToContent.Height;
@@ -231,8 +239,7 @@ sealed class SavedCommandWindow : Window
                 _whenConnected,
                 Dialogs.Field("If it asks for a password", _password),
                 _passwordCredential ?? new Control { IsVisible = false },
-                _passwordNote,
-                _passwordReach,
+                _passwordNotes,
                 _hint,
                 _error,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { cancel, save } },
@@ -260,26 +267,45 @@ sealed class SavedCommandWindow : Window
     {
         bool enter = _pressEnter.IsChecked == true;
         _password.IsEnabled = enter;
-        var choice = PasswordChoice;
-        _passwordNote.IsVisible = enter && choice != CommandPassword.None;
+        var choice = enter ? PasswordChoice : CommandPassword.None;
         if (_passwordCredential is not null)
         {
-            _passwordCredential.IsVisible = enter && choice == CommandPassword.Credential;
+            _passwordCredential.IsVisible = choice == CommandPassword.Credential;
         }
 
-        _passwordReach.Text = ReachWarning(enter ? choice : CommandPassword.None);
-        _passwordReach.IsVisible = _passwordReach.Text is not null;
+        _passwordNotes.IsVisible = choice != CommandPassword.None;
+        var (kind, reach) = ReachNotice(choice);
+        _passwordReach.Kind = kind;
+        _passwordReach.Text = reach;
+        _passwordReach.IsVisible = reach is not null;
+        _passwordPlain.IsVisible = choice != CommandPassword.None && SavedOn is { } owner && SavedCommands.ReachesUnencrypted(owner);
     }
 
     /// <summary>
-    /// A chosen credential's password, saved on a folder, goes to every connection in it that asks; a server that's
-    /// been broken into could ask just to collect it. From the defaults it isn't typed at all. Each connection's own
-    /// login password is its own, so that isn't warned about.
+    /// Which connections the password goes to. A chosen credential's, saved on a folder, goes to every connection in it
+    /// that asks, and one server that's been broken into could ask just to collect it; from the defaults it isn't typed
+    /// at all. A login password is each connection's own.
     /// </summary>
-    string? ReachWarning(CommandPassword choice) =>
-        choice != CommandPassword.Credential || SavedOn is not { } owner || SavedCommands.PasswordReach(owner) is not { } reach ? null
-        : owner.Parent is null ? "A chosen credential's password isn't typed from the defaults for all connections, which reach every server. Save it on a folder or a connection."
-        : $"This password goes to {reach} that asks for one. A server that's been broken into could ask just to collect it, so save it on the connections that need it.";
+    (NoticeKind Kind, string? Text) ReachNotice(CommandPassword choice)
+    {
+        if (choice == CommandPassword.None || SavedOn is not { } owner || SavedCommands.PasswordReach(owner) is not { } reach)
+        {
+            return (NoticeKind.Info, null);
+        }
+
+        if (choice == CommandPassword.Login)
+        {
+            return (NoticeKind.Info, $"Saved here, it reaches {reach}. Each types its own login password, and only on saved connections.");
+        }
+
+        return owner.Parent is null
+            ? (NoticeKind.Error, NotFromDefaults)
+            : (NoticeKind.Warning, $"Saved on {owner.Name}, so every connection in it gets this password when it asks. One server there that's been broken "
+                + "into could ask just to collect it. Save it on the connections that need it.");
+    }
+
+    internal const string NotFromDefaults = "A chosen credential's password isn't typed from the defaults for all connections, which reach every "
+        + "server. Save it on a folder or a connection, or choose the login password.";
 
     /// <summary>The ready-made command for root: <c>sudo -i</c>, answering sudo's prompt with the login's password.</summary>
     internal void BecomeRoot()
@@ -348,7 +374,7 @@ sealed class SavedCommandWindow : Window
         Guid? credential = password == CommandPassword.Credential ? _passwordCredential?.SelectedId : null;
         if (password == CommandPassword.Credential && SavedOn is ConnectionFolder { Parent: null })
         {
-            ShowError("Save it on a folder or a connection to type a chosen credential's password, or choose the login password.");
+            ShowError("It can't be saved like this: see the red message above.");
             _password.Focus();
             return;
         }

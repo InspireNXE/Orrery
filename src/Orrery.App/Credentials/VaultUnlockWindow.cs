@@ -36,7 +36,8 @@ sealed class VaultUnlockWindow : Window
     /// <summary>Windows Hello or Touch ID, where this system has one: what <see cref="EnsureUnlockedAsync"/> offers.</summary>
     public static BiometricUnlock? Biometric { get; set; } = BiometricUnlock.ForThisSystem();
 
-    public VaultUnlockWindow(ICredentialStore store, BiometricUnlock? biometric = null)
+    /// <param name="reason">What's asking, when the window comes up by itself rather than from something the user chose.</param>
+    public VaultUnlockWindow(ICredentialStore store, BiometricUnlock? biometric = null, string? reason = null)
     {
         _store = store;
         _creating = !store.Exists;
@@ -78,6 +79,11 @@ sealed class VaultUnlockWindow : Window
                     : "Enter your master password to use saved credentials.",
             TextWrapping = TextWrapping.Wrap,
         });
+
+        if (reason is not null)
+        {
+            body.Children.Add(new TextBlock { Text = reason, TextWrapping = TextWrapping.Wrap, Foreground = Dialogs.MutedBrush, FontSize = 12 });
+        }
 
         if (_creating)
         {
@@ -269,9 +275,9 @@ sealed class VaultUnlockWindow : Window
     /// Unlocks the store if needed. False if the user canceled. While an unlock window is already open for the
     /// store, waits for that one instead of opening a second (and a second Windows Hello prompt).
     /// </summary>
-    public static Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner) => EnsureUnlockedAsync(store, owner, Biometric);
+    public static Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner, string? reason = null) => EnsureUnlockedAsync(store, owner, Biometric, reason);
 
-    internal static async Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner, BiometricUnlock? biometric)
+    internal static async Task<bool> EnsureUnlockedAsync(ICredentialStore store, Window owner, BiometricUnlock? biometric, string? reason = null)
     {
         if (!store.IsLocked)
         {
@@ -284,7 +290,7 @@ sealed class VaultUnlockWindow : Window
             return await open && !store.IsLocked;
         }
 
-        var shown = new VaultUnlockWindow(store, biometric).ShowDialog<bool>(owner);
+        var shown = new VaultUnlockWindow(store, biometric, reason).ShowDialog<bool>(owner);
         OpenWindows[store] = shown;
         try
         {
