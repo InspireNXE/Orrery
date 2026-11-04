@@ -62,7 +62,7 @@ public class SettingsViewTests : IDisposable
             shown.AddRange(Headings(allWindow));
         }
 
-        Assert.Equal(18, shown.Count);
+        Assert.Equal(19, shown.Count);
         Assert.Equal(shown.Count, shown.Distinct().Count());
         allWindow.Close();
     }

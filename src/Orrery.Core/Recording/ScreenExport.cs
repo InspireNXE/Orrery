@@ -261,6 +261,43 @@ public static class Ffmpeg
         ? ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg"]
         : ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/home/linuxbrew/.linuxbrew/bin/ffmpeg"];
 
+    /// <summary>
+    /// Which package manager put an ffmpeg at <paramref name="path"/>, and the version its folder is named for, from
+    /// the path alone (nothing is run): "winget" and "9.0.2" for winget's Gyan.FFmpeg. Null for what the path doesn't say.
+    /// </summary>
+    public static (string? Installer, string? Version) Describe(string path)
+    {
+        var unified = path.Replace('\\', '/');
+        string? installer =
+            Contains("/WinGet/") ? "winget"
+            : Contains("/scoop/") ? "Scoop"
+            : Contains("/chocolatey/") ? "Chocolatey"
+            : Contains("/opt/homebrew/") || Contains("/linuxbrew/") ? "Homebrew"
+            : Contains("/opt/local/") ? "MacPorts"
+            : unified.StartsWith("/usr/bin/", StringComparison.Ordinal) ? "your distribution"
+            : null;
+        var version = Regex.Match(unified, @"/ffmpeg-n?(\d+\.\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+        return (installer, version.Success ? version.Groups[1].Value : null);
+
+        bool Contains(string part) => unified.Contains(part, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The version in an <c>ffmpeg -version</c> line, without the builder's suffix: "9.0.2" from
+    /// "ffmpeg version 9.0.2-full_build-www.gyan.dev Copyright …". A build named otherwise keeps its whole name.
+    /// </summary>
+    public static string ShortVersion(string versionLine)
+    {
+        var name = Regex.Match(versionLine, @"^ffmpeg version (\S+)");
+        if (!name.Success)
+        {
+            return versionLine;
+        }
+
+        var number = Regex.Match(name.Groups[1].Value, @"^n?(\d+\.\d+(?:\.\d+)?)");
+        return number.Success ? number.Groups[1].Value : name.Groups[1].Value;
+    }
+
     static IEnumerable<string> Subfolders(string folder, string pattern)
     {
         try

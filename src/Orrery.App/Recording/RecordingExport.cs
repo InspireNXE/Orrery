@@ -452,43 +452,54 @@ static class FfmpegHelp
                 : "To install it, use your distribution's ffmpeg package (on Fedora, RPM Fusion's: the default ffmpeg-free can't make "
                     + "H.264 or H.265); which ffmpeg then shows the program to choose.";
 
+    /// <summary>Every codec MP4 export knows, in Export…'s order.</summary>
+    static readonly string[] CodecNames = ["H.264", "H.265", "AV1"];
+
     /// <summary>
-    /// What MP4 export uses now, for Settings: the chosen ffmpeg's version line (or that it no longer runs), and each
-    /// codec with whether Windows or ffmpeg makes it.
+    /// Each codec MP4 export knows, for Settings' list: whether Windows or ffmpeg makes it, or nothing does and what
+    /// would. Windows' encoder wins when both have one, as in Export….
     /// </summary>
-    public static string Status(IReadOnlyList<SystemCodec> system, string? chosen, FfmpegInfo? ffmpeg)
+    public static IReadOnlyList<CodecRow> Codecs(IReadOnlyList<SystemCodec> system, FfmpegInfo? ffmpeg)
     {
-        var lead = (chosen, ffmpeg) switch
-        {
-            (null, _) => OperatingSystem.IsWindows() ? "No ffmpeg chosen." : "No ffmpeg chosen, so screen recordings export as AVI only.",
-            (_, null) => $"{chosen} didn't run as ffmpeg (moved or uninstalled?), so export doesn't use it.",
-            _ => $"Using {ffmpeg.Version} at {ffmpeg.Path}.",
-        };
         var routes = Mp4Route.All(system, ffmpeg);
-        if (routes.Count == 0)
+        return CodecNames.Select(name => routes.FirstOrDefault(r => r.Name == name) switch
         {
-            return ffmpeg is not null ? $"{lead} MP4 export offers nothing: this ffmpeg has no H.264, H.265 or AV1 encoder."
-                : OperatingSystem.IsWindows() ? $"{lead} MP4 export offers nothing: this Windows has no video encoders of its own."
-                : lead;
-        }
+            { System: { } codec } => new CodecRow(name, Mp4Source.Windows, codec.HardwareOnly ? "graphics card" : null),
+            { Ffmpeg: not null } => new CodecRow(name, Mp4Source.Ffmpeg, null),
+            _ => new CodecRow(name, Mp4Source.None, Missing(name)),
+        }).ToList();
 
-        var fromWindows = routes.Where(r => r.System is not null).Select(r => r.Name + (r.System!.HardwareOnly ? " (graphics card)" : "")).ToList();
-        var fromFfmpeg = routes.Where(r => r.Ffmpeg is not null).Select(r => r.Name).ToList();
-        string[] parts =
-        [
-            .. fromWindows.Count > 0 ? [$"{And(fromWindows)} from Windows"] : Array.Empty<string>(),
-            .. fromFfmpeg.Count > 0 ? [$"{And(fromFfmpeg)} from ffmpeg"] : Array.Empty<string>(),
-        ];
-        return $"{lead} MP4 export offers {string.Join("; ", parts)}.";
-
-        static string And(List<string> names) => names.Count == 1 ? names[0] : $"{string.Join(", ", names[..^1])} and {names[^1]}";
+        static string Missing(string name) => !OperatingSystem.IsWindows() ? "needs an ffmpeg that has it"
+            : name switch
+            {
+                "AV1" => "needs a recent graphics card, or an ffmpeg that has it",
+                "H.265" => "needs Windows' HEVC extension or a recent graphics card, or an ffmpeg that has it",
+                _ => "needs an ffmpeg that has it",
+            };
     }
+
+    /// <summary>A long path as its last three parts, "…\ffmpeg-9.0.2-full_build\bin\ffmpeg.exe"; the full one goes in a tooltip.</summary>
+    public static string ShortPath(string path)
+    {
+        var separator = path.Contains('\\') ? '\\' : '/';
+        var parts = path.Split(separator);
+        return parts.Length <= 4 ? path : "…" + separator + string.Join(separator, parts[^3..]);
+    }
+
+    /// <summary>The line about a found ffmpeg: "Found ffmpeg 9.0.2, installed by winget", from its path alone.</summary>
+    public static string FoundText(string path) => Ffmpeg.Describe(path) switch
+    {
+        (null, null) => "Found ffmpeg",
+        (null, { } version) => $"Found ffmpeg {version}",
+        ({ } installer, null) => $"Found ffmpeg, installed by {installer}",
+        ({ } installer, { } version) => $"Found ffmpeg {version}, installed by {installer}",
+    };
 
     /// <summary>A button that opens <see cref="DownloadPage"/> in the browser.</summary>
     public static Button DownloadButton()
     {
         var button = new Button { Content = "Get ffmpeg" };
-        ToolTip.SetTip(button, DownloadPage.AbsoluteUri);
+        ToolTip.SetTip(button, "Opens ffmpeg.org's download page. Orrery never downloads or bundles ffmpeg.");
         button.Click += (_, _) =>
         {
             if (MainWindow.OpenInBrowser(DownloadPage) is { } problem)
@@ -499,6 +510,12 @@ static class FfmpegHelp
         return button;
     }
 }
+
+/// <summary>What makes a codec for MP4 export.</summary>
+enum Mp4Source { Windows, Ffmpeg, None }
+
+/// <summary>One codec in Settings' MP4 export list, with a note after it (graphics card, or what would add it).</summary>
+sealed record CodecRow(string Name, Mp4Source Source, string? Detail);
 
 sealed record ExportChoice(Mp4Route? Route, bool SkipIdle);
 
