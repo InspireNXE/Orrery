@@ -948,6 +948,14 @@ public class WorkspaceWindowTests : IDisposable
             Move(20, 2);
             Assert.True(bar.IsVisible);
 
+            // The strip that showed it doesn't take the click: the session under it does (a remote window's title
+            // bar or close button sits there).
+            var hotZone = window.FindControl<Border>("FullScreenHotZone")!;
+            var hit = Avalonia.Input.InputExtensions.InputHitTest(window, new Avalonia.Point(20, 2)) as Avalonia.Visual;
+            Assert.NotNull(hit);
+            Assert.NotSame(hotZone, hit);
+            Assert.False(hit is Window, "nothing under the top edge took the pointer");
+
             // Onto the bar, off it sideways along the top edge, then down: never over the bar on the way out.
             var middle = bar.TranslatePoint(new Avalonia.Point(bar.Bounds.Width / 2, bar.Bounds.Height / 2), window)!.Value;
             Move(middle.X, middle.Y);
