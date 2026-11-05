@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Controls;
 using Orrery.App.Setup;
+using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
@@ -46,9 +47,17 @@ public class SetupWizardTests : IDisposable
         new(Path.Combine("C:", "Users", "me", ".ssh", "config"), "SSH config"),
     ];
 
-    static SetupWizard Open(PortableSetup? portable, string? keychain, IReadOnlyList<FoundImport>? found = null)
+    // Fixed, so the steps don't depend on the shells this computer has.
+    static IReadOnlyList<Orrery.Protocols.Local.LocalShell> Shells() =>
+    [
+        new("pwsh", "PowerShell 7", @"C:\Program Files\PowerShell\7\pwsh.exe", ["-NoLogo"]),
+        new("wsl:Ubuntu", "Ubuntu (WSL)", @"C:\Windows\System32\wsl.exe", ["-d", "Ubuntu"]),
+    ];
+
+    static SetupWizard Open(PortableSetup? portable, string? keychain, IReadOnlyList<FoundImport>? found = null,
+        IReadOnlyList<Orrery.Protocols.Local.LocalShell>? shells = null)
     {
-        var window = new SetupWizard(portable, keychain, found ?? Found());
+        var window = new SetupWizard(portable, keychain, found ?? Found(), shells ?? Shells());
         window.Show();
         Dispatcher.UIThread.RunJobs();
         return window;
@@ -61,7 +70,7 @@ public class SetupWizardTests : IDisposable
     {
         var window = Open(Portable(), keychain: null);
 
-        Assert.Equal([SetupStep.Data, SetupStep.Passwords, SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.Equal([SetupStep.Data, SetupStep.Passwords, SetupStep.Import, SetupStep.Shells, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<RadioButton>(), r => r.GroupName == "Passwords" && r.IsEffectivelyVisible);
         Assert.Equal(SetupStep.Data, window.Current);
         window.Close();
@@ -72,9 +81,9 @@ public class SetupWizardTests : IDisposable
     {
         var window = Open(portable: null, Keychain);
 
-        Assert.Equal([SetupStep.Passwords, SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.Equal([SetupStep.Passwords, SetupStep.Import, SetupStep.Shells, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
         var steps = window.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "SetupSteps");
-        Assert.Equal(["Passwords", "Import", "Updates", "Network", "Done"],
+        Assert.Equal(["Passwords", "Import", "Terminals", "Updates", "Network", "Done"],
             steps.Items.OfType<ListBoxItem>().Select(i => Avalonia.Automation.AutomationProperties.GetName(i)));
         window.Close();
     }
@@ -84,7 +93,7 @@ public class SetupWizardTests : IDisposable
     {
         var window = Open(portable: null, keychain: null);
 
-        Assert.Equal([SetupStep.Passwords, SetupStep.Import, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
+        Assert.Equal([SetupStep.Passwords, SetupStep.Import, SetupStep.Shells, SetupStep.Updates, SetupStep.Network, SetupStep.Done], window.Steps);
         Assert.True(VaultAutoLockTests.Private<TextBox>(window, "_vaultPassword").IsEffectivelyVisible);
         Assert.Equal("Master password", VaultAutoLockTests.Private<TextBlock>(window, "_title").Text);
         Assert.Null(window.Choices.Passwords);
@@ -260,7 +269,7 @@ public class SetupWizardTests : IDisposable
         var next = Named(window, "SetupNext");
 
         Assert.False(back.IsEnabled);
-        Assert.Equal("1 of 5", VaultAutoLockTests.Private<TextBlock>(window, "_progress").Text);
+        Assert.Equal("1 of 6", VaultAutoLockTests.Private<TextBlock>(window, "_progress").Text);
 
         await window.NextAsync();
         Assert.Equal(SetupStep.Import, window.Current);
@@ -290,7 +299,8 @@ public class SetupWizardTests : IDisposable
         [
             ("Passwords", Keychain),
             ("Import", "mRemoteNG, SSH config"),
-            ("Updates", "Checked daily; ask me"),
+            ("Terminals", "PowerShell 7, Ubuntu (WSL)"),
+            ("Updates", "Checked at each start; ask me"),
             ("Previews", new AppSettings().OffersPreviewUpdates ? "On" : "Off"),
             ("Host status", "Shown"),
             ("Web pages", "In a tab"),
@@ -559,4 +569,56 @@ public class SetupWizardTests : IDisposable
     [InlineData("config", "SSH config")]
     public void A_chosen_file_is_named_for_its_kind(string name, string kind) =>
         Assert.Equal(kind, ImportSources.KindOf(Path.Combine(_dir, name)));
+
+    [AvaloniaFact]
+    public void Local_shells_are_offered_ticked_and_each_can_be_skipped()
+    {
+        var window = Open(portable: null, Keychain);
+        window.GoTo(SetupStep.Shells);
+        Assert.Equal(["pwsh", "wsl:Ubuntu"], window.Choices.LocalShells);
+
+        var ubuntu = window.GetVisualDescendants().OfType<ToggleSwitch>()
+            .Single(t => Avalonia.Automation.AutomationProperties.GetName(t) == "Add Ubuntu (WSL)");
+        ubuntu.IsChecked = false;
+
+        Assert.Equal(["pwsh"], window.Choices.LocalShells);
+        Assert.Contains(("Terminals", "PowerShell 7"), window.Summary());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void With_no_shells_found_there_is_no_terminals_step()
+    {
+        var window = Open(portable: null, Keychain, shells: []);
+
+        Assert.DoesNotContain(SetupStep.Shells, window.Steps);
+        Assert.Empty(window.Choices.LocalShells);
+        Assert.DoesNotContain(window.Summary(), row => row.Label == "Terminals");
+        window.Close();
+    }
+
+    [Fact]
+    public void The_chosen_shells_go_in_a_local_folder_at_the_top_of_the_tree()
+    {
+        var tree = new ConnectionTree(new ConnectionFolder { Name = "Connections" });
+        tree.Add(new ConnectionEntry { Name = "web-01", Host = "web-01" }, tree.Root);
+
+        var folder = LocalShellsFolder.AddTo(tree, [("pwsh", "PowerShell 7"), ("cmd", "Command Prompt")]);
+
+        Assert.NotNull(folder);
+        Assert.Same(folder, tree.Root.Children[0]);
+        Assert.Equal("Local", folder.Name);
+        var shells = folder.Children.OfType<ConnectionEntry>().ToList();
+        Assert.Equal(["PowerShell 7", "Command Prompt"], shells.Select(e => e.Name));
+        Assert.Equal(["pwsh", "cmd"], shells.Select(e => e.Host));
+        Assert.All(shells, e => Assert.Equal(Protocol.Local, e.Settings.Protocol));
+
+        // None chosen: no folder.
+        Assert.Null(LocalShellsFolder.AddTo(tree, []));
+        Assert.Single(tree.Root.Children.OfType<ConnectionFolder>());
+
+        // A tree that already has local shells gets no second folder.
+        Assert.Null(LocalShellsFolder.AddTo(tree, [("pwsh", "PowerShell 7")]));
+        Assert.Single(tree.Root.Children.OfType<ConnectionFolder>());
+    }
 }

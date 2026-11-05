@@ -11,6 +11,7 @@ using Avalonia.VisualTree;
 using Orrery.App.Controls;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
+using Orrery.Protocols.Local;
 
 namespace Orrery.App.Setup;
 
@@ -20,6 +21,7 @@ enum SetupStep
     Data,
     Passwords,
     Import,
+    Shells,
     Updates,
     Network,
     Done,
@@ -78,6 +80,7 @@ sealed class SetupWizard : Window
 
     readonly List<(FoundImport File, ToggleSwitch Toggle, bool Found)> _imports = [];
     readonly StackPanel _importRows = new() { Spacing = 12 };
+    readonly List<(LocalShell Shell, ToggleSwitch Toggle)> _shells = [];
 
     // Files chosen for import that will ask for a password once setup is done, found out in the background.
     readonly HashSet<string> _needsPassword = new(StringComparer.OrdinalIgnoreCase);
@@ -105,8 +108,10 @@ sealed class SetupWizard : Window
     /// the Passwords step asks.
     /// </param>
     /// <param name="found">Connection files found on this computer, each offered for import and on by default.</param>
-    public SetupWizard(PortableSetup? portable, string? keychainName, IReadOnlyList<FoundImport> found)
+    /// <param name="shells">The local shells to offer adding to the tree; null for the ones on this computer.</param>
+    public SetupWizard(PortableSetup? portable, string? keychainName, IReadOnlyList<FoundImport> found, IReadOnlyList<LocalShell>? shells = null)
     {
+        shells ??= LocalShells.Available();
         _portable = portable;
         _keychainName = keychainName;
 
@@ -127,10 +132,15 @@ sealed class SetupWizard : Window
         Add(SetupStep.Passwords, PasswordsPage(keychainName));
 
         Add(SetupStep.Import, ImportPage(found));
+        if (shells.Count > 0)
+        {
+            Add(SetupStep.Shells, ShellsPage(shells));
+        }
+
         Add(SetupStep.Updates, UpdatesPage());
         Add(SetupStep.Network, NetworkPage());
         Add(SetupStep.Done, new StackPanel { Spacing = 14, Children = { Card(_summary) } });
-        SetOptions(new SetupChoices { Imports = [.. found.Select(f => f.Path)] });
+        SetOptions(new SetupChoices { Imports = [.. found.Select(f => f.Path)], LocalShells = [.. shells.Select(s => s.Id)] });
 
         var pageHost = new Panel();
         pageHost.Children.AddRange(_pages.Values);
@@ -301,6 +311,7 @@ sealed class SetupWizard : Window
     {
         Passwords = _keychainName is null ? null : _vault.IsChecked == true ? CredentialStoreKind.VaultFile : CredentialStoreKind.OsKeychain,
         Imports = [.. _imports.Where(i => i.Toggle.IsChecked == true).Select(i => i.File.Path)],
+        LocalShells = [.. _shells.Where(s => s.Toggle.IsChecked == true).Select(s => s.Shell.Id)],
         UpdateChecks = _updateChecks.IsChecked == true,
         WhenUpdateFound = _download.IsChecked == true ? UpdateAction.Download : UpdateAction.Ask,
         UpdatePreviews = _previews.IsChecked == true,
@@ -343,6 +354,7 @@ sealed class SetupWizard : Window
         SetupStep.Data => ("Data", Icons.Folder),
         SetupStep.Passwords => ("Passwords", Icons.Lock),
         SetupStep.Import => ("Import", Icons.Download),
+        SetupStep.Shells => ("Terminals", Icons.Terminal),
         SetupStep.Updates => ("Updates", Icons.Refresh),
         SetupStep.Network => ("Network", Icons.Pulse),
         _ => ("Done", Icons.Check),
@@ -353,6 +365,7 @@ sealed class SetupWizard : Window
         SetupStep.Data => ("Where to keep your data", "Connections, settings and saved passwords go in one folder."),
         SetupStep.Passwords => _keychainName is null ? ("Master password", "Saved passwords are kept in an encrypted vault.") : ("Saved passwords", null),
         SetupStep.Import => ("Import connections", _imports.Any(i => i.Found) ? "Found on this computer:" : "Nothing found on this computer."),
+        SetupStep.Shells => ("Local terminals", "Add this computer's shells to the tree, to open like any connection:"),
         SetupStep.Updates => ("Updates", "Checks GitHub. Sends only your version."),
         SetupStep.Network => ("Network", null),
         _ => ("All set", "Change any of this in Settings."),
@@ -447,6 +460,11 @@ sealed class SetupWizard : Window
         foreach (var (file, toggle, _) in _imports)
         {
             toggle.IsChecked = choices.Imports.Contains(file.Path);
+        }
+
+        foreach (var (shell, toggle) in _shells)
+        {
+            toggle.IsChecked = choices.LocalShells.Contains(shell.Id);
         }
 
         _updateChecks.IsChecked = choices.UpdateChecks;
@@ -756,6 +774,38 @@ sealed class SetupWizard : Window
         return page;
     }
 
+    // ---- Local terminals ----
+
+    Control ShellsPage(IReadOnlyList<LocalShell> shells)
+    {
+        var rows = new StackPanel { Spacing = 12 };
+        foreach (var shell in shells)
+        {
+            var toggle = new ToggleSwitch { IsChecked = true, OnContent = "Add", OffContent = "Skip", MinWidth = 0, VerticalAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(toggle, $"Add {shell.Name}");
+            AutomationProperties.SetHelpText(toggle, shell.Program);
+            _shells.Add((shell, toggle));
+            rows.Children.Add(new DockPanel
+            {
+                Children =
+                {
+                    Pane.Docked(toggle, Dock.Right),
+                    Described(shell.Name, shell.Program, mono: true),
+                },
+            });
+        }
+
+        return new StackPanel
+        {
+            Spacing = 14,
+            Children =
+            {
+                Card(rows),
+                Note($"They go in a folder called {LocalShellsFolder.Name}. Delete any you don't want; they aren't added again."),
+            },
+        };
+    }
+
     /// <summary>Adds a file chosen with Another file, set to import; one already listed is just switched on.</summary>
     internal void AddFile(string path)
     {
@@ -839,7 +889,7 @@ sealed class SetupWizard : Window
     Control UpdatesPage()
     {
         AutomationProperties.SetName(_updateChecks, "Check automatically");
-        AutomationProperties.SetHelpText(_updateChecks, "Daily");
+        AutomationProperties.SetHelpText(_updateChecks, "At each start, then hourly");
         AutomationProperties.SetName(_previews, "Previews");
         AutomationProperties.SetHelpText(_previews, "Offer preview releases too.");
         return Card(new StackPanel
@@ -847,7 +897,7 @@ sealed class SetupWizard : Window
             Spacing = 16,
             Children =
             {
-                SwitchRow(_updateChecks, "Check automatically", "Daily"),
+                SwitchRow(_updateChecks, "Check automatically", "At each start, then hourly"),
                 ChoiceRow("When one is out", _ask, _download),
                 SwitchRow(_previews, "Previews", "Offer preview releases too."),
             },
@@ -890,8 +940,14 @@ sealed class SetupWizard : Window
         var imports = _imports.Where(i => i.Toggle.IsChecked == true)
             .Select(i => _needsPassword.Contains(i.File.Path) ? $"{i.File.Kind} (needs its password)" : i.File.Kind).ToList();
         rows.Add(("Import", imports.Count > 0 ? string.Join(", ", imports) : "Nothing"));
+        if (_shells.Count > 0)
+        {
+            var shells = _shells.Where(s => s.Toggle.IsChecked == true).Select(s => s.Shell.Name).ToList();
+            rows.Add(("Terminals", shells.Count > 0 ? string.Join(", ", shells) : "None added"));
+        }
+
         rows.Add(("Updates", !choices.UpdateChecks ? "Not checked automatically"
-            : choices.WhenUpdateFound == UpdateAction.Ask ? "Checked daily; ask me" : "Checked daily; download it"));
+            : choices.WhenUpdateFound == UpdateAction.Ask ? "Checked at each start; ask me" : "Checked at each start; download it"));
         rows.Add(("Previews", choices.UpdatePreviews ? "On" : "Off"));
         rows.Add(("Host status", choices.HostStatusChecks ? "Shown" : "Not checked"));
         rows.Add(("Web pages", choices.WebPagesInOrrery ? "In a tab" : "In your browser"));

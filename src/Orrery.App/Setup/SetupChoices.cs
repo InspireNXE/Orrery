@@ -1,3 +1,4 @@
+using Orrery.Core.Connections;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
 using Orrery.Core.Settings;
@@ -45,6 +46,9 @@ sealed record SetupChoices
 
     /// <summary>Files to import once the main window opens, in order, each through its preview.</summary>
     public IReadOnlyList<string> Imports { get; init; } = [];
+
+    /// <summary>The ids of the local shells to add to the tree as LOCAL connections, in their folder.</summary>
+    public IReadOnlyList<string> LocalShells { get; init; } = [];
 
     public bool UpdateChecks { get; init; } = Defaults.ChecksForUpdates;
     public UpdateAction WhenUpdateFound { get; init; } = Defaults.UpdateAction;
@@ -123,4 +127,32 @@ static class ImportSources
             ExportFormat.Orrery => "Orrery export",
             _ => "SSH config",
         };
+}
+
+/// <summary>The folder of local shells setup adds to the tree.</summary>
+static class LocalShellsFolder
+{
+    public const string Name = "Local";
+
+    /// <summary>
+    /// Adds a folder with a LOCAL connection for each of <paramref name="shells"/> (id and name) at the top of the tree.
+    /// Nothing when there are none, or when the tree already has a LOCAL connection (a data folder set up before).
+    /// Setup runs once per data folder, so a shell deleted later isn't added back.
+    /// </summary>
+    public static ConnectionFolder? AddTo(ConnectionTree tree, IReadOnlyList<(string Id, string Name)> shells)
+    {
+        if (shells.Count == 0 || tree.AllConnections().Any(e => e.Settings.Protocol == Protocol.Local))
+        {
+            return null;
+        }
+
+        var folder = new ConnectionFolder { Name = Name };
+        tree.Add(folder, tree.Root, 0);
+        foreach (var (id, name) in shells)
+        {
+            tree.Add(new ConnectionEntry { Name = name, Host = id, Settings = new InheritableSettings { Protocol = Protocol.Local } }, folder);
+        }
+
+        return folder;
+    }
 }
