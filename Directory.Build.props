@@ -24,7 +24,7 @@
 
   <PropertyGroup>
     <AvaloniaVersion>12.1.5</AvaloniaVersion>
-    <IronRdpVersion>2026.10.29-orrery.10</IronRdpVersion>
+    <IronRdpVersion>2026.10.29-orrery.11</IronRdpVersion>
     <BouncyCastleVersion>2.7.0</BouncyCastleVersion>
   </PropertyGroup>
 </Project>

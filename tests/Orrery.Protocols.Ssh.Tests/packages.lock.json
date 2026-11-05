@@ -144,7 +144,7 @@
       "orrery.protocols.ssh": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.0, )",
+          "Orrery.Core": "[0.1.2-dev, )",
           "SSH.NET": "[2026.0.0, )"
         }
       }
