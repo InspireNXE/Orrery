@@ -79,7 +79,7 @@ The "user profile" option uses a `Portable` subfolder (e.g. `%APPDATA%\Orrery\Po
 
 For development and testing, setting `ORRERY_HOME` to an absolute path puts installed mode's config, cache and logs under `config/`, `cache/` and `logs/` in that folder, so a test run never touches the real profile.
 
-In portable mode, cache and logs live under the data folder (`cache/`, `logs/`) so nothing is left on the host machine.
+In portable mode, cache and logs live under the data folder (`cache/`, `logs/`) so nothing is left on the host machine. The cache and the web tabs' profile are per computer (`cache/<tag>`, `web/<tag>`) and so are the log files, for a data folder a sync app shares between computers.
 
 ### 2.4 Data folder layout
 

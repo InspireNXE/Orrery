@@ -5,6 +5,11 @@ namespace Orrery.Core.Storage;
 /// storage, kept by the page engine. It isn't copied by Move data, only deleted with the old copy, since it's a deep
 /// tree the engine owns; and it can be cleared from Settings. Only the folders the engines write are removed, never
 /// through a link.
+/// <para>
+/// Each computer has its own, in <c>web/&lt;tag&gt;</c> (<see cref="ComputerFiles.Tag"/>): a data folder a sync app
+/// shares between computers would otherwise have two page engines in one profile, and WebView2 encrypts cookies with a
+/// key only the computer that wrote them can read.
+/// </para>
 /// </summary>
 public static class WebData
 {
@@ -16,7 +21,46 @@ public static class WebData
     /// <summary>What each engine writes there: WebView2 (Windows), and WebKitGTK's data and cache (Linux).</summary>
     static readonly string[] EngineFolders = ["EBWebView", "data", "cache"];
 
-    public static string FolderIn(string dataDir) => Path.Combine(dataDir, FolderName);
+    /// <summary>This computer's profile in <paramref name="dataDir"/>.</summary>
+    public static string FolderIn(string dataDir) => Path.Combine(dataDir, FolderName, ComputerFiles.Tag);
+
+    /// <summary>
+    /// At start, before any page engine opens it: a profile from before profiles were per computer, at the top of the
+    /// web folder, becomes this computer's, as this is most likely the computer that made it. Never throws.
+    /// </summary>
+    public static void MoveOldProfile(string dataDir)
+    {
+        var top = Path.Combine(dataDir, FolderName);
+        var own = FolderIn(dataDir);
+        try
+        {
+            if (!Directory.Exists(top) || new DirectoryInfo(top).LinkTarget is not null)
+            {
+                return;
+            }
+
+            foreach (var name in EngineFolders.Append(ClearMarker))
+            {
+                var from = Path.Combine(top, name);
+                var to = Path.Combine(own, name);
+                if ((Directory.Exists(from) || File.Exists(from)) && !Directory.Exists(to) && !File.Exists(to))
+                {
+                    PrivateStorage.CreateDirectory(own);
+                    if (Directory.Exists(from))
+                    {
+                        Directory.Move(from, to);
+                    }
+                    else
+                    {
+                        File.Move(from, to);
+                    }
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 
     /// <summary>Whether <paramref name="dataDir"/> has web data to clear.</summary>
     public static bool Exists(string dataDir)
@@ -32,7 +76,40 @@ public static class WebData
     /// <exception cref="IOException">A page engine still has its files open.</exception>
     public static void Clear(string dataDir)
     {
-        var web = new DirectoryInfo(FolderIn(dataDir));
+        ClearFolder(FolderIn(dataDir));
+        DeleteIfEmpty(Path.Combine(dataDir, FolderName));
+    }
+
+    /// <summary>Clears every computer's profile in <paramref name="dataDir"/>, and one from before they were per computer: for an old copy deleted.</summary>
+    /// <exception cref="IOException">A page engine still has its files open.</exception>
+    public static void ClearAll(string dataDir)
+    {
+        var top = new DirectoryInfo(Path.Combine(dataDir, FolderName));
+        if (!top.Exists || top.LinkTarget is not null)
+        {
+            return;
+        }
+
+        foreach (var computer in top.EnumerateDirectories().Where(d => d.Name.Length == 6 && d.Name.All(char.IsAsciiHexDigitLower)))
+        {
+            ClearFolder(computer.FullName);
+        }
+
+        ClearFolder(top.FullName);
+    }
+
+    static void DeleteIfEmpty(string folder)
+    {
+        var info = new DirectoryInfo(folder);
+        if (info.Exists && info.LinkTarget is null && !info.EnumerateFileSystemInfos().Any())
+        {
+            info.Delete();
+        }
+    }
+
+    static void ClearFolder(string path)
+    {
+        var web = new DirectoryInfo(path);
         if (!web.Exists || web.LinkTarget is not null)
         {
             return;

@@ -48,6 +48,49 @@ public sealed class WebDataTests : IDisposable
         Assert.True(Directory.Exists(_dataDir));
     }
 
+    [Fact]
+    public void Each_computer_has_its_own_profile_and_clearing_takes_only_this_one_s()
+    {
+        Assert.Equal(Path.Combine(_dataDir, "web", ComputerFiles.Tag), Web);
+        var other = Path.Combine(_dataDir, "web", "abc123");
+        Directory.CreateDirectory(Path.Combine(other, "EBWebView"));
+        Directory.CreateDirectory(Path.Combine(Web, "EBWebView"));
+
+        WebData.Clear(_dataDir);
+
+        Assert.False(Directory.Exists(Web));
+        Assert.True(Directory.Exists(Path.Combine(other, "EBWebView")));
+
+        WebData.ClearAll(_dataDir); // An old copy deleted takes every computer's.
+        Assert.False(Directory.Exists(Path.Combine(_dataDir, "web")));
+    }
+
+    [Fact]
+    public void A_profile_from_before_becomes_this_computer_s()
+    {
+        var top = Path.Combine(_dataDir, "web");
+        Directory.CreateDirectory(Path.Combine(top, "EBWebView", "Default"));
+        File.WriteAllText(Path.Combine(top, "EBWebView", "Default", "Cookies"), "x");
+
+        WebData.MoveOldProfile(_dataDir);
+
+        Assert.True(File.Exists(Path.Combine(Web, "EBWebView", "Default", "Cookies")));
+        Assert.False(Directory.Exists(Path.Combine(top, "EBWebView")));
+    }
+
+    [Fact]
+    public void A_portable_copy_s_cache_is_each_computer_s_and_old_downloads_go()
+    {
+        var location = DataLocationResolver.ForPortable(_dataDir, PlatformFolders.ForCurrentOs(), PortableDataChoice.WithApp);
+        Assert.Equal(Path.Combine(_dataDir, "data", "cache", ComputerFiles.Tag), location.CacheDir);
+
+        var old = Path.Combine(location.DataDir, "cache", "updates", "0.1.1");
+        Directory.CreateDirectory(old);
+        File.WriteAllText(Path.Combine(old, "Orrery.zip"), "x");
+        ComputerFiles.TidyOldCache(location);
+        Assert.False(Directory.Exists(Path.Combine(location.DataDir, "cache", "updates")));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataDir))

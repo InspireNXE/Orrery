@@ -529,7 +529,9 @@ field, this computer's change is kept and the status bar says so. A master passw
 the vault on the others, to be opened with the new one. Each computer with Orrery open leaves a small
 `open-on-<tag>.json` file, so the others can say it's open there. If the sync app still makes conflict copies of
 Orrery's files, Orrery lists them at start, as it never reads them. Windows Hello and the system's credential store
-are per computer, so each one is set up on its own, and so are the values in `computers/` above.
+are per computer, so each one is set up on its own, and so are the values in `computers/` above. Each computer also
+has its own web-tab profile (`web/<tag>`: cookies and sign-ins, which WebView2 encrypts for one computer only) and
+its own cache for update downloads (`cache/<tag>`).
 
 <details>
 <summary>Logs</summary>

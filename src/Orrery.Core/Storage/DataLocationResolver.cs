@@ -25,7 +25,11 @@ public static class DataLocationResolver
             : new StartupStorage.NeedsPortableChoice(appDirectory);
     }
 
-    /// <summary>In portable mode cache and logs live under the data folder, so nothing is left on the host.</summary>
+    /// <summary>
+    /// In portable mode cache and logs live under the data folder, so nothing is left on the host. The cache is each
+    /// computer's own (<c>cache/&lt;tag&gt;</c>), for a data folder a sync app shares: one computer's update download
+    /// isn't the other's.
+    /// </summary>
     public static DataLocation ForPortable(string appDirectory, PlatformFolders folders, PortableDataChoice choice,
         string? customPath = null)
     {
@@ -36,7 +40,7 @@ public static class DataLocationResolver
             _ => Path.GetFullPath(customPath ?? throw new ArgumentNullException(nameof(customPath)), appDirectory),
         };
 
-        return new DataLocation(StorageMode.Portable, dataDir, Path.Combine(dataDir, "cache"), Path.Combine(dataDir, "logs"));
+        return new DataLocation(StorageMode.Portable, dataDir, Path.Combine(dataDir, "cache", ComputerFiles.Tag), Path.Combine(dataDir, "logs"));
     }
 
     /// <summary>
