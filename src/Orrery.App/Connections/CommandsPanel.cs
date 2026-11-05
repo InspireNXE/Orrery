@@ -42,6 +42,7 @@ sealed class CommandsPanel : DockPanel
     readonly TextBox _filter = new() { PlaceholderText = "Filter", Margin = new Thickness(12, 0, 12, 8), FontSize = 12, MinHeight = 30 };
     readonly ListBox _list = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
     readonly TextBlock _empty = Pane.EmptyText(EmptyNote, side: true);
+    readonly Panel _body;
     const string EmptyNote = "Commands you save show up here. Add one with +, or from a terminal's menu.";
 
     /// <summary>The group of commands saved on more than one place, which has no single place to add to.</summary>
@@ -83,7 +84,8 @@ sealed class CommandsPanel : DockPanel
             },
         }, Dock.Top));
         Children.Add(Pane.Docked(_filter, Dock.Top));
-        Children.Add(new Panel { Children = { _list, _empty } });
+        // The menu belongs to the whole area, so the space under the rows and the empty page have it too.
+        Children.Add(_body = new Panel { Background = Brushes.Transparent, Children = { _list, _empty } });
 
         _filter.PropertyChanged += (_, e) =>
         {
@@ -269,10 +271,10 @@ sealed class CommandsPanel : DockPanel
     void WireMenu()
     {
         // What's under the pointer, or the selected row for the menu key and Shift+F10, before the menu opens.
-        _list.AddHandler(ContextRequestedEvent, (sender, e) =>
+        _body.AddHandler(ContextRequestedEvent, (sender, e) =>
         {
             var item = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
-            _menuFor = item is not null ? item.Tag : e.TryGetPosition(_list, out _) ? null : Selected;
+            _menuFor = item is not null ? item.Tag : e.TryGetPosition(_body, out _) ? null : Selected;
         }, RoutingStrategies.Tunnel);
 
         _sendItem.Click += async (_, _) =>
@@ -309,11 +311,11 @@ sealed class CommandsPanel : DockPanel
         _newItem.Click += (_, _) => NewRequested?.Invoke(this, PlaceOf(_menuFor));
         _deleteItem.Click += async (_, _) => await DeleteAsync(_menuFor as CommandAt);
 
-        _list.ContextMenu = new ContextMenu
+        _body.ContextMenu = new ContextMenu
         {
             Items = { _sendItem, _editItem, _duplicateItem, _copyItem, _upItem, _downItem, _commandSeparator, _newItem, _deleteSeparator, _deleteItem },
         };
-        _list.ContextMenu.Opening += (_, _) => ShowMenuFor(_menuFor);
+        _body.ContextMenu.Opening += (_, _) => ShowMenuFor(_menuFor);
         _list.KeyDown += async (_, e) =>
         {
             if (e.Key == Key.Delete && Selected is { } at)
@@ -349,7 +351,7 @@ sealed class CommandsPanel : DockPanel
 
         _newItem.Header = PlaceOf(target) is { } place ? $"New command on {ShortName(place)}…" : "New command…";
         _deleteItem.Header = at is { Copies.Count: > 1 } ? $"Delete from all {at.Copies.Count} places…" : "Delete…";
-        return _list.ContextMenu!;
+        return _body.ContextMenu!;
     }
 
     internal MenuItem SendItem => _sendItem;

@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Orrery.App.Connections;
 using Orrery.Core.Connections;
 using Xunit;
@@ -110,6 +111,25 @@ public class CommandsPageTests
         pane.UpdateSend();
         Assert.True(Send().IsVisible);
         Assert.Equal("Send to web-01", Send().Content);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void With_no_commands_the_empty_page_still_has_the_menu_to_add_one()
+    {
+        var tree = ConnectionTree.Empty();
+        var panel = new CommandsPanel(tree);
+        var window = new Window { Content = panel, Width = 300, Height = 600 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // The empty note is on screen instead of the list; the menu is on the area that holds both.
+        var note = panel.GetVisualDescendants().OfType<TextBlock>().Single(t => t.IsEffectivelyVisible && t.Text?.StartsWith("Commands you save", StringComparison.Ordinal) == true);
+        var area = note.GetVisualAncestors().OfType<Control>().First(c => c.ContextMenu is not null);
+        Assert.True(area.IsEffectivelyVisible);
+        Assert.Same(panel.ShowMenuFor(null), area.ContextMenu);
+        Assert.True(panel.NewItem.IsVisible);
+        Assert.Equal("New command…", panel.NewItem.Header);
         window.Close();
     }
 
