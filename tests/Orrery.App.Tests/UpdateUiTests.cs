@@ -576,10 +576,10 @@ public class UpdateUiTests : IDisposable
             Assert.True(host.ReopensSessions);
 
             host.PrepareToRestart(true);
-            Assert.True(new WorkspaceStore(_location.FileIn(WorkspaceStore.FileName)).Load().ReopenAtStart);
+            Assert.True(new WorkspaceStore(ComputerFiles.PathFor(_location, WorkspaceStore.FileName)).Load().ReopenAtStart);
 
             host.PrepareToRestart(false);
-            Assert.Null(new WorkspaceStore(_location.FileIn(WorkspaceStore.FileName)).Load().ReopenAtStart);
+            Assert.Null(new WorkspaceStore(ComputerFiles.PathFor(_location, WorkspaceStore.FileName)).Load().ReopenAtStart);
         }
         finally
         {
@@ -610,7 +610,7 @@ public class UpdateUiTests : IDisposable
         var tree = ConnectionTree.Empty();
         tree.Add(new ConnectionEntry { Name = "box", Host = "box.example" }, tree.Root);
         ConnectionStore.In(_location).Save(tree);
-        var file = _location.FileIn(WorkspaceStore.FileName);
+        var file = ComputerFiles.PathFor(_location, WorkspaceStore.FileName);
         new WorkspaceStore(file).Save(new Workspace { Tabs = [new WorkspaceTab(null, "127.0.0.1", port, Protocol.Telnet)], ReopenAtStart = true });
         VaultAutoLockTests.AddMainWindowResources();
         var window = new MainWindow(_location);

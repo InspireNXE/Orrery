@@ -16,9 +16,18 @@ namespace Orrery.Core.Connections;
 /// different merges the file's changes into the tree first (<see cref="ConnectionMerge"/>), so neither computer's
 /// changes are saved over. A save with nothing new writes nothing.
 /// </para>
+/// <para>
+/// Fields that belong to one computer (<see cref="PerComputerFields"/>) are kept apart, in that computer's own file
+/// at <paramref name="computerValuesPath"/>; none, and they're saved in connections.json like the rest.
+/// </para>
 /// </summary>
-public sealed class ConnectionStore(string path, string backupDirectory, int backupsToKeep = 10, TimeSpan? backupInterval = null)
+public sealed class ConnectionStore(string path, string backupDirectory, int backupsToKeep = 10, TimeSpan? backupInterval = null,
+    string? computerValuesPath = null)
 {
+    public const string ComputerValuesFile = "connections.json";
+
+    readonly PerComputerFields? _fields = computerValuesPath is null ? null : new PerComputerFields(new ComputerValues(computerValuesPath));
+
     static readonly ILogger Logger = Log.For("Storage");
 
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
@@ -59,7 +68,8 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
     };
 
     public static ConnectionStore In(DataLocation location) =>
-        new(location.FileIn("connections.json"), location.FileIn("backups"));
+        new(location.FileIn("connections.json"), location.FileIn("backups"),
+            computerValuesPath: Path.Combine(location.DataDir, ComputerFiles.FolderName, $"{ComputerFiles.Tag}-{ComputerValuesFile}"));
 
     public ConnectionTree Load()
     {
@@ -72,6 +82,8 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         var text = File.ReadAllText(path);
         var tree = new ConnectionTree(Parse(text));
         _known = text;
+        _fields?.NoteShared(tree);
+        _fields?.PutOwn(tree);
 
         // A number that isn't a choice (hand-edited) would throw once used, so it's dropped and the folder's value applies.
         foreach (var node in tree.Root.Descendants().Prepend(tree.Root))
@@ -149,7 +161,31 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
     /// Returns what that merge changed in the tree, or null when the file hadn't changed.
     /// </summary>
     /// <exception cref="InvalidDataException">A newer Orrery wrote the file since; it's left as it is.</exception>
-    public ConnectionMergeReport? Save(ConnectionTree tree)
+    public ConnectionMergeReport? Save(ConnectionTree tree) => WithSharedValues(tree, () => SaveShared(tree));
+
+    // Runs a merge or a save with connections.json's values of this computer's own fields in the tree, then puts this
+    // computer's back.
+    T WithSharedValues<T>(ConnectionTree tree, Func<T> work)
+    {
+        if (_fields is null)
+        {
+            return work();
+        }
+
+        _fields.TakeOwn(tree);
+        try
+        {
+            return work();
+        }
+        finally
+        {
+            _fields.NoteShared(tree);
+            _fields.PutOwn(tree);
+            _fields.Save();
+        }
+    }
+
+    ConnectionMergeReport? SaveShared(ConnectionTree tree)
     {
         var disk = ReadOrNull(path);
         ConnectionMergeReport? report = null;
@@ -181,7 +217,9 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
     /// new, or the file can't be read yet (a sync app part way through writing it): the next try, or the next save, takes it.
     /// <see cref="NeedsSave"/> says afterwards whether the tree holds changes the file doesn't.
     /// </summary>
-    public ConnectionMergeReport? ReloadIfChanged(ConnectionTree tree)
+    public ConnectionMergeReport? ReloadIfChanged(ConnectionTree tree) => WithSharedValues(tree, () => ReloadShared(tree));
+
+    ConnectionMergeReport? ReloadShared(ConnectionTree tree)
     {
         string? disk;
         try

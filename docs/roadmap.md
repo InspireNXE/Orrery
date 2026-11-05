@@ -11,7 +11,8 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
   pointer's shape, and the live view shows it, in your own pointer scheme on Windows; a second file copy in an RDP
   session no longer fails; clicks at the very top of a full-screen session reach it; a portable data folder synced
   between computers takes in each one's changes to connections, the vault and settings while open, merging them
-  rather than saving over them; it says when Orrery is open on another one and when the sync app has made conflict
+  rather than saving over them, with each computer's own paths, displays, window and recent connections kept apart;
+  it says when Orrery is open on another one and when the sync app has made conflict
   copies, and each computer writes its own log file there.
 - **0.1.2 previews (2026-11-04):** a Commands page in the side panel, with the editor in the right-hand pane and a
   right-click menu; saving a command on any connections at once (linked copies, with guests listed under their host);
