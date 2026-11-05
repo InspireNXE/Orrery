@@ -121,7 +121,9 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
             }
             else
             {
-                recorder = new ScreenRecorder(RecordingWriter.Create(path, RecordingKind.Screen, publicKey), info, settings.RecordingFramesPerSecond, settings.RecordingFileBytes,
+                // A remote desktop's pointer shapes are recorded too; a web page has none to give.
+                var writer = RecordingWriter.Create(path, RecordingKind.Screen, publicKey, pointerShapes: tab.View is RemoteFrameView);
+                recorder = new ScreenRecorder(writer, info, settings.RecordingFramesPerSecond, settings.RecordingFileBytes,
                     recordSound: settings.RecordsSound);
             }
         }

@@ -344,6 +344,10 @@ public sealed class ScreenRecorder : SessionRecorder
     byte[] _rowRgb = [];
     int _width, _height;
     (int X, int Y)? _lastPointer;
+    readonly bool _recordsShapes;
+    volatile IRemotePointerSession? _pointerSession;
+    RemotePointerShape? _lastShape;
+    byte[]? _lastShapePayload;
     bool _recordSound;
     readonly object _soundLock = new();
     IAudioTap? _tap;
@@ -353,6 +357,7 @@ public sealed class ScreenRecorder : SessionRecorder
         : base(writer, info, maxBytes, clock)
     {
         _framesPerSecond = Math.Clamp(framesPerSecond, 1, MaxFramesPerSecond);
+        _recordsShapes = writer.HoldsPointerShapes;
         _frameTimer = new PeriodicTimer(TimeSpan.FromSeconds(1.0 / _framesPerSecond));
         _recordSound = recordSound;
         Stopped += (_, _) =>
@@ -451,6 +456,8 @@ public sealed class ScreenRecorder : SessionRecorder
             screen.FrameUpdated += OnFrame;
         }
 
+        _pointerSession = _recordsShapes ? session as IRemotePointerSession : null;
+
         lock (_soundLock)
         {
             _audioSession = session as IAudioSession;
@@ -483,6 +490,8 @@ public sealed class ScreenRecorder : SessionRecorder
             _screen = null;
             _damage.Clear();
         }
+
+        _pointerSession = null;
 
         lock (_soundLock)
         {
@@ -592,7 +601,12 @@ public sealed class ScreenRecorder : SessionRecorder
 
         var pointer = Pointer?.Invoke();
         bool pointerMoved = pointer is not null && pointer != _lastPointer;
-        if (!keyFrame && rects.Length == 0 && !pointerMoved)
+
+        // The shape is written when it changes and after every key frame, so a seek to one finds it there.
+        var pointerSession = _pointerSession;
+        var shape = pointerSession?.PointerShape;
+        bool shapeChanged = pointerSession is not null && (_lastShapePayload is null || !ReferenceEquals(shape, _lastShape));
+        if (!keyFrame && rects.Length == 0 && !pointerMoved && !shapeChanged)
         {
             return;
         }
@@ -659,6 +673,17 @@ public sealed class ScreenRecorder : SessionRecorder
                 Enqueue(RecordingEventType.Change, change);
                 _changedSinceKeyFrame += change.Length;
             }
+        }
+
+        if (pointerSession is not null && (keyFrame || shapeChanged))
+        {
+            if (shapeChanged)
+            {
+                _lastShape = shape;
+                _lastShapePayload = ScreenFrames.EncodePointerShape(shape);
+            }
+
+            Enqueue(RecordingEventType.PointerShape, _lastShapePayload!);
         }
 
         if (pointerMoved)

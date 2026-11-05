@@ -90,8 +90,14 @@ same, on its own thread and at its own pace:
   as RDP's and VNC's own encodings are, not a video codec such as H.264, H.265 or AV1: those are lossy, need an
   encoder Orrery would have to ship, and only matter for export (§3.4).
 - **The pointer.** RDP and VNC draw the remote pointer locally, so it isn't in the frame. The recorder writes the
-  pointer's position with each frame, and the player draws a plain arrow there. The remote pointer's own shape isn't
-  recorded.
+  pointer's position with each frame, and its shape as the server sends it: RDP's pointer updates (IronRDP decodes
+  them when the server pointer is on and Orrery draws it), and VNC's Cursor, XCursor and Cursor-with-alpha
+  pseudo-encodings. A *pointer shape* event holds the width, height and hotspot (16 bits each) and the RGBA pixels,
+  straight alpha, Brotli-compressed; no pixels means hidden, and an empty event means the usual arrow. It's written
+  when the shape changes and again after every key frame, so a seek finds it there. Shapes are at most 384 pixels a
+  side, checked before anything is allocated. A recording that may hold them is version 3, so an older build says
+  it's from a newer Orrery instead of stopping at the first one as damaged; the player draws a plain arrow for
+  recordings without them. The live view still shows the local pointer.
 - **Several monitors.** A session spread over several displays has one frame buffer covering them; it's recorded as
   one picture, as the view has it.
 - **Sound (RDP).** IronRDP decodes the server's sound and plays it itself, so Orrery never sees it; the fork (branch
@@ -379,7 +385,6 @@ Playing:
 ## 7. Later
 
 - MP4 export without ffmpeg on macOS, through AVFoundation's `AVAssetWriter`. It needs a Mac to build and test on.
-- Recording the remote pointer's shape.
 
 ---
 

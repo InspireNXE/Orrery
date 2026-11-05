@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MarcusW.VncClient;
+using MarcusW.VncClient.Protocol.EncodingTypes;
 using MarcusW.VncClient.Protocol.Implementation.MessageTypes.Outgoing;
 using MarcusW.VncClient.Protocol;
 using MarcusW.VncClient.Protocol.Implementation;
@@ -25,7 +26,8 @@ namespace Orrery.Protocols.Vnc;
 /// A VNC session backed by MarcusW.VncClient (MIT). The library decodes straight into our RGBA buffer
 /// through <see cref="IRenderTarget"/>; keys go over as X11 keysyms, so the server needs no keyboard layout.
 /// </summary>
-public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSession, IRenderTarget, IOutputHandler
+public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSession, IRenderTarget, IOutputHandler, ICursorHandler,
+    IRemotePointerSession
 {
     const int BytesPerPixel = 4;
     const int WheelNotch = 120;
@@ -77,6 +79,10 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
 
     public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+
+    public RemotePointerShape? PointerShape { get; private set; }
+
+    public event EventHandler? PointerShapeChanged;
     public event EventHandler<string>? RemoteClipboardChanged;
 
     /// <summary>Starts connecting in the background and returns at once; watch <see cref="StateChanged"/>.</summary>
@@ -531,13 +537,120 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         }
     }
 
+    void ICursorHandler.UpdateCursor(int hotspotX, int hotspotY, int width, int height, byte[] pixelData, byte[] bitmask, VncPixelFormat pixelFormat) =>
+        SetPointerShape(CursorFromPixels(hotspotX, hotspotY, width, height, pixelData, bitmask, pixelFormat));
+
+    void ICursorHandler.UpdateCursorWithAlpha(int hotspotX, int hotspotY, int width, int height, byte[] rgbaData)
+    {
+        if (rgbaData.Length == width * height * 4)
+        {
+            RemotePointerShape.Unpremultiply(rgbaData);
+        }
+
+        SetPointerShape(RemotePointerShape.Create(width, height, hotspotX, hotspotY, rgbaData));
+    }
+
+    void ICursorHandler.UpdateXCursor(int hotspotX, int hotspotY, int width, int height, byte[] primaryColor, byte[] secondaryColor, byte[] bitmap, byte[] bitmask) =>
+        SetPointerShape(CursorFromTwoColors(hotspotX, hotspotY, width, height, primaryColor, secondaryColor, bitmap, bitmask));
+
+    void ICursorHandler.HideCursor() => SetPointerShape(RemotePointerShape.Hidden);
+
+    void SetPointerShape(RemotePointerShape? shape)
+    {
+        if (shape is null)
+        {
+            Log.For("Vnc").LogDebug("Left out a cursor the server sent");
+            return;
+        }
+
+        PointerShape = shape;
+        PointerShapeChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// The Cursor pseudo-encoding (RFC 6143 §7.8.1): pixels in the connection's pixel format, then a mask, one bit a
+    /// pixel from the top bit, each row whole bytes, where 1 is a pixel shown.
+    /// </summary>
+    internal static RemotePointerShape? CursorFromPixels(int hotspotX, int hotspotY, int width, int height, byte[] pixels, byte[] mask, VncPixelFormat format)
+    {
+        int bytesPerPixel = format.BytesPerPixel, maskRow = (width + 7) / 8;
+        if (width < 1 || height < 1 || !format.TrueColor || bytesPerPixel is < 1 or > 4
+            || pixels.Length < width * height * bytesPerPixel || mask.Length < maskRow * height)
+        {
+            return null;
+        }
+
+        var rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int i = y * width + x;
+                uint value = 0;
+                for (int b = 0; b < bytesPerPixel; b++)
+                {
+                    int shift = format.BigEndian ? (bytesPerPixel - 1 - b) * 8 : b * 8;
+                    value |= (uint)pixels[i * bytesPerPixel + b] << shift;
+                }
+
+                rgba[i * 4] = Channel(value, format.RedShift, format.RedMax);
+                rgba[i * 4 + 1] = Channel(value, format.GreenShift, format.GreenMax);
+                rgba[i * 4 + 2] = Channel(value, format.BlueShift, format.BlueMax);
+                rgba[i * 4 + 3] = Shown(mask, maskRow, x, y) ? (byte)255 : (byte)0;
+            }
+        }
+
+        return RemotePointerShape.Create(width, height, hotspotX, hotspotY, rgba);
+    }
+
+    /// <summary>
+    /// The XCursor pseudo-encoding: two RGB colors, then a bitmap (1 picks the first color) and a mask laid out as
+    /// <see cref="CursorFromPixels"/>'s.
+    /// </summary>
+    internal static RemotePointerShape? CursorFromTwoColors(int hotspotX, int hotspotY, int width, int height, byte[] primary, byte[] secondary, byte[] bitmap, byte[] mask)
+    {
+        int maskRow = (width + 7) / 8;
+        if (width < 1 || height < 1 || primary.Length < 3 || secondary.Length < 3 || bitmap.Length < maskRow * height || mask.Length < maskRow * height)
+        {
+            return null;
+        }
+
+        var rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int i = (y * width + x) * 4;
+                var color = Shown(bitmap, maskRow, x, y) ? primary : secondary;
+                rgba[i] = color[0];
+                rgba[i + 1] = color[1];
+                rgba[i + 2] = color[2];
+                rgba[i + 3] = Shown(mask, maskRow, x, y) ? (byte)255 : (byte)0;
+            }
+        }
+
+        return RemotePointerShape.Create(width, height, hotspotX, hotspotY, rgba);
+    }
+
+    static bool Shown(byte[] bits, int rowBytes, int x, int y) => (bits[y * rowBytes + x / 8] & (0x80 >> (x % 8))) != 0;
+
+    static byte Channel(uint value, int shift, int max) => max == 0 ? (byte)0 : (byte)(((value >> shift) & (uint)max) * 255 / max);
+
     /// <summary>
     /// The library's default protocol, but with only the security types Orrery allows, and it remembers the
     /// transport so the session can close it.
     /// </summary>
     sealed class ClosableImplementation(VncSession session)
-        : DefaultImplementation(AllowedSecurityTypes, GetDefaultMessageTypes, GetDefaultEncodingTypes)
+        : DefaultImplementation(AllowedSecurityTypes, GetDefaultMessageTypes, context => EncodingTypes(context, session))
     {
+        // The library's encodings, which already ask for the server's cursor; the session takes it before the first
+        // update can bring one.
+        static IEnumerable<IEncodingType> EncodingTypes(RfbConnectionContext context, VncSession session)
+        {
+            context.Connection.CursorHandler = session;
+            return GetDefaultEncodingTypes(context);
+        }
+
         // Only None and classic VNC authentication (audit S-2). The library's defaults add types that send the
         // saved username and password in clear text, or accept any TLS certificate, and it lets the server pick
         // the highest it offers. Don't put the defaults back until each type is checked; TLS, VeNCrypt and RA2

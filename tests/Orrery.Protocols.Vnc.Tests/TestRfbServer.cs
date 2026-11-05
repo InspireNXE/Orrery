@@ -22,6 +22,7 @@ sealed class TestRfbServer : IAsyncDisposable
     readonly ushort _desktopWidth, _desktopHeight;
     readonly byte[]? _securityTypes;
     readonly bool _rfb33;
+    readonly bool _cursor;
     readonly List<byte> _received = [];
     byte[] _handshake = [];
     readonly CancellationTokenSource _cts = new();
@@ -34,9 +35,11 @@ sealed class TestRfbServer : IAsyncDisposable
     /// <param name="securityTypes">The security types to offer instead of the one the password implies. Once the
     /// client picks one other than None or VNC Authentication, the server keeps what it sends and hangs up.</param>
     /// <param name="rfb33">Speak RFB 3.3, where the server names the first of the security types instead of offering them.</param>
+    /// <param name="cursor">Send a cursor with the first picture (<see cref="CursorUpdate"/>).</param>
     public TestRfbServer(string? password, ushort desktopWidth = Width, ushort desktopHeight = Height,
-        byte[]? securityTypes = null, bool rfb33 = false)
+        byte[]? securityTypes = null, bool rfb33 = false, bool cursor = false)
     {
+        _cursor = cursor;
         _password = password;
         (_desktopWidth, _desktopHeight) = (desktopWidth, desktopHeight);
         (_securityTypes, _rfb33) = (securityTypes, rfb33);
@@ -219,7 +222,7 @@ sealed class TestRfbServer : IAsyncDisposable
         int bytesPerPixel = _bpp / 8;
         int width = Math.Min(Width, (int)_desktopWidth), height = Math.Min(Height, (int)_desktopHeight);
         var message = new List<byte> { 0, 0 };
-        message.AddRange(BigEndian((ushort)1));
+        message.AddRange(BigEndian((ushort)(_cursor ? 2 : 1)));
         message.AddRange(BigEndian((ushort)0)); message.AddRange(BigEndian((ushort)0));
         message.AddRange(BigEndian((ushort)width)); message.AddRange(BigEndian((ushort)height));
         message.AddRange(BigEndian(0u)); // Raw
@@ -237,7 +240,35 @@ sealed class TestRfbServer : IAsyncDisposable
             }
         }
 
+        if (_cursor)
+        {
+            message.AddRange(CursorUpdate(bytesPerPixel));
+        }
+
         return message.ToArray();
+    }
+
+    /// <summary>
+    /// A Cursor pseudo-encoding rectangle (RFC 6143 §7.8.1): 2x1 with its hotspot on the right, a red pixel shown and
+    /// a white one masked out.
+    /// </summary>
+    byte[] CursorUpdate(int bytesPerPixel)
+    {
+        var rect = new List<byte>();
+        rect.AddRange(BigEndian((ushort)1)); rect.AddRange(BigEndian((ushort)0));
+        rect.AddRange(BigEndian((ushort)2)); rect.AddRange(BigEndian((ushort)1));
+        rect.AddRange(BigEndian(unchecked((uint)-239)));
+        var pixel = new byte[4];
+        foreach (var (r, g, b) in new[] { (255, 0, 0), (255, 255, 255) })
+        {
+            uint value = (uint)(r * _redMax / 255) << _redShift | (uint)(g * _greenMax / 255) << _greenShift | (uint)(b * _blueMax / 255) << _blueShift;
+            if (_bigEndian) BinaryPrimitives.WriteUInt32BigEndian(pixel, value << (32 - _bpp));
+            else BinaryPrimitives.WriteUInt32LittleEndian(pixel, value);
+            rect.AddRange(pixel.AsSpan(0, bytesPerPixel).ToArray());
+        }
+
+        rect.Add(0b1000_0000);
+        return rect.ToArray();
     }
 
     /// <summary>RFC 6143 §7.2.2: DES-encrypt the challenge with the password, each key byte bit-reversed.</summary>

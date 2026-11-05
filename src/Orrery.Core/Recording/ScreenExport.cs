@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Orrery.Core.Sessions;
 
 namespace Orrery.Core.Recording;
 
@@ -100,7 +101,7 @@ public static class ScreenExport
                 continue;
             }
 
-            if (decoder.Apply(e) && e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change or RecordingEventType.Pointer)
+            if (decoder.Apply(e) && e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change or RecordingEventType.Pointer or RecordingEventType.PointerShape)
             {
                 changed = true;
                 any |= decoder.HasFrame;
@@ -149,12 +150,12 @@ public static class ScreenExport
 
         if (decoder.Pointer is var (x, y))
         {
-            PointerArrow.Draw(output, width, height, x + left, y + top);
+            RemotePointerShape.Draw(decoder.PointerShape, output, width, height, x + left, y + top);
         }
     }
 }
 
-/// <summary>A plain arrow where the pointer was: the remote pointer's own shape isn't recorded (design §2.2).</summary>
+/// <summary>A plain arrow where the pointer was, when the recording doesn't hold its shape (design §2.2).</summary>
 public static class PointerArrow
 {
     // The arrow, row by row: X is its black outline, . its white inside, a space is left alone.

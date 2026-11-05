@@ -56,6 +56,67 @@ public static class ScreenFrames
         return output;
     }
 
+    /// <summary>
+    /// A <see cref="RecordingEventType.PointerShape"/> event's payload: empty for the usual arrow; else width, height,
+    /// hotspot x and y (16 bits each), then Brotli(the RGBA pixels), none for a hidden pointer.
+    /// </summary>
+    public static byte[] EncodePointerShape(RemotePointerShape? shape)
+    {
+        if (shape is null)
+        {
+            return [];
+        }
+
+        if (shape.IsHidden)
+        {
+            return new byte[8];
+        }
+
+        var output = Compress(shape.Rgba, 8, out int length);
+        BinaryPrimitives.WriteUInt16LittleEndian(output, (ushort)shape.Width);
+        BinaryPrimitives.WriteUInt16LittleEndian(output.AsSpan(2), (ushort)shape.Height);
+        BinaryPrimitives.WriteUInt16LittleEndian(output.AsSpan(4), (ushort)shape.HotspotX);
+        BinaryPrimitives.WriteUInt16LittleEndian(output.AsSpan(6), (ushort)shape.HotspotY);
+        return output[..length];
+    }
+
+    /// <summary>The shape in a <see cref="EncodePointerShape"/> payload, or false when it's damaged or too big.</summary>
+    public static bool TryDecodePointerShape(byte[] payload, out RemotePointerShape? shape)
+    {
+        shape = null;
+        if (payload.Length == 0)
+        {
+            return true;
+        }
+
+        if (payload.Length < 8)
+        {
+            return false;
+        }
+
+        int width = BinaryPrimitives.ReadUInt16LittleEndian(payload), height = BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(2));
+        if (width == 0 && height == 0)
+        {
+            shape = RemotePointerShape.Hidden;
+            return payload.Length == 8;
+        }
+
+        if (width is < 1 or > RemotePointerShape.MaxSide || height is < 1 or > RemotePointerShape.MaxSide)
+        {
+            return false;
+        }
+
+        var rgba = new byte[width * height * 4];
+        if (!Decompress(payload.AsSpan(8), rgba, rgba.Length))
+        {
+            return false;
+        }
+
+        shape = RemotePointerShape.Create(width, height, BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(4)),
+            BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(6)), rgba);
+        return shape is not null;
+    }
+
     /// <summary>Decompresses exactly <paramref name="expected"/> bytes into <paramref name="destination"/>, or fails.</summary>
     internal static bool Decompress(ReadOnlySpan<byte> source, Span<byte> destination, int expected)
     {
@@ -149,6 +210,9 @@ public sealed class ScreenDecoder
     /// <summary>Where the pointer was last, or null before it's been recorded.</summary>
     public (int X, int Y)? Pointer { get; private set; }
 
+    /// <summary>What the pointer looked like last; null for the usual arrow, as in recordings made before shapes were.</summary>
+    public RemotePointerShape? PointerShape { get; private set; }
+
     /// <summary>A key frame has arrived, so there's a picture.</summary>
     public bool HasFrame { get; private set; }
 
@@ -165,6 +229,14 @@ public sealed class ScreenDecoder
                 return Change(e.Payload);
             case RecordingEventType.Pointer when RecordingFile.ReadPair(e.Payload) is var (x, y):
                 Pointer = (x, y);
+                return true;
+            case RecordingEventType.PointerShape:
+                if (!ScreenFrames.TryDecodePointerShape(e.Payload, out var shape))
+                {
+                    return false;
+                }
+
+                PointerShape = shape;
                 return true;
             case RecordingEventType.Resize or RecordingEventType.Pointer:
                 return false;

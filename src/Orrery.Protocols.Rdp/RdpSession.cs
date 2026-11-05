@@ -36,7 +36,7 @@ namespace Orrery.Protocols.Rdp;
 /// that image's size in place (<see cref="FollowGraphicsReset"/>); one without it restarts the session's activation.
 /// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession
+public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
@@ -126,6 +126,10 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
     public SessionStateChangedEventArgs? LastChange { get; private set; }
     public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+
+    public RemotePointerShape? PointerShape { get; private set; }
+
+    public event EventHandler? PointerShapeChanged;
     public event EventHandler<string>? RemoteClipboardChanged;
 
     /// <inheritdoc/>
@@ -732,6 +736,25 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                         await ReactivateAsync(token);
                         break;
 
+                    case ActiveStageOutputType.PointerBitmap:
+                        using (var pointer = output.PointerBitmap)
+                        {
+                            SetPointerShape(PointerFrom(pointer));
+                        }
+                        break;
+
+                    case ActiveStageOutputType.PointerDefault:
+                        SetPointerShape(null);
+                        break;
+
+                    case ActiveStageOutputType.PointerHidden:
+                        SetPointerShape(RemotePointerShape.Hidden);
+                        break;
+
+                    case ActiveStageOutputType.PointerPosition:
+                        // The server moving the pointer itself; the view follows the local pointer.
+                        break;
+
                     default:
                         Logger.LogDebug("Unhandled RDP output: {EnumType}", output.EnumType);
                         break;
@@ -740,6 +763,30 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         }
 
         return true;
+    }
+
+    /// <summary>A shape the server sent: RGBA with straight alpha, as IronRDP decodes it when Orrery draws the pointer.</summary>
+    static RemotePointerShape? PointerFrom(DecodedPointer pointer)
+    {
+        using var data = pointer.Data;
+        var shape = RemotePointerShape.Create(pointer.Width, pointer.Height, pointer.HotspotX, pointer.HotspotY, ToBytes(data));
+        if (shape is null)
+        {
+            Logger.LogDebug("Left out a {Width}x{Height} pointer", pointer.Width, pointer.Height);
+        }
+
+        return shape;
+    }
+
+    void SetPointerShape(RemotePointerShape? shape)
+    {
+        if (ReferenceEquals(shape, PointerShape))
+        {
+            return;
+        }
+
+        PointerShape = shape;
+        PointerShapeChanged?.Invoke(this, EventArgs.Empty);
     }
 
     void OnGraphicsUpdate(InclusiveRectangle damage)
@@ -1494,6 +1541,18 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             {
                 Logger.LogWarning("Can't tell the server this display's scaling: {Message}", e.Message);
             }
+        }
+
+        // The server sends its pointer's shapes, decoded for Orrery to draw (not drawn into the picture), so a
+        // recording can show them.
+        try
+        {
+            builder.EnableServerPointer = true;
+            builder.PointerSoftwareRendering = false;
+        }
+        catch (EntryPointNotFoundException e)
+        {
+            Logger.LogWarning("Can't ask the server for its pointer's shape: {Message}", e.Message);
         }
 
         // NLA is required: credentials only ever go through CredSSP, inside a certificate-checked TLS session.

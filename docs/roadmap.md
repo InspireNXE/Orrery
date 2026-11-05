@@ -7,7 +7,8 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 - **0.1.2 previews 8 and 9 (2026-11-05):** Windows Hello asked before the master password; a remote desktop that
   isn't connected shown dimmed; RDP resizes about twice as fast, with the old picture filling the window meanwhile;
   RDP timings in the detailed log. Since then, on dev: RDP input sent at once and no longer held up by decoding;
-  setup offers to add the shells it finds to the tree as LOCAL connections.
+  setup offers to add the shells it finds to the tree as LOCAL connections; RDP and VNC recordings keep the remote
+  pointer's shape.
 - **0.1.2 previews (2026-11-04):** a Commands page in the side panel, with the editor in the right-hand pane and a
   right-click menu; saving a command on any connections at once (linked copies, with guests listed under their host);
   saved commands that send themselves when a saved connection connects, and ones that answer a password prompt;
@@ -24,8 +25,8 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 Suggested and not started; each waits for a go-ahead.
 
-Open from the feature table: a collapsed host showing its guests' sessions, recording the remote pointer's
-shape, and Touch ID, which needs a signed macOS build.
+Open from the feature table: a collapsed host showing its guests' sessions, and Touch ID, which needs a signed
+macOS build.
 
 ## Parked for future releases
 

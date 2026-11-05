@@ -97,7 +97,7 @@ machine yet, hence the 🧪.
 | Export `.cast` and `.avi` | 🧪 | 🧪 | 🧪 |
 | Export MP4, with sound | 🧪 built in | 🔸 through ffmpeg | 🔸 through ffmpeg |
 | MP4 without ffmpeg | ✅ | 🗓️ AVFoundation | ➖ |
-| Record the remote pointer's shape | 🗓️ | 🗓️ | 🗓️ |
+| Record the remote pointer's shape | 🧪 | 🧪 | 🧪 |
 | **Credentials** | | | |
 | System secret store | ✅ Credential Manager | 🧪 Keychain | 🧪 Secret Service |
 | Encrypted vault file | ✅ | 🧪 | 🧪 |
@@ -360,7 +360,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 </p>
 
 - **What's recorded:** what a terminal printed, or what a remote desktop showed, at up to 60
-  frames a second, taken only when the screen changes, with RDP sound. On Windows, a web page in a tab is recorded
+  frames a second, taken only when the screen changes, with RDP sound. A remote desktop's pointer is recorded with
+  the shape its server gives it (an I-beam over text, a resize arrow, hidden while you type); recordings from
+  before 0.1.2 show a plain arrow, and older builds say a recording with shapes is from a newer Orrery. On Windows, a web page in a tab is recorded
   the same way, from the engine's own picture of the page (no sound); WebKit on Linux and macOS can't give one.
 - **What's typed,** only if you turn on *Record what's typed too* (off by default, terminals only). Keys and pastes
   go in; passwords Orrery types for you and typing at a password prompt it recognizes don't, and a marker shows
