@@ -59,6 +59,14 @@ public sealed partial class RemoteFrameView : Panel
     // The clipboard text last exchanged with the server (VNC, or RDP off Windows), so a change isn't sent back where it came from.
     string? _lastClipboard;
 
+    // Over the last picture while not connected, so a dropped desktop doesn't look like a frozen live one.
+    readonly Border _dim = new()
+    {
+        Background = new SolidColorBrush(Color.Parse("#0B0D10"), 0.72),
+        IsHitTestVisible = false,
+        IsVisible = false,
+    };
+
     readonly Notice _status = new(NoticeKind.Info)
     {
         HorizontalAlignment = HorizontalAlignment.Center,
@@ -149,6 +157,7 @@ public sealed partial class RemoteFrameView : Panel
         Children.Add(_scroller);
         _piecesLayer = new PiecesLayer(this) { IsVisible = false };
         Children.Add(_piecesLayer);
+        Children.Add(_dim);
         Children.Add(_status);
 
         // Caught on the way down, so at actual size the wheel scrolls the remote desktop's windows, not the view.
@@ -210,6 +219,9 @@ public sealed partial class RemoteFrameView : Panel
     internal Func<string, Task>? SetClipboardText { get; set; }
 
     /// <summary>What the banner across the top says while it shows, for tests.</summary>
+    /// <summary>Whether the last picture is dimmed because the session isn't connected.</summary>
+    internal bool Dimmed => _dim.IsVisible;
+
     internal string? BannerText => _banner.IsVisible ? _bannerNotice.Text : null;
 
     /// <summary>Says <paramref name="text"/> across the top of the desktop for a few seconds, and to the screen reader.</summary>
@@ -429,7 +441,7 @@ public sealed partial class RemoteFrameView : Panel
             (state, message) = (SessionState.Failed, _drawFailure);
         }
 
-        _status.IsVisible = state != SessionState.Connected;
+        _status.IsVisible = _dim.IsVisible = state != SessionState.Connected;
         _status.Kind = state == SessionState.Failed ? NoticeKind.Error : NoticeKind.Info;
         _status.Text = state switch
         {

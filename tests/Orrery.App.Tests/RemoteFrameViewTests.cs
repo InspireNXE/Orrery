@@ -74,6 +74,54 @@ public class RemoteFrameViewTests
         window.Close();
     }
 
+    /// <summary>A desktop that draws, and that the server can drop.</summary>
+    sealed class DroppableDesktop : IFrameBufferSession
+    {
+        public ConnectionTarget Target { get; } = new("desk", 3389, "user", null);
+        public SessionState State { get; private set; } = SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+#pragma warning disable CS0067 // Part of the interface; this fake never raises it.
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+#pragma warning restore CS0067
+        public int Width => 64;
+        public int Height => 48;
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
+        public void SendKey(ushort scancode, bool pressed) { }
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+        public void RequestResize(int width, int height) { }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public void Drop()
+        {
+            State = SessionState.Disconnected;
+            StateChanged?.Invoke(this, new SessionStateChangedEventArgs(State, null));
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_dropped_desktop_is_dimmed_under_the_notice()
+    {
+        var session = new DroppableDesktop();
+        var view = new RemoteFrameView(session);
+        var window = new Window { Content = view, Width = 800, Height = 500 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(view.Dimmed);
+
+        session.Drop();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(view.Dimmed);
+        var status = view.Children.OfType<Notice>().Single();
+        Assert.Equal("Disconnected.", status.Text);
+        Assert.True(view.Children.IndexOf(status) > view.Children.IndexOf(view.Children.OfType<Border>().First(b => b.IsVisible && b.Child is null)));
+        window.Close();
+    }
+
     /// <summary>A desktop that notes whether the view had its bitmap locked each time it was asked for pixels.</summary>
     sealed class WatchedDesktop : IFrameBufferSession
     {
