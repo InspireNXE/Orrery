@@ -86,6 +86,8 @@ static class Shots
 
             await SideBySideAsync(window, demo, web, tabs[0], output);
 
+            await CommandsPageAsync(window, output);
+
             using var preview = await RenderAsync(SocialPreview(hero, new Bitmap(icon)), 1280, 640);
             Save(preview, output, "social-preview.png");
         }
@@ -234,6 +236,27 @@ static class Shots
         await SettleAsync(10);
         await QuickConnectAsync(window, output, ">saved", "saved-commands.png", commands: true);
         Invoke(window, "EndSplit", webTab, true);
+        await SettleAsync();
+    }
+
+    /// <summary>The Commands page, with the command saved on two connections open beside it and its places ticked.</summary>
+    static async Task CommandsPageAsync(MainWindow window, string output)
+    {
+        var sides = Private<Dictionary<string, (Button RailButton, Control View)>>(window, "_sides");
+        Invoke(window, "OnRailClick", sides["commands"].RailButton, new Avalonia.Interactivity.RoutedEventArgs());
+        await SettleAsync();
+        var panel = Private<CommandsPanel>(window, "_commandsPanel");
+        var linked = panel.All().First(c => c.Copies.Count > 1);
+        panel.Select(linked.Command);
+        Private<CommandEditorPane>(window, "_commandEditor").Show(linked);
+        Invoke(window, "RevealInspector");
+        await SettleAsync(10);
+        using (var page = Capture(window))
+        {
+            Save(page, output, "commands-page.png");
+        }
+
+        Invoke(window, "OnRailClick", sides["connections"].RailButton, new Avalonia.Interactivity.RoutedEventArgs());
         await SettleAsync();
     }
 

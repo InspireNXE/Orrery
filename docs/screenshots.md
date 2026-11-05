@@ -44,7 +44,8 @@ The tool is in `Orrery.sln`, so it keeps building, but it isn't a test project a
 | `connection-lost.png` | The connection-lost screen for a login the server refused |
 | `quick-connect.png` | Quick connect with "web" typed in |
 | `side-by-side.png` | web-01 and web-02 side by side, web-01 finding "nginx" in its scrollback |
-| `saved-commands.png` | Quick connect with ">saved" typed in: the saved commands web-01 has from Production |
+| `saved-commands.png` | Quick connect with ">saved" typed in: the saved commands web-01 has from Production, the defaults and its own |
+| `commands-page.png` | The Commands page, with a command saved on web-01 and build-agent open in the right-hand pane |
 | `settings-appearance.png` | Settings › Appearance with a color vision chosen |
 | `recording.png` | An SSH tab being recorded, with the red dot and the REC pill |
 | `recording-playback.png` | The Recordings panel and player, paused partway through that recording |

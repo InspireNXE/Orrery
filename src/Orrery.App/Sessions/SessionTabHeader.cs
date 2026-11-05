@@ -52,6 +52,25 @@ sealed class SessionTabHeader : Button
 
     public event EventHandler? CompactChanged;
 
+    bool _tight;
+
+    /// <summary>
+    /// Squeezed, but not yet to its state: the protocol tag is hidden so the room left goes to the name, which would
+    /// otherwise be cut to an ellipsis beside a tag that still fits.
+    /// </summary>
+    public bool Tight
+    {
+        get => _tight;
+        set
+        {
+            if (_tight != value)
+            {
+                _tight = value;
+                CompactChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
     /// <summary>Its width with the name showing, kept while it's compact so the strip knows when it fits again.</summary>
     internal double FullWidth { get; set; }
 

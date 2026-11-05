@@ -391,6 +391,7 @@ public class WorkspaceWindowTests : IDisposable
         // Many: just their state, at their narrowest, and then the strip scrolls.
         Add(30);
         Assert.All(headers, h => Assert.True(h.Compact));
+        Assert.All(headers, h => Assert.False(h.Tight));
         Assert.True(scroller.Extent.Width > scroller.Viewport.Width);
 
         // Closing most of them gives the names back.
@@ -401,6 +402,7 @@ public class WorkspaceWindowTests : IDisposable
 
         Dispatcher.UIThread.RunJobs();
         Assert.All(headers.Take(2), h => Assert.False(h.Compact));
+        Assert.All(headers.Take(2), h => Assert.False(h.Tight));
         window.Close();
     }
 
