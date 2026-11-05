@@ -246,7 +246,7 @@
       "orrery.protocols.serial": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.0, )",
+          "Orrery.Core": "[0.1.2-dev, )",
           "System.IO.Ports": "[10.0.14, )"
         }
       }
