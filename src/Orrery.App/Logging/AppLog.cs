@@ -39,6 +39,9 @@ static class AppLog
     static bool _showNames;
     static TimeSpan _keepFor = AppSettings.DefaultKeepLogsFor;
 
+    // This computer's log files start with this (see FileNameFor); the others' in a synced folder are left to them.
+    static string _ownPrefix = "orrery-";
+
     /// <summary>The folder logs are written to; null until <see cref="Start"/>.</summary>
     public static string? Folder { get; private set; }
 
@@ -92,7 +95,7 @@ static class AppLog
             _keepFor = value;
             if (Folder is { } folder)
             {
-                Prune(folder, value, MaxTotalSize, DateTime.UtcNow, current: null);
+                Prune(folder, value, MaxTotalSize, DateTime.UtcNow, current: null, _ownPrefix);
             }
         }
     }
@@ -117,9 +120,11 @@ static class AppLog
                 _mask = LogMask.For(location);
             }
 
+            var fileName = FileNameFor(location);
+            _ownPrefix = fileName[..^".log".Length];
             _file = new LoggerConfiguration()
                 .MinimumLevel.Verbose()
-                .WriteTo.File(Path.Combine(location.LogDir, "orrery-.log"),
+                .WriteTo.File(Path.Combine(location.LogDir, fileName),
                     outputTemplate: OutputTemplate,
                     rollingInterval: RollingInterval.Day,
                     fileSizeLimitBytes: FileSizeLimit,
@@ -157,6 +162,23 @@ static class AppLog
         }
     }
 
+    /// <summary>
+    /// The log file's name before its date. Logs kept inside the data folder (a portable copy's) travel with it when a
+    /// sync app copies the folder to other computers, so each computer writes its own file there:
+    /// <c>orrery-&lt;tag&gt;-20261105.log</c>, the tag standing for the computer (<see cref="DataFolderPresence.ComputerTag"/>)
+    /// without naming it. Logs kept elsewhere are this computer's alone.
+    /// </summary>
+    internal static string FileNameFor(DataLocation location) => IsInside(location.LogDir, location.DataDir)
+        ? $"orrery-{DataFolderPresence.ComputerTag(Environment.MachineName)}-.log"
+        : "orrery-.log";
+
+    static bool IsInside(string folder, string parent)
+    {
+        var inside = Path.TrimEndingDirectorySeparator(Path.GetFullPath(parent)) + Path.DirectorySeparatorChar;
+        return (Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar)
+            .StartsWith(inside, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
     static void WriteStartup(DataLocation location)
     {
         var app = Core.Diagnostics.Log.For("App");
@@ -166,6 +188,7 @@ static class AppLog
             RuntimeInformation.OSDescription, RuntimeInformation.OSArchitecture, Environment.Version);
         app.LogInformation("{Mode} mode, data in {DataFolder}", location.Mode, _showNames ? location.DataDir : HomeShortened(location.DataDir));
         app.LogInformation("Names and addresses are {Shown}; logs are kept for {Days} days", _showNames ? "shown" : "hidden", (int)_keepFor.TotalDays);
+        app.LogInformation("This computer is {Computer} in the data folder's files", DataFolderPresence.ComputerTag(Environment.MachineName));
     }
 
     // Orrery's own folder is worth seeing; the account name in it isn't.
@@ -214,8 +237,14 @@ static class AppLog
         int deleted = 0;
         try
         {
+            var own = FileNameFor(location)[..^".log".Length];
             foreach (var file in Directory.Exists(location.LogDir) ? Directory.GetFiles(location.LogDir, FilePattern) : [])
             {
+                if (!IsOwn(Path.GetFileName(file), own))
+                {
+                    continue;
+                }
+
                 try
                 {
                     File.Delete(file);
@@ -242,11 +271,13 @@ static class AppLog
     /// Deletes log files last written more than <paramref name="keepFor"/> ago, then the oldest while all of them come to
     /// more than <paramref name="maxTotal"/>. The newest file, and <paramref name="current"/>, are always kept.
     /// </summary>
-    internal static void Prune(string folder, TimeSpan keepFor, long maxTotal, DateTime nowUtc, string? current)
+    /// <param name="ownPrefix">How this computer's files start; in a folder other computers share, theirs are left alone.</param>
+    internal static void Prune(string folder, TimeSpan keepFor, long maxTotal, DateTime nowUtc, string? current, string ownPrefix = "orrery-")
     {
         try
         {
-            var files = new DirectoryInfo(folder).GetFiles(FilePattern).OrderByDescending(f => f.LastWriteTimeUtc).ToList();
+            var files = new DirectoryInfo(folder).GetFiles(FilePattern).Where(f => IsOwn(f.Name, ownPrefix))
+                .OrderByDescending(f => f.LastWriteTimeUtc).ToList();
             var open = current is null ? null : Path.GetFullPath(current);
             long total = 0;
             for (int i = 0; i < files.Count; i++)
@@ -271,6 +302,28 @@ static class AppLog
         }
     }
 
+    /// <summary>
+    /// This computer's log file, or one from before files were named per computer (<c>orrery-20261105.log</c>), which
+    /// any of them may tidy away.
+    /// </summary>
+    internal static bool IsOwn(string fileName, string ownPrefix) =>
+        fileName.StartsWith(ownPrefix, StringComparison.OrdinalIgnoreCase)
+        || IsUnsplitName(fileName);
+
+    // orrery-20261105.log or orrery-20261105_001.log: eight digits straight after "orrery-". A computer's tag can start
+    // with a digit too, but is six characters and followed by '-'.
+    static bool IsUnsplitName(string fileName)
+    {
+        const string start = "orrery-";
+        if (!fileName.StartsWith(start, StringComparison.OrdinalIgnoreCase) || fileName.Length < start.Length + 9)
+        {
+            return false;
+        }
+
+        var rest = fileName.AsSpan(start.Length);
+        return rest[..8].ContainsAnyExceptInRange('0', '9') is false && rest[8] is '.' or '_';
+    }
+
     // The process ends after this, so the buffer is written out here or not at all.
     static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
@@ -291,7 +344,7 @@ static class AppLog
         {
             if (Path.GetDirectoryName(path) is { } folder)
             {
-                Prune(folder, _keepFor, MaxTotalSize, DateTime.UtcNow, path);
+                Prune(folder, _keepFor, MaxTotalSize, DateTime.UtcNow, path, _ownPrefix);
             }
 
             return underlyingStream;

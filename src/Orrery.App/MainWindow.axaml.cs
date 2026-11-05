@@ -65,6 +65,9 @@ public partial class MainWindow : Window
     readonly DispatcherTimer _saveTimer;
     readonly string? _startupWarning;
 
+    // Other computers with Orrery open on this folder, as a sync app shares it; see DataFolderPresence.
+    readonly DataFolderPresence _presence;
+
     readonly TreeView _treeView;
     readonly TextBox _filter;
     readonly TextBlock _treeEmptyState;
@@ -158,6 +161,7 @@ public partial class MainWindow : Window
         _openOnStart = openOnStart;
         _importOnStart = importOnStart;
         _settingsStore = AppSettingsStore.In(location);
+        _presence = new DataFolderPresence(location.DataDir, Environment.MachineName);
         Palette.Use(_settingsStore.Load().InterfaceColorScheme);
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
@@ -358,6 +362,7 @@ public partial class MainWindow : Window
             FitTitleBarToCaptionButtons();
 
             await CreateVaultFromSetupAsync();
+            await WarnAboutSharedFolderAsync();
 
             // Move data leaves this in the new folder; it's only good for the first start there.
             var pendingCleanup = PendingCleanup.TryLoad(_location.DataDir);
@@ -405,6 +410,7 @@ public partial class MainWindow : Window
             }
 
             (_credentials as IDisposable)?.Dispose();
+            _presence.Dispose();
 
             // Last, once everything is saved: an update put off until now, then the engine and anything it was doing.
             if (!App.Restarting)
@@ -414,6 +420,76 @@ public partial class MainWindow : Window
 
             _updates?.Dispose();
         };
+    }
+
+    /// <summary>
+    /// Says when another computer has Orrery open on this data folder (a sync app sharing it), now or later on, and when
+    /// the sync app has left conflict copies of Orrery's files. Neither stops anything.
+    /// </summary>
+    async Task WarnAboutSharedFolderAsync()
+    {
+        IReadOnlyList<OtherComputer> others;
+        IReadOnlyList<string> conflicts;
+        try
+        {
+            others = await Task.Run(_presence.Start);
+            conflicts = await Task.Run(() => SyncConflicts.Find(_location.DataDir, others.Select(o => o.Name)));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.For("App").LogWarning(e, "Couldn't check for other computers using the data folder");
+            return;
+        }
+
+        _presence.OtherOpened += other => Dispatcher.UIThread.Post(() =>
+        {
+            if (!IsVisible)
+            {
+                return;
+            }
+
+            Log.For("App").LogWarning("Another computer ({Computer}) opened Orrery on this data folder", other.Tag);
+            _ = Dialogs.ShowMessageAsync(this, "Orrery is open on another computer", SharedFolderWarning([other], [])!);
+        });
+
+        if (others.Count > 0)
+        {
+            Log.For("App").LogWarning("Orrery is open on {Count} other computer(s) using this data folder: {Computers}",
+                others.Count, string.Join(", ", others.Select(o => o.Tag)));
+        }
+
+        if (conflicts.Count > 0)
+        {
+            Log.For("App").LogWarning("The data folder has {Count} sync conflict copies", conflicts.Count);
+        }
+
+        if (SharedFolderWarning(others, conflicts) is { } warning)
+        {
+            await Dialogs.ShowMessageAsync(this,
+                others.Count > 0 ? "Orrery is open on another computer" : "Your sync app made conflict copies", warning);
+        }
+    }
+
+    /// <summary>What <see cref="WarnAboutSharedFolderAsync"/> says, or null when there's nothing to say.</summary>
+    internal static string? SharedFolderWarning(IReadOnlyList<OtherComputer> others, IReadOnlyList<string> conflicts)
+    {
+        var parts = new List<string>();
+        if (others.Count > 0)
+        {
+            var names = string.Join(", ", others.Select(o => o.Name));
+            parts.Add((others.Count == 1 ? $"Orrery is also open on {names}" : $"Orrery is also open on these computers: {names}")
+                + ", using this data folder through a sync app. Changes made on both at once save over each other, "
+                + "or leave the sync app's conflict copies. Close Orrery on one of them before changing connections or settings.");
+        }
+
+        if (conflicts.Count > 0)
+        {
+            parts.Add("Your sync app kept these copies when the same file changed on two computers at once. Orrery only reads "
+                + "the files under their own names, so anything in a copy isn't in Orrery. Open the data folder to compare "
+                + "them, then delete the copies:\n" + string.Join("\n", conflicts.Select(c => "  " + c)));
+        }
+
+        return parts.Count == 0 ? null : string.Join("\n\n", parts);
     }
 
     /// <summary>

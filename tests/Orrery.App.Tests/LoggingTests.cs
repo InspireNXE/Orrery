@@ -44,7 +44,9 @@ public class LoggingTests : IDisposable
         }
 
         var file = Assert.Single(Directory.GetFiles(Location.LogDir));
-        Assert.Equal($"orrery-{DateTime.Now:yyyyMMdd}.log", Path.GetFileName(file));
+        // Logs in the data folder may be synced to other computers, so the name says which computer wrote it.
+        var tag = DataFolderPresence.ComputerTag(Environment.MachineName);
+        Assert.Equal($"orrery-{tag}-{DateTime.Now:yyyyMMdd}.log", Path.GetFileName(file));
         var text = File.ReadAllText(file);
         Assert.Contains("INF App: Orrery ", text);
         Assert.Contains("INF App: Portable mode, data in ", text);
@@ -142,6 +144,51 @@ public class LoggingTests : IDisposable
     }
 
     [Fact]
+    public void Logs_outside_the_data_folder_keep_the_plain_name()
+    {
+        var installed = new DataLocation(StorageMode.Installed, Path.Combine(_root, "data"), Path.Combine(_root, "cache"), Path.Combine(_root, "logs"));
+        Assert.Equal("orrery-.log", AppLog.FileNameFor(installed));
+        Assert.Matches(@"^orrery-[0-9a-f]{6}-\.log$", AppLog.FileNameFor(Location));
+    }
+
+    [Theory]
+    [InlineData("orrery-a1b2c3-20261105.log", true)]
+    [InlineData("orrery-a1b2c3-20261105_001.log", true)]
+    [InlineData("orrery-20261105.log", true)] // From before names were per computer.
+    [InlineData("orrery-20261105_002.log", true)]
+    [InlineData("orrery-123456-20261105.log", false)] // Another computer's tag, starting with digits.
+    [InlineData("orrery-ffffff-20261105.log", false)]
+    public void Only_this_computer_s_logs_and_older_unsplit_ones_count_as_its_own(string name, bool own) =>
+        Assert.Equal(own, AppLog.IsOwn(name, "orrery-a1b2c3-"));
+
+    [Fact]
+    public void Pruning_leaves_other_computers_logs_in_a_synced_folder()
+    {
+        var folder = Path.Combine(_root, "shared");
+        Directory.CreateDirectory(folder);
+        var now = new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc);
+        string Make(string name, double daysOld)
+        {
+            var path = Path.Combine(folder, name);
+            File.WriteAllText(path, "x");
+            File.SetLastWriteTimeUtc(path, now.AddDays(-daysOld));
+            return path;
+        }
+
+        var mine = Make("orrery-a1b2c3-20261105.log", 0);
+        var myOld = Make("orrery-a1b2c3-20261001.log", 35);
+        var unsplitOld = Make("orrery-20261001.log", 35);
+        var theirsOld = Make("orrery-123456-20261001.log", 35);
+
+        AppLog.Prune(folder, TimeSpan.FromDays(14), maxTotal: 1000, now, current: null, ownPrefix: "orrery-a1b2c3-");
+
+        Assert.True(File.Exists(mine));
+        Assert.False(File.Exists(myOld));
+        Assert.False(File.Exists(unsplitOld));
+        Assert.True(File.Exists(theirsOld)); // That computer's Orrery tidies its own.
+    }
+
+    [Fact]
     public void Deleting_the_logs_takes_today_s_too_and_the_log_carries_on()
     {
         AppLog.Start(Location);
@@ -149,6 +196,8 @@ public class LoggingTests : IDisposable
         {
             Log.For("Test").LogWarning("Before");
             File.WriteAllText(Path.Combine(Location.LogDir, "orrery-20261001.log"), "old");
+            var theirs = Path.Combine(Location.LogDir, "orrery-123456-20261001.log");
+            File.WriteAllText(theirs, "another computer's");
 
             Assert.Equal(2, AppLog.DeleteLogs(Location));
             Log.For("Test").LogWarning("After");
@@ -158,7 +207,8 @@ public class LoggingTests : IDisposable
             AppLog.Stop();
         }
 
-        var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir)));
+        Assert.True(File.Exists(Path.Combine(Location.LogDir, "orrery-123456-20261001.log")));
+        var text = File.ReadAllText(Assert.Single(Directory.GetFiles(Location.LogDir), f => !f.Contains("123456")));
         Assert.DoesNotContain("Before", text);
         Assert.Contains("Deleted 2 earlier log file(s)", text);
         Assert.Contains("WRN Test: After", text);

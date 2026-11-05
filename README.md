@@ -513,11 +513,18 @@ moves. It stays on this computer: exports leave it out, and deleting a connectio
 
 Recordings are in `recordings/` in the data folder, encrypted. Move data takes them along.
 
+A portable data folder can be kept in a sync app's folder (OneDrive, Dropbox, Synology Drive, Syncthing) and used on
+more than one computer, one at a time. Each computer with Orrery open leaves a small `open-on-<tag>.json` file there,
+so the others can say so: if Orrery is open on two at once, changes on one save over the other's. Orrery also says
+when the sync app has made conflict copies of its files, which it never reads. Windows Hello and the system's
+credential store are per computer, so each one is set up on its own.
+
 <details>
 <summary>Logs</summary>
 
 One file a day (a new one past 10 MB), in `%LOCALAPPDATA%\Orrery\Logs`, `~/Library/Logs/Orrery` or
-`~/.local/state/orrery/logs` (portable: the data folder). They're kept for 14 days and to 100 MB in all; Settings
+`~/.local/state/orrery/logs` (portable: `logs` in the data folder, one file per computer, named with a short tag
+for it rather than its name). They're kept for 14 days and to 100 MB in all; Settings
 can keep them for 7 or 30 days instead, and deletes them on request. They record what connected and what went
 wrong, never passwords, keys, keystrokes or screen contents. Settings opens the folder, and has a detailed logging
 switch that turns itself off when Orrery closes.
