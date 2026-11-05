@@ -179,6 +179,12 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
     public bool IsOn(VaultFileStore vault) => FingerprintOf(vault) is { } fingerprint && ReadCurrent(fingerprint) is not null;
 
     /// <summary>
+    /// Why turning it on last failed in this run of Orrery, after the system prompt was shown, or null. The setup window
+    /// says it before asking again, so the user can fix it first rather than go through the prompt for the same answer.
+    /// </summary>
+    public string? LastTurnOnProblem { get; internal set; }
+
+    /// <summary>
     /// Turns it on for <paramref name="vault"/>: checks it can be used here, checks the master password against the
     /// file, makes a new key (with the system prompt) and saves the wrapped data key. Replaces any earlier key for
     /// this vault.
@@ -215,14 +221,16 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             if (created.Status != AuthenticatorStatus.Success || secret is null)
             {
                 Logger.LogInformation("{Authenticator} unlock wasn't turned on: {Status}", Name, created.Status);
-                return new(BiometricOutcome.Failed, created.Message ?? $"{Name} couldn't make a key.");
+                LastTurnOnProblem = created.Message ?? $"{Name} couldn't make a key.";
+                return new(BiometricOutcome.Failed, LastTurnOnProblem);
             }
 
             if (!created.HardwareBacked)
             {
                 await DeleteKeyQuietlyAsync(name);
                 Logger.LogWarning("{Authenticator} unlock wasn't turned on: the key isn't shown to be in hardware", Name);
-                return new(BiometricOutcome.Failed, $"{Name} couldn't show that its key is held in hardware on this computer, so nothing was turned on.");
+                LastTurnOnProblem = $"{Name} couldn't show that its key is held in hardware on this computer, so nothing was turned on.";
+                return new(BiometricOutcome.Failed, LastTurnOnProblem);
             }
 
             if (secret.Length < MinSecretSize)
@@ -245,6 +253,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             await RemoveRelatedAsync(vault, fingerprint, deleteKeys: true, placeOnlyToo: false);
             await DeleteRetiredKeysAsync(keep: name);
             Logger.LogInformation("{Authenticator} unlock turned on for the vault", Name);
+            LastTurnOnProblem = null;
             return new(BiometricOutcome.Done);
         }
         finally

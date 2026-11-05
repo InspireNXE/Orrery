@@ -41,6 +41,14 @@ sealed class BiometricSetupWindow : Window
 
         var trade = new Notice(NoticeKind.Warning, TradeOff(biometric.Name));
 
+        // The last try's answer, said first: trying again without fixing it shows the prompt only to fail the same way.
+        if (biometric.LastTurnOnProblem is { } last)
+        {
+            _error.Text = $"Last time: {last}";
+            _error.IsVisible = true;
+            _ok.Content = TryAgain;
+        }
+
         Content = new StackPanel
         {
             Margin = new Thickness(24),
@@ -64,6 +72,11 @@ sealed class BiometricSetupWindow : Window
         Opened += (_, _) => _password.Focus();
         Closed += (_, _) => _prompt?.Cancel();
     }
+
+    const string TryAgain = "Try again";
+
+    internal Notice ErrorNotice => _error;
+    internal Button OkButton => _ok;
 
     /// <summary>What will open the vault once this is on, said before the user agrees.</summary>
     internal static string TradeOff(string name) => OperatingSystem.IsMacOS()
@@ -123,7 +136,7 @@ sealed class BiometricSetupWindow : Window
         {
             _prompt = null;
             _ok.IsEnabled = true;
-            _ok.Content = "Turn on";
+            _ok.Content = _biometric.LastTurnOnProblem is null ? "Turn on" : TryAgain;
         }
     }
 

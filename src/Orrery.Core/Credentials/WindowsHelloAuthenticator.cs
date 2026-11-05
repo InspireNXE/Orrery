@@ -2,6 +2,8 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Orrery.Core.Diagnostics;
 
 namespace Orrery.Core.Credentials;
 
@@ -15,6 +17,8 @@ namespace Orrery.Core.Credentials;
 [SupportedOSPlatform("windows")]
 public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
 {
+    static readonly ILogger Logger = Log.For("Vault");
+
     const string ManagerClass = "Windows.Security.Credentials.KeyCredentialManager";
 
     // Interface IDs and vtable slots from windows.security.credentials.h, Windows SDK 10.0.26100.
@@ -174,9 +178,13 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
             made = true;
             credential = WinRt.GetObject(result, ResultValue);
 
-            // Before the second prompt: is the new key really in the TPM?
-            if (HardwareProblem(Attestation(credential, cancel)) is { } problem)
+            // Before the second prompt: is the new key really in the TPM? What Windows said goes in the log, since
+            // the user only sees what to do about it.
+            var attestation = Attestation(credential, cancel);
+            if (HardwareProblem(attestation) is { } problem)
             {
+                Logger.LogWarning("Windows Hello didn't attest the new key as held in the TPM: {Status} (TPM 2.0 present: {Tpm}, virtual machine: {Vm})",
+                    attestation, HasTpm2(), LooksVirtual());
                 return new AuthenticatorResult(AuthenticatorStatus.Failed, Message: problem);
             }
 
@@ -354,6 +362,7 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
         }
         catch (Exception e) when (e is not OperationCanceledException && !IsCancellation(e.HResult))
         {
+            Logger.LogWarning("Asking Windows Hello for the key's attestation failed: 0x{HResult:X8}", e.HResult);
             return AttestationStatus.UnknownError;
         }
         finally
@@ -370,12 +379,37 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
     internal static string? HardwareProblem(AttestationStatus status) => status switch
     {
         AttestationStatus.Success => null,
-        AttestationStatus.NotSupported => "Windows Hello keeps its keys in software on this computer, not in the TPM security chip, "
-            + "so Orrery won't use it. Nothing was turned on.",
+        AttestationStatus.NotSupported => SoftwareKeys,
         AttestationStatus.TemporaryFailure => "Windows couldn't confirm just now that the Windows Hello key is held in the TPM security chip, "
             + "so nothing was turned on. Try again later; Windows may need to be online for this the first time.",
         _ => "Windows couldn't confirm that the Windows Hello key is held in the TPM security chip, so nothing was turned on. Try again later.",
     };
+
+    /// <summary>
+    /// Why a software key is refused, and what usually fixes it: Windows keeps an account's Hello keys in software when
+    /// its PIN was set up while the TPM couldn't be used, and goes on doing so until the PIN is set up again.
+    /// </summary>
+    internal const string SoftwareKeys = "Windows Hello keeps its keys in software on this computer, not in the TPM security chip, "
+        + "so Orrery won't use it. Nothing was turned on. This usually means your Windows Hello PIN was set up while the TPM "
+        + "couldn't be used. To fix it, remove the PIN in Windows Settings › Accounts › Sign-in options, add it again, then "
+        + "try here again. In a virtual machine, it also needs a virtual TPM.";
+
+    /// <summary>Whether Windows says it's running in a virtual machine, for the log only.</summary>
+    static bool LooksVirtual()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\BIOS");
+            var maker = $"{key?.GetValue("SystemManufacturer")} {key?.GetValue("SystemProductName")}";
+            return maker.Contains("Virtual", StringComparison.OrdinalIgnoreCase) || maker.Contains("VMware", StringComparison.OrdinalIgnoreCase)
+                || maker.Contains("QEMU", StringComparison.OrdinalIgnoreCase) || maker.Contains("KVM", StringComparison.Ordinal)
+                || maker.Contains("Parallels", StringComparison.OrdinalIgnoreCase) || maker.Contains("VirtualBox", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
+    }
 
     static AuthenticatorResult Sign(IntPtr credential, byte[] challenge, ulong windowId, bool checkKey, CancellationToken cancel)
     {
