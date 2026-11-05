@@ -134,7 +134,12 @@ public class WindowsHelloTests
     [Fact]
     public void A_software_key_is_refused()
     {
-        Assert.Contains("software", WindowsHelloAuthenticator.HardwareProblem(WindowsHelloAuthenticator.AttestationStatus.NotSupported));
+        var problem = WindowsHelloAuthenticator.HardwareProblem(WindowsHelloAuthenticator.AttestationStatus.NotSupported);
+        Assert.Contains("software", problem);
+
+        // And what usually fixes it: setting the PIN up again, or a virtual TPM in a virtual machine.
+        Assert.Contains("remove the PIN in Windows Settings › Accounts › Sign-in options, add it again", problem);
+        Assert.Contains("virtual TPM", problem);
     }
 
     [Theory]

@@ -505,6 +505,33 @@ public class BiometricUnlockUiTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task After_a_refusal_the_setup_window_says_why_before_asking_again()
+    {
+        using var vault = await NewVaultAsync();
+        var biometric = Biometric;
+        _hello.NextAnswer = AuthenticatorStatus.Failed;
+        Assert.Equal(BiometricOutcome.Failed, (await biometric.TurnOnAsync(vault, Password)).Outcome);
+        Assert.NotNull(biometric.LastTurnOnProblem);
+
+        var window = new BiometricSetupWindow(vault, biometric);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(window.ErrorNotice.IsVisible);
+        Assert.StartsWith("Last time: ", window.ErrorNotice.Text);
+        Assert.Equal("Try again", window.OkButton.Content);
+        window.Close();
+
+        // Once it works, nothing is remembered.
+        Assert.Equal(BiometricOutcome.Done, (await biometric.TurnOnAsync(vault, Password)).Outcome);
+        Assert.Null(biometric.LastTurnOnProblem);
+        window = new BiometricSetupWindow(vault, biometric);
+        window.Show();
+        Assert.False(window.ErrorNotice.IsVisible);
+        Assert.Equal("Turn on", window.OkButton.Content);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task The_setup_window_hides_the_password_from_ui_automation_and_names_everything()
     {
         using var vault = await NewVaultAsync();
