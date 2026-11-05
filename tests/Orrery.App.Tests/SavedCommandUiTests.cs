@@ -244,6 +244,59 @@ public class SavedCommandUiTests
     }
 
     [AvaloniaFact]
+    public void A_host_can_be_ticked_with_its_guests_and_a_filter_ticks_what_it_shows()
+    {
+        var tree = ConnectionTree.Empty();
+        var host = new ConnectionEntry { Name = "hv-01", Host = "hv-01.example" };
+        var vm1 = new ConnectionEntry { Name = "vm-a", Host = "vm-a.example" };
+        var vm2 = new ConnectionEntry { Name = "vm-b", Host = "vm-b.example" };
+        tree.Add(host, tree.Root);
+        tree.AddGuest(vm1, host);
+        tree.AddGuest(vm2, host);
+        for (int i = 1; i <= 8; i++)
+        {
+            tree.Add(new ConnectionEntry { Name = $"web-{i:00}", Host = $"web-{i:00}.example" }, tree.Root);
+        }
+
+        var window = new SavedCommandWindow(null, tree, []);
+        window.Show();
+        var picker = window.PlacePicker!;
+        Assert.Equal("0 of 2 guests", picker.GuestCountFor(host));
+        Assert.Equal("+ guests", picker.GuestsLinkFor(host)!.Content);
+        Assert.False(picker.ClearButton.IsVisible);
+
+        // + guests ticks all three; again unticks them.
+        picker.GuestsLinkFor(host)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal([host, vm1, vm2], window.ChosenPlaces);
+        Assert.Equal("2 of 2 guests", picker.GuestCountFor(host));
+        Assert.Equal("− guests", picker.GuestsLinkFor(host)!.Content);
+        picker.GuestsLinkFor(host)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Empty(window.ChosenPlaces);
+
+        // With one guest ticked already, it ticks the rest rather than unticking.
+        picker.Choose(vm2, true);
+        Assert.Equal("1 of 2 guests", picker.GuestCountFor(host));
+        picker.ToggleWithGuests(host);
+        Assert.Equal([host, vm1, vm2], window.ChosenPlaces);
+
+        // Clear unticks everything.
+        Assert.True(picker.ClearButton.IsVisible);
+        picker.ClearButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Empty(window.ChosenPlaces);
+
+        // Tick shown only with a filter typed, and only the connections it shows.
+        Assert.False(picker.TickShownButton.IsVisible);
+        picker.FilterBox.Text = "web-0";
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(picker.TickShownButton.IsVisible);
+        Assert.Equal("Tick the 8 shown", picker.TickShownButton.Content);
+        picker.TickShownButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(8, window.ChosenPlaces.Count);
+        Assert.DoesNotContain(host, window.ChosenPlaces);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task The_prompt_shows_the_command_and_target_and_enter_cancels()
     {
         var owner = new Window();

@@ -208,8 +208,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   the properties pane under Commands, from *Commands › New command…* in the session's menu or Ctrl+K, or with
   *Save selection as command…*. *Save on* ticks where it goes: the terminal's own connection to begin with, and
   any others, folders or the defaults as well. A guest is listed under its host but isn't ticked with it, since it's
-  another machine; a ticked folder covers everything in it, guests included, so those rows show ticked and grayed
-  out. Saved on several places, a command keeps a linked copy on each, and editing it edits them all (an older
+  another machine; *+ guests* on the host's row (or Shift+click on its box) ticks it with all its guests, and the
+  row says how many are ticked. A ticked folder covers everything in it, guests included, so those rows show ticked
+  and grayed out. With a filter typed, *Tick the N shown* ticks every connection it shows; *Clear* unticks
+  everything. Saved on several places, a command keeps a linked copy on each, and editing it edits them all (an older
   Orrery reads the copies as separate commands). They're listed under Commands in the session's menu and in Ctrl+K (`>saved` lists them), where Enter
   sends one and Shift+Enter types it without pressing Enter. `{host}`, `{username}` and `{name}`
   are filled in from the connection. A command marked *Ask before sending it* shows what will be sent and to which
