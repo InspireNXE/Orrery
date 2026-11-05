@@ -23,7 +23,6 @@ sealed class ShellPump
     readonly Action<string, Exception?> _failed;
     readonly Channel<byte[]> _queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(QueueCapacity) { SingleReader = true });
     readonly CancellationTokenSource _stop = new();
-    Task _reader = Task.CompletedTask, _writer = Task.CompletedTask;
     int _queueFull;
 
     /// <param name="received">Output, on the reader's thread.</param>
@@ -34,13 +33,24 @@ sealed class ShellPump
         (_stream, _received, _closed, _failed) = (stream, received, closed, failed);
     }
 
-    /// <summary>Both loops; they end once <see cref="Stop"/> is called and the stream is closed.</summary>
-    public Task Completion => Task.WhenAll(_reader, _writer);
+    /// <summary>
+    /// Both loops; they end once <see cref="Stop"/> is called and the stream is closed. The same task each time it's
+    /// read, so it can be compared with what <see cref="Task.WhenAny(Task[])"/> returns.
+    /// </summary>
+    public Task Completion { get; private set; } = Task.CompletedTask;
 
     public void Start()
     {
-        _reader = Task.Factory.StartNew(ReadLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        _writer = Task.Run(WriteLoopAsync);
+        var reader = Task.Factory.StartNew(ReadLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var writer = Task.Run(WriteLoopAsync);
+        Completion = Task.WhenAll(reader, writer);
+    }
+
+    /// <summary>Waits up to <paramref name="timeout"/> for both loops to end; false when one is still running. Never throws.</summary>
+    public async Task<bool> EndsWithinAsync(TimeSpan timeout)
+    {
+        var completion = Completion;
+        return await Task.WhenAny(completion, Task.Delay(timeout)) == completion;
     }
 
     /// <summary>Queues a copy of <paramref name="data"/> and returns at once.</summary>
