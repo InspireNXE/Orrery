@@ -170,7 +170,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **Muting:** a tab playing sound shows a speaker, as in a browser. Click it, or *Mute tab* in the tab's menu.
   Recordings still get the sound.
 - **Graphics pipeline (RDPGFX)** is used when the server offers it, without H.264, which blurred text. Resizing,
-  full screen included, then keeps the session running. Without it, each resize restarts the display.
+  full screen included, then keeps the session running. Without it, each resize restarts the display. The new size
+  is asked for soon after the window stops changing (and every 300 ms during a long drag), and until the server's
+  picture at that size arrives, the old one is stretched to fill the window.
 - **Shared drives:** every drive, or folders you pick, appear as drives on the remote computer, one each. On Linux
   and macOS, sharing every drive shares your home folder. Orrery says when a folder isn't shared.
 - **Full screen** goes where the connection says, under Display › Full screen on: the window's display, every
