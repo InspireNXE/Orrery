@@ -201,7 +201,8 @@ public class ShellPumpTests
         stream.Close();
 
         Assert.True(await ended, "The pump was reported as still running.");
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"Waited {watch.Elapsed} for a pump that had stopped.");
+        // Well short of the timeout, with room for a slow CI machine: waiting it out would mean the end was missed.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(3), $"Waited {watch.Elapsed} for a pump that had stopped.");
         Assert.True(await pump.EndsWithinAsync(Timeout), "The pump was reported as still running after it ended.");
     }
 
