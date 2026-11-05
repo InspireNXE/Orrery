@@ -448,7 +448,8 @@ static class RdpConnector
         foreach (var address in addresses)
         {
             token.ThrowIfCancellationRequested();
-            var client = new TcpClient(address.AddressFamily);
+            // Mouse moves and keys are small packets: sent at once, as mstsc does, not held back for earlier ones' acks.
+            var client = new TcpClient(address.AddressFamily) { NoDelay = true };
             try
             {
                 await client.ConnectAsync(new IPEndPoint(address, port), token);
