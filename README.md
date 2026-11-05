@@ -187,7 +187,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   text. On Linux and macOS, remote files download when copied (up to 1 GB), with progress and Cancel at the foot of
   the desktop. Not yet tried on a real Mac or Linux machine.
 - **When a connection fails or drops,** the tab says what happened and what to try. Enter reconnects; details are a
-  click away, with a Copy button.
+  click away, with a Copy button. A remote desktop (RDP or VNC) that isn't connected shows its last picture dimmed,
+  so it isn't mistaken for a live one.
 - **Reconnects** happen on their own, waiting longer each time (up to a minute), and at once when the network
   returns. A refused login or an untrusted host key or certificate is never retried.
 - **Many tabs** narrow to fit the tab strip, as in a browser, then show only their state (the current one keeps its
