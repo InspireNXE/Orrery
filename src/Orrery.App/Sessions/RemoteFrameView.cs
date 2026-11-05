@@ -82,7 +82,21 @@ public sealed partial class RemoteFrameView : Panel
     int _bannerVersion;
 
     const int WheelDelta = 120;
-    static readonly TimeSpan ResizeSettleDelay = TimeSpan.FromMilliseconds(400);
+    // A window drag fires many size changes: the server is asked once they settle, and at most this often while they
+    // go on. Measured on a LAN, the server resized in 8 ms and drew in 40, so waiting longer was most of the delay.
+    internal static readonly TimeSpan ResizeSettleDelay = TimeSpan.FromMilliseconds(150);
+    internal static readonly TimeSpan ResizeMaxWait = TimeSpan.FromMilliseconds(300);
+
+    // How long the old picture stays stretched to the view if the server never sends the new size.
+    static readonly TimeSpan StretchGiveUp = TimeSpan.FromSeconds(2);
+
+    long _resizeWantedSince;
+    readonly DispatcherTimer _stretchTimer;
+
+    // Whether the server is known to follow the view's size: RDP does; another learns it from the first resize.
+    bool _serverFollows;
+    bool _stretching;
+    bool _askedForSize;
 
     readonly object _dirtyLock = new();
     readonly DispatcherTimer _resizeTimer;
@@ -188,25 +202,11 @@ public sealed partial class RemoteFrameView : Panel
             ShareFilesAndImages(fileSession);
         }
 
-        // Window drags fire many size changes; ask the server once the size settles.
+        _serverFollows = session is IDisplayScaleSession;
         _resizeTimer = new DispatcherTimer { Interval = ResizeSettleDelay };
-        _resizeTimer.Tick += (_, _) =>
-        {
-            _resizeTimer.Stop();
-
-            // Checked here too: the constructor can start the timer before FollowsViewSize is set.
-            if (FollowsViewSize)
-            {
-                // Spread over the displays when the server takes a layout; otherwise one desktop the size of the view,
-                // which covers them all, as mstsc /span does.
-                (Session as IDisplayScaleSession)?.SetDisplayScale(_topLevel?.RenderScaling ?? 1);
-                if (_spannedMonitors is not { } monitors || Session is not IMultiMonitorSession spread || !spread.RequestMonitorLayout(monitors))
-                {
-                    var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
-                    Session.RequestResize(width, height);
-                }
-            }
-        };
+        _resizeTimer.Tick += (_, _) => AskForViewSize();
+        _stretchTimer = new DispatcherTimer { Interval = StretchGiveUp };
+        _stretchTimer.Tick += (_, _) => StopStretching();
 
         session.FrameUpdated += OnFrameUpdated;
         session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => ShowState(e.State, e.Message));
@@ -279,7 +279,6 @@ public sealed partial class RemoteFrameView : Panel
         {
             _scaling = value;
             bool actual = value == DesktopScaling.ActualSize;
-            _image.StretchDirection = value == DesktopScaling.Fit ? StretchDirection.Both : StretchDirection.DownOnly;
             _scroller.HorizontalScrollBarVisibility = _scroller.VerticalScrollBarVisibility = actual ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
             SizeImage();
         }
@@ -294,7 +293,9 @@ public sealed partial class RemoteFrameView : Panel
     void SizeImage()
     {
         double width = double.NaN, height = double.NaN, maxWidth = double.PositiveInfinity, maxHeight = double.PositiveInfinity;
-        if (_bitmap is { } bitmap && _scaling != DesktopScaling.Fit)
+        _image.Stretch = _stretching ? Stretch.Fill : Stretch.Uniform;
+        _image.StretchDirection = _stretching || _scaling == DesktopScaling.Fit ? StretchDirection.Both : StretchDirection.DownOnly;
+        if (_bitmap is { } bitmap && _scaling != DesktopScaling.Fit && !_stretching)
         {
             double desktopWidth = bitmap.PixelSize.Width / _scale, desktopHeight = bitmap.PixelSize.Height / _scale;
             if (_scaling == DesktopScaling.ActualSize)
@@ -561,9 +562,81 @@ public sealed partial class RemoteFrameView : Panel
             return;
         }
 
+        // Until the server's picture comes at the new size, the old one fills the view instead of leaving gaps.
+        if (_serverFollows && !_stretching && _bitmap is not null && _spannedMonitors is null && _scaling != DesktopScaling.ActualSize
+            && Session.State == SessionState.Connected)
+        {
+            _stretching = true;
+            SizeImage();
+        }
+
         _resizeTimer.Stop();
+        if (_resizeWantedSince == 0)
+        {
+            _resizeWantedSince = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+        else if (System.Diagnostics.Stopwatch.GetElapsedTime(_resizeWantedSince) >= ResizeMaxWait)
+        {
+            // Still dragging: ask for the size so far, so the desktop follows instead of catching up at the end.
+            AskForViewSize();
+            return;
+        }
+
         _resizeTimer.Start();
     }
+
+    void AskForViewSize()
+    {
+        _resizeTimer.Stop();
+        _resizeWantedSince = 0;
+
+        // Checked here too: the constructor can start the timer before FollowsViewSize is set.
+        if (!FollowsViewSize)
+        {
+            StopStretching();
+            return;
+        }
+
+        // Spread over the displays when the server takes a layout; otherwise one desktop the size of the view,
+        // which covers them all, as mstsc /span does.
+        (Session as IDisplayScaleSession)?.SetDisplayScale(_topLevel?.RenderScaling ?? 1);
+        if (_spannedMonitors is not { } monitors || Session is not IMultiMonitorSession spread || !spread.RequestMonitorLayout(monitors))
+        {
+            var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
+            Session.RequestResize(width, height);
+            _askedForSize |= Session.State == SessionState.Connected;
+            if (_stretching)
+            {
+                // Already that size, or about to be, within what the server rounds to (an even width).
+                if (Math.Abs(width - Session.Width) <= 1 && height == Session.Height)
+                {
+                    StopStretching();
+                }
+                else
+                {
+                    _stretchTimer.Stop();
+                    _stretchTimer.Start();
+                }
+            }
+        }
+        else
+        {
+            StopStretching();
+        }
+    }
+
+    void StopStretching()
+    {
+        _stretchTimer.Stop();
+        if (_stretching)
+        {
+            _stretching = false;
+            SizeImage();
+        }
+    }
+
+    /// <summary>Whether the last picture is stretched to the view while the server's picture at its new size is awaited.</summary>
+    internal bool Stretching => _stretching;
 
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
@@ -612,6 +685,15 @@ public sealed partial class RemoteFrameView : Panel
                 _bitmap = null;
                 _bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Opaque);
                 _image.Source = _bitmap;
+                // A new size after Orrery asked for one: the server follows the view, so later resizes stretch meanwhile.
+                _serverFollows |= _askedForSize;
+                _askedForSize = false;
+                if (_stretching)
+                {
+                    _stretching = false;
+                    _stretchTimer.Stop();
+                }
+
                 SizeImage();
                 ShowPiecesOrWhole();
                 dirty = new FrameRect(0, 0, width, height);
