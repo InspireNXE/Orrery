@@ -316,6 +316,18 @@ public sealed class ConnectionTree
 
     public void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>After <see cref="ConnectionMerge"/> has set the children and guests: the links put right, then the usual events.</summary>
+    internal void Merged(IReadOnlyList<ConnectionNode> removed)
+    {
+        Relink(Root);
+        if (removed.Count > 0)
+        {
+            Removed?.Invoke(this, new NodesRemovedEventArgs(removed.Select(n => n.Id).ToList()));
+        }
+
+        NotifyChanged();
+    }
+
     static void Insert(ConnectionNode node, ConnectionFolder parent, int? index)
     {
         var children = parent.ChildList;

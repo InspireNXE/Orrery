@@ -210,6 +210,42 @@ sealed class CredentialsView
         await RefreshAsync(select: _editing);
     }
 
+    /// <summary>
+    /// Redraws the list after the vault changed on another computer sharing the data folder, leaving the credential being
+    /// edited, and what's typed in it, as it is. Nothing while locked.
+    /// </summary>
+    public async Task RefreshListAsync()
+    {
+        if (_store.IsLocked)
+        {
+            return;
+        }
+
+        IReadOnlyList<CredentialSummary> items;
+        try
+        {
+            items = await _store.ListAsync();
+        }
+        catch (VaultLockedException)
+        {
+            return;
+        }
+
+        _refreshing = true;
+        try
+        {
+            _list.ItemsSource = items;
+            _list.SelectedItem = items.FirstOrDefault(c => c.Id == _editing);
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+
+        _list.IsVisible = items.Count > 0;
+        _listEmpty.IsVisible = items.Count == 0;
+    }
+
     /// <summary>Forgets what was on screen, so nothing from a locked store stays visible.</summary>
     public void ShowLocked()
     {

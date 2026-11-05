@@ -336,6 +336,7 @@ public class ConnectionModelTests : IDisposable
 
         for (int i = 0; i < 6; i++)
         {
+            tree.Root.Notes = $"save {i}"; // A save with nothing new writes nothing.
             store.Save(tree);
             Thread.Sleep(5); // Backup names carry milliseconds.
         }
@@ -352,6 +353,7 @@ public class ConnectionModelTests : IDisposable
 
         for (int i = 0; i < 5; i++)
         {
+            tree.Root.Notes = $"save {i}";
             store.Save(tree);
         }
 

@@ -111,6 +111,7 @@ public class SecretLeakTests : IDisposable
             tree.Add(new ConnectionEntry { Name = "web", Host = "web.example", Settings = { CredentialId = password.Id } }, tree.Root);
             var store = new ConnectionStore(location.FileIn("connections.json"), location.FileIn("backups"), backupInterval: TimeSpan.Zero);
             store.Save(tree);
+            db.Notes = "changed"; // A save with nothing new writes nothing, nor backs up.
             store.Save(tree);
             store.Load();
 

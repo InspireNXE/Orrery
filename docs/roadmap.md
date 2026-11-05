@@ -10,8 +10,9 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
   setup offers to add the shells it finds to the tree as LOCAL connections; RDP and VNC recordings keep the remote
   pointer's shape, and the live view shows it, in your own pointer scheme on Windows; a second file copy in an RDP
   session no longer fails; clicks at the very top of a full-screen session reach it; a portable data folder synced
-  between computers says when Orrery is open on another one and when the sync app has made conflict copies, and each
-  computer writes its own log file there.
+  between computers takes in each one's changes to connections, the vault and settings while open, merging them
+  rather than saving over them; it says when Orrery is open on another one and when the sync app has made conflict
+  copies, and each computer writes its own log file there.
 - **0.1.2 previews (2026-11-04):** a Commands page in the side panel, with the editor in the right-hand pane and a
   right-click menu; saving a command on any connections at once (linked copies, with guests listed under their host);
   saved commands that send themselves when a saved connection connects, and ones that answer a password prompt;

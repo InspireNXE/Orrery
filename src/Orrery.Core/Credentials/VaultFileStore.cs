@@ -57,6 +57,13 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     int _failedAttempts;
     readonly List<string> _retiredFingerprints = [];
 
+    // The file as last read or written here, and its credentials then: what the next merge with another computer's
+    // save (through a sync app sharing the data folder) measures both sides against. Set while unlocked.
+    string? _knownText;
+    List<Credential>? _knownItems;
+    (long Length, DateTime Written) _knownStamp;
+    string? _knownFingerprint;
+
     public VaultFileStore(string path, KdfSettings? kdf = null, TimeSpan? autoLockAfter = null)
     {
         _path = path;
@@ -83,6 +90,12 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     }
 
     public bool Exists => File.Exists(_path);
+
+    /// <summary>Open, and the file has changed since this computer last read or wrote it: another computer saved it.</summary>
+    public bool ChangedElsewhere
+    {
+        get { lock (_lock) return _knownText is not null && Stamp() != _knownStamp; }
+    }
 
     /// <summary>Where <c>vault.frv</c> is.</summary>
     public string FilePath => _path;
@@ -137,11 +150,11 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
     void Open(string masterPassword)
     {
-        var file = ReadFile();
+        var (file, text) = ReadFileAndText();
         var dataKeyBytes = UnwrapDataKey(file, masterPassword) ?? throw WrongPassword();
         try
         {
-            OpenWith(file, dataKeyBytes);
+            OpenWith(file, dataKeyBytes, text);
         }
         finally
         {
@@ -168,12 +181,20 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         return new WrongVaultPasswordException();
     }
 
-    VaultFile ReadFile()
+    VaultFile ReadFile() => ReadFileAndText().File;
+
+    (VaultFile File, string Text) ReadFileAndText()
+    {
+        var text = File.ReadAllText(_path);
+        return (ParseFile(text), text);
+    }
+
+    VaultFile ParseFile(string text)
     {
         VaultFile? file;
         try
         {
-            file = JsonSerializer.Deserialize<VaultFile>(File.ReadAllText(_path), JsonOptions);
+            file = JsonSerializer.Deserialize<VaultFile>(text, JsonOptions);
         }
         catch (JsonException)
         {
@@ -211,19 +232,19 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     }
 
     // Decrypts the contents with the data key and makes this the open vault. The caller zeroes dataKeyBytes.
-    void OpenWith(VaultFile file, byte[] dataKeyBytes)
+    void OpenWith(VaultFile file, byte[] dataKeyBytes, string text)
     {
         var dataKey = Key.Import(Aead, dataKeyBytes, KeyBlobFormat.RawSymmetricKey);
-        var plaintext = Aead.Decrypt(dataKey, Convert.FromBase64String(file.Payload!.Nonce),
-            AssociatedData(file.Kdf, "payload"), Convert.FromBase64String(file.Payload.Ciphertext));
-        if (plaintext is null)
+        List<Credential> items;
+        try
+        {
+            items = Decrypt(file, dataKey);
+        }
+        catch
         {
             dataKey.Dispose();
-            throw new InvalidDataException("The vault's contents are damaged; the key was right but the data doesn't decrypt.");
+            throw;
         }
-
-        var items = JsonSerializer.Deserialize<List<Credential>>(plaintext, JsonOptions) ?? [];
-        CryptographicOperations.ZeroMemory(plaintext);
 
         lock (_lock)
         {
@@ -232,6 +253,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             _items = items;
             _file = file;
             _failedAttempts = 0;
+            Known(text, items);
             Touch();
         }
 
@@ -283,7 +305,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     /// <exception cref="InvalidDataException">The key block matches but the contents don't decrypt with this key.</exception>
     internal Task<bool> UnlockWithDataKeyAsync(byte[] dataKey, string fingerprint, CancellationToken cancel = default) => Task.Run(() =>
     {
-        var file = ReadFile();
+        var (file, text) = ReadFileAndText();
         if (Fingerprint(file) != fingerprint)
         {
             return false;
@@ -295,7 +317,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         }
 
         cancel.ThrowIfCancellationRequested();
-        OpenWith(file, dataKey);
+        OpenWith(file, dataKey, text);
         if (cancel.IsCancellationRequested)
         {
             // Asked to stop while opening (the unlock window closed): don't leave it open behind the user's back.
@@ -404,6 +426,8 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             _dataKey?.Dispose();
             _dataKey = null;
             _items = null;
+            _knownItems = null;
+            _knownText = null;
         }
 
         if (wasOpen)
@@ -487,25 +511,180 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             throw new VaultLockedException();
         }
 
+        TakeInChangesFromDisk();
+        if (_items is null)
+        {
+            throw new VaultLockedException();
+        }
+
         Touch();
         return _items;
     }
 
-    // Caller holds _lock. Each save uses a fresh nonce; the wrapped key and KDF block are unchanged.
+    // Caller holds _lock. Each save uses a fresh nonce; the wrapped key and KDF block are unchanged. Another computer's
+    // save since this one last read the file is merged in first, so neither computer's credentials are lost.
     void Save()
     {
+        TakeInChangesFromDisk();
+        if (_items is null)
+        {
+            throw new VaultLockedException();
+        }
+
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(_items, JsonOptions);
         try
         {
             var nonce = RandomNumberGenerator.GetBytes(Aead.NonceSize);
             var ciphertext = Aead.Encrypt(_dataKey!, nonce, AssociatedData(_file!.Kdf, "payload"), plaintext);
             _file = _file with { Payload = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(ciphertext)) };
-            AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(_file, JsonOptions));
+            var text = JsonSerializer.Serialize(_file, JsonOptions);
+            AtomicFile.WriteAllText(_path, text);
+            Known(text, _items!);
         }
         finally
         {
             CryptographicOperations.ZeroMemory(plaintext);
         }
+    }
+
+    // Caller holds _lock.
+    void Known(string text, List<Credential> items)
+    {
+        _knownText = text;
+        _knownItems = [.. items];
+        _knownStamp = Stamp();
+        _knownFingerprint = Fingerprint(_file!);
+    }
+
+    (long, DateTime) Stamp()
+    {
+        try
+        {
+            var info = new FileInfo(_path);
+            return info.Exists ? (info.Length, info.LastWriteTimeUtc) : (-1, default);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return (-1, default);
+        }
+    }
+
+    static List<Credential> Decrypt(VaultFile file, Key dataKey)
+    {
+        var plaintext = Aead.Decrypt(dataKey, Convert.FromBase64String(file.Payload!.Nonce),
+            AssociatedData(file.Kdf, "payload"), Convert.FromBase64String(file.Payload.Ciphertext))
+            ?? throw new InvalidDataException("The vault's contents are damaged; the key was right but the data doesn't decrypt.");
+        try
+        {
+            return JsonSerializer.Deserialize<List<Credential>>(plaintext, JsonOptions) ?? [];
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    /// <summary>
+    /// Caller holds _lock, with the vault open. When the file isn't as this computer last read or wrote it (another
+    /// computer saved it through a sync app), its credentials are merged into the open ones by id. If the other computer
+    /// changed the master password the file can't be read with this key: the vault locks, to be opened with the new one.
+    /// A file that can't be read yet (part written) is tried again next time, or saved over on a save.
+    /// </summary>
+    void TakeInChangesFromDisk()
+    {
+        if (_knownText is null || _dataKey is null || _items is null || Stamp() == _knownStamp)
+        {
+            return;
+        }
+
+        string disk;
+        VaultFile file;
+        try
+        {
+            disk = File.ReadAllText(_path);
+            if (disk == _knownText)
+            {
+                _knownStamp = Stamp();
+                return;
+            }
+
+            file = ParseFile(disk);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            Logger.LogWarning("The vault file changed on disk but can't be read yet: {Problem}", e.Message);
+            return;
+        }
+
+        if (Fingerprint(file) != _knownFingerprint)
+        {
+            Logger.LogWarning("The vault's master password was changed on another computer; locking it to be opened with the new one");
+            // Whoever asked unlocks it again, with the new password, and tries once more; that merges as usual.
+            Lock();
+            AutoLocked?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        List<Credential> theirs;
+        try
+        {
+            theirs = Decrypt(file, _dataKey);
+        }
+        catch (InvalidDataException e)
+        {
+            Logger.LogWarning("The vault file changed on disk but can't be read yet: {Problem}", e.Message);
+            return;
+        }
+
+        var merged = MergeCredentials(_knownItems ?? [], _items, theirs, out int conflicts);
+        _items.Clear();
+        _items.AddRange(merged);
+        Known(disk, theirs);
+        Logger.LogInformation("Took in changes to the vault from another computer ({Count} credentials now, {Conflicts} changed on both; this computer's kept)",
+            merged.Count, conflicts);
+    }
+
+    /// <summary>
+    /// A three-way merge of credential lists by id. Added on either side: kept. Changed on one side: that side's.
+    /// Changed on both: this computer's. Deleted on one side: deleted, unless the other side changed it.
+    /// </summary>
+    internal static List<Credential> MergeCredentials(IReadOnlyList<Credential> baseline, IReadOnlyList<Credential> mine, IReadOnlyList<Credential> theirs, out int conflicts)
+    {
+        static string Json(Credential c) => JsonSerializer.Serialize(c, JsonOptions);
+        var b = baseline.ToDictionary(c => c.Id);
+        var t = theirs.ToDictionary(c => c.Id);
+        var result = new List<Credential>();
+        conflicts = 0;
+        foreach (var m in mine)
+        {
+            b.TryGetValue(m.Id, out var bc);
+            if (t.TryGetValue(m.Id, out var tc))
+            {
+                bool mineChanged = bc is null || Json(bc) != Json(m);
+                bool theirsChanged = bc is null || Json(bc) != Json(tc);
+                if (mineChanged && theirsChanged && Json(m) != Json(tc))
+                {
+                    conflicts++;
+                }
+
+                result.Add(!mineChanged && theirsChanged ? tc : m);
+            }
+            else if (bc is null || Json(bc) != Json(m))
+            {
+                result.Add(m); // Added here, or changed here while deleted there.
+            }
+        }
+
+        var mineIds = mine.Select(c => c.Id).ToHashSet();
+        foreach (var tc in theirs.Where(c => !mineIds.Contains(c.Id)))
+        {
+            if (!b.TryGetValue(tc.Id, out var bc) || Json(bc) != Json(tc))
+            {
+                result.Add(tc); // Added there, or changed there while deleted here.
+            }
+        }
+
+        return result;
     }
 
     static void ValidateHeader(VaultFile file)
