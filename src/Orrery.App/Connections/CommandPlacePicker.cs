@@ -36,7 +36,8 @@ sealed class CommandPlacePicker : DockPanel
         _root = tree.Root;
         _chosen = [.. chosen];
         var list = new StackPanel { Spacing = 0, Margin = new Thickness(8, 4) };
-        AddRow(list, _root, 0, "Every connection, and terminals without one (the defaults)", muted: null);
+        AddRow(list, _root, 0, "Every connection (the defaults)", muted: null);
+        ToolTip.SetTip(_rows[0].Line, "Every saved connection, and terminals without one: local shells and quick connects");
         AddChildren(list, _root, 1);
 
         AutomationProperties.SetName(_filter, "Filter places");

@@ -54,6 +54,7 @@ sealed class SessionTab
 
     /// <summary>The name and its protocol tag, hidden when the tab is squeezed down to its state.</summary>
     readonly DockPanel _name = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _protocolTag;
     readonly Button _close;
     // The current tab's marker, along its top over the outline; App.axaml shows it on the selected tab.
     readonly Border _marker = new() { Classes = { "marker", "top" } };
@@ -116,6 +117,7 @@ sealed class SessionTab
         _name.Children.Add(Pane.Docked(protocol, Dock.Right));
         _name.Children.Add(title);
         _close = close;
+        _protocolTag = protocol;
         Header.CompactChanged += (_, _) => ShowCompact();
         _label = $"{origin.Title}, {(origin.Local ? "local terminal" : protocol.Text)}";
         Header.Label = _label;
@@ -844,6 +846,7 @@ sealed class SessionTab
     void ShowCompact()
     {
         _name.IsVisible = !Header.Compact;
+        _protocolTag.IsVisible = !Header.Tight;
         _close.IsVisible = !Header.Compact || Header.IsCurrent;
     }
 

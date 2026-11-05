@@ -17,6 +17,9 @@ sealed class TabStripPanel : StackPanel
     /// <summary>Narrower than this, a tab's name would be a letter or two, so it shows its state alone.</summary>
     public const double CompactWidth = 96;
 
+    /// <summary>Below this share, a squeezed tab drops its protocol tag so its name keeps the room.</summary>
+    public const double TightWidth = 150;
+
     double _room = double.PositiveInfinity;
 
     public TabStripPanel() => Orientation = Avalonia.Layout.Orientation.Horizontal;
@@ -40,10 +43,10 @@ sealed class TabStripPanel : StackPanel
         var shown = Children.Where(c => c.IsVisible).ToList();
         var tabs = shown.OfType<SessionTabHeader>().ToList();
 
-        // A compact tab keeps the full width it had, so the strip can tell when its name fits again.
+        // A compact or tight tab keeps the full width it had, so the strip can tell when it all fits again.
         foreach (var child in shown)
         {
-            if (child is not SessionTabHeader { Compact: true })
+            if (child is not SessionTabHeader { Compact: true } and not SessionTabHeader { Tight: true })
             {
                 child.Measure(Size.Infinity);
                 if (child is SessionTabHeader tab)
@@ -61,6 +64,7 @@ sealed class TabStripPanel : StackPanel
         {
             bool squeezed = tab.FullWidth > share;
             tab.Compact = squeezed && share < CompactWidth;
+            tab.Tight = squeezed && !tab.Compact && share < TightWidth;
             tab.Measure(squeezed ? new Size(Math.Max(MinTabWidth, share), availableSize.Height) : Size.Infinity);
         }
 

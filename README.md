@@ -259,7 +259,12 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 
 <p align="center">
   <img src="docs/images/saved-commands.png" width="720"
-       alt="Quick connect open over the main window with >saved typed in. Under Saved commands · web-01 it lists New saved command…, then Restart nginx, Follow the access log and Disk space, each with the command it sends beneath its name.">
+       alt="Quick connect open over the main window with >saved typed in. Under Saved commands · web-01 it lists New saved command…, then Pending updates, Restart nginx, Follow the access log, Disk space and Uptime, each with the command it sends beneath its name.">
+</p>
+
+<p align="center">
+  <img src="docs/images/commands-page.png" width="720"
+       alt="The Commands page in the side panel. It lists Uptime under Every connection (the defaults), Pending updates under On several places with On web-01, build-agent beneath it, and Restart nginx, Follow the access log and Disk space under Production. Pending updates is open in the right-hand pane: Save on lists the defaults, Production and its connections with web-01 ticked, says it reaches 2 saved connections, and has the name, the command apt list --upgradable, and its options below.">
 </p>
 
 - **Wake-on-LAN** from the right-click menu, once a connection has a MAC address.

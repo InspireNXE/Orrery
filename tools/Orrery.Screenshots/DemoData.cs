@@ -60,6 +60,10 @@ sealed class DemoData
             new SavedCommand { Name = "Disk space", Text = "df -h /srv" },
         ];
 
+        // One command for every terminal, and one saved on two connections at once (linked copies).
+        tree.Root.Commands = [new SavedCommand { Name = "Uptime", Text = "uptime" }];
+        SavedCommands.Save([], new SavedCommand { Name = "Pending updates", Text = "apt list --upgradable" }, [web01, buildAgent]);
+
         ConnectionStore.In(location).Save(tree);
         AppSettingsStore.In(location).Save(new AppSettings
         {
