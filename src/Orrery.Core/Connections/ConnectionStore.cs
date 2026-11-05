@@ -10,12 +10,21 @@ namespace Orrery.Core.Connections;
 /// Reads and writes <c>connections.json</c>. Holds no secrets: connections refer to saved credentials by id.
 /// Before a save, the previous file is copied into <c>backups/</c> if the newest backup is older than
 /// <paramref name="backupInterval"/>, so frequent small saves don't push useful backups out.
+/// <para>
+/// The data folder may be shared with other computers through a sync app, so the file can change under the open tree.
+/// The store remembers the file as it last read or wrote it; a save, or <see cref="ReloadIfChanged"/>, finding it
+/// different merges the file's changes into the tree first (<see cref="ConnectionMerge"/>), so neither computer's
+/// changes are saved over. A save with nothing new writes nothing.
+/// </para>
 /// </summary>
 public sealed class ConnectionStore(string path, string backupDirectory, int backupsToKeep = 10, TimeSpan? backupInterval = null)
 {
     static readonly ILogger Logger = Log.For("Storage");
 
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
+
+    // The file as last read or written here: the base the next merge measures both sides against. Null: there was none.
+    string? _known;
 
     // 2 added hosts' guests; 3 added the serial and web protocols and the settings in InheritableSettings.AddedInSchema3;
     // 4 added saved commands and InheritableSettings.AddedInSchema4; 5 added commands sent when connected and answering a password prompt;
@@ -60,14 +69,9 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             return ConnectionTree.Empty();
         }
 
-        var file = JsonSerializer.Deserialize<FileModel>(File.ReadAllText(path), JsonOptions)
-            ?? throw new InvalidDataException("connections.json is empty.");
-        if (file.SchemaVersion > SchemaVersion)
-        {
-            throw new InvalidDataException("connections.json was written by a newer version of Orrery.");
-        }
-
-        var tree = new ConnectionTree(file.Root);
+        var text = File.ReadAllText(path);
+        var tree = new ConnectionTree(Parse(text));
+        _known = text;
 
         // A number that isn't a choice (hand-edited) would throw once used, so it's dropped and the folder's value applies.
         foreach (var node in tree.Root.Descendants().Prepend(tree.Root))
@@ -114,15 +118,147 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
     }
 
-    public void Save(ConnectionTree tree)
+    static ConnectionFolder Parse(string text)
     {
-        if (File.Exists(path))
+        var file = JsonSerializer.Deserialize<FileModel>(text, JsonOptions)
+            ?? throw new InvalidDataException("connections.json is empty.");
+        if (file.SchemaVersion > SchemaVersion)
+        {
+            throw new InvalidDataException("connections.json was written by a newer version of Orrery.");
+        }
+
+        return file.Root ?? throw new InvalidDataException("connections.json has no connections in it.");
+    }
+
+    static string? ReadOrNull(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    string Serialize(ConnectionTree tree) => JsonSerializer.Serialize(new FileModel(SchemaFor(tree.Root), tree.Root), JsonOptions);
+
+    /// <summary>
+    /// Saves the tree, first merging in what another computer saved to the file since this one last read or wrote it.
+    /// Returns what that merge changed in the tree, or null when the file hadn't changed.
+    /// </summary>
+    /// <exception cref="InvalidDataException">A newer Orrery wrote the file since; it's left as it is.</exception>
+    public ConnectionMergeReport? Save(ConnectionTree tree)
+    {
+        var disk = ReadOrNull(path);
+        ConnectionMergeReport? report = null;
+        if (disk is not null && disk != _known)
+        {
+            report = MergeFrom(tree, disk, saving: true);
+        }
+
+        var text = Serialize(tree);
+        if (text == disk)
+        {
+            _known = disk;
+            return report;
+        }
+
+        if (disk is not null)
         {
             Backup();
         }
 
-        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(new FileModel(SchemaFor(tree.Root), tree.Root), JsonOptions));
+        AtomicFile.WriteAllText(path, text);
+        _known = text;
         Logger.LogDebug("Saved {Connections} connections", tree.Root.Descendants().OfType<ConnectionEntry>().Count());
+        return report;
+    }
+
+    /// <summary>
+    /// Merges in what another computer saved to the file since this one last read or wrote it. Null when there's nothing
+    /// new, or the file can't be read yet (a sync app part way through writing it): the next try, or the next save, takes it.
+    /// <see cref="NeedsSave"/> says afterwards whether the tree holds changes the file doesn't.
+    /// </summary>
+    public ConnectionMergeReport? ReloadIfChanged(ConnectionTree tree)
+    {
+        string? disk;
+        try
+        {
+            disk = ReadOrNull(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        if (disk is null || disk == _known)
+        {
+            return null;
+        }
+
+        try
+        {
+            var report = MergeFrom(tree, disk, saving: false);
+            NeedsSave = Serialize(tree) != disk;
+            return report;
+        }
+        catch (Exception e) when (e is JsonException or InvalidDataException)
+        {
+            Logger.LogWarning("connections.json changed but can't be read yet: {Problem}", e.Message);
+            return null;
+        }
+    }
+
+    /// <summary>The file isn't as this computer last read or wrote it: another computer saved it since.</summary>
+    public bool ChangedElsewhere()
+    {
+        try
+        {
+            return ReadOrNull(path) is { } disk && disk != _known;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>After <see cref="ReloadIfChanged"/>: the tree has changes of this computer's the file doesn't have yet.</summary>
+    public bool NeedsSave { get; private set; }
+
+    ConnectionMergeReport? MergeFrom(ConnectionTree tree, string disk, bool saving)
+    {
+        ConnectionFolder theirs;
+        try
+        {
+            theirs = Parse(disk);
+        }
+        catch (JsonException e) when (saving)
+        {
+            // Damaged, or half written by a sync app: saved over, the old file kept in backups/ first.
+            Logger.LogWarning("connections.json changed on disk but isn't readable ({Problem}); saving this computer's", e.Message);
+            return null;
+        }
+
+        ConnectionFolder? baseline = null;
+        if (_known is not null)
+        {
+            try
+            {
+                baseline = Parse(_known);
+            }
+            catch (Exception e) when (e is JsonException or InvalidDataException)
+            {
+            }
+        }
+
+        var report = ConnectionMerge.Merge(tree, baseline, theirs);
+        _known = disk;
+        LearnNames(tree.Root);
+        Logger.LogInformation("Took in changes to connections.json from another computer: {Added} added, {Removed} removed, {Updated} changed, {Conflicts} changed on both",
+            report.Added, report.Removed, report.Updated, report.Conflicts.Count);
+        return report;
     }
 
     void Backup()

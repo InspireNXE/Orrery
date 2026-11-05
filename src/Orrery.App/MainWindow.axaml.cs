@@ -68,6 +68,9 @@ public partial class MainWindow : Window
     // Other computers with Orrery open on this folder, as a sync app shares it; see DataFolderPresence.
     readonly DataFolderPresence _presence;
 
+    // Changes to the shared files, as a sync app brings in another computer's saves; started once the window opens.
+    DataFolderWatcher? _dataWatcher;
+
     readonly TreeView _treeView;
     readonly TextBox _filter;
     readonly TextBlock _treeEmptyState;
@@ -363,6 +366,7 @@ public partial class MainWindow : Window
 
             await CreateVaultFromSetupAsync();
             await WarnAboutSharedFolderAsync();
+            WatchDataFolder();
 
             // Move data leaves this in the new folder; it's only good for the first start there.
             var pendingCleanup = PendingCleanup.TryLoad(_location.DataDir);
@@ -411,6 +415,7 @@ public partial class MainWindow : Window
 
             (_credentials as IDisposable)?.Dispose();
             _presence.Dispose();
+            _dataWatcher?.Dispose();
 
             // Last, once everything is saved: an update put off until now, then the engine and anything it was doing.
             if (!App.Restarting)
@@ -423,8 +428,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Says when another computer has Orrery open on this data folder (a sync app sharing it), now or later on, and when
-    /// the sync app has left conflict copies of Orrery's files. Neither stops anything.
+    /// Says, in the status bar, when another computer has Orrery open on this data folder (a sync app sharing it), now
+    /// or later on: each takes in the other's changes, so it's only so nobody is surprised. Conflict copies the sync app
+    /// left of Orrery's files need someone to look at them, so those are said in a window.
     /// </summary>
     async Task WarnAboutSharedFolderAsync()
     {
@@ -443,54 +449,40 @@ public partial class MainWindow : Window
 
         _presence.OtherOpened += other => Dispatcher.UIThread.Post(() =>
         {
-            if (!IsVisible)
+            if (IsVisible)
             {
-                return;
+                Log.For("App").LogInformation("Another computer ({Computer}) opened Orrery on this data folder", other.Tag);
+                ShowNotice(OtherComputersNotice([other])!);
             }
-
-            Log.For("App").LogWarning("Another computer ({Computer}) opened Orrery on this data folder", other.Tag);
-            _ = Dialogs.ShowMessageAsync(this, "Orrery is open on another computer", SharedFolderWarning([other], [])!);
         });
 
-        if (others.Count > 0)
+        if (OtherComputersNotice(others) is { } notice)
         {
-            Log.For("App").LogWarning("Orrery is open on {Count} other computer(s) using this data folder: {Computers}",
+            Log.For("App").LogInformation("Orrery is open on {Count} other computer(s) using this data folder: {Computers}",
                 others.Count, string.Join(", ", others.Select(o => o.Tag)));
+            ShowNotice(notice);
         }
 
-        if (conflicts.Count > 0)
+        if (ConflictCopiesWarning(conflicts) is { } warning)
         {
             Log.For("App").LogWarning("The data folder has {Count} sync conflict copies", conflicts.Count);
-        }
-
-        if (SharedFolderWarning(others, conflicts) is { } warning)
-        {
-            await Dialogs.ShowMessageAsync(this,
-                others.Count > 0 ? "Orrery is open on another computer" : "Your sync app made conflict copies", warning);
+            await Dialogs.ShowMessageAsync(this, "Your sync app made conflict copies", warning);
         }
     }
 
-    /// <summary>What <see cref="WarnAboutSharedFolderAsync"/> says, or null when there's nothing to say.</summary>
-    internal static string? SharedFolderWarning(IReadOnlyList<OtherComputer> others, IReadOnlyList<string> conflicts)
+    /// <summary>The status bar's line for other computers with Orrery open on this folder, or null for none.</summary>
+    internal static string? OtherComputersNotice(IReadOnlyList<OtherComputer> others) => others.Count switch
     {
-        var parts = new List<string>();
-        if (others.Count > 0)
-        {
-            var names = string.Join(", ", others.Select(o => o.Name));
-            parts.Add((others.Count == 1 ? $"Orrery is also open on {names}" : $"Orrery is also open on these computers: {names}")
-                + ", using this data folder through a sync app. Changes made on both at once save over each other, "
-                + "or leave the sync app's conflict copies. Close Orrery on one of them before changing connections or settings.");
-        }
+        0 => null,
+        1 => $"Orrery is also open on {others[0].Name}. Changes on either show on both.",
+        _ => $"Orrery is also open on {string.Join(", ", others.Select(o => o.Name))}. Changes on any show on all.",
+    };
 
-        if (conflicts.Count > 0)
-        {
-            parts.Add("Your sync app kept these copies when the same file changed on two computers at once. Orrery only reads "
-                + "the files under their own names, so anything in a copy isn't in Orrery. Open the data folder to compare "
-                + "them, then delete the copies:\n" + string.Join("\n", conflicts.Select(c => "  " + c)));
-        }
-
-        return parts.Count == 0 ? null : string.Join("\n\n", parts);
-    }
+    /// <summary>What's said about the sync app's conflict copies, or null for none.</summary>
+    internal static string? ConflictCopiesWarning(IReadOnlyList<string> conflicts) => conflicts.Count == 0 ? null
+        : "Your sync app kept these copies when the same file changed on two computers before it could copy either "
+          + "change. Orrery only reads the files under their own names, so anything in a copy isn't in Orrery. Open the "
+          + "data folder to compare them, then delete the copies:\n" + string.Join("\n", conflicts.Select(c => "  " + c));
 
     /// <summary>
     /// A damaged connections.json is moved aside, never overwritten, and Orrery starts with an empty tree.
@@ -531,11 +523,106 @@ public partial class MainWindow : Window
         _saveTimer.Stop();
         try
         {
-            _connectionStore.Save(_tree);
+            ShowMerge(_connectionStore.Save(_tree));
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException or InvalidDataException)
         {
             _ = Dialogs.ShowMessageAsync(this, "Couldn't save your connections", e.Message);
+        }
+    }
+
+    // ---- A data folder shared with other computers ----
+
+    static readonly string[] WatchedFiles = ["connections.json", "vault.frv", AppSettingsStore.FileName];
+
+    void WatchDataFolder()
+    {
+        try
+        {
+            _dataWatcher = new DataFolderWatcher(_location.DataDir, WatchedFiles);
+            _dataWatcher.Changed += names => Dispatcher.UIThread.Post(() => _ = OnDataFilesChangedAsync(names));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Log.For("Storage").LogWarning(e, "Can't watch the data folder for changes from other computers");
+        }
+    }
+
+    /// <summary>Takes in what another computer saved to the shared files, as a sync app brings it in.</summary>
+    internal async Task OnDataFilesChangedAsync(IReadOnlyCollection<string> names)
+    {
+        if (!IsVisible)
+        {
+            return;
+        }
+
+        // This computer's own saves come through here too; those have nothing to take in.
+        if (names.Contains("connections.json", StringComparer.OrdinalIgnoreCase) && _connectionStore.ChangedElsewhere())
+        {
+            await TakeInConnectionChangesAsync();
+        }
+
+        if (names.Contains("vault.frv", StringComparer.OrdinalIgnoreCase) && _credentials is VaultFileStore { ChangedElsewhere: true })
+        {
+            await _credentialsView.RefreshListAsync();
+            if (!_credentials.IsLocked)
+            {
+                await _properties.RefreshCredentialsAsync();
+            }
+        }
+    }
+
+    async Task TakeInConnectionChangesAsync()
+    {
+        // The inspector's edits go into the tree first, so the merge keeps them. If they don't validate yet, the next
+        // change, or the next save, takes the file's in.
+        if (!await _properties.ShowAsync(_properties.Node))
+        {
+            return;
+        }
+
+        var report = _connectionStore.ReloadIfChanged(_tree);
+        if (report is null)
+        {
+            return;
+        }
+
+        ShowMerge(report);
+        if (_connectionStore.NeedsSave)
+        {
+            SaveNow();
+        }
+    }
+
+    /// <summary>Redraws what a merge with another computer's changes touched, and says what both computers changed.</summary>
+    void ShowMerge(ConnectionMergeReport? report)
+    {
+        if (report is null || !IsVisible)
+        {
+            return;
+        }
+
+        if (report.ChangedAnything)
+        {
+            RebuildTree();
+            var shown = _properties.Node;
+            _ = _properties.ShowAsync(shown is null || shown == _tree.Root || _tree.Find(shown.Id) is not null ? shown : null);
+        }
+
+        if (report.Conflicts.Count > 0)
+        {
+            foreach (var conflict in report.Conflicts)
+            {
+                Log.For("Storage").LogWarning("Connections merged with another computer's: {Conflict}", conflict);
+            }
+
+            ShowNotice(report.Conflicts.Count == 1
+                ? $"Took in changes from another computer. {report.Conflicts[0]}."
+                : $"Took in changes from another computer; {report.Conflicts.Count} were changed on both, and this computer's kept. The log lists them.");
+        }
+        else if (report.ChangedAnything)
+        {
+            ShowNotice("Took in changes to your connections from another computer");
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Orrery.Core.Network;
 using Orrery.Core.Storage;
@@ -432,6 +433,10 @@ public sealed class AppSettingsStore(string path)
 
     public static AppSettingsStore In(DataLocation location) => new(location.FileIn(FileName));
 
+    // Each settings file as this process last read or wrote it, whichever store did: the base a save measures both its
+    // own settings and the file against, when another computer saved the file (through a sync app) in between.
+    static readonly Dictionary<string, string> Known = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
     /// <summary>
     /// Missing or unreadable settings fall back to defaults: losing a preference is better than refusing to start.
     /// </summary>
@@ -439,7 +444,19 @@ public sealed class AppSettingsStore(string path)
     {
         try
         {
-            return File.Exists(path) ? (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new()).Migrated() : new();
+            if (!File.Exists(path))
+            {
+                return new();
+            }
+
+            var text = File.ReadAllText(path);
+            var settings = (JsonSerializer.Deserialize<AppSettings>(text, JsonOptions) ?? new()).Migrated();
+            lock (Known)
+            {
+                Known[path] = text;
+            }
+
+            return settings;
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -447,6 +464,59 @@ public sealed class AppSettingsStore(string path)
         }
     }
 
-    public void Save(AppSettings settings) =>
-        AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion }, JsonOptions));
+    /// <summary>
+    /// Saves <paramref name="settings"/>. If another computer saved the file since this one last read or wrote it, the
+    /// settings it changed that these don't are kept: only what changed here is saved over the file.
+    /// </summary>
+    public void Save(AppSettings settings)
+    {
+        var text = JsonSerializer.Serialize(Normal(settings), JsonOptions);
+        string? disk = null;
+        string? known;
+        lock (Known)
+        {
+            known = Known.GetValueOrDefault(path);
+        }
+
+        try
+        {
+            disk = File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        if (disk is not null && known is not null && disk != known && Merged(known, text, disk) is { } merged)
+        {
+            text = merged;
+        }
+
+        if (text != disk)
+        {
+            AtomicFile.WriteAllText(path, text);
+        }
+
+        lock (Known)
+        {
+            Known[path] = text;
+        }
+    }
+
+    static AppSettings Normal(AppSettings settings) => settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion };
+
+    // Mine over the file, measured against the base; null if the file or the base can't be read, and mine is saved as it is.
+    static string? Merged(string known, string mine, string disk)
+    {
+        try
+        {
+            JsonObject Read(string json) => JsonSerializer.SerializeToNode(Normal(JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new()), JsonOptions)!.AsObject();
+            var conflicts = new List<string>();
+            var merged = JsonMerge.Merge(Read(known), JsonNode.Parse(mine)!.AsObject(), Read(disk), conflicts);
+            return JsonSerializer.Serialize(Normal(merged.Deserialize<AppSettings>(JsonOptions) ?? new()), JsonOptions);
+        }
+        catch (Exception e) when (e is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
 }

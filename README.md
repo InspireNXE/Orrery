@@ -514,10 +514,14 @@ moves. It stays on this computer: exports leave it out, and deleting a connectio
 Recordings are in `recordings/` in the data folder, encrypted. Move data takes them along.
 
 A portable data folder can be kept in a sync app's folder (OneDrive, Dropbox, Synology Drive, Syncthing) and used on
-more than one computer, one at a time. Each computer with Orrery open leaves a small `open-on-<tag>.json` file there,
-so the others can say so: if Orrery is open on two at once, changes on one save over the other's. Orrery also says
-when the sync app has made conflict copies of its files, which it never reads. Windows Hello and the system's
-credential store are per computer, so each one is set up on its own.
+more than one computer, at the same time too. When the sync app brings in another computer's changes to connections,
+the vault or settings, Orrery takes them in while it's open, and merges them with this computer's own when it saves,
+connection by connection and field by field, so neither computer's changes are lost. Where both changed the same
+field, this computer's change is kept and the status bar says so. A master password changed on one computer locks
+the vault on the others, to be opened with the new one. Each computer with Orrery open leaves a small
+`open-on-<tag>.json` file, so the others can say it's open there. If the sync app still makes conflict copies of
+Orrery's files, Orrery lists them at start, as it never reads them. Windows Hello and the system's credential store
+are per computer, so each one is set up on its own.
 
 <details>
 <summary>Logs</summary>

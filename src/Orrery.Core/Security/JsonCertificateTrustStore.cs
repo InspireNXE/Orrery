@@ -12,18 +12,21 @@ public sealed class JsonCertificateTrustStore : ICertificateTrustStore
 
     readonly string _path;
     readonly object _lock = new();
-    readonly Dictionary<string, PinnedCertificate> _pins;
+    Dictionary<string, PinnedCertificate> _pins;
+    (long Length, DateTime Written) _stamp;
 
     public JsonCertificateTrustStore(string path)
     {
         _path = path;
         _pins = Load(path);
+        _stamp = Stamp(path);
     }
 
     public PinnedCertificate? Get(string host, int port)
     {
         lock (_lock)
         {
+            ReloadIfChanged();
             return _pins.GetValueOrDefault(Key(host, port));
         }
     }
@@ -32,6 +35,8 @@ public sealed class JsonCertificateTrustStore : ICertificateTrustStore
     {
         lock (_lock)
         {
+            // Another computer sharing the data folder may have trusted others since; theirs stay.
+            ReloadIfChanged();
             _pins[Key(host, port)] = certificate;
             Save();
         }
@@ -39,7 +44,50 @@ public sealed class JsonCertificateTrustStore : ICertificateTrustStore
 
     static string Key(string host, int port) => $"{host.Trim().ToLowerInvariant()}:{port}";
 
-    void Save() => AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(new FileModel(1, _pins), JsonOptions));
+    void Save()
+    {
+        AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(new FileModel(1, _pins), JsonOptions));
+        _stamp = Stamp(_path);
+    }
+
+    // Caller holds _lock. The file changed on disk (a sync app bringing another computer's): read again. Nothing is
+    // ever unpinned, so what's read is everything; a file that can't be read yet is tried next time.
+    void ReloadIfChanged()
+    {
+        var stamp = Stamp(_path);
+        if (stamp == _stamp)
+        {
+            return;
+        }
+
+        try
+        {
+            var pins = Load(_path);
+            foreach (var (key, pin) in _pins.Where(p => !pins.ContainsKey(p.Key)))
+            {
+                pins[key] = pin;
+            }
+
+            _pins = pins;
+            _stamp = stamp;
+        }
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    static (long, DateTime) Stamp(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? (info.Length, info.LastWriteTimeUtc) : (-1, default);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return (-1, default);
+        }
+    }
 
     static Dictionary<string, PinnedCertificate> Load(string path)
     {
