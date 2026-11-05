@@ -10,7 +10,8 @@ namespace Orrery.App.Credentials;
 
 /// <summary>
 /// Creates the vault on first use, or unlocks it. Closes with true once the store is open. When Windows Hello or
-/// Touch ID unlock is on, its prompt shows as the window opens, with the password field below it.
+/// Touch ID unlock is on, its prompt shows as the window opens and the password field stays hidden until the prompt is
+/// canceled or fails.
 /// </summary>
 sealed class VaultUnlockWindow : Window
 {
@@ -24,6 +25,8 @@ sealed class VaultUnlockWindow : Window
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _ok;
     readonly Button _useBiometric = new() { Padding = new Thickness(16, 6), IsVisible = false };
+    readonly TextBlock _waiting = new() { TextWrapping = TextWrapping.Wrap, Foreground = Dialogs.MutedBrush, IsVisible = false };
+    readonly Control _passwordField;
     CancellationTokenSource? _prompt;
     bool _closed;
 
@@ -75,7 +78,7 @@ sealed class VaultUnlockWindow : Window
             Text = _creating
                 ? "Saved passwords are encrypted with a master password you choose. Orrery never stores it."
                 : _biometric is not null
-                    ? $"Use {_biometric.Name} or enter your master password to use saved credentials."
+                    ? $"Confirm with {_biometric.Name} to use saved credentials. If that doesn't work, you can enter your master password instead."
                     : "Enter your master password to use saved credentials.",
             TextWrapping = TextWrapping.Wrap,
         });
@@ -90,7 +93,14 @@ sealed class VaultUnlockWindow : Window
             body.Children.Add(new Notice(NoticeKind.Warning, "If you forget the master password, there is no way to recover the vault or anything in it."));
         }
 
-        body.Children.Add(Field("Master password", _password));
+        body.Children.Add(_waiting);
+        body.Children.Add(_passwordField = Field("Master password", _password));
+        if (_biometric is not null)
+        {
+            // Shown once the prompt is canceled or fails, so the password isn't the first thing asked for.
+            _passwordField.IsVisible = _ok.IsVisible = _useBiometric.IsVisible = false;
+        }
+
         if (_creating)
         {
             body.Children.Add(_meter = new PasswordMeter(_password, "vault", "master"));
@@ -150,6 +160,13 @@ sealed class VaultUnlockWindow : Window
 
     static Control Field(string label, Control input) => Dialogs.Field(label, input);
 
+    /// <summary>The password field and Unlock, once the system prompt didn't open the vault.</summary>
+    void ShowPasswordField()
+    {
+        _waiting.IsVisible = false;
+        _passwordField.IsVisible = _ok.IsVisible = true;
+    }
+
     async Task ShowIfTurnedOffAsync(BiometricUnlock biometric, VaultFileStore vault)
     {
         if (await biometric.TurnOffIfStaleAsync(vault) is { } message && !_closed)
@@ -166,12 +183,16 @@ sealed class VaultUnlockWindow : Window
     /// </summary>
     async Task UseBiometricAsync()
     {
-        if (_biometric is null || _store is not VaultFileStore vault || !_useBiometric.IsVisible || !_useBiometric.IsEnabled || _closed)
+        // Before the first prompt the button is hidden along with the password field; after that it's how to ask again.
+        bool first = !_passwordField.IsVisible;
+        if (_biometric is null || _store is not VaultFileStore vault || (!first && !_useBiometric.IsVisible) || !_useBiometric.IsEnabled || _closed)
         {
             return;
         }
 
         _useBiometric.IsEnabled = _ok.IsEnabled = false;
+        _waiting.Text = $"Waiting for {_biometric.Name}…";
+        _waiting.IsVisible = first;
         _error.IsVisible = false;
         using var prompt = new CancellationTokenSource();
         _prompt = prompt;
@@ -196,6 +217,7 @@ sealed class VaultUnlockWindow : Window
                     Close(true);
                     return;
                 case BiometricOutcome.TurnedOff or BiometricOutcome.NotOn or BiometricOutcome.Unavailable:
+                    first = false; // So the button stays hidden below.
                     _useBiometric.IsVisible = false;
                     _notice.Kind = result.Outcome == BiometricOutcome.Unavailable ? NoticeKind.Info : NoticeKind.Warning;
                     _notice.Text = result.Message;
@@ -214,6 +236,11 @@ sealed class VaultUnlockWindow : Window
         {
             _prompt = null;
             _useBiometric.IsEnabled = _ok.IsEnabled = true;
+            if (!_closed && !_unlocked)
+            {
+                if (first) _useBiometric.IsVisible = true;
+                ShowPasswordField();
+            }
         }
 
         if (!_closed) _password.Focus();

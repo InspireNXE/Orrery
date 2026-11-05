@@ -75,6 +75,42 @@ public class BiometricUnlockUiTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task The_password_field_shows_only_once_the_prompt_is_canceled()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        _hello.Hold = new TaskCompletionSource();
+        _hello.NextAnswer = AuthenticatorStatus.Canceled;
+        var window = new VaultUnlockWindow(vault, Biometric);
+
+        window.Show();
+        await Settle(() => _hello.Prompts == 2);
+        var password = window.GetVisualDescendants().OfType<Orrery.App.Controls.PasswordBox>().Single();
+        Assert.False(password.IsEffectivelyVisible);
+        Assert.False(Buttons(window).Single(b => b.Content as string == "Unlock").IsVisible);
+        Assert.Contains("Waiting for Test Hello…", Texts(window));
+
+        _hello.Hold.SetResult();
+        await Settle(() => password.IsEffectivelyVisible);
+        Assert.True(Buttons(window).Single(b => b.Content as string == "Unlock").IsVisible);
+        Assert.True(Buttons(window).Single(b => b.Content as string == "Use Test Hello").IsVisible);
+        Assert.DoesNotContain("Waiting for Test Hello…", Texts(window));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Without_it_on_the_password_field_shows_straight_away()
+    {
+        using var vault = await NewVaultAsync();
+        var window = new VaultUnlockWindow(vault, Biometric);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(window.GetVisualDescendants().OfType<Orrery.App.Controls.PasswordBox>().Single().IsEffectivelyVisible);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task After_a_password_change_the_unlock_window_says_it_was_turned_off()
     {
         using var vault = await NewVaultAsync();
