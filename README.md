@@ -97,7 +97,7 @@ machine yet, hence the 🧪.
 | Export `.cast` and `.avi` | 🧪 | 🧪 | 🧪 |
 | Export MP4, with sound | 🧪 built in | 🔸 through ffmpeg | 🔸 through ffmpeg |
 | MP4 without ffmpeg | ✅ | 🗓️ AVFoundation | ➖ |
-| Record the remote pointer's shape | 🧪 | 🧪 | 🧪 |
+| Record the remote pointer's shape | ✅ RDP; VNC 🧪 | 🧪 | 🧪 |
 | **Credentials** | | | |
 | System secret store | ✅ Credential Manager | 🧪 Keychain | 🧪 Secret Service |
 | Encrypted vault file | ✅ | 🧪 | 🧪 |
