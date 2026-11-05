@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -46,7 +47,9 @@ static class RdpConnector
         Config config, ConnectionTarget target, (string Host, int Port) dial, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
         RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token, RdpAudioTap? audioTap = null)
     {
+        long started = Stopwatch.GetTimestamp();
         var tcp = await OpenTcpAsync(dial.Host, dial.Port, token);
+        var tcpTime = Stopwatch.GetElapsedTime(started);
         var framed = new Framed<NetworkStream>(tcp.GetStream());
 
         var connector = ClientConnector.New(config, tcp.Client.LocalEndPoint!.ToString()!);
@@ -100,7 +103,9 @@ static class RdpConnector
             await Connection.SingleSequenceStep(connector, writeBuf, framed, token);
         }
 
+        long tlsStarted = Stopwatch.GetTimestamp();
         var (ssl, serverPublicKey) = await UpgradeToTlsAsync(framed, target, validator, token);
+        var tlsTime = Stopwatch.GetElapsedTime(tlsStarted);
         connector.MarkSecurityUpgradeAsDone();
         var framedSsl = new Framed<SslStream>(ssl);
 
@@ -111,6 +116,7 @@ static class RdpConnector
             throw new NotSupportedException("The server doesn't support Network Level Authentication, which Orrery requires.");
         }
 
+        long credsspStarted = Stopwatch.GetTimestamp();
         using (var credsspTimeout = CancellationTokenSource.CreateLinkedTokenSource(token))
         {
             credsspTimeout.CancelAfter(CredsspTimeout);
@@ -137,10 +143,17 @@ static class RdpConnector
             }
         }
 
+        var credsspTime = Stopwatch.GetElapsedTime(credsspStarted);
+        long setupStarted = Stopwatch.GetTimestamp();
         while (!connector.DynState.IsTerminal())
         {
             await Connection.SingleSequenceStep(connector, writeBuf, framedSsl, token);
         }
+
+        // Where a slow connect spends its time. TLS includes the certificate check, which may wait on the user.
+        Logger.LogDebug("{Host}: connecting took {Total:0} ms: TCP {Tcp:0} ms, TLS {Tls:0} ms, sign-in {Credssp:0} ms, session setup {Setup:0} ms",
+            target.Host, Stopwatch.GetElapsedTime(started).TotalMilliseconds, tcpTime.TotalMilliseconds, tlsTime.TotalMilliseconds,
+            credsspTime.TotalMilliseconds, Stopwatch.GetElapsedTime(setupStarted).TotalMilliseconds);
 
         var state = connector.ConsumeAndCastToClientConnectorState();
         if (state.EnumType == ClientConnectorStateType.Connected)

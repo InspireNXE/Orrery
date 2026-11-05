@@ -65,6 +65,11 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     // The size asked for before the display-control channel opened, sent once it's ready. Under _stageLock.
     (int Width, int Height)? _waitingResize;
 
+    // For the detailed log: when the session connected or a resize was asked for, until the first picture after it.
+    long _firstPictureFrom;
+    string? _firstPictureAfter;
+    long _resizeAskedAt;
+
     // Keyboard and mouse input goes out after the input before it, in the order it was applied. Under _stageLock.
     Task _inputChain = Task.CompletedTask;
     Task? _readLoop;
@@ -218,6 +223,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 _bridge.TransferChanged += (_, transfer) => ClipboardTransferChanged?.Invoke(this, transfer);
             }
 
+            (_firstPictureFrom, _firstPictureAfter) = (Stopwatch.GetTimestamp(), "connecting");
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
             _inputFrameLoop = Task.Run(() => InputFrameLoopAsync(token));
@@ -731,6 +737,12 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
     void OnGraphicsUpdate(InclusiveRectangle damage)
     {
+        if (_firstPictureAfter is { } after)
+        {
+            _firstPictureAfter = null;
+            Logger.LogDebug("{Host}: first picture {Ms:0} ms after {After}", Target.Host, Stopwatch.GetElapsedTime(_firstPictureFrom).TotalMilliseconds, after);
+        }
+
         FrameRect rect;
         lock (_stageLock)
         {
@@ -771,7 +783,18 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             _pointerSoftwareRendering = finalized.PointerSoftwareRendering;
         }
 
+        NoteServerResized();
         FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
+    }
+
+    /// <summary>For the detailed log: how long the server took to resize after Orrery asked, and then to draw.</summary>
+    void NoteServerResized()
+    {
+        if (Interlocked.Exchange(ref _resizeAskedAt, 0) is var asked and not 0)
+        {
+            Logger.LogDebug("{Host}: the server resized {Ms:0} ms after Orrery asked", Target.Host, Stopwatch.GetElapsedTime(asked).TotalMilliseconds);
+            (_firstPictureFrom, _firstPictureAfter) = (Stopwatch.GetTimestamp(), "resizing");
+        }
     }
 
     /// <summary>
@@ -806,6 +829,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         Width = width;
         Height = height;
         Logger.LogInformation("{Host}: the server reset its graphics, desktop {Width}x{Height}", Target.Host, width, height);
+        NoteServerResized();
         return true;
     }
 
@@ -1100,6 +1124,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 if (outputs is not null)
                 {
                     _sentScale = scale;
+                    Interlocked.Exchange(ref _resizeAskedAt, Stopwatch.GetTimestamp());
                     Logger.LogDebug("{Host}: asking for a {Width}x{Height} desktop at {Scale}%", Target.Host, width, height, scale);
                     await HandleOutputsAsync(outputs, _cts.Token);
                 }
