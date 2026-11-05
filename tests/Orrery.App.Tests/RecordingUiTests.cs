@@ -682,6 +682,22 @@ public sealed class RecordingUiTests : IDisposable
         Assert.False(Links(new ExportChoiceWindow([], hasFfmpeg: true)));
     }
 
+    [AvaloniaFact]
+    public void A_finished_export_says_where_it_went_and_offers_to_open_it()
+    {
+        var path = Path.Combine(_root, "web-01.mp4");
+        File.WriteAllBytes(path, new byte[2048]);
+        var window = new ExportedWindow(path);
+        window.Show();
+
+        Assert.Equal("Export finished", window.Title);
+        Assert.Equal($"Saved web-01.mp4 ({FileBrowserView.FormatSize(2048)}) in {_root}.", window.Message);
+        var buttons = window.GetVisualDescendants().OfType<Button>().Select(b => b.Content as string).ToList();
+        Assert.Equal(["Open", "Show in folder", "Close"], buttons);
+        Assert.True(window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "Close")).IsDefault);
+        window.Close();
+    }
+
     async Task<(PlayerView Player, Window Window, string Path)> OpenTerminalRecording(string name, double width = 1000)
     {
         var publicKey = await RecordingKeys.EnsureAsync(_credentials);

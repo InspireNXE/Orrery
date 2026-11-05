@@ -106,6 +106,7 @@ static class RecordingExport
         else if (!progress.Canceled)
         {
             Logger.LogInformation("Exported a screen recording as {Format}", choice.Route is { } route ? $"MP4 {route.Name}{(route.Ffmpeg is null ? "" : " through ffmpeg")}" : "AVI");
+            await new ExportedWindow(output).ShowDialog(owner);
         }
     }
 
@@ -135,6 +136,12 @@ static class RecordingExport
         catch (Exception e) when (e is InvalidDataException or RecordingKeyException or IOException or UnauthorizedAccessException)
         {
             await Dialogs.ShowMessageAsync(owner, "Couldn't export", e.Message);
+            return;
+        }
+
+        if (file.TryGetLocalPath() is { } output)
+        {
+            await new ExportedWindow(output).ShowDialog(owner);
         }
     }
 
@@ -583,6 +590,63 @@ sealed class ExportChoiceWindow : Window
         panel.Children.Add(buttons);
         Content = panel;
         AutomationProperties.SetHelpText(this, RecordingExport.Warning);
+    }
+}
+
+/// <summary>Says an export is done, with buttons to open the file or show it in its folder.</summary>
+sealed class ExportedWindow : Window
+{
+    readonly TextBlock _problem = new() { TextWrapping = TextWrapping.Wrap, IsVisible = false };
+
+    public ExportedWindow(string path)
+    {
+        Title = "Export finished";
+        Width = 460;
+        SizeToContent = SizeToContent.Height;
+        CanResize = false;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = Dialogs.PanelBrush;
+        _problem.Foreground = Dialogs.DangerBrush;
+
+        long size = File.Exists(path) ? new FileInfo(path).Length : 0;
+        Message = $"Saved {System.IO.Path.GetFileName(path)} ({FileBrowserView.FormatSize(size)}) in {System.IO.Path.GetDirectoryName(path)}.";
+
+        var open = new Button { Content = "Open" };
+        open.Classes.Add("accent");
+        var show = new Button { Content = "Show in folder" };
+        var close = new Button { Content = "Close", IsDefault = true, IsCancel = true };
+        open.Click += (_, _) => Run(FileReveal.Open(path));
+        show.Click += (_, _) => Run(FileReveal.Reveal(path, select: true));
+        close.Click += (_, _) => Close();
+        AutomationProperties.SetHelpText(this, Message);
+        Content = new StackPanel
+        {
+            Margin = new Thickness(24),
+            Spacing = 12,
+            Children =
+            {
+                Dialogs.Heading(new TextBlock { Text = Title, FontSize = 16, FontWeight = FontWeight.SemiBold }),
+                new SelectableTextBlock { Text = Message, TextWrapping = TextWrapping.Wrap },
+                _problem,
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { open, show, close } },
+            },
+        };
+    }
+
+    /// <summary>What the window says: the file's name, size and folder.</summary>
+    public string Message { get; }
+
+    // Done: the window goes. Not: it says why and stays, so the other button can be tried.
+    void Run(string? problem)
+    {
+        if (problem is null)
+        {
+            Close();
+            return;
+        }
+
+        _problem.Text = problem;
+        _problem.IsVisible = true;
     }
 }
 
