@@ -71,14 +71,15 @@ machine yet, hence the 🧪.
 | VNC | ✅ | 🧪 | 🧪 |
 | Telnet | ✅ | 🧪 | 🧪 |
 | Serial consoles | 🧪 | 🧪 | 🧪 |
-| Local terminal | ✅ PowerShell, cmd, WSL | 🧪 login shell | 🧪 login shell |
+| Local terminal, also saved in the tree | ✅ PowerShell, cmd, WSL | 🧪 login shell | 🧪 login shell |
+| Local terminal as administrator | 🧪 through UAC | ➖ | ➖ |
 | Web pages, in a tab or your browser | ✅ | 🧪 | 🧪 [^webkit] |
 | Jump hosts for every protocol | ✅ | 🧪 | 🧪 |
 | Quick connect, reconnect, Wake-on-LAN | ✅ | 🧪 | 🧪 |
 | Pop a tab out into its own window | 🧪 | 🧪 | 🧪 |
 | Two tabs side by side | 🧪 | 🧪 | 🧪 |
 | Find in a terminal's scrollback | 🧪 | 🧪 | 🧪 |
-| Saved commands, asking first for risky ones | 🧪 | 🧪 | 🧪 |
+| Saved commands on any connections, asking first for risky ones | 🧪 | 🧪 | 🧪 |
 | **Remote desktops** | | | |
 | Fit the window and follow resizes | ✅ | 🧪 | 🧪 |
 | Clipboard | ✅ text, images, files | 🧪 text, images, files [^files] | 🧪 text, images, files [^files] |
@@ -646,7 +647,7 @@ Not yet checked on real machines:
 - **Full screen** spans every display or chosen ones, gaps included.
 - **Sound** can also come as AAC.
 - **Not yet checked:** full screen over several displays, especially with mixed scaling; the Windows Hello prompt;
-  the win-arm64 build.
+  the local terminal as administrator; the win-arm64 build.
 - Executables aren't code-signed, so SmartScreen may warn on first launch, and antivirus may flag the single-file
   executable.
 
