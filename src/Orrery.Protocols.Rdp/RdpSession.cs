@@ -72,6 +72,13 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
     // Keyboard and mouse input goes out after the input before it, in the order it was applied. Under _stageLock.
     Task _inputChain = Task.CompletedTask;
+
+    // Input has a lock of its own: under _stageLock, a mouse move on the UI thread waited for a picture to decode.
+    readonly object _inputLock = new();
+
+    // The newest pointer position not yet sent, while a send for it is queued. Moves made before that send runs are
+    // merged into it, so a fast mouse sends only where it's got to, not every step on the way.
+    readonly LatestOnly<MousePosition> _latestMove = new();
     Task? _readLoop;
     Task? _clipboardLoop;
     Task? _drivesLoop;
@@ -918,8 +925,28 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
     public void SendPointerMove(int x, int y)
     {
+        if (State != SessionState.Connected)
+        {
+            return;
+        }
+
         var position = MousePosition.New((ushort)Math.Clamp(x, 0, ushort.MaxValue), (ushort)Math.Clamp(y, 0, ushort.MaxValue));
-        SendInput(position.AsMoveOperation());
+        lock (_inputLock)
+        {
+            if (_latestMove.Offer(position))
+            {
+                _inputChain = InOrder(_inputChain, () => TakeLatestMove() is { } fastPath ? SendFastPathAsync(fastPath) : Task.CompletedTask);
+            }
+        }
+    }
+
+    /// <summary>The newest move not yet sent, applied to the input state; null when something else already sent it.</summary>
+    FastPathInputEventIterator? TakeLatestMove()
+    {
+        lock (_inputLock)
+        {
+            return _latestMove.Take() is { } position ? _inputDatabase.Apply(position.AsMoveOperation()) : null;
+        }
     }
 
     public void SendPointerButton(PointerButton button, bool pressed)
@@ -1219,8 +1246,14 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             return;
         }
 
-        lock (_stageLock)
+        lock (_inputLock)
         {
+            // A click goes where the pointer is now, so a move still waiting is sent first, with it.
+            if (TakeLatestMove() is { } move)
+            {
+                _inputChain = InOrder(_inputChain, () => SendFastPathAsync(move));
+            }
+
             // Applied and queued under one lock, so a key's release can't reach the server before its press.
             var fastPath = _inputDatabase.Apply(operation);
             _inputChain = InOrder(_inputChain, () => SendFastPathAsync(fastPath));
