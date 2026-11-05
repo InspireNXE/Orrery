@@ -109,7 +109,7 @@ public static class DataMover
         }
 
         // The old copy's cookies and sign-ins would otherwise stay behind, wherever that folder goes.
-        WebData.Clear(oldDataDir);
+        WebData.ClearAll(oldDataDir);
         var (owned, others) = Sort(oldDataDir, copying: false);
         foreach (var file in owned)
         {

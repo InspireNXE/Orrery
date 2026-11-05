@@ -253,6 +253,8 @@ public partial class MainWindow : Window
                 () => AskAndRefocusAsync(new HostKeyPromptWindow(prompt))));
 
         // Before any page engine opens it.
+        WebData.MoveOldProfile(location.DataDir);
+        ComputerFiles.TidyOldCache(location);
         if (WebData.ClearIfAsked(location.DataDir))
         {
             StorageLog.LogInformation("Cleared the web pages' data, as Settings asked");

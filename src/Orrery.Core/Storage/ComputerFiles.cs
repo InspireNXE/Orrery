@@ -41,6 +41,26 @@ public static class ComputerFiles
     }
 
     public static string PathFor(DataLocation location, string name) => PathFor(location.DataDir, name);
+
+    /// <summary>
+    /// At start: update downloads a portable copy left in the shared cache folder, from before each computer had its
+    /// own (<c>cache/&lt;tag&gt;</c>), so a sync app stops copying them about. Never throws.
+    /// </summary>
+    public static void TidyOldCache(DataLocation location)
+    {
+        var old = Path.Combine(location.DataDir, "cache", "updates");
+        try
+        {
+            if (location.Mode == StorageMode.Portable && Directory.Exists(old) && new DirectoryInfo(old).LinkTarget is null
+                && !string.Equals(Path.GetFullPath(location.CacheDir), Path.GetFullPath(Path.Combine(location.DataDir, "cache")), StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.Delete(old, recursive: true);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 }
 
 /// <summary>
