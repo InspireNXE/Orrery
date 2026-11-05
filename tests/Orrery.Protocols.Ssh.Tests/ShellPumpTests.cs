@@ -184,6 +184,43 @@ public class ShellPumpTests
     }
 
     [Fact]
+    public async Task A_closed_pump_is_seen_to_have_ended()
+    {
+        // SshSession's close waited for Completion and then compared the result with Completion read again. Each
+        // read made a new task, so every close logged that the reader or writer was left running.
+        var stream = new FakeShellStream();
+        var pump = new ShellPump(stream, _ => { }, () => { }, (_, _) => { });
+        pump.Start();
+        pump.Send("a"u8);
+        Assert.Same(pump.Completion, pump.Completion);
+
+        // Waiting starts while both loops are still running, then the session closes as DisconnectAsync does.
+        var watch = Stopwatch.StartNew();
+        var ended = pump.EndsWithinAsync(Timeout);
+        pump.Stop();
+        stream.Close();
+
+        Assert.True(await ended, "The pump was reported as still running.");
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"Waited {watch.Elapsed} for a pump that had stopped.");
+        Assert.True(await pump.EndsWithinAsync(Timeout), "The pump was reported as still running after it ended.");
+    }
+
+    [Fact]
+    public async Task A_reader_left_waiting_is_reported()
+    {
+        var stream = new FakeShellStream();
+        var pump = new ShellPump(stream, _ => { }, () => { }, (_, _) => { });
+        pump.Start();
+
+        // Stopped, but the stream is still open, so the reader is still waiting on it.
+        pump.Stop();
+        Assert.False(await pump.EndsWithinAsync(TimeSpan.FromMilliseconds(200)));
+
+        stream.Close();
+        Assert.True(await pump.EndsWithinAsync(Timeout));
+    }
+
+    [Fact]
     public async Task A_fault_while_handling_output_fails_the_session()
     {
         var stream = new FakeShellStream();

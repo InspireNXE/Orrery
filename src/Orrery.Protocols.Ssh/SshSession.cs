@@ -485,7 +485,7 @@ public sealed class SshSession : ITerminalSession
     async Task WaitForAsync(ShellPump? pump)
     {
         // Bounded, and never throws, so closing always ends in Disconnected.
-        if (pump is not null && await Task.WhenAny(pump.Completion, Task.Delay(StopTimeout)) != pump.Completion)
+        if (pump is not null && !await pump.EndsWithinAsync(StopTimeout))
         {
             Log.For("Ssh").LogWarning("SSH session to {Host} left its reader or writer running after closing.", Target.Host);
         }
