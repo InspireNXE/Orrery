@@ -126,6 +126,9 @@ public sealed partial class RemoteFrameView : Panel
     double _scale = 1;
     double _wheelX, _wheelY;
 
+    // The remote pointer's shape as a cursor over the picture, created while the view is shown.
+    RemotePointerCursors? _cursors;
+
     /// <param name="zoom">Enlarge the remote desktop to match this display's scaling.</param>
     public RemoteFrameView(IFrameBufferSession session, bool zoom = false)
     {
@@ -209,7 +212,15 @@ public sealed partial class RemoteFrameView : Panel
         _stretchTimer.Tick += (_, _) => StopStretching();
 
         session.FrameUpdated += OnFrameUpdated;
-        session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => ShowState(e.State, e.Message));
+        session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() =>
+        {
+            ShowState(e.State, e.Message);
+            ShowRemotePointer();
+        });
+        if (session is IRemotePointerSession pointerSession)
+        {
+            pointerSession.PointerShapeChanged += (_, _) => Dispatcher.UIThread.Post(ShowRemotePointer);
+        }
         ShowState(session.State, null);
     }
 
@@ -433,6 +444,21 @@ public sealed partial class RemoteFrameView : Panel
             }
         }
     }
+
+    /// <summary>The cursor over the picture: the remote pointer's shape while connected, else the arrow.</summary>
+    void ShowRemotePointer()
+    {
+        if (_cursors is null)
+        {
+            return;
+        }
+
+        var shape = Session is IRemotePointerSession pointer && Session.State == SessionState.Connected ? pointer.PointerShape : null;
+        _image.Cursor = _cursors.For(shape);
+    }
+
+    /// <summary>What the remote pointer was last shown as; null for a shape shown as the server sent it. For tests.</summary>
+    internal PointerKind? RemotePointerKind => _cursors?.LastKind;
 
     void ShowState(SessionState state, string? message)
     {
@@ -1143,6 +1169,9 @@ public sealed partial class RemoteFrameView : Panel
             }
         }
 
+        _cursors ??= new RemotePointerCursors();
+        ShowRemotePointer();
+
         // TabControl detaches hidden tabs; repaint everything when this one comes back.
         if (Session.State == SessionState.Connected)
         {
@@ -1170,5 +1199,8 @@ public sealed partial class RemoteFrameView : Panel
         _image.Source = null;
         _bitmap?.Dispose();
         _bitmap = null;
+        _image.Cursor = null;
+        _cursors?.Dispose();
+        _cursors = null;
     }
 }
