@@ -246,10 +246,29 @@ public partial class App : Application
         {
             var store = AppSettingsStore.In(location);
             store.Save(setup.ApplyTo(store.Load()));
+            AddLocalShells(location, setup.LocalShells);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Log.For("App").LogError(e, "Couldn't save the setup choices in {DataDir}", location.DataDir);
+        }
+    }
+
+    /// <summary>The shells setup was told to add, as LOCAL connections, before the main window loads the tree.</summary>
+    static void AddLocalShells(DataLocation location, IReadOnlyList<string> ids)
+    {
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var shells = Orrery.Protocols.Local.LocalShells.Available().Where(s => ids.Contains(s.Id)).Select(s => (s.Id, s.Name)).ToList();
+        var connections = Orrery.Core.Connections.ConnectionStore.In(location);
+        var tree = connections.Load();
+        if (Setup.LocalShellsFolder.AddTo(tree, shells) is not null)
+        {
+            connections.Save(tree);
+            Log.For("App").LogInformation("Added {Count} local shells to the tree", shells.Count);
         }
     }
 

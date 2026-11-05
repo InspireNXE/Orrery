@@ -6,7 +6,8 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 - **0.1.2 previews 8 and 9 (2026-11-05):** Windows Hello asked before the master password; a remote desktop that
   isn't connected shown dimmed; RDP resizes about twice as fast, with the old picture filling the window meanwhile;
-  RDP timings in the detailed log. Since then, on dev: RDP input sent at once and no longer held up by decoding.
+  RDP timings in the detailed log. Since then, on dev: RDP input sent at once and no longer held up by decoding;
+  setup offers to add the shells it finds to the tree as LOCAL connections.
 - **0.1.2 previews (2026-11-04):** a Commands page in the side panel, with the editor in the right-hand pane and a
   right-click menu; saving a command on any connections at once (linked copies, with guests listed under their host);
   saved commands that send themselves when a saved connection connects, and ones that answer a password prompt;
@@ -23,13 +24,7 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 Suggested and not started; each waits for a go-ahead.
 
-- **Local shells offered at setup:** after the import step, *Add your local shells to the tree* lists the shells
-  found (PowerShell, cmd, each WSL distribution; the login shell on Linux and macOS), ticked only when the tree is
-  empty, and put in a LOCAL folder. Never added later, so a deleted one stays deleted.
-- **Ctrl+click and Shift+click in *Save on*,** to pick several rows and tick them together, if *+ guests*, the
-  filter and *Tick the N shown* turn out not to be enough.
-
-Also open from the feature table: a collapsed host showing its guests' sessions, recording the remote pointer's
+Open from the feature table: a collapsed host showing its guests' sessions, recording the remote pointer's
 shape, and Touch ID, which needs a signed macOS build.
 
 ## Parked for future releases

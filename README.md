@@ -51,7 +51,8 @@ and GitHub attests that they were built by this repository's workflow:
 `gh attestation verify <file> --repo InspireNXE/Orrery`.
 
 On first launch a short setup asks where a portable copy keeps its data, where saved passwords go (and the vault's
-master password, if that's your choice), what to import, and how to handle updates. *Skip to the end* goes straight to the summary, keeping anything you've already chosen.
+master password, if that's your choice), what to import, which of this computer's shells to add
+to the tree as LOCAL connections (in a *Local* folder; a deleted one isn't added back), and how to handle updates. *Skip to the end* goes straight to the summary, keeping anything you've already chosen.
 
 ## Platform support
 
