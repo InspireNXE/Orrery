@@ -404,22 +404,9 @@ sealed class RecordingsPanel : DockPanel
 
     void Reveal(string path, bool select)
     {
-        try
+        if (FileReveal.Reveal(path, select) is { } problem)
         {
-            if (select && OperatingSystem.IsWindows())
-            {
-                var start = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
-                start.ArgumentList.Add($"/select,{path}");
-                Process.Start(start);
-            }
-            else
-            {
-                Process.Start(new ProcessStartInfo(select ? System.IO.Path.GetDirectoryName(path)! : path) { UseShellExecute = true });
-            }
-        }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
-        {
-            ShowProblem($"Couldn't open the folder: {e.Message}");
+            ShowProblem(problem);
         }
     }
 

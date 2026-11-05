@@ -382,7 +382,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   Windows, MP4 uses Windows' own encoders; elsewhere, or for a codec Windows lacks, it uses an ffmpeg you've chosen
   in Settings, which finds one installed by the usual package managers and shows the codecs each route offers.
   Orrery never downloads or bundles ffmpeg; *Get ffmpeg* in Settings links to its download page, with the install
-  command for your system. See
+  command for your system. When it's done, Orrery says where the file went, with *Open* and *Show in folder*. See
   [the design notes](docs/design-session-recording.md).
 
 <p align="center">
