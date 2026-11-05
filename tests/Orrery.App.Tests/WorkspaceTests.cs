@@ -239,7 +239,7 @@ public class WorkspaceWindowTests : IDisposable
         ConnectionStore.In(_location).Save(tree);
     }
 
-    string WorkspaceFile => _location.FileIn(WorkspaceStore.FileName);
+    string WorkspaceFile => ComputerFiles.PathFor(_location, WorkspaceStore.FileName);
 
     MainWindow NewWindow()
     {
@@ -1199,8 +1199,8 @@ public class WorkspaceWindowTests : IDisposable
     [AvaloniaFact]
     public void With_recent_connections_off_what_was_kept_is_deleted_at_start_up_and_nothing_new_is_written()
     {
-        var recentFile = _location.FileIn(RecentConnections.FileName);
-        var historyFile = _location.FileIn(ConnectionHistory.FileName);
+        var recentFile = ComputerFiles.PathFor(_location, RecentConnections.FileName);
+        var historyFile = ComputerFiles.PathFor(_location, ConnectionHistory.FileName);
         new RecentConnections(recentFile).Add(new RecentConnection(_saved.Id, _saved.Name, Protocol.Ssh, _saved.Host!, 22, null, DateTimeOffset.Now));
         new ConnectionHistory(historyFile).RecordConnected(_saved.Id, DateTimeOffset.Now);
         AppSettingsStore.In(_location).Save(new AppSettings { RememberRecentConnections = false });

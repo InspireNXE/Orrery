@@ -34,7 +34,7 @@ public sealed class ConnectionHistory(string path)
     Dictionary<Guid, ConnectionUse>? _uses;
     bool _enabled = true;
 
-    public static ConnectionHistory In(DataLocation location) => new(location.FileIn(FileName));
+    public static ConnectionHistory In(DataLocation location) => new(ComputerFiles.PathFor(location, FileName));
 
     public event EventHandler? Changed;
 

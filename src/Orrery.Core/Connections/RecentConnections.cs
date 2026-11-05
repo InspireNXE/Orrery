@@ -38,7 +38,7 @@ public sealed class RecentConnections(string path, int limit = 20)
     List<RecentConnection>? _items;
     bool _enabled = true;
 
-    public static RecentConnections In(DataLocation location) => new(location.FileIn(FileName));
+    public static RecentConnections In(DataLocation location) => new(ComputerFiles.PathFor(location, FileName));
 
     /// <summary>A missing or unreadable file is an empty history: losing it isn't worth refusing to start.</summary>
     public IReadOnlyList<RecentConnection> Items => _enabled ? _items ??= Load() : [];

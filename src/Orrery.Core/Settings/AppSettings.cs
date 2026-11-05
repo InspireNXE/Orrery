@@ -419,9 +419,23 @@ public sealed record AppSettings
     public TimeSpan KeepLogsFor => TimeSpan.FromDays(LogDays is > 0 and var days ? days : DefaultLogDays);
 }
 
-public sealed class AppSettingsStore(string path)
+public sealed class AppSettingsStore(string path, string? computerValuesPath = null)
 {
     public const string FileName = "settings.json";
+
+    /// <summary>
+    /// Settings that belong to the computer they're set on, for a data folder a sync app shares between several: where
+    /// passwords are kept, the shell and ffmpeg found here, how the window's panes are laid out for this screen, and when
+    /// this copy last checked for updates. settings.json keeps the first computer's; another's own are in its file at
+    /// <c>computerValuesPath</c> (<see cref="ComputerValues"/>).
+    /// </summary>
+    internal static readonly string[] PerComputer =
+    [
+        "credentialStore", "localShell", "ffmpegPath", "sidePanelOpen", "inspectorOpen", "sidePanelMode", "inspectorMode",
+        "sidePanelPutAway", "inspectorPutAway", "sidePanelPage", "sidePanelWidth", "inspectorWidth", "settingsPage", "lastUpdateCheck",
+    ];
+
+    const string ValuesKey = "settings";
 
     static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -431,7 +445,8 @@ public sealed class AppSettingsStore(string path)
         Converters = { new BritishSpellingEnumConverter() },
     };
 
-    public static AppSettingsStore In(DataLocation location) => new(location.FileIn(FileName));
+    public static AppSettingsStore In(DataLocation location) =>
+        new(location.FileIn(FileName), Path.Combine(location.DataDir, ComputerFiles.FolderName, $"{ComputerFiles.Tag}-{FileName}"));
 
     // Each settings file as this process last read or wrote it, whichever store did: the base a save measures both its
     // own settings and the file against, when another computer saved the file (through a sync app) in between.
@@ -444,16 +459,23 @@ public sealed class AppSettingsStore(string path)
     {
         try
         {
-            if (!File.Exists(path))
+            var text = File.Exists(path) ? File.ReadAllText(path) : null;
+            var json = text is null ? [] : JsonNode.Parse(text) as JsonObject ?? [];
+            if (computerValuesPath is not null)
             {
-                return new();
+                foreach (var (name, value) in new ComputerValues(computerValuesPath).For(ValuesKey).Where(v => PerComputer.Contains(v.Key)))
+                {
+                    json[name] = value?.DeepClone();
+                }
             }
 
-            var text = File.ReadAllText(path);
-            var settings = (JsonSerializer.Deserialize<AppSettings>(text, JsonOptions) ?? new()).Migrated();
-            lock (Known)
+            var settings = (json.Deserialize<AppSettings>(JsonOptions) ?? new()).Migrated();
+            if (text is not null)
             {
-                Known[path] = text;
+                lock (Known)
+                {
+                    Known[path] = text;
+                }
             }
 
             return settings;
@@ -486,6 +508,11 @@ public sealed class AppSettingsStore(string path)
         {
         }
 
+        if (computerValuesPath is not null)
+        {
+            text = KeepOwn(text, disk, new ComputerValues(computerValuesPath));
+        }
+
         if (disk is not null && known is not null && disk != known && Merged(known, text, disk) is { } merged)
         {
             text = merged;
@@ -500,6 +527,46 @@ public sealed class AppSettingsStore(string path)
         {
             Known[path] = text;
         }
+    }
+
+    /// <summary>
+    /// Notes this computer's values of <see cref="PerComputer"/> settings that differ from settings.json's in its own
+    /// file, and gives back <paramref name="mine"/> with settings.json's in their place. With no settings.json yet, this
+    /// computer's become everyone's.
+    /// </summary>
+    static string KeepOwn(string mine, string? disk, ComputerValues values)
+    {
+        JsonObject? shared = null;
+        try
+        {
+            shared = disk is null ? null : JsonNode.Parse(disk) as JsonObject;
+        }
+        catch (JsonException)
+        {
+        }
+
+        var json = JsonNode.Parse(mine)!.AsObject();
+        foreach (var name in PerComputer)
+        {
+            if (shared is null || JsonMerge.Same(json[name], shared[name]))
+            {
+                values.Clear(ValuesKey, name);
+                continue;
+            }
+
+            values.Set(ValuesKey, name, json[name]);
+            json[name] = shared[name]?.DeepClone();
+        }
+
+        try
+        {
+            values.Save();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        return JsonSerializer.Serialize(Normal(json.Deserialize<AppSettings>(JsonOptions) ?? new()), JsonOptions);
     }
 
     static AppSettings Normal(AppSettings settings) => settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion };

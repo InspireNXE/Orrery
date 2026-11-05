@@ -223,9 +223,12 @@ public class WorkspaceStoreTests : IDisposable
 
         WorkspaceStore.In(location).Save(new Workspace { Tabs = [new WorkspaceTab(null, "box.example", 22, Protocol.Ssh)] });
 
-        Assert.True(File.Exists(location.FileIn("workspace.json")));
-        Assert.True(DataFolderFiles.IsCopied(WorkspaceStore.FileName));
-        Assert.True(DataFolderFiles.IsDeleted(WorkspaceStore.FileName));
+        // Each computer's own, in a data folder a sync app may share.
+        var own = Path.Combine(_root, ComputerFiles.FolderName, $"{ComputerFiles.Tag}-workspace.json");
+        Assert.True(File.Exists(own));
+        Assert.False(File.Exists(location.FileIn("workspace.json")));
+        Assert.True(DataFolderFiles.IsCopiedFrom(DataFolderFiles.PatternsFor(ComputerFiles.FolderName)!, Path.GetFileName(own)));
+        Assert.True(DataFolderFiles.IsCopied(WorkspaceStore.FileName)); // The one from before, still moved until it's gone.
     }
 
     [Fact]

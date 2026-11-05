@@ -33,6 +33,7 @@ public static class DataFolderFiles
         ("backups", ["connections-*.json"]),
         ("import", ImportReports()),
         ("recordings", ["*.orrec"]),
+        (ComputerFiles.FolderName, ["*-*.json"]), // Each computer's own files: see ComputerFiles.
     ];
 
     /// <summary>

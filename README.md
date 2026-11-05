@@ -511,6 +511,14 @@ An installed copy uses each system's usual folder.
 `history.json` keeps when each connection last connected or failed, by connection, so it survives renames and
 moves. It stays on this computer: exports leave it out, and deleting a connection deletes its entry.
 
+What belongs to one computer is kept in `computers/` in the data folder, in files named with a short tag for the
+computer: the open tabs and window (`workspace.json`), recent connections, `history.json`, and this computer's own
+values for fields that differ between computers. Those are a connection's key file, shared folders, chosen displays
+and use of all monitors, a local shell's start folder, the shell or serial port of a LOCAL or serial connection,
+which folders are open in the tree, and in settings the password store, shell, ffmpeg path, pane layout and last
+update check. `connections.json` and `settings.json` keep the values of the first computer to save them, which
+another computer uses until it sets its own.
+
 Recordings are in `recordings/` in the data folder, encrypted. Move data takes them along.
 
 A portable data folder can be kept in a sync app's folder (OneDrive, Dropbox, Synology Drive, Syncthing) and used on
@@ -521,7 +529,7 @@ field, this computer's change is kept and the status bar says so. A master passw
 the vault on the others, to be opened with the new one. Each computer with Orrery open leaves a small
 `open-on-<tag>.json` file, so the others can say it's open there. If the sync app still makes conflict copies of
 Orrery's files, Orrery lists them at start, as it never reads them. Windows Hello and the system's credential store
-are per computer, so each one is set up on its own.
+are per computer, so each one is set up on its own, and so are the values in `computers/` above.
 
 <details>
 <summary>Logs</summary>

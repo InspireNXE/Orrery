@@ -133,7 +133,7 @@ public sealed class WorkspaceStore(string path)
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    public static WorkspaceStore In(DataLocation location) => new(location.FileIn(FileName));
+    public static WorkspaceStore In(DataLocation location) => new(ComputerFiles.PathFor(location, FileName));
 
     /// <summary>A missing or unreadable file is an empty workspace: nothing to reopen, the window where it starts.</summary>
     public Workspace Load()
