@@ -1348,7 +1348,8 @@ sealed partial class PlayerView : DockPanel, IDisposable
             return false;
         }
 
-        return _decoder.Apply(e) && e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change or RecordingEventType.Pointer;
+        return _decoder.Apply(e) && e.Type is RecordingEventType.KeyFrame or RecordingEventType.Change or RecordingEventType.Pointer
+            or RecordingEventType.PointerShape;
     }
 
     void PlaySound(byte[] payload)
@@ -1475,7 +1476,7 @@ sealed partial class PlayerView : DockPanel, IDisposable
 
         if (_decoder.Pointer is var (x, y))
         {
-            PointerArrow.Draw(pixels, width, height, x, y, bytesPerPixel: 4);
+            RemotePointerShape.Draw(_decoder.PointerShape, pixels, width, height, x, y, bytesPerPixel: 4);
         }
     }
 

@@ -48,6 +48,12 @@ public enum RecordingEventType : byte
     /// <see cref="RecordingFile.VersionWithTyping"/> files.
     /// </summary>
     Input = 10,
+
+    /// <summary>
+    /// What the remote pointer looks like from here on (<see cref="ScreenFrames.EncodePointerShape"/>). Only in
+    /// <see cref="RecordingFile.VersionWithPointerShapes"/> files.
+    /// </summary>
+    PointerShape = 11,
 }
 
 /// <summary>What a recording is of, kept inside its encrypted part.</summary>
@@ -122,6 +128,12 @@ public static class RecordingFile
     /// still opens there.
     /// </summary>
     public const int VersionWithTyping = 2;
+
+    /// <summary>
+    /// A screen recording that may hold <see cref="RecordingEventType.PointerShape"/>, for the same reason: a build that
+    /// can't draw the shapes says the recording is from a newer Orrery instead of stopping at the first one as damaged.
+    /// </summary>
+    public const int VersionWithPointerShapes = 3;
     public const int ChunkSize = 64 * 1024;
     public const int MaxHeaderSize = 64 * 1024;
 
@@ -244,6 +256,9 @@ public sealed class RecordingWriter : IDisposable
 
     public string Path => _file.Name;
 
+    /// <summary>Made for <see cref="RecordingEventType.PointerShape"/> events (<see cref="Create"/> with pointer shapes).</summary>
+    public bool HoldsPointerShapes { get; private init; }
+
     /// <summary>Bytes in the file so far, not counting what's still buffered.</summary>
     public long Length
     {
@@ -258,16 +273,19 @@ public sealed class RecordingWriter : IDisposable
 
     /// <summary>
     /// Makes a new recording at <paramref name="path"/>, which mustn't exist, sealed to <paramref name="publicKey"/>;
-    /// <paramref name="typing"/> for one that may hold what's typed (<see cref="RecordingFile.VersionWithTyping"/>).
+    /// <paramref name="typing"/> for one that may hold what's typed (<see cref="RecordingFile.VersionWithTyping"/>),
+    /// <paramref name="pointerShapes"/> for one that may hold the remote pointer's shapes
+    /// (<see cref="RecordingFile.VersionWithPointerShapes"/>).
     /// </summary>
-    public static RecordingWriter Create(string path, RecordingKind kind, byte[] publicKey, bool typing = false)
+    public static RecordingWriter Create(string path, RecordingKind kind, byte[] publicKey, bool typing = false, bool pointerShapes = false)
     {
+        int version = pointerShapes ? RecordingFile.VersionWithPointerShapes : typing ? RecordingFile.VersionWithTyping : RecordingFile.Version;
         var fileKey = RecordingKeys.NewFileKey();
         try
         {
             var sealedKey = RecordingKeys.Seal(publicKey, fileKey);
             var noncePrefix = RandomNumberGenerator.GetBytes(RecordingFile.NoncePrefixSize);
-            var header = new RecordingHeader(RecordingFile.FormatName, typing ? RecordingFile.VersionWithTyping : RecordingFile.Version, kind, RecordingKeys.KeyId(publicKey),
+            var header = new RecordingHeader(RecordingFile.FormatName, version, kind, RecordingKeys.KeyId(publicKey),
                 Convert.ToBase64String(sealedKey.EphemeralPublicKey), Convert.ToBase64String(sealedKey.Nonce),
                 Convert.ToBase64String(sealedKey.Ciphertext), Convert.ToBase64String(noncePrefix));
             var headerBytes = JsonSerializer.SerializeToUtf8Bytes(header, RecordingFile.JsonOptions);
@@ -286,7 +304,7 @@ public sealed class RecordingWriter : IDisposable
                 file.Write(preamble);
                 file.Flush();
                 var key = Key.Import(RecordingFile.Aead, fileKey, KeyBlobFormat.RawSymmetricKey);
-                return new RecordingWriter(file, key, noncePrefix, SHA256.HashData(preamble));
+                return new RecordingWriter(file, key, noncePrefix, SHA256.HashData(preamble)) { HoldsPointerShapes = pointerShapes };
             }
             catch
             {
@@ -521,7 +539,7 @@ public sealed class RecordingReader : IDisposable
             throw new InvalidDataException(NotOne);
         }
 
-        if (header is not { Format: RecordingFile.FormatName, Version: RecordingFile.Version or RecordingFile.VersionWithTyping }
+        if (header is not { Format: RecordingFile.FormatName, Version: RecordingFile.Version or RecordingFile.VersionWithTyping or RecordingFile.VersionWithPointerShapes }
             || !Enum.IsDefined(header.Kind) || header.KeyId is null
             || DecodedLength(header.EphemeralPublicKey) != RecordingKeys.KeySize
             || DecodedLength(header.KeyNonce) != RecordingFile.Aead.NonceSize

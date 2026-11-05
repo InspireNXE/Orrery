@@ -299,4 +299,40 @@ public class VncSessionTests
         Assert.True(jpeg < 100);
         Assert.NotEqual(MarcusW.VncClient.JpegSubsamplingLevel.None, subsampling);
     }
+
+    [Fact]
+    public async Task The_servers_cursor_is_taken_from_the_first_picture()
+    {
+        await using var server = new TestRfbServer(password: null, cursor: true);
+        await using var session = await ConnectAsync(server, string.Empty);
+        await WaitUntilAsync(() => session.PointerShape is not null);
+
+        var shape = session.PointerShape!;
+        Assert.Equal((2, 1, 1, 0), (shape.Width, shape.Height, shape.HotspotX, shape.HotspotY));
+        Assert.Equal([255, 0, 0, 255], shape.Rgba[..4]);
+        Assert.Equal(0, shape.Rgba[7]);
+    }
+
+    [Fact]
+    public void A_cursor_in_a_16_bit_format_is_turned_into_rgba()
+    {
+        // 5-6-5, little-endian: red at bit 11, green at 5, blue at 0.
+        var format = new MarcusW.VncClient.PixelFormat("565", 16, 16, bigEndian: false, trueColor: true, hasAlpha: false,
+            redMax: 31, greenMax: 63, blueMax: 31, alphaMax: 0, redShift: 11, greenShift: 5, blueShift: 0, alphaShift: 0);
+        byte[] pixels = [0x00, 0xF8, 0xE0, 0x07, 0x1F, 0x00];
+        var shape = VncSession.CursorFromPixels(0, 0, 3, 1, pixels, [0b1010_0000], format)!;
+
+        Assert.Equal([255, 0, 0, 255, 0, 255, 0, 0, 0, 0, 255, 255], shape.Rgba);
+        Assert.Null(VncSession.CursorFromPixels(0, 0, 3, 1, pixels[..4], [0xFF], format));
+    }
+
+    [Fact]
+    public void A_two_color_cursor_picks_its_colors_from_the_bitmap()
+    {
+        var shape = VncSession.CursorFromTwoColors(1, 0, 2, 1, [10, 20, 30], [40, 50, 60], [0b1000_0000], [0b1100_0000])!;
+
+        Assert.Equal([10, 20, 30, 255, 40, 50, 60, 255], shape.Rgba);
+        Assert.Equal(1, shape.HotspotX);
+        Assert.Null(VncSession.CursorFromTwoColors(0, 0, 2, 1, [1, 2], [3, 4, 5], [0], [0]));
+    }
 }
