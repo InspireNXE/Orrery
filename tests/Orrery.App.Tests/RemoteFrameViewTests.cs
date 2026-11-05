@@ -370,4 +370,105 @@ public class RemoteFrameViewTests
         Assert.Equal(follows, session.Requests.Count > 0);
         window.Close();
     }
+
+    /// <summary>A desktop that takes the size it's asked for, as an RDP server does, once told to.</summary>
+    sealed class FollowingDesktop : IFrameBufferSession, IDisplayScaleSession
+    {
+        public List<(int Width, int Height)> Requests { get; } = [];
+        public bool Answers { get; set; } = true;
+        public ConnectionTarget Target { get; } = new("desk", 3389, "user", null);
+        public SessionState State => SessionState.Connected;
+#pragma warning disable CS0067 // Part of the interface; this fake never raises it.
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+#pragma warning restore CS0067
+        public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
+        public int Width { get; private set; } = 640;
+        public int Height { get; private set; } = 480;
+        public bool FollowsDisplayScale => false;
+        public void SetDisplayScale(double renderScaling) { }
+        public void Show() => FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
+        public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride) { }
+        public void SendKey(ushort scancode, bool pressed) { }
+        public void ReleaseAllKeys() { }
+        public void SendPointerMove(int x, int y) { }
+        public void SendPointerButton(PointerButton button, bool pressed) { }
+        public void SendWheel(int units, bool horizontal) { }
+
+        public void RequestResize(int width, int height)
+        {
+            Requests.Add((width, height));
+            if (Answers)
+            {
+                (Width, Height) = (width, height);
+                Show();
+            }
+        }
+
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    static async Task Run(TimeSpan time)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (watch.Elapsed < time)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [AvaloniaFact]
+    public async Task While_the_server_resizes_the_old_picture_fills_the_view_then_its_new_one_is_drawn_as_is()
+    {
+        var session = new FollowingDesktop { Answers = false };
+        var view = new RemoteFrameView(session);
+        var window = new Window { Content = view, Width = 640, Height = 480 };
+        window.Show();
+        session.Show();
+        await Run(TimeSpan.FromMilliseconds(400));
+        Assert.True(view.HasFrame);
+        session.Requests.Clear();
+
+        window.Width = 900;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(view.Stretching);
+
+        // Asked soon after the size settles, well inside the old 400 ms.
+        await Run(RemoteFrameView.ResizeSettleDelay + TimeSpan.FromMilliseconds(100));
+        Assert.Single(session.Requests);
+        Assert.True(view.Stretching);
+
+        // The server's picture at the new size is drawn as it is.
+        session.Answers = true;
+        session.RequestResize(session.Requests[0].Width, session.Requests[0].Height);
+        Dispatcher.UIThread.RunJobs();
+        await Run(TimeSpan.FromMilliseconds(50));
+        Assert.False(view.Stretching);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_long_drag_asks_for_the_size_on_the_way()
+    {
+        var session = new FollowingDesktop();
+        var window = new Window { Content = new RemoteFrameView(session), Width = 640, Height = 480 };
+        window.Show();
+        session.Show();
+        await Run(TimeSpan.FromMilliseconds(400));
+        session.Requests.Clear();
+
+        // A second of size changes every 40 ms: before, nothing was asked until they stopped.
+        for (int i = 1; i <= 25; i++)
+        {
+            window.Width = 640 + i * 8;
+            await Run(TimeSpan.FromMilliseconds(40));
+        }
+
+        Assert.True(session.Requests.Count >= 2, $"Asked {session.Requests.Count} times during the drag.");
+        Assert.True(session.Requests.Count <= 6, $"Asked {session.Requests.Count} times during the drag.");
+        window.Close();
+    }
 }
