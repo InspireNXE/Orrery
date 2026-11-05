@@ -870,26 +870,24 @@ public partial class MainWindow : Window
             }
         }, RoutingStrategies.Tunnel);
 
-        _fullScreenHotZone.PointerEntered += (_, _) =>
-        {
-            _fullScreenTitle.Text = _currentTab?.Origin.Title;
-            _fullScreenHint.Text = $"{Input.FullScreenShortcut.Describe(_fullScreenShortcut)} to leave";
-            ShowFullScreenRecording();
-            _fullScreenBar.IsVisible = true;
-        };
         // The bar is narrower than the strip that shows it, so leaving one for the other keeps it; it goes once the
         // pointer is over neither. Otherwise sliding off the bar along the top edge showed it again, and moving down
         // from there, never over the bar, left it showing.
         _fullScreenBar.PointerExited += (_, e) => HideFullScreenBarUnlessOver(e);
-        _fullScreenHotZone.PointerExited += (_, e) => HideFullScreenBarUnlessOver(e);
 
-        // And on any move off both, seen before the session takes it: an exit can be missed or come with the last
-        // position still on the strip, and the bar then stayed over the remote desktop.
+        // Every move is seen here before the session takes it. The strip at the top isn't hit-tested, so the session
+        // under it still gets the pointer and its clicks (a remote window's title bar or close button sits there);
+        // reaching it only shows the bar. Leaving both hides it: an exit can be missed or come with the last position
+        // still on the strip, and the bar then stayed over the remote desktop.
         AddHandler(PointerMovedEvent, (_, e) =>
         {
             if (_fullScreenBar.IsVisible)
             {
                 HideFullScreenBarUnlessOver(e);
+            }
+            else if (IsOver(_fullScreenHotZone, e))
+            {
+                ShowFullScreenBar();
             }
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
@@ -911,12 +909,20 @@ public partial class MainWindow : Window
             recording ? $"{_currentTab!.Origin.Title}, {_currentTab.RecordingText.ToLowerInvariant()}" : _currentTab?.Origin.Title);
     }
 
+    void ShowFullScreenBar()
+    {
+        _fullScreenTitle.Text = _currentTab?.Origin.Title;
+        _fullScreenHint.Text = $"{Input.FullScreenShortcut.Describe(_fullScreenShortcut)} to leave";
+        ShowFullScreenRecording();
+        _fullScreenBar.IsVisible = true;
+    }
+
+    static bool IsOver(Control control, PointerEventArgs e) =>
+        control.IsVisible && new Rect(control.Bounds.Size).Contains(e.GetPosition(control));
+
     void HideFullScreenBarUnlessOver(PointerEventArgs e)
     {
-        static bool Over(Control control, PointerEventArgs e) =>
-            control.IsVisible && new Rect(control.Bounds.Size).Contains(e.GetPosition(control));
-
-        if (!Over(_fullScreenBar, e) && !Over(_fullScreenHotZone, e))
+        if (!IsOver(_fullScreenBar, e) && !IsOver(_fullScreenHotZone, e))
         {
             _fullScreenBar.IsVisible = false;
         }
