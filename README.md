@@ -98,6 +98,7 @@ machine yet, hence the 🧪.
 | Export MP4, with sound | 🧪 built in | 🔸 through ffmpeg | 🔸 through ffmpeg |
 | MP4 without ffmpeg | ✅ | 🗓️ AVFoundation | ➖ |
 | Record the remote pointer's shape | ✅ RDP; VNC 🧪 | 🧪 | 🧪 |
+| Show the remote pointer's shape, in your own pointer scheme | 🧪 | 🔸 the server's own shapes | 🔸 the server's own shapes |
 | **Credentials** | | | |
 | System secret store | ✅ Credential Manager | 🧪 Keychain | 🧪 Secret Service |
 | Encrypted vault file | ✅ | 🧪 | 🧪 |
@@ -192,6 +193,11 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **When a connection fails or drops,** the tab says what happened and what to try. Enter reconnects; details are a
   click away, with a Copy button. A remote desktop (RDP or VNC) that isn't connected shows its last picture dimmed,
   so it isn't mistaken for a live one.
+- **The pointer over a remote desktop** takes the shape the server gives it: a text beam over text, a hand over a
+  link, a resize arrow at a window's edge. On Windows, a standard pointer is shown as your own, so your pointer
+  scheme, size and high contrast carry over; a shape an app drew itself is shown as the server sent it. Orrery
+  tells them apart by comparing the shape's outline with Windows' default pointers, so a server with another
+  pointer scheme gets its own shapes. On Linux and macOS, the server's shapes are shown as they are.
 - **Reconnects** happen on their own, waiting longer each time (up to a minute), and at once when the network
   returns. A refused login or an untrusted host key or certificate is never retried.
 - **Many tabs** narrow to fit the tab strip, as in a browser, then show only their state (the current one keeps its
