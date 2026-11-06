@@ -387,6 +387,11 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
                 lock (_lock)
                 {
+                    // What another computer saved since this one last read the file is taken in first, while the key
+                    // it was saved with is the one in use: read with the new key, it didn't decrypt, counted as part
+                    // written, and was saved over.
+                    Unlocked();
+
                     // Save re-encrypts the contents under the new data key, bound to the new salt, so an old copy
                     // of the file and the old password can't read anything saved from now on.
                     var (previousFile, previousKey) = (_file!, _dataKey);
@@ -395,7 +400,6 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                     _dataKey = newKey;
                     try
                     {
-                        Unlocked();
                         Save();
                     }
                     catch

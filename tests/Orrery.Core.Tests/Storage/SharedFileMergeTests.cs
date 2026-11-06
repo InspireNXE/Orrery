@@ -85,6 +85,28 @@ public class SharedFileMergeTests : IDisposable
         Assert.Equal(["desktop", "shared"], (await desktop.ListAsync()).Select(c => c.Name));
     }
 
+    // The change swapped in the new key before reading the other computer's save, which then didn't decrypt, counted
+    // as part written, and was saved over.
+    [Fact]
+    public async Task Changing_the_master_password_keeps_what_the_other_computer_saved_since()
+    {
+        using var laptop = new VaultFileStore(In("vault.frv"), FastKdf);
+        await laptop.UnlockAsync("a long master password");
+        await laptop.SaveAsync(Password("shared"));
+        using var desktop = new VaultFileStore(In("vault.frv"), FastKdf);
+        await desktop.UnlockAsync("a long master password");
+
+        Later(In("vault.frv"));
+        await desktop.SaveAsync(Password("desktop"));
+        Later(In("vault.frv"));
+        await laptop.ChangePasswordAsync("a long master password", "a new long password");
+
+        Assert.Equal(["desktop", "shared"], (await laptop.ListAsync()).Select(c => c.Name));
+        using var reopened = new VaultFileStore(In("vault.frv"), FastKdf);
+        await reopened.UnlockAsync("a new long password");
+        Assert.Equal(["desktop", "shared"], (await reopened.ListAsync()).Select(c => c.Name));
+    }
+
     [Fact]
     public void A_setting_changed_on_the_other_computer_isn_t_saved_over_by_a_different_one_here()
     {
