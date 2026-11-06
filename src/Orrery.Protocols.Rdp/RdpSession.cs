@@ -1572,8 +1572,35 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             PerformanceFlagsType.DisableWallpaper, PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations,
             PerformanceFlagsType.DisableTheming, PerformanceFlagsType.DisableCursorShadow, PerformanceFlagsType.DisableCursorSettings,
         ],
-        _ => [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing],
+        _ => IronRdpDefault,
     };
+
+    /// <summary>The flags IronRDP sends when it's given none: no window contents while dragging, no menu animations, font smoothing.</summary>
+    static readonly PerformanceFlagsType[] IronRdpDefault =
+        [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing];
+
+    /// <summary>
+    /// Whether <paramref name="quality"/>'s flags start from IronRDP's default rather than from none. IronRDP's
+    /// EnableFontSmoothing flag sends desktop composition instead (its bindings map it to the wrong bit), and its
+    /// default is the only way to send font smoothing, so flags that include the whole default, as Balanced's do, start
+    /// from it. Best goes without font smoothing until a release of IronRDP maps the flag right.
+    /// </summary>
+    internal static bool StartsFromIronRdpDefault(DisplayQuality quality) => IronRdpDefault.All(VisualEffects(quality).Contains);
+
+    static PerformanceFlags PerformanceFlagsFor(DisplayQuality quality)
+    {
+        bool fromDefault = StartsFromIronRdpDefault(quality);
+        var flags = fromDefault ? PerformanceFlags.NewDefault() : PerformanceFlags.NewEmpty();
+        foreach (var flag in VisualEffects(quality))
+        {
+            if (!fromDefault || !IronRdpDefault.Contains(flag))
+            {
+                flags.AddFlag(flag);
+            }
+        }
+
+        return flags;
+    }
 
     static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality, bool playAudio, int? desktopScale)
     {
@@ -1588,13 +1615,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         builder.SetDesktopSize((ushort)height, (ushort)width);
         builder.ClientName = RdpConnector.ClientName;
         builder.ClientDir = "C:\\";
-        var flags = PerformanceFlags.NewEmpty();
-        foreach (var flag in VisualEffects(quality))
-        {
-            flags.AddFlag(flag);
-        }
-
-        builder.PerformanceFlags = flags;
+        builder.PerformanceFlags = PerformanceFlagsFor(quality);
         if (!playAudio)
         {
             try

@@ -17,6 +17,16 @@ public class RdpQualityTests
     }
 
     [Fact]
+    public void Balanced_starts_from_IronRDP_s_default_so_font_smoothing_is_sent()
+    {
+        // IronRDP's EnableFontSmoothing flag sends desktop composition (0x100) instead of font smoothing (0x80); only
+        // its default flags (0x86) send font smoothing. Best and Fastest don't include the whole default.
+        Assert.True(RdpSession.StartsFromIronRdpDefault(DisplayQuality.Balanced));
+        Assert.False(RdpSession.StartsFromIronRdpDefault(DisplayQuality.Best));
+        Assert.False(RdpSession.StartsFromIronRdpDefault(DisplayQuality.Fastest));
+    }
+
+    [Fact]
     public void Best_disables_nothing_and_adds_desktop_composition()
     {
         var flags = RdpSession.VisualEffects(DisplayQuality.Best);
