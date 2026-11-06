@@ -513,7 +513,10 @@ public sealed class AppSettingsStore(string path, string? computerValuesPath = n
             text = KeepOwn(text, disk, new ComputerValues(computerValuesPath));
         }
 
-        if (disk is not null && known is not null && disk != known && Merged(known, text, disk) is { } merged)
+        // A computer that started before the file came (a sync app still bringing it) never saw it, and saved its
+        // settings, defaults and all, over the other computer's. Measured against the defaults it started from, only
+        // what it changed goes over them.
+        if (disk is not null && disk != known && Merged(known ?? DefaultsText, text, disk) is { } merged)
         {
             text = merged;
         }
@@ -570,6 +573,8 @@ public sealed class AppSettingsStore(string path, string? computerValuesPath = n
     }
 
     static AppSettings Normal(AppSettings settings) => settings.Migrated() with { SchemaVersion = AppSettings.CurrentSchemaVersion };
+
+    static string DefaultsText => JsonSerializer.Serialize(Normal(new AppSettings()), JsonOptions);
 
     // Mine over the file, measured against the base; null if the file or the base can't be read, and mine is saved as it is.
     static string? Merged(string known, string mine, string disk)

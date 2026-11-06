@@ -125,6 +125,24 @@ public class SharedFileMergeTests : IDisposable
         Assert.Equal("C:\\tools\\ffmpeg.exe", saved.FfmpegPath);
     }
 
+    // With no version of the file to measure against, its settings, defaults and all, were saved over the other's.
+    [Fact]
+    public void A_computer_that_started_without_the_file_keeps_the_other_s_settings_when_it_comes()
+    {
+        var store = new AppSettingsStore(In("settings.json"));
+        var here = store.Load();
+
+        // Then the other computer's file comes, through the sync app.
+        new AppSettingsStore(In("elsewhere.json")).Save(new AppSettings { TerminalFontSize = 18 });
+        File.Copy(In("elsewhere.json"), In("settings.json"));
+
+        store.Save(here with { FfmpegPath = "C:\\tools\\ffmpeg.exe" });
+
+        var saved = store.Load();
+        Assert.Equal(18, saved.TerminalFontSize);
+        Assert.Equal("C:\\tools\\ffmpeg.exe", saved.FfmpegPath);
+    }
+
     [Fact]
     public void Hosts_trusted_on_each_computer_are_all_kept()
     {
