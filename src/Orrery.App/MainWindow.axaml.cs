@@ -2490,7 +2490,13 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (await _credentials.GetAsync(id) is { } credential)
+                var (read, credential) = await ReadSavedCredentialAsync(id);
+                if (!read)
+                {
+                    return;
+                }
+
+                if (credential is not null)
                 {
                     saved = credential;
                     (username, domain, password) = (credential.Username, credential.Domain, credential.Secret);
@@ -2553,8 +2559,14 @@ public partial class MainWindow : Window
                 }
 
                 (username, domain, password) = (prompt.Username, prompt.Domain, prompt.Password);
-                if (prompt.CredentialId is { } chosenId && await _credentials.GetAsync(chosenId) is { } chosenCredential)
+                if (prompt.CredentialId is { } chosenId)
                 {
+                    var (chosenRead, chosenCredential) = await ReadSavedCredentialAsync(chosenId);
+                    if (!chosenRead)
+                    {
+                        return;
+                    }
+
                     saved = chosenCredential;
                 }
             }
@@ -2567,7 +2579,25 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
+            // Jump hosts, the key file, the prompt or the session itself: reading the credential says so itself.
+            await Dialogs.ShowMessageAsync(this, $"Couldn't connect to \"{entry.Name}\"", e.Message);
+        }
+    }
+
+    /// <summary>
+    /// The saved credential <paramref name="id"/>, null when it's been deleted; Read is false, after saying so, when
+    /// the store couldn't be read.
+    /// </summary>
+    async Task<(bool Read, Credential? Credential)> ReadSavedCredentialAsync(Guid id)
+    {
+        try
+        {
+            return (true, await _credentials.GetAsync(id));
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
             await Dialogs.ShowMessageAsync(this, "Couldn't read the saved credential", e.Message);
+            return (false, null);
         }
     }
 
@@ -4275,6 +4305,10 @@ public partial class MainWindow : Window
         {
             await ImportAsync(path);
         }
+        else
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file", WhyNotImported(path));
+        }
     }
 
     /// <summary>Imports ~/.ssh/config, or says it isn't there.</summary>
@@ -4316,10 +4350,6 @@ public partial class MainWindow : Window
             StorageLog.LogError(e, "Couldn't create the vault chosen in setup");
             await Dialogs.ShowMessageAsync(this, "Couldn't create the vault",
                 $"{e.Message}\n\nOrrery will ask for a master password when you first save one.");
-        }
-        else
-        {
-            await Dialogs.ShowMessageAsync(this, "Couldn't import this file", WhyNotImported(path));
         }
     }
 
