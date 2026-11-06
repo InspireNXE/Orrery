@@ -235,6 +235,46 @@ public class RemoteFrameViewTests
         window.Close();
     }
 
+    // TabControl takes a hidden tab's view out of the window. Every session's frames used to be copied on the UI thread
+    // anyway, into a bitmap made again for the purpose.
+    [AvaloniaFact]
+    public void A_hidden_view_draws_nothing_until_it_shows_again_and_can_still_save_a_screenshot()
+    {
+        var session = new WatchedDesktop();
+        var view = new RemoteFrameView(session);
+        session.View = view;
+        var window = new Window { Content = view, Width = 800, Height = 500 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        session.Update(new FrameRect(0, 0, 64, 48));
+        Dispatcher.UIThread.RunJobs();
+        int copies = session.BitmapLockedDuringCopy.Count;
+
+        window.Content = null;
+        Dispatcher.UIThread.RunJobs();
+        session.Update(new FrameRect(10, 5, 20, 7));
+        session.Update(new FrameRect(0, 0, 64, 48));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(copies, session.BitmapLockedDuringCopy.Count);
+
+        // The tab's menu can still save it, drawn from the session's picture. (Headless drawing writes no PNG, so only
+        // the copy is seen here.)
+        Assert.True(view.HasFrame);
+        using (var png = new MemoryStream())
+        {
+            view.SaveScreenshot(png);
+        }
+
+        Assert.Equal(copies + 1, session.BitmapLockedDuringCopy.Count);
+
+        // Shown again, all of it is drawn.
+        window.Content = view;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(copies + 2, session.BitmapLockedDuringCopy.Count);
+        Assert.True(view.HasFrame);
+        window.Close();
+    }
+
     /// <summary>A VNC desktop that can raise cut text.</summary>
     sealed class CutTextDesktop : IFrameBufferSession, IClipboardSession
     {
@@ -469,6 +509,27 @@ public class RemoteFrameViewTests
 
         Assert.True(session.Requests.Count >= 2, $"Asked {session.Requests.Count} times during the drag.");
         Assert.True(session.Requests.Count <= 6, $"Asked {session.Requests.Count} times during the drag.");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_maximize_is_asked_for_well_before_a_drag_would_be()
+    {
+        var session = new FollowingDesktop();
+        var window = new Window { Content = new RemoteFrameView(session), Width = 640, Height = 480 };
+        window.Show();
+        session.Show();
+        await Run(TimeSpan.FromMilliseconds(400));
+        session.Requests.Clear();
+
+        // A change after a quiet spell, and one more straight after, as a maximize or full screen can give: asked for
+        // once, at the last size, before the settle delay a drag waits for.
+        window.Width = 900;
+        await Run(TimeSpan.FromMilliseconds(10));
+        window.Width = 950;
+        await Run(RemoteFrameView.ResizeFirstDelay + TimeSpan.FromMilliseconds(50));
+        Assert.True(RemoteFrameView.ResizeFirstDelay + TimeSpan.FromMilliseconds(60) < RemoteFrameView.ResizeSettleDelay);
+        Assert.Equal(950, Assert.Single(session.Requests).Width);
         window.Close();
     }
 }

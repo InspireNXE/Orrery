@@ -84,6 +84,9 @@ public sealed partial class RemoteFrameView : Panel
     const int WheelDelta = 120;
     // A window drag fires many size changes: the server is asked once they settle, and at most this often while they
     // go on. Measured on a LAN, the server resized in 8 ms and drew in 40, so waiting longer was most of the delay.
+    // The first change after a quiet spell (a maximize, full screen, a pane opening, or a drag starting) is asked for
+    // sooner, with the size the view has by then: waiting for those to settle was most of their delay too.
+    internal static readonly TimeSpan ResizeFirstDelay = TimeSpan.FromMilliseconds(50);
     internal static readonly TimeSpan ResizeSettleDelay = TimeSpan.FromMilliseconds(150);
     internal static readonly TimeSpan ResizeMaxWait = TimeSpan.FromMilliseconds(300);
 
@@ -91,6 +94,8 @@ public sealed partial class RemoteFrameView : Panel
     static readonly TimeSpan StretchGiveUp = TimeSpan.FromSeconds(2);
 
     long _resizeWantedSince;
+    long _lastSizeChange;
+    bool _firstAskComing;
     readonly DispatcherTimer _stretchTimer;
 
     // Whether the server is known to follow the view's size: RDP does; another learns it from the first resize.
@@ -104,6 +109,11 @@ public sealed partial class RemoteFrameView : Panel
     bool _resizePending;
     bool _renderQueued;
     WriteableBitmap? _bitmap;
+
+    // Whether the view is in a window. TabControl takes a hidden tab's view out, and then nothing is drawn for it: the
+    // session keeps the picture itself, and the whole of it is drawn when the tab shows again (OnAttachedToVisualTree).
+    // Before, a hidden tab made a bitmap again at the next change and kept copying every frame on the UI thread.
+    volatile bool _onScreen;
 
     const int BytesPerPixel = 4;
 
@@ -274,8 +284,8 @@ public sealed partial class RemoteFrameView : Panel
         }
     }
 
-    /// <summary>Whether there's a picture to save yet.</summary>
-    public bool HasFrame => _bitmap is not null;
+    /// <summary>Whether there's a picture to save yet. A hidden tab's comes from the session (<see cref="SaveScreenshot"/>).</summary>
+    public bool HasFrame => _bitmap is not null || !_onScreen && Session.State == SessionState.Connected && Session.Width > 0 && Session.Height > 0;
 
     DesktopScaling _scaling = DesktopScaling.Fit;
 
@@ -418,8 +428,34 @@ public sealed partial class RemoteFrameView : Panel
         correction?.Apply(pixels, rowBytes, width, height, region);
     }
 
-    /// <summary>Writes the remote screen as it is now, color correction included, as a PNG.</summary>
-    public void SaveScreenshot(Stream stream) => _bitmap?.Save(stream, PngBitmapEncoderOptions.Default);
+    /// <summary>
+    /// Writes the remote screen as it is now, color correction included, as a PNG. A hidden tab has no bitmap of its
+    /// own, so its picture is drawn from the session's for this.
+    /// </summary>
+    public void SaveScreenshot(Stream stream)
+    {
+        if (_bitmap is { } shown)
+        {
+            shown.Save(stream, PngBitmapEncoderOptions.Default);
+            return;
+        }
+
+        int width = Session.Width, height = Session.Height;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        byte[]? scratch = null;
+        var copied = CopyOut(Session, new FrameRect(0, 0, width, height), width, height, ref scratch);
+        using var picture = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Opaque);
+        using (var buffer = picture.Lock())
+        {
+            Blit(scratch, copied, ActiveCorrection, buffer.Address, buffer.RowBytes, width, height);
+        }
+
+        picture.Save(stream, PngBitmapEncoderOptions.Default);
+    }
 
     /// <summary>Presses the keys in order on the remote computer, then lets them go in reverse.</summary>
     public void SendKeys(RemoteKeyCombo combo)
@@ -596,16 +632,35 @@ public sealed partial class RemoteFrameView : Panel
             SizeImage();
         }
 
-        _resizeTimer.Stop();
-        if (_resizeWantedSince == 0)
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool quiet = _lastSizeChange == 0 || System.Diagnostics.Stopwatch.GetElapsedTime(_lastSizeChange, now) >= ResizeSettleDelay;
+        _lastSizeChange = now;
+        if (_firstAskComing)
         {
-            _resizeWantedSince = System.Diagnostics.Stopwatch.GetTimestamp();
-        }
-        else if (System.Diagnostics.Stopwatch.GetElapsedTime(_resizeWantedSince) >= ResizeMaxWait)
-        {
-            // Still dragging: ask for the size so far, so the desktop follows instead of catching up at the end.
-            AskForViewSize();
+            // It takes the view's size as it goes, this change's too.
             return;
+        }
+
+        _resizeTimer.Stop();
+        if (quiet)
+        {
+            _firstAskComing = true;
+            _resizeWantedSince = now;
+            _resizeTimer.Interval = ResizeFirstDelay;
+        }
+        else
+        {
+            _resizeTimer.Interval = ResizeSettleDelay;
+            if (_resizeWantedSince == 0)
+            {
+                _resizeWantedSince = now;
+            }
+            else if (System.Diagnostics.Stopwatch.GetElapsedTime(_resizeWantedSince, now) >= ResizeMaxWait)
+            {
+                // Still dragging: ask for the size so far, so the desktop follows instead of catching up at the end.
+                AskForViewSize();
+                return;
+            }
         }
 
         _resizeTimer.Start();
@@ -615,6 +670,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         _resizeTimer.Stop();
         _resizeWantedSince = 0;
+        _firstAskComing = false;
 
         // Checked here too: the constructor can start the timer before FollowsViewSize is set.
         if (!FollowsViewSize)
@@ -673,6 +729,11 @@ public sealed partial class RemoteFrameView : Panel
 
     void OnFrameUpdated(object? sender, FrameUpdatedEventArgs e)
     {
+        if (!_onScreen)
+        {
+            return;
+        }
+
         lock (_dirtyLock)
         {
             _dirty = _dirty.Union(e.Damage);
@@ -699,7 +760,7 @@ public sealed partial class RemoteFrameView : Panel
         }
 
         int width = Session.Width, height = Session.Height;
-        if (width <= 0 || height <= 0 || _drawFailure is not null)
+        if (width <= 0 || height <= 0 || _drawFailure is not null || !_onScreen)
         {
             return;
         }
@@ -1158,6 +1219,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         base.OnAttachedToVisualTree(e);
 
+        _onScreen = true;
         _topLevel = TopLevel.GetTopLevel(this);
         if (_topLevel is not null)
         {
@@ -1183,7 +1245,9 @@ public sealed partial class RemoteFrameView : Panel
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        _onScreen = false;
         _resizeTimer.Stop();
+        _firstAskComing = false;
         WindowsKeyHook.Release(_windowsKey);
         if (_topLevel is not null)
         {
