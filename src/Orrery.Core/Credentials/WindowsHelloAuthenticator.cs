@@ -374,25 +374,28 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
 
     /// <summary>
     /// Null when the attestation shows the key is in the TPM; otherwise why Orrery won't use it. Only Success is
-    /// accepted: NotSupported means the key is in software, and a temporary failure proves nothing either way.
+    /// accepted. NotSupported means Windows won't vouch for the key (it may be in software, or Windows may just not offer
+    /// attestation on this computer), and a temporary failure proves nothing either way.
     /// </summary>
     internal static string? HardwareProblem(AttestationStatus status) => status switch
     {
         AttestationStatus.Success => null,
-        AttestationStatus.NotSupported => SoftwareKeys,
+        AttestationStatus.NotSupported => NotAttested,
         AttestationStatus.TemporaryFailure => "Windows couldn't confirm just now that the Windows Hello key is held in the TPM security chip, "
             + "so nothing was turned on. Try again later; Windows may need to be online for this the first time.",
         _ => "Windows couldn't confirm that the Windows Hello key is held in the TPM security chip, so nothing was turned on. Try again later.",
     };
 
     /// <summary>
-    /// Why a software key is refused, and what usually fixes it: Windows keeps an account's Hello keys in software when
-    /// its PIN was set up while the TPM couldn't be used, and goes on doing so until the PIN is set up again.
+    /// Why a key Windows won't vouch for is refused. It must never suggest resetting or removing the Windows PIN: that
+    /// deletes every Windows Hello key on the account, passkeys and other apps' keys included, and Windows can answer
+    /// NotSupported on a computer whose keys are in the TPM, so it may not help either.
     /// </summary>
-    internal const string SoftwareKeys = "Windows Hello keeps its keys in software on this computer, not in the TPM security chip, "
-        + "so Orrery won't use it. Nothing was turned on. This usually means your Windows Hello PIN was set up while the TPM "
-        + "couldn't be used. To fix it, remove the PIN in Windows Settings › Accounts › Sign-in options, add it again, then "
-        + "try here again. In a virtual machine, it also needs a virtual TPM.";
+    internal const string NotAttested = "Windows wouldn't confirm that the Windows Hello key is held in the TPM security chip, "
+        + "so Orrery won't use Windows Hello on this computer. Nothing was turned on, and your master password still unlocks "
+        + "the vault. Don't remove or reset your Windows PIN to try to fix this: that deletes every Windows Hello key on your "
+        + "account, including passkeys and other apps' sign-ins, and may not help. In a virtual machine, Windows Hello also "
+        + "needs a virtual TPM.";
 
     /// <summary>Whether Windows says it's running in a virtual machine, for the log only.</summary>
     static bool LooksVirtual()

@@ -62,8 +62,11 @@ folder, and the authenticator secret never exists anywhere on disk.
   short PIN offline far faster than an Argon2id master password. So:
   - Settings doesn't offer it without a TPM 2.0 (`Tbsi_GetDeviceInfo`). That's only a quick hint.
   - The proof is per key: straight after making it, Orrery calls `KeyCredential.GetAttestationAsync` (IKeyCredential
-    slot 10). Only `Success`, which Windows gives for a key the TPM attests, is accepted. `NotSupported` (a software
-    key) is refused. `TemporaryFailure` (usually Windows hasn't yet fetched the TPM's attestation certificate, which
+    slot 10). Only `Success`, which Windows gives for a key the TPM attests, is accepted. `NotSupported` is refused.
+    It doesn't prove the key is in software: Microsoft only says attestation might not be available, and a computer
+    whose Hello log records the key as a hardware key, with a ready TPM and its attestation certificate present, has
+    answered it. The refusal message must never suggest resetting or removing the Windows PIN. Doing so deletes every
+    Hello key on the account, passkeys and other apps' keys included, and it didn't help on that computer. `TemporaryFailure` (usually Windows hasn't yet fetched the TPM's attestation certificate, which
     needs the internet) and `UnknownError` are refused too, with "try again later". In every refusal the new key is
     deleted and nothing is saved.
   - Why not fall back to the key's NCrypt implementation type (`NCRYPT_IMPL_TYPE_PROPERTY` through the Microsoft

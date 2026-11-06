@@ -132,14 +132,18 @@ public class WindowsHelloTests
     }
 
     [Fact]
-    public void A_software_key_is_refused()
+    public void A_key_windows_wont_vouch_for_is_refused()
     {
         var problem = WindowsHelloAuthenticator.HardwareProblem(WindowsHelloAuthenticator.AttestationStatus.NotSupported);
-        Assert.Contains("software", problem);
-
-        // And what usually fixes it: setting the PIN up again, or a virtual TPM in a virtual machine.
-        Assert.Contains("remove the PIN in Windows Settings › Accounts › Sign-in options, add it again", problem);
+        Assert.NotNull(problem);
+        Assert.Contains("wouldn't confirm", problem);
+        Assert.Contains("master password still unlocks", problem);
         Assert.Contains("virtual TPM", problem);
+
+        // Resetting the PIN deletes every Hello key on the account, other apps' passkeys included: it's warned against,
+        // never suggested.
+        Assert.Contains("Don't remove or reset your Windows PIN", problem);
+        Assert.DoesNotContain("add it again", problem);
     }
 
     [Theory]

@@ -323,10 +323,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - Passwords go in Windows Credential Manager, the macOS Keychain or the Linux Secret Service, or an encrypted vault
   file (Argon2id, XChaCha20-Poly1305) where there's no store or you prefer one.
 - Windows Hello can unlock the vault when its key is held in the TPM (not over Remote Desktop). When it's on, the
-  unlock window asks Windows Hello first and shows the master password field only if that's canceled or fails. If Windows keeps
-  Hello's keys in software, usually because the PIN was set up while the TPM couldn't be used, turning it on is
-  refused with how to fix it (remove the PIN in Sign-in options and add it again), and the setup window says so up
-  front the next time in that run. Touch ID is written
+  unlock window asks Windows Hello first and shows the master password field only if that's canceled or fails. If Windows won't
+  confirm the key is in the TPM, turning it on is refused and the setup window says so up front the next time in that
+  run. Don't reset your Windows PIN to get around this: it deletes every Windows Hello key on the account, passkeys
+  included. Touch ID is written
   but needs a signed build. See [the design notes](docs/design-biometric-unlock.md).
 - **Import:** mRemoteNG `confCons.xml`, Orrery `.json`, `.rdp` files, and `~/.ssh/config` with `Include` files,
   `Host *` defaults and `ProxyJump` chains (as jump hosts). Nothing in an SSH config runs, and key files aren't
