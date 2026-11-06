@@ -522,16 +522,17 @@ another computer uses until it sets its own.
 Recordings are in `recordings/` in the data folder, encrypted. Move data takes them along.
 
 A portable data folder can be kept in a sync app's folder (OneDrive, Dropbox, Synology Drive, Syncthing) and used on
-more than one computer, at the same time too. When the sync app brings in another computer's changes to connections,
-the vault or settings, Orrery takes them in while it's open, and merges them with this computer's own when it saves,
-connection by connection and field by field, so neither computer's changes are lost. Where both changed the same
-field, this computer's change is kept and the status bar says so. A master password changed on one computer locks
-the vault on the others, to be opened with the new one. Each computer with Orrery open leaves a small
-`open-on-<tag>.json` file, so the others can say it's open there. If the sync app still makes conflict copies of
-Orrery's files, Orrery lists them at start, as it never reads them. Windows Hello and the system's credential store
-are per computer, so each one is set up on its own, and so are the values in `computers/` above. Each computer also
-has its own web-tab profile (`web/<tag>`: cookies and sign-ins, which WebView2 encrypts for one computer only) and
-its own cache for update downloads (`cache/<tag>`).
+more than one computer, at the same time too. On the next computer, choose that folder in setup's first step: Orrery
+sees it already has data, uses it as it is, and skips the rest of setup. When the sync app brings in another
+computer's changes to connections, the vault or settings, Orrery takes them in while it's open, and merges them with
+this computer's own when it saves, connection by connection and field by field, so neither computer's changes are
+lost. Where both changed the same field, this computer's change is kept and the status bar says so. A master
+password changed on one computer locks the vault on the others, to be opened with the new one. Each computer with
+Orrery open leaves a small `open-on-<tag>.json` file, so the others can say it's open there. If the sync app still
+makes conflict copies of Orrery's files, Orrery lists them at start, as it never reads them. Windows Hello and the
+system's credential store are per computer, so each one is set up on its own, and so are the values in `computers/`
+above. Each computer also has its own web-tab profile (`web/<tag>`: cookies and sign-ins, which WebView2 encrypts
+for one computer only) and its own cache for update downloads (`cache/<tag>`).
 
 <details>
 <summary>Logs</summary>

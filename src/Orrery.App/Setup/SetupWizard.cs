@@ -38,6 +38,12 @@ sealed record SetupResult(SetupChoices Choices, DataLocation? Location)
     /// so the record's ToString leaves it out.
     /// </summary>
     internal string? VaultPassword { get; init; }
+
+    /// <summary>
+    /// The chosen folder already had Orrery's data, so its settings stay as they are: nothing of setup's is saved over
+    /// them, and nothing is imported.
+    /// </summary>
+    public bool UsesExistingData { get; init; }
 }
 
 /// <summary>
@@ -571,8 +577,9 @@ sealed class SetupWizard : Window
     }
 
     /// <summary>
-    /// The chosen folder's place, once it's checked: Orrery can write there, and if other people could change it the
-    /// user has said to go ahead. Null when not, with the reason shown.
+    /// The chosen folder's place, once it's checked: Orrery can write there, if other people could change it the user
+    /// has said to go ahead, and it has no Orrery data yet. Null when setup doesn't carry on: the folder can't be used,
+    /// with the reason shown, or it has Orrery's data and setup ended to use it or went back to choose another.
     /// </summary>
     async Task<DataLocation?> CheckDataFolderAsync()
     {
@@ -617,7 +624,45 @@ sealed class SetupWizard : Window
             _acceptedOpenFolder = location.DataDir;
         }
 
+        if (!FirstLaunch.IsNew(location))
+        {
+            await OfferExistingDataAsync(location);
+            return null;
+        }
+
         return location;
+    }
+
+    /// <summary>
+    /// A folder that already has Orrery's data, from another computer a sync app shares it with or from an earlier copy,
+    /// had its setup there: it's used as it is, and setup ends without saving its own choices over the ones it has.
+    /// Otherwise the user goes back to choose another folder.
+    /// </summary>
+    async Task OfferExistingDataAsync(DataLocation location)
+    {
+        var use = await Dialogs.AskAsync(this, "This folder already has Orrery's data",
+            $"{location.DataDir}\n\nIt has connections or settings from another computer that shares this folder, or from an " +
+            "earlier copy of Orrery. Orrery will use them as they are and skip the rest of setup. You can change any setting " +
+            "later in Settings.",
+            "Use this data", "Choose another folder");
+        if (!use)
+        {
+            if (_current != SetupStep.Data)
+            {
+                GoTo(SetupStep.Data);
+            }
+
+            return;
+        }
+
+        if (!PortableMarker.For(DataChoice, StoredCustomPath()).TrySave(_portable!.AppDirectory))
+        {
+            await Dialogs.ShowMessageAsync(this, "Orrery will ask again next time",
+                $"Orrery can't save this choice in {_portable.AppDirectory}, so it will ask where the data is next time. Your data will still be saved.");
+        }
+
+        _vaultPassword.Text = _vaultConfirm.Text = string.Empty;
+        Completed?.Invoke(new SetupResult(new SetupChoices(), location) { UsesExistingData = true });
     }
 
     DataLocation? Refuse(string reason)

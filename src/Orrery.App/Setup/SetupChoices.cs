@@ -32,7 +32,7 @@ static class FirstLaunch
         _ => SetupKind.None,
     };
 
-    static bool IsNew(DataLocation location) =>
+    internal static bool IsNew(DataLocation location) =>
         !File.Exists(location.FileIn(AppSettingsStore.FileName)) && !File.Exists(location.FileIn("connections.json"));
 }
 
