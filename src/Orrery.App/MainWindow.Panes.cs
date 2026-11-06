@@ -60,7 +60,7 @@ public partial class MainWindow
         _inspectorHiddenForNow = _inspectorMode == PaneMode.Expanded && settings.InspectorPutAway == true;
         _savedPutAway = (_sideHiddenForNow, _inspectorHiddenForNow);
         _sidePanelToggle.ContextMenu = ModeMenu("Side panel", () => _sideMode, SetSidePanelMode);
-        _inspectorToggle.ContextMenu = ModeMenu("Settings pane", () => _inspectorMode, SetInspectorMode);
+        _inspectorToggle.ContextMenu = ModeMenu("Properties pane", () => _inspectorMode, SetInspectorMode);
 
         // A pin in each of the side panel's headers, and one in the right-hand pane's top corner.
         foreach (var header in new[] { _credentialsView.Header, _recentPanel.Header, _commandsPanel.Header, _recordingsPanel.Header })
@@ -167,11 +167,11 @@ public partial class MainWindow
 
         if (_inspectorPin is not null)
         {
-            ShowPin(_inspectorPin, "settings pane", _inspectorMode == PaneMode.Expanded);
+            ShowPin(_inspectorPin, "properties pane", _inspectorMode == PaneMode.Expanded);
         }
 
         ToolTip.SetTip(_sidePanelToggle, Tip("side panel", "Ctrl+B", _sideMode, _sidePanel.IsVisible));
-        ToolTip.SetTip(_inspectorToggle, Tip("settings pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
+        ToolTip.SetTip(_inspectorToggle, Tip("properties pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
         FitPanes();
         SavePutAway();
     }

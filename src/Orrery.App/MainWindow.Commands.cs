@@ -225,7 +225,7 @@ public partial class MainWindow
         string command = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
         yield return new PaletteCommand("Settings", group, Run(OpenSettings)) { Shortcut = $"{command}+,", Keywords = ["preferences", "options"] };
         yield return new PaletteCommand("Show or hide the side panel", group, Run(ToggleSidePanel)) { Shortcut = $"{command}+B", Keywords = ["toggle", "connections", "pane"] };
-        yield return new PaletteCommand("Show or hide the settings pane", group, Run(ToggleInspector)) { Shortcut = $"{command}+Alt+B", Keywords = ["toggle", "properties", "inspector"] };
+        yield return new PaletteCommand("Show or hide the properties pane", group, Run(ToggleInspector)) { Shortcut = $"{command}+Alt+B", Keywords = ["toggle", "settings", "inspector"] };
         yield return new PaletteCommand("New connection", group, Run(() => OnNewConnectionClick(null, new RoutedEventArgs())), null) { Keywords = ["add", "create"] };
         yield return new PaletteCommand("New folder", group, Run(() => OnNewFolderClick(null, new RoutedEventArgs()))) { Keywords = ["add", "create"] };
         yield return new PaletteCommand("Local terminal", group, Run(() => OpenLocalTerminal())) { Shortcut = $"{command}+Shift+T", Keywords = ["shell", "console", "powershell", "bash"] };

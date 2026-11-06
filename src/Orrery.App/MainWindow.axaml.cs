@@ -2175,7 +2175,7 @@ public partial class MainWindow : Window
             ConnectionEntry entry => entry.Guests.Count(),
             _ => 0,
         });
-        string body = $"{nodes.Count} items will be deleted" + (inside > 0 ? $", with the {inside} items in them." : ".");
+        string body = $"{nodes.Count} items will be deleted" + (inside > 0 ? $", with {Plural(inside, "item")} in them." : ".");
         bool editedGoes = EditedGoesWith(nodes, withGuests: true);
         if ((editedGoes || SaveEdits()) && await Dialogs.ConfirmAsync(this, $"Delete {nodes.Count} items?", body, "Delete"))
         {
@@ -2213,7 +2213,7 @@ public partial class MainWindow : Window
         }
 
         string body = node is ConnectionFolder folder && folder.Children.Count > 0
-            ? $"\"{node.Name}\" and the {folder.Descendants().Count()} items in it will be deleted."
+            ? $"\"{node.Name}\" and {Plural(folder.Descendants().Count(), "item")} in it will be deleted."
             : $"\"{node.Name}\" will be deleted.";
         bool editedGoes = EditedGoesWith([node], withGuests: true);
         if ((editedGoes || SaveEdits()) && await Dialogs.ConfirmAsync(this, $"Delete {(node is ConnectionFolder ? "folder" : "connection")}?", body, "Delete"))
@@ -4881,6 +4881,8 @@ public partial class MainWindow : Window
         return $"{who}, as a sync app shares it. Deleting the old copy deletes the connections, vault and settings there "
             + "on every computer it syncs to. Keep it while any of them still uses it.";
     }
+
+    static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
     void UpdateVaultButton()
     {

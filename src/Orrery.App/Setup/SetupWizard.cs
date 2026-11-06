@@ -776,7 +776,9 @@ sealed class SetupWizard : Window
     static string KeychainTitle(string name)
     {
         var bare = name.StartsWith("the ", StringComparison.Ordinal) ? name[4..] : name;
-        return bare.Length == 0 ? bare : char.ToUpperInvariant(bare[0]) + bare[1..];
+
+        // "macOS" is spelled that way at the start of a title too.
+        return bare.Length == 0 || bare.StartsWith("macOS", StringComparison.Ordinal) ? bare : char.ToUpperInvariant(bare[0]) + bare[1..];
     }
 
     // ---- Import ----

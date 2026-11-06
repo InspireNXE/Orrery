@@ -226,7 +226,7 @@ sealed class PropertiesPanel : UserControl
         _commandsSection = Pane.Section("Commands", Pane.Rows(_confirmCommandsRow.View), _commandList, addCommand,
             new TextBlock
             {
-                Text = "Sent to the terminal from Ctrl+K or the session's menu, never by themselves. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.",
+                Text = "Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.",
                 FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap,
             });
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
@@ -333,7 +333,7 @@ sealed class PropertiesPanel : UserControl
         _nameField = Dialogs.Field("Name", _name);
         _managementUrlField = Dialogs.Field("Management URL (optional)", _managementUrl);
         ToolTip.SetTip(_managementUrl, "A web page for managing this machine, such as a firewall's or a server's out-of-band console. "
-            + "Open management page in the connection's right-click menu opens it in the browser. Set here only; folders don't pass it on.");
+            + "Open management page in the connection's right-click menu opens it in a tab, or in your browser where Settings or this connection says so. Set here only; folders don't pass it on.");
         _notesField = Pane.Section("Notes", _notes);
 
         var browseStart = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0 };

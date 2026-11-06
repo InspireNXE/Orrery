@@ -19,7 +19,7 @@ sealed class RecentPanel : DockPanel
     readonly RecentConnections _recent;
     readonly ListBox _list = new() { Background = Brushes.Transparent, Padding = new Thickness(12, 0), Classes = { "side" } };
     const string EmptyNote = "Connections you open show up here.";
-    const string OffNote = "Recent connections aren't remembered. Turn on Remember recent connections in Settings, General, to keep a list here.";
+    const string OffNote = "Recent connections aren't remembered. Turn on Remember recent connections in Settings › General to keep a list here.";
 
     readonly TextBlock _empty = Pane.EmptyText(EmptyNote, side: true);
     readonly Button _clear;

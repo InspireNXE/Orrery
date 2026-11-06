@@ -125,7 +125,7 @@ static class RecordingControl
 
             panel.Children.Add(new TextBlock
             {
-                Text = "Changes here are for this recording. Settings > Recordings has the defaults.",
+                Text = "Changes here are for this recording. Settings › Sessions › Recordings has the defaults.",
                 FontSize = 11,
                 Foreground = Dialogs.MutedBrush,
                 TextWrapping = TextWrapping.Wrap,

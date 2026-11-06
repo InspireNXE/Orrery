@@ -1085,7 +1085,7 @@ sealed class SettingsView : UserControl
         return files.Count == 0 ? "No recordings yet." : $"{files.Count} recording{(files.Count == 1 ? "" : "s")}, {bytes / (1024.0 * 1024):0.#} MB.";
     }
 
-    // ---- Start-up ----
+    // ---- Startup ----
 
     Control StartupSection()
     {
@@ -1134,11 +1134,11 @@ sealed class SettingsView : UserControl
             RememberRecentConnectionsChanged?.Invoke(this, on);
         };
         const string recentNote = "Keeps the Recent list, and the last connected and last failed times shown in a connection's properties. "
-            + "Turning this off clears the list and those times, and nothing is recorded until you turn it back on, which starts afresh. "
+            + "Turning this off clears the list and those times, and nothing is recorded until you turn it back on, which starts over. "
             + "The log still notes what connected where.";
         AutomationProperties.SetHelpText(recent, recentNote);
 
-        return Section("Start-up",
+        return Section("Startup",
             new TextBlock { Text = "Reopen the sessions that were open when Orrery last closed" },
             choiceList,
             Note("Never also stops Orrery writing down which sessions are open, and deletes the list it kept. The window's size and position, "
@@ -1425,7 +1425,7 @@ sealed class SettingsView : UserControl
         };
 
         var visionNote = "If you're color blind, choose which kind. Orrery then switches to its color-blind interface and terminal colors, "
-            + "with terminal colors tuned to that kind, and corrects remote desktops so colors you'd confuse look different. "
+            + "with terminal colors tuned to that kind, and corrects remote desktops and web pages in tabs so colors you'd confuse look different. "
             + "You can still change the interface and terminal colors below, and turn correction off for a connection in its settings.";
         var vision = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var (choice, label) in ColorVisionChoices)
@@ -1436,7 +1436,7 @@ sealed class SettingsView : UserControl
         vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColorVision)i.Tag! == _settings.Vision);
         Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
 
-        var strengthNote = "Only for remote desktops: how far their colors are shifted. Lower it if pictures look too changed; "
+        var strengthNote = "Only for remote desktops and web pages in tabs: how far their colors are shifted. Lower it if pictures look too changed; "
             + "0% leaves them as they are.";
         var strength = new Slider
         {
@@ -1545,7 +1545,7 @@ sealed class SettingsView : UserControl
 
         return Section("Layout",
             Row("Side panel (connections, credentials, recent)", Choice("Side panel", _settings.SidePanel, (s, m) => s with { SidePanelMode = m })),
-            Row("Settings pane (connection and credential details)", Choice("Settings pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
+            Row("Properties pane (connection and credential details)", Choice("Properties pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
             Note(string.Join(" ", PaneModes.All.Select(mode => $"{mode.Label}: {mode.Description}"))),
             Note("A pane that isn't pinned opens over the session rather than beside it, so a remote desktop doesn't resize each time. "
                 + "On Linux and macOS it opens beside a web page instead, since nothing can be drawn over the page there. Ctrl+B and Ctrl+Alt+B show and hide "
@@ -1825,7 +1825,7 @@ sealed class SettingsView : UserControl
         delete.Click += async (_, _) =>
         {
             if (!await Dialogs.ConfirmAsync(Owner, "Delete the logs?",
-                    "Every log file in the log folder is deleted, today's too, and the log starts again in a new file. This can't be undone.", "Delete logs"))
+                    "Every log file this computer wrote is deleted, today's too, and the log starts again in a new file. Other computers' logs in a shared folder stay. This can't be undone.", "Delete logs"))
             {
                 return;
             }

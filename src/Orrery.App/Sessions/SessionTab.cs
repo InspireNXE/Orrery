@@ -409,7 +409,7 @@ sealed class SessionTab
             .MaxBy(t => t.LastShown);
 
     /// <summary>
-    /// The settings a running remote desktop can't take up, as they were saved when it opened, so the settings pane
+    /// The settings a running remote desktop can't take up, as they were saved when it opened, so the properties pane
     /// asks for a reconnect only once one of them is saved differently.
     /// </summary>
     public IReadOnlyList<(string Label, string Value)>? FixedAtStart { get; set; }

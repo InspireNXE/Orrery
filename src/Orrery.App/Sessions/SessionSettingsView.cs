@@ -10,7 +10,7 @@ using Orrery.Core.Connections;
 namespace Orrery.App.Sessions;
 
 /// <summary>
-/// The settings pane's "This session" tab, for an open remote desktop. What the view can change while it runs (scaling,
+/// The properties pane's "This session" tab, for an open remote desktop. What the view can change while it runs (scaling,
 /// view only, color correction) changes the open tab at once and lasts until it closes; each change can be kept for
 /// next time, which saves it on the connection. The rest were fixed when the session started; once any of those is
 /// saved differently, a card lists the changes with a button to reconnect with them.

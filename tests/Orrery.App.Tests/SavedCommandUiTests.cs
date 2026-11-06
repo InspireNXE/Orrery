@@ -289,7 +289,7 @@ public class SavedCommandUiTests
         picker.FilterBox.Text = "web-0";
         Dispatcher.UIThread.RunJobs();
         Assert.True(picker.TickShownButton.IsVisible);
-        Assert.Equal("Tick the 8 shown", picker.TickShownButton.Content);
+        Assert.Equal("Check the 8 shown", picker.TickShownButton.Content);
         picker.TickShownButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(8, window.ChosenPlaces.Count);
         Assert.DoesNotContain(host, window.ChosenPlaces);

@@ -36,7 +36,7 @@ public class FullScreenShortcutTests
     [InlineData(Key.D2, KeyModifiers.Control | KeyModifiers.Alt)]
     [InlineData(Key.Delete, KeyModifiers.Control | KeyModifiers.Alt)]
     [InlineData(Key.Escape, KeyModifiers.Control | KeyModifiers.Shift)]
-    [InlineData(Key.B, KeyModifiers.Control | KeyModifiers.Alt)]   // Orrery's settings pane.
+    [InlineData(Key.B, KeyModifiers.Control | KeyModifiers.Alt)]   // Orrery's properties pane.
     [InlineData(Key.C, KeyModifiers.Control | KeyModifiers.Shift)] // Terminal copy.
     [InlineData(Key.T, KeyModifiers.Control | KeyModifiers.Shift)] // Orrery's local terminal.
     [InlineData(Key.LeftCtrl, KeyModifiers.Control | KeyModifiers.Alt)]

@@ -441,7 +441,7 @@ sealed class RecordingsPanel : DockPanel
             return;
         }
 
-        if (!await Dialogs.ConfirmAsync(owner, "Delete recording", $"Delete \"{item.Title}\" from {item.Started:g} for good? It can't be got back.", "Delete"))
+        if (!await Dialogs.ConfirmAsync(owner, "Delete recording", $"Delete \"{item.Title}\" from {item.Started:g} for good? This can't be undone.", "Delete"))
         {
             return;
         }

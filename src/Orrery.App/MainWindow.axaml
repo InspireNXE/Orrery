@@ -250,7 +250,7 @@
                   <c:StrokeIcon Width="16" Height="16" Data="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M9 4v16" />
                 </Button>
                 <Button x:Name="InspectorToggle" Classes="icon small" Click="OnToggleInspectorClick"
-                        AutomationProperties.Name="Toggle settings pane">
+                        AutomationProperties.Name="Toggle properties pane">
                   <c:StrokeIcon Width="16" Height="16" Data="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M15 4v16" />
                 </Button>
               </StackPanel>
@@ -307,7 +307,7 @@
                 Background="{StaticResource OrreryPanel}"
                 BorderBrush="{StaticResource OrreryBorder}" BorderThickness="1,0,0,0">
           <Button x:Name="InspectorStripButton" Classes="icon rail" VerticalAlignment="Top" HorizontalAlignment="Center" Click="OnInspectorStripClick"
-                  ToolTip.Tip="Settings for the selected connection" AutomationProperties.Name="Show the settings pane">
+                  ToolTip.Tip="Properties of the selected connection" AutomationProperties.Name="Show the properties pane">
             <c:StrokeIcon Width="18" Height="18" Data="M4 6h10 M18 6h2 M4 12h4 M12 12h8 M4 18h12 M20 18h0 M14 4v4 M8 10v4 M16 16v4" />
           </Button>
         </Border>
