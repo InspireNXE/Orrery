@@ -586,8 +586,21 @@ sealed class SettingsView : UserControl
         }
         else
         {
+            // Deleting the key can't be undone, and someone who's forgotten the master password would lose the vault.
+            if (!await Dialogs.ConfirmAsync(Owner, $"Turn off {biometric.Name} unlock?",
+                    $"Orrery deletes its {biometric.Name} key on this computer, and from then on the vault opens only with its master "
+                    + "password. Make sure you know it first.", "Turn off"))
+            {
+                SetBiometricSwitch(true);
+                _biometricSwitch.IsEnabled = true;
+                BiometricToggled?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
             await biometric.TurnOffAsync(vault);
-            note = $"{biometric.Name} unlock is off, and its key was deleted. {BiometricNote(biometric)}";
+
+            // Not followed by what it does when it's on, which read as if it still did.
+            note = $"{biometric.Name} unlock is off, and its key was deleted.";
         }
 
         var unavailable = await RefreshBiometricSwitchAsync(vault, biometric);
