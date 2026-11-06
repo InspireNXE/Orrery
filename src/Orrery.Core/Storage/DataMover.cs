@@ -14,6 +14,10 @@ public static class DataMover
     /// <summary>More links than this in one path is a loop, or near enough.</summary>
     const int MaxLinkDepth = 32;
 
+    public const string NotEmptyMessage = "Choose an empty folder, so nothing already there is overwritten.";
+
+    const string CantWriteMessage = "Orrery can't write to that folder.";
+
     /// <summary>Why <paramref name="target"/> can't receive the data, or null if it can.</summary>
     public static string? CheckTarget(string source, string target)
     {
@@ -24,28 +28,35 @@ public static class DataMover
             return "Orrery's data is at the top of a drive, so Move data can't keep it apart from everything else there. Move the files by hand instead.";
         }
 
-        if (IsRoot(to))
+        if (CheckPlace(from, to) is { } problem)
         {
-            return "Choose a folder, not the top of a drive.";
-        }
-
-        if (IsSame(from, to))
-        {
-            return "That's the folder Orrery already uses.";
-        }
-
-        if (IsInside(to, from) || IsInside(from, to))
-        {
-            return NestedMessage;
+            return problem;
         }
 
         if (Directory.Exists(to) && Directory.EnumerateFileSystemEntries(to).Any())
         {
-            return "Choose an empty folder, so nothing already there is overwritten.";
+            return NotEmptyMessage;
         }
 
-        return DataLocationResolver.IsWritable(to) ? null : "Orrery can't write to that folder.";
+        return DataLocationResolver.IsWritable(to) ? null : CantWriteMessage;
     }
+
+    /// <summary>
+    /// Why Orrery can't switch to <paramref name="target"/>, a folder that already has its data (another computer's, which
+    /// a sync app shares), and use it as it is; or null if it can. Nothing is copied either way.
+    /// </summary>
+    public static string? CheckExisting(string source, string target)
+    {
+        var to = Resolve(target);
+        return CheckPlace(Resolve(source), to) ?? (DataLocationResolver.IsWritable(to) ? null : CantWriteMessage);
+    }
+
+    // What rules a folder out, to move to or to use as it is: the top of a drive, the folder in use, or one inside the other.
+    static string? CheckPlace(string from, string to) =>
+        IsRoot(to) ? "Choose a folder, not the top of a drive."
+        : IsSame(from, to) ? "That's the folder Orrery already uses."
+        : IsInside(to, from) || IsInside(from, to) ? NestedMessage
+        : null;
 
     /// <summary>
     /// A warning to confirm before moving to <paramref name="target"/>, or null. Call it after <see cref="CheckTarget"/>,

@@ -12,6 +12,7 @@ using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.App.Input;
 using Orrery.App.Logging;
+using Orrery.App.Setup;
 using Orrery.App.Updates;
 using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
@@ -294,7 +295,7 @@ sealed class SettingsView : UserControl
     {
         var folders = await Owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Choose an empty folder for Orrery's data",
+            Title = "Choose an empty folder for Orrery's data, or one that has it already",
             AllowMultiple = false,
         });
         if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } target)
@@ -304,6 +305,12 @@ sealed class SettingsView : UserControl
 
         if (DataMover.CheckTarget(_location.DataDir, target) is { } problem)
         {
+            if (problem == DataMover.NotEmptyMessage && FirstLaunch.HasData(target))
+            {
+                await UseExistingDataAsync(target);
+                return;
+            }
+
             await Dialogs.ShowMessageAsync(Owner, "Can't move the data there", problem);
             return;
         }
@@ -319,7 +326,7 @@ sealed class SettingsView : UserControl
             ? $"\n\n{_biometric.Name} unlock keeps working with the moved vault. Until you delete the old copy, it opens that one too."
             : string.Empty;
         if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
-                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it. Web pages' sign-ins and cookies don't move: you'll sign in to them again.{biometricNote}",
+                $"Orrery will copy its own files (connections, settings, the vault, recordings, trusted host keys, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is, and so does the old copy: after the restart, Orrery asks once whether to delete it. Web pages' sign-ins and cookies don't move: you'll sign in to them again.{biometricNote}",
                 "Move and restart"))
         {
             return;
@@ -344,6 +351,46 @@ sealed class SettingsView : UserControl
         }
 
         RestartRequested?.Invoke(this, ["--moved-from", _location.DataDir]);
+    }
+
+    /// <summary>
+    /// A folder that already has Orrery's data, as on a computer that joins one a sync app shares: Orrery restarts using it
+    /// as it is, as setup does for a new copy, and nothing is copied. The data in use now stays where it is.
+    /// </summary>
+    async Task UseExistingDataAsync(string target)
+    {
+        if (DataMover.CheckExisting(_location.DataDir, target) is { } problem)
+        {
+            await Dialogs.ShowMessageAsync(Owner, "Can't use that folder", problem);
+            return;
+        }
+
+        if (DataMover.WarnAboutTarget(target) is { } warning
+            && !await Dialogs.ConfirmAsync(Owner, "Other people can change this folder", $"{warning}\n\n{target}", "Use anyway"))
+        {
+            return;
+        }
+
+        var vaultNote = File.Exists(Path.Combine(target, "vault.frv")) ? " Its vault opens with its own master password." : "";
+        if (!await Dialogs.AskAsync(Owner, "This folder already has Orrery's data",
+                $"{target}\n\nIt has connections or settings from another computer that shares this folder, or from an earlier copy of "
+                + $"Orrery. Orrery can restart using them as they are: nothing is copied, and open sessions will close.{vaultNote}\n\n"
+                + $"The data Orrery uses now stays in\n{_location.DataDir}",
+                "Use this data", "Cancel"))
+        {
+            return;
+        }
+
+        await _saveEverything();
+        if (!PointAt(target, out var error))
+        {
+            await Dialogs.ShowMessageAsync(Owner, "Couldn't switch to that folder",
+                $"Orrery couldn't record the new location:\n{error}\n\nOrrery still uses\n{_location.DataDir}");
+            return;
+        }
+
+        Log.For("Storage").LogInformation("Switching to a data folder that already has Orrery's data");
+        RestartRequested?.Invoke(this, []);
     }
 
     /// <summary>Portable mode records the folder in the marker beside the app; installed mode in a pointer file.</summary>

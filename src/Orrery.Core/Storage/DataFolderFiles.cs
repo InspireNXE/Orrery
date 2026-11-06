@@ -49,8 +49,11 @@ public static class DataFolderFiles
     /// </summary>
     public static readonly IReadOnlyList<string> DeleteOnly = [PendingCleanup.FileName, DataFolderPresence.FilePrefix + "*.json"];
 
-    /// <summary>Belong to the running app or the install rather than the data: never copied or deleted.</summary>
-    public static readonly IReadOnlyList<string> Untouched = [".lock", InstalledLocationPointer.FileName];
+    /// <summary>
+    /// Belong to the running app or the install rather than the data: never copied or deleted, nor counted as someone
+    /// else's. A portable copy's logs and cache are in its data folder too (<see cref="DataLocationResolver"/>).
+    /// </summary>
+    public static readonly IReadOnlyList<string> Untouched = [".lock", InstalledLocationPointer.FileName, "logs", "cache"];
 
     public static bool IsCopied(string name) => MatchesAny(Files, name);
 
