@@ -292,6 +292,7 @@ static class Shots
 
         host.IsVisible = false;
         host.Content = null;
+        Private<Button>(window, "_settingsRailButton").Classes.Set("active", false);
         Palette.Use(InterfaceColorScheme.Standard);
     }
 
