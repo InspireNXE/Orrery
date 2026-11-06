@@ -281,7 +281,7 @@ sealed class RdpClipboardBridge
     {
         while (!token.IsCancellationRequested && _keepRunning())
         {
-            // Blocks the thread for up to PollInterval, so this runs on a pool thread of its own.
+            // Blocks the thread for up to PollInterval, so the session runs this on a thread of its own (OwnThread).
             var next = _channel.NextEvent(PollInterval);
             if (next is not null)
             {

@@ -243,13 +243,16 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
             _inputFrameLoop = Task.Run(() => InputFrameLoopAsync(token));
+            // Each waits for the clipboard in a blocking call, so on a thread of its own rather than the pool's.
             if (_clipboard is not null)
             {
-                _clipboardLoop = Task.Run(() => ClipboardLoopAsync(_clipboard, token));
+                var clipboard = _clipboard;
+                _clipboardLoop = OwnThread.Run("RDP clipboard", () => ClipboardLoopAsync(clipboard, token));
             }
             else if (_bridge is not null)
             {
-                _clipboardLoop = Task.Run(() => BridgeLoopAsync(_bridge, token));
+                var bridge = _bridge;
+                _clipboardLoop = OwnThread.Run("RDP clipboard", () => BridgeLoopAsync(bridge, token));
             }
 
             if (drivesShared)
