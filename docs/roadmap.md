@@ -4,16 +4,17 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 ## Built lately
 
+- **0.1.2 preview 10 (2026-11-05):** RDP input sent at once and no longer held up by decoding; setup offers to add
+  the shells it finds to the tree as LOCAL connections; RDP and VNC recordings keep the remote pointer's shape, and
+  the live view shows it, in your own pointer scheme on Windows; a second file copy in an RDP session no longer fails;
+  clicks at the very top of a full-screen session reach it; a portable data folder synced between computers takes in
+  each one's changes to connections, the vault and settings while open, merging them rather than saving over them,
+  with each computer's own paths, displays, window, recent connections, web-tab profile and cache kept apart; it says
+  when Orrery is open on another one and when the sync app has made conflict copies, and each computer writes its own
+  log file there; Windows Hello no longer suggests resetting the Windows PIN when Windows won't vouch for its key.
 - **0.1.2 previews 8 and 9 (2026-11-05):** Windows Hello asked before the master password; a remote desktop that
   isn't connected shown dimmed; RDP resizes about twice as fast, with the old picture filling the window meanwhile;
-  RDP timings in the detailed log. Since then, on dev: RDP input sent at once and no longer held up by decoding;
-  setup offers to add the shells it finds to the tree as LOCAL connections; RDP and VNC recordings keep the remote
-  pointer's shape, and the live view shows it, in your own pointer scheme on Windows; a second file copy in an RDP
-  session no longer fails; clicks at the very top of a full-screen session reach it; a portable data folder synced
-  between computers takes in each one's changes to connections, the vault and settings while open, merging them
-  rather than saving over them, with each computer's own paths, displays, window, recent connections, web-tab profile and cache kept apart;
-  it says when Orrery is open on another one and when the sync app has made conflict
-  copies, and each computer writes its own log file there.
+  RDP timings in the detailed log.
 - **0.1.2 previews (2026-11-04):** a Commands page in the side panel, with the editor in the right-hand pane and a
   right-click menu; saving a command on any connections at once (linked copies, with guests listed under their host);
   saved commands that send themselves when a saved connection connects, and ones that answer a password prompt;
