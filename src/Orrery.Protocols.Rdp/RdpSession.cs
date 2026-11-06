@@ -153,6 +153,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged;
 
     /// <inheritdoc/>
+    public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesReady;
+
+    /// <inheritdoc/>
     public event EventHandler<ClipboardTransfer>? ClipboardTransferChanged;
 
     /// <summary>
@@ -236,6 +239,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 _bridge.TextRefused += (_, reason) => ClipboardRefused?.Invoke(this, reason);
                 _bridge.RemoteImageChanged += (_, image) => RemoteClipboardImageChanged?.Invoke(this, image);
                 _bridge.RemoteFilesChanged += (_, paths) => RemoteClipboardFilesChanged?.Invoke(this, paths);
+                _bridge.RemoteFilesReady += (_, paths) => RemoteClipboardFilesReady?.Invoke(this, paths);
                 _bridge.TransferChanged += (_, transfer) => ClipboardTransferChanged?.Invoke(this, transfer);
             }
 

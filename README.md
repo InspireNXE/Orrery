@@ -706,7 +706,9 @@ Not yet checked on real machines:
 - **Shared drives:** your home folder when sharing every drive, or any folders, each as its own drive.
 - **Full screen** is on one display, since macOS gives each its own space. A connection can pick which; Orrery says
   so when it's set to several.
-- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
+- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted. A
+  download keeps going if you copy something else; if it finishes after that, Orrery offers its files instead of
+  replacing what you copied.
 - **Not yet checked:** all of it on a real Mac, including local terminals, the RDP clipboard, Touch ID (needs a
   signed build) and VoiceOver.
 
@@ -724,7 +726,9 @@ X11-specific code. X11 sessions aren't supported.
 - **Shared drives:** your home folder when sharing every drive, or any folders, each as its own drive.
 - **Full screen** is on the window's display: Wayland doesn't let windows place themselves or span displays. Orrery
   says so when a connection is set to several.
-- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
+- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted. A
+  download keeps going if you copy something else; if it finishes after that, Orrery offers its files instead of
+  replacing what you copied.
 - **Screen readers:** Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried with Orrery yet.
 - **Not yet checked:** all of it on a real machine: the .deb, .rpm and AppImage, arm64, local terminals, the RDP
   clipboard, sound, a serial device and the Secret Service.

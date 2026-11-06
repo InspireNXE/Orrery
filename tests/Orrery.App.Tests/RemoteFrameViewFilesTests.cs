@@ -25,7 +25,9 @@ public class RemoteFrameViewFilesTests
 #pragma warning restore CS0067
         public event EventHandler<byte[]>? RemoteClipboardImageChanged;
         public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged;
+        public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesReady;
         public event EventHandler<ClipboardTransfer>? ClipboardTransferChanged;
+        public void FilesReady(IReadOnlyList<string> paths) => RemoteClipboardFilesReady?.Invoke(this, paths);
         public bool ExchangesFiles => true;
         public int Canceled { get; private set; }
         public int Width => 64;
@@ -73,6 +75,42 @@ public class RemoteFrameViewFilesTests
         Task.Run(() => session.CopyImage([1, 2, 3])).Wait();
         Dispatcher.UIThread.RunJobs();
         Assert.True(images.Count <= 1);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Files_that_finished_after_a_newer_copy_are_offered_and_go_on_the_clipboard_when_asked()
+    {
+        var session = new FileDesktop();
+        var (window, view) = Show(session);
+        var files = new List<IReadOnlyList<string>>();
+        view.SetClipboardFiles = paths => { files.Add(paths); return Task.CompletedTask; };
+        Button ButtonFor(string text) => view.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == text);
+
+        Task.Run(() =>
+        {
+            session.Transfer(new(1, 4, 4, true));
+            session.FilesReady(["/tmp/a/report.pdf"]);
+        }).Wait();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("\"report.pdf\" from the remote desktop finished copying after you copied something else, so they aren't on the clipboard.", view.TransferText);
+        Assert.Empty(files);
+        Assert.False(ButtonFor("Cancel").IsVisible);
+        AccessibilityAudit.AssertAllNamed(window);
+
+        ButtonFor("Copy them").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(["/tmp/a/report.pdf"], Assert.Single(files));
+        Assert.Null(view.TransferText);
+
+        // Dismissing leaves the clipboard alone.
+        Task.Run(() => session.FilesReady(["/tmp/b/one", "/tmp/b/two"])).Wait();
+        Dispatcher.UIThread.RunJobs();
+        Assert.StartsWith("2 items from the remote desktop", view.TransferText);
+        ButtonFor("Dismiss").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Null(view.TransferText);
+        Assert.Single(files);
         window.Close();
     }
 

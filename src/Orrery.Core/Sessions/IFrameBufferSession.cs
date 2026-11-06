@@ -127,6 +127,12 @@ public interface IClipboardSession
     /// </summary>
     event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged { add { } remove { } }
 
+    /// <summary>
+    /// Files the remote side copied finished downloading after something newer was copied, so they weren't put on the
+    /// clipboard over it: the paths of the copied items, kept until the session ends. Raised on a background thread.
+    /// </summary>
+    event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesReady { add { } remove { } }
+
     /// <summary>How a download of copied files is going: raised as it starts, as it goes and once as it ends. Raised on a background thread.</summary>
     event EventHandler<ClipboardTransfer>? ClipboardTransferChanged { add { } remove { } }
 

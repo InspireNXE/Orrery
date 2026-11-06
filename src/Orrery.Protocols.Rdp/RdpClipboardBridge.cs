@@ -147,7 +147,8 @@ sealed class RdpClipboardBridge
 
     readonly IRdpClipboardChannel _channel;
     readonly object _localLock = new();
-    readonly Queue<(uint Format, Kind Kind)> _requested = new();
+    // Each with the copy it's for, counted as in _copies.
+    readonly Queue<(uint Format, Kind Kind, int Copies)> _requested = new();
 
     // One of these is set at a time: what the local clipboard last held.
     string? _localText;
@@ -169,6 +170,19 @@ sealed class RdpClipboardBridge
     uint _nextStreamId = 1;
     long _lastTimeouts = Stopwatch.GetTimestamp();
 
+    // Copies made on either side, counted so a download that ends after a newer copy doesn't put its files over it.
+    // Under _localLock.
+    int _copies;
+
+    // The server's files copied while another download was going: started once that one ends, unless something newer
+    // was copied by then. Only the newest waits.
+    (IReadOnlyList<RdpRemoteFile> Files, uint? LockId, int Copies)? _queued;
+
+    // Downloads that ended after a newer copy, offered instead of put on the clipboard. Kept until the session ends,
+    // the oldest deleted past MaxKept.
+    readonly Queue<string> _kept = new();
+    const int MaxKept = 4;
+
     readonly Func<bool> _keepRunning;
 
     /// <param name="keepRunning">Checked between events; the loop ends when it turns false, such as when the session ends.</param>
@@ -186,6 +200,12 @@ sealed class RdpClipboardBridge
 
     /// <summary>The server copied files, now downloaded: the paths of the copied items. Raised on the bridge's thread.</summary>
     public event EventHandler<IReadOnlyList<string>>? RemoteFilesChanged;
+
+    /// <summary>
+    /// The server's files finished downloading after something newer was copied, so they weren't put on the clipboard
+    /// over it: the paths of the copied items, kept until the session ends. Raised on the bridge's thread.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<string>>? RemoteFilesReady;
 
     /// <summary>How a download of the server's files is going. Raised on the bridge's thread.</summary>
     public event EventHandler<ClipboardTransfer>? TransferChanged;
@@ -218,6 +238,7 @@ sealed class RdpClipboardBridge
             }
 
             SetLocal(text: text);
+            _copies++;
         }
     }
 
@@ -235,6 +256,7 @@ sealed class RdpClipboardBridge
         lock (_localLock)
         {
             SetLocal(image: image, dib: dib);
+            _copies++;
         }
     }
 
@@ -251,6 +273,15 @@ sealed class RdpClipboardBridge
         lock (_localLock)
         {
             SetLocal(files: files);
+            _copies++;
+        }
+    }
+
+    int CopyCount()
+    {
+        lock (_localLock)
+        {
+            return _copies;
         }
     }
 
@@ -272,8 +303,13 @@ sealed class RdpClipboardBridge
         _download?.Close();
         RdpClipboardFiles.Delete(_download?.Root);
         _download = null;
+        _queued = null;
         RdpClipboardFiles.Delete(_lastDownload);
         _lastDownload = null;
+        while (_kept.TryDequeue(out var kept))
+        {
+            RdpClipboardFiles.Delete(kept);
+        }
     }
 
     /// <summary>Handles the channel's events until <paramref name="token"/> is canceled.</summary>
@@ -290,7 +326,9 @@ sealed class RdpClipboardBridge
 
             if (_cancelDownload)
             {
+                // Cancel stops what's waiting too: the strip showed one download, and both go.
                 _cancelDownload = false;
+                _queued = null;
                 EndDownload(null);
             }
 
@@ -356,6 +394,16 @@ sealed class RdpClipboardBridge
             case RdpClipboardEventKind.Unlock when clipboardEvent.LockId is { } id:
                 _locked.Remove(id);
                 break;
+        }
+
+        // A copy that waited for another download starts once that one has ended, if it's still the newest.
+        if (_download is null && _queued is { } queued)
+        {
+            _queued = null;
+            if (queued.Copies == CopyCount())
+            {
+                await StartDownloadAsync(queued.Files, queued.LockId, queued.Copies, token);
+            }
         }
     }
 
@@ -436,7 +484,14 @@ sealed class RdpClipboardBridge
             _requested.Dequeue();
         }
 
-        _requested.Enqueue(request);
+        // The server's copy replaces the local clipboard when it arrives, so it counts as a copy now.
+        int copies;
+        lock (_localLock)
+        {
+            copies = ++_copies;
+        }
+
+        _requested.Enqueue((request.Format, request.Kind, copies));
         await _channel.RequestDataAsync(request.Format, token);
     }
 
@@ -612,10 +667,21 @@ sealed class RdpClipboardBridge
 
     async Task OnRemoteFilesAsync(IReadOnlyList<RdpRemoteFile> files, uint? lockId, CancellationToken token)
     {
-        _requested.TryDequeue(out _);
+        int copies = _requested.TryDequeue(out var asked) ? asked.Copies : CopyCount();
 
-        // Copying again replaces a download still going.
-        EndDownload(null);
+        // A download going finishes first: the server keeps its files under their lock after the clipboard changes, so
+        // copying again doesn't throw it away. This copy waits, and replaces one already waiting.
+        if (_download is not null)
+        {
+            _queued = files.Count == 0 ? null : (files, lockId, copies);
+            return;
+        }
+
+        await StartDownloadAsync(files, lockId, copies, token);
+    }
+
+    async Task StartDownloadAsync(IReadOnlyList<RdpRemoteFile> files, uint? lockId, int copies, CancellationToken token)
+    {
         if (files.Count == 0)
         {
             return;
@@ -646,7 +712,7 @@ sealed class RdpClipboardBridge
             return;
         }
 
-        var download = new Download(root, lockId, total);
+        var download = new Download(root, lockId, total, copies);
         for (int i = 0; i < files.Count; i++)
         {
             var file = files[i];
@@ -828,11 +894,28 @@ sealed class RdpClipboardBridge
             return;
         }
 
+        TransferChanged?.Invoke(this, download.Progress(ended: true));
+        var copied = download.Entries.Where(e => e.File.RelativePath.Length == 0).Select(e => e.Path).ToList();
+        if (download.Copies != CopyCount())
+        {
+            // Something newer was copied while these downloaded. It stays on the clipboard, and these are offered.
+            _kept.Enqueue(download.Root);
+            while (_kept.Count > MaxKept)
+            {
+                RdpClipboardFiles.Delete(_kept.Dequeue());
+            }
+
+            if (copied.Count > 0)
+            {
+                RemoteFilesReady?.Invoke(this, copied);
+            }
+
+            return;
+        }
+
         // The previous files can go now: the clipboard is about to hold these instead.
         RdpClipboardFiles.Delete(_lastDownload);
         _lastDownload = download.Root;
-        TransferChanged?.Invoke(this, download.Progress(ended: true));
-        var copied = download.Entries.Where(e => e.File.RelativePath.Length == 0).Select(e => e.Path).ToList();
         if (copied.Count > 0)
         {
             ForgetLocal();
@@ -841,10 +924,13 @@ sealed class RdpClipboardBridge
     }
 
     /// <summary>A download of the server's files, one file at a time.</summary>
-    sealed class Download(string root, uint? lockId, long total)
+    sealed class Download(string root, uint? lockId, long total, int copies)
     {
         public string Root { get; } = root;
         public uint? LockId { get; } = lockId;
+
+        /// <summary>The copy these files are, counted as in <c>_copies</c>.</summary>
+        public int Copies { get; } = copies;
         public long Total { get; set; } = total;
         public long Done { get; set; }
 

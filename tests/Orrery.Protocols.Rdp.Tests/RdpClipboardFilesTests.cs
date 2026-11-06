@@ -69,6 +69,7 @@ public sealed class RdpClipboardFilesTests : IDisposable
     readonly RdpClipboardBridge _bridge;
     readonly List<byte[]> _images = [];
     readonly List<IReadOnlyList<string>> _files = [];
+    readonly List<IReadOnlyList<string>> _ready = [];
     readonly List<ClipboardTransfer> _transfers = [];
     readonly List<string> _refused = [];
     readonly string _local = Path.Combine(Path.GetTempPath(), "orrery-test-" + Guid.NewGuid().ToString("N"));
@@ -78,6 +79,7 @@ public sealed class RdpClipboardFilesTests : IDisposable
         _bridge = new RdpClipboardBridge(_channel);
         _bridge.RemoteImageChanged += (_, image) => _images.Add(image);
         _bridge.RemoteFilesChanged += (_, paths) => _files.Add(paths);
+        _bridge.RemoteFilesReady += (_, paths) => _ready.Add(paths);
         _bridge.TransferChanged += (_, transfer) => _transfers.Add(transfer);
         _bridge.TextRefused += (_, reason) => _refused.Add(reason);
         Directory.CreateDirectory(_local);
@@ -284,6 +286,66 @@ public sealed class RdpClipboardFilesTests : IDisposable
         Assert.Equal([FileChunk, 10], _channel.FileRequests.Where(r => r.Index == 1).Select(r => r.Length));
         Assert.True(_transfers[^1].Ended);
         Assert.Equal(big.Length + 5L, _transfers[^1].Total);
+    }
+
+    async Task AnswerAsync(int request, byte[] data) =>
+        await Handle(new(RdpClipboardEventKind.FileContentsResponse, Data: data) { StreamId = _channel.FileRequests[request].StreamId });
+
+    [Fact]
+    public async Task Copying_again_on_the_server_waits_for_the_download_going_and_the_newest_goes_on_the_clipboard()
+    {
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList, Format: 0xC011) { Files = [new("first.bin", "", 4, false)], LockId = 3 });
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList, Format: 0xC011) { Files = [new("second.bin", "", 4, false)], LockId = 4 });
+
+        // The first keeps going under its lock; the second waits for it.
+        var asked = Assert.Single(_channel.FileRequests);
+        Assert.Equal(3u, asked.LockId);
+        await AnswerAsync(0, "1111"u8.ToArray());
+
+        // The first is done after a newer copy, so it's offered and not put on the clipboard; then the second starts.
+        var first = Assert.Single(Assert.Single(_ready));
+        Assert.Equal("1111", File.ReadAllText(first));
+        Assert.Empty(_files);
+        Assert.Equal(4u, _channel.FileRequests[1].LockId);
+        await AnswerAsync(1, "2222"u8.ToArray());
+
+        var second = Assert.Single(Assert.Single(_files));
+        Assert.Equal("second.bin", Path.GetFileName(second));
+        Assert.Equal("2222", File.ReadAllText(second));
+        Assert.True(File.Exists(first), "the offered files stay until the session ends");
+    }
+
+    [Fact]
+    public async Task A_download_that_ends_after_a_local_copy_leaves_that_copy_on_both_clipboards()
+    {
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList, Format: 0xC011) { Files = [new("big.bin", "", 4, false)], LockId = 3 });
+        _bridge.SetLocalText("copied while it downloaded");
+        await AnswerAsync(0, "1234"u8.ToArray());
+
+        Assert.Empty(_files);
+        Assert.Equal("big.bin", Path.GetFileName(Assert.Single(Assert.Single(_ready))));
+
+        // The local text is still what the server gets.
+        await Handle(new(RdpClipboardEventKind.FormatListRequested));
+        Assert.Contains(new RdpClipboardFormat(CfUnicodeText), Assert.Single(_channel.Announced));
+    }
+
+    [Fact]
+    public async Task A_copy_waiting_for_a_download_is_dropped_by_a_newer_copy()
+    {
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList, Format: 0xC011) { Files = [new("first.bin", "", 4, false)], LockId = 3 });
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList, Format: 0xC011) { Files = [new("second.bin", "", 4, false)], LockId = 4 });
+        _bridge.SetLocalText("newest");
+        await AnswerAsync(0, "1111"u8.ToArray());
+
+        Assert.Single(_channel.FileRequests);
+        Assert.Single(_ready);
+        Assert.Empty(_files);
     }
 
     [Fact]
