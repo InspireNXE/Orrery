@@ -4174,6 +4174,12 @@ public partial class MainWindow : Window
     /// <summary>A file Import can read, chosen by hand: any of the formats, or anything else read as an SSH config.</summary>
     internal static bool CanImport(string path) => IsImportFile(path) || IsSshConfig(path);
 
+    /// <summary>Why <paramref name="path"/> can't be imported. Export writes CSV, which is the one kind turned away.</summary>
+    internal static string WhyNotImported(string path) => ConnectionExporter.FormatFor(path) == ExportFormat.Csv
+        ? "Orrery can't import CSV files, which are for spreadsheets. To move connections into another copy of Orrery, "
+          + "export them as an Orrery file (.json) and import that."
+        : "Orrery can't import this kind of file.";
+
     async void OnOpenRdpFileClick(object? sender, RoutedEventArgs e)
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -4260,7 +4266,12 @@ public partial class MainWindow : Window
             FileTypeFilter = ImportFileTypes,
         });
 
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && CanImport(path))
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
+        {
+            return;
+        }
+
+        if (CanImport(path))
         {
             await ImportAsync(path);
         }
@@ -4305,6 +4316,10 @@ public partial class MainWindow : Window
             StorageLog.LogError(e, "Couldn't create the vault chosen in setup");
             await Dialogs.ShowMessageAsync(this, "Couldn't create the vault",
                 $"{e.Message}\n\nOrrery will ask for a master password when you first save one.");
+        }
+        else
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file", WhyNotImported(path));
         }
     }
 

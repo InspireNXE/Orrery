@@ -556,6 +556,22 @@ public class SetupWizardTests : IDisposable
     }
 
     [AvaloniaFact]
+    public void A_CSV_file_says_why_it_can_t_be_imported_and_what_to_use()
+    {
+        var window = Open(portable: null, keychain: null, found: []);
+        window.GoTo(SetupStep.Import);
+
+        window.AddFile(Path.Combine(_dir, "connections.csv"));
+
+        Assert.Empty(window.Choices.Imports);
+        var notice = VaultAutoLockTests.Private<Notice>(window, "_message");
+        Assert.True(notice.IsVisible);
+        Assert.Equal(MainWindow.WhyNotImported("connections.csv"), notice.Text);
+        Assert.Contains("Orrery file (.json)", notice.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task A_password_protected_file_says_its_password_comes_after_setup()
     {
         Directory.CreateDirectory(_dir);

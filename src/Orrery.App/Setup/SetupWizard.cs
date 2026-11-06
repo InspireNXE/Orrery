@@ -858,7 +858,7 @@ sealed class SetupWizard : Window
     {
         if (!MainWindow.CanImport(path))
         {
-            ShowMessage("Orrery can't import this kind of file.", NoticeKind.Error);
+            ShowMessage(MainWindow.WhyNotImported(path), NoticeKind.Error);
             return;
         }
 
