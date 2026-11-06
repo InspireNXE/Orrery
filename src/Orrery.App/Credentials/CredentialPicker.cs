@@ -15,6 +15,10 @@ sealed class CredentialPicker : ComboBox
     readonly string _noneLabel;
     bool _refreshing;
 
+    // The choice before "Unlock vault to choose…" was picked, kept once the list is rebuilt. Lost, the connection's
+    // credential read as none, and the next save of any other change dropped it.
+    Guid? _chosen;
+
     public CredentialPicker(ICredentialStore store, string noneLabel = "None")
     {
         _store = store;
@@ -36,6 +40,7 @@ sealed class CredentialPicker : ComboBox
 
     public async Task RefreshAsync(Guid? select)
     {
+        _chosen = select;
         _refreshing = true;
         try
         {
@@ -85,7 +90,7 @@ sealed class CredentialPicker : ComboBox
         {
             var owner = TopLevel.GetTopLevel(this) as Window;
             bool unlocked = owner is not null && await VaultUnlockWindow.EnsureUnlockedAsync(_store, owner);
-            await RefreshAsync(select: null);
+            await RefreshAsync(_chosen);
             if (unlocked)
             {
                 IsDropDownOpen = true;
@@ -94,6 +99,7 @@ sealed class CredentialPicker : ComboBox
             return;
         }
 
+        _chosen = SelectedId;
         ChoiceChanged?.Invoke(this, EventArgs.Empty);
     }
 }
