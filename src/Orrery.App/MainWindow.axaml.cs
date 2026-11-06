@@ -486,31 +486,65 @@ public partial class MainWindow : Window
           + "change. Orrery only reads the files under their own names, so anything in a copy isn't in Orrery. Open the "
           + "data folder to compare them, then delete the copies:\n" + string.Join("\n", conflicts.Select(c => "  " + c));
 
+    // A sync app may be part way through writing the file, or holding it: tried again for about a second.
+    const int TreeLoadAttempts = 4;
+    static readonly TimeSpan TreeLoadRetryDelay = TimeSpan.FromMilliseconds(300);
+
     /// <summary>
-    /// A damaged connections.json is moved aside, never overwritten, and Orrery starts with an empty tree.
+    /// A damaged connections.json is moved aside, never overwritten, and Orrery starts with an empty tree. One a newer
+    /// Orrery saved, or one that can't be opened just now, is left where it is: in a folder a sync app shares, moving
+    /// it would take it from every computer, and the first to save would then have its few connections merged in as if
+    /// the others had been deleted. The store doesn't save over either.
     /// </summary>
-    static (ConnectionTree Tree, string? Warning) LoadTree(ConnectionStore store, DataLocation location)
+    internal static (ConnectionTree Tree, string? Warning) LoadTree(ConnectionStore store, DataLocation location)
     {
-        try
+        var path = location.FileIn("connections.json");
+        for (int attempt = 1; ; attempt++)
         {
-            return (store.Load(), null);
-        }
-        catch (Exception e) when (e is JsonException or InvalidDataException or IOException or NotSupportedException)
-        {
-            var path = location.FileIn("connections.json");
-            var aside = $"{path}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
             try
             {
-                File.Move(path, aside);
+                return (store.Load(), null);
             }
-            catch (IOException)
+            catch (InvalidDataException e) when (ConnectionStore.IsNewerFile(e))
             {
-                aside = path;
+                StorageLog.LogError("connections.json was saved by a newer Orrery; left as it is, and started empty");
+                return (ConnectionTree.Empty(),
+                    "connections.json was saved by a newer version of Orrery, on this computer or another that shares the data "
+                    + "folder. This copy can't read it, so it shows no connections and leaves the file as it is. Update Orrery "
+                    + $"to see them again.\n\nThe file is:\n{path}");
             }
+            catch (Exception e) when (attempt < TreeLoadAttempts && e is JsonException or IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(TreeLoadRetryDelay);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                StorageLog.LogError("Couldn't open connections.json ({Message}); left as it is, and started empty", e.Message);
+                return (ConnectionTree.Empty(),
+                    "Orrery couldn't open connections.json, so it's starting with an empty list. The file is left as it is, and "
+                    + "Orrery takes its connections in once it can open it. If a sync app is still downloading it, wait for "
+                    + $"that, then restart Orrery.\n\nThe file is:\n{path}\n\nDetails: {e.Message}");
+            }
+            catch (Exception e) when (e is JsonException or InvalidDataException or NotSupportedException)
+            {
+                var aside = $"{path}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
+                string where;
+                try
+                {
+                    File.Move(path, aside);
+                    where = $"The file was moved to:\n{aside}";
+                }
+                catch (Exception moveFailure) when (moveFailure is IOException or UnauthorizedAccessException)
+                {
+                    aside = path;
+                    where = $"It couldn't be moved aside, so it's still at:\n{path}";
+                }
 
-            StorageLog.LogError("Couldn't read connections.json ({Message}); kept it as {Aside} and started empty", e.Message, aside);
-            return (ConnectionTree.Empty(),
-                $"{e.Message}\n\nThe file was kept as:\n{aside}\n\nRecent copies are in the backups folder next to it. Orrery is starting with an empty list.");
+                StorageLog.LogError("Couldn't read connections.json ({Message}); kept it as {Aside} and started empty", e.Message, aside);
+                return (ConnectionTree.Empty(),
+                    $"Orrery couldn't read connections.json, so it's starting with an empty list. {where}\n\nRecent copies are in "
+                    + $"the backups folder next to it.\n\nDetails: {e.Message}");
+            }
         }
     }
 

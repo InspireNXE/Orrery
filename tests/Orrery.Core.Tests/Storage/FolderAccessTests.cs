@@ -148,8 +148,10 @@ public class FolderAccessTests : IDisposable
         Directory.CreateDirectory(picked);
         var store = new ConnectionStore(Path.Combine(picked, "connections.json"), Path.Combine(picked, "backups"), backupInterval: TimeSpan.Zero);
 
-        store.Save(ConnectionTree.Empty());
-        store.Save(ConnectionTree.Empty());
+        var tree = ConnectionTree.Empty();
+        store.Save(tree);
+        tree.Add(new ConnectionEntry { Name = "web", Host = "web.example" }, tree.Root);
+        store.Save(tree);
 
         var backup = Assert.Single(Directory.GetFiles(Path.Combine(picked, "backups")));
         Assert.False(FolderAccess.IsOpenToOthers(Path.Combine(picked, "backups")));

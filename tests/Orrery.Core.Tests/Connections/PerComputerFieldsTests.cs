@@ -59,6 +59,79 @@ public class PerComputerFieldsTests : IDisposable
     }
 
     [Fact]
+    public void A_computer_that_started_without_the_file_keeps_its_own_values_when_the_file_comes()
+    {
+        Start(new ConnectionEntry { Name = "web", Host = "web.example", Settings = { KeyFile = @"C:\keys\shared" } });
+        var desktop = Open("desktop");
+        Named<ConnectionEntry>(desktop.Tree, "web").Settings.KeyFile = @"D:\keys\web";
+        desktop.Store.Save(desktop.Tree);
+
+        // Started again while the file wasn't there yet: its tree starts empty, and the file comes in afterwards.
+        var away = Shared + ".away";
+        File.Move(Shared, away);
+        var again = Open("desktop");
+        File.Move(away, Shared);
+        again.Store.ReloadIfChanged(again.Tree);
+
+        Assert.Equal(@"D:\keys\web", Named<ConnectionEntry>(again.Tree, "web").Settings.KeyFile);
+        Assert.Equal(@"D:\keys\web", Named<ConnectionEntry>(Open("desktop").Tree, "web").Settings.KeyFile);
+    }
+
+    // Its tree keeps the root it started with, the file the one it was first saved with: values kept under the root's id
+    // were gone once the file was read again.
+    [Fact]
+    public void A_computer_that_started_without_the_file_keeps_its_own_defaults_for_every_connection()
+    {
+        var desktop = Open("desktop");
+        var laptop = ConnectionTree.Empty();
+        laptop.Root.Settings.KeyFile = @"C:\keys\default";
+        laptop.Add(new ConnectionEntry { Name = "web", Host = "web.example" }, laptop.Root);
+        Store("laptop").Save(laptop);
+
+        desktop.Store.ReloadIfChanged(desktop.Tree);
+        Assert.Equal(@"C:\keys\default", desktop.Tree.Root.Settings.KeyFile);
+        desktop.Tree.Root.Settings.KeyFile = @"D:\keys\default";
+        desktop.Store.Save(desktop.Tree);
+
+        Assert.Equal(@"D:\keys\default", Open("desktop").Tree.Root.Settings.KeyFile);
+        Assert.Equal(@"C:\keys\default", Open("laptop").Tree.Root.Settings.KeyFile);
+    }
+
+    [Fact]
+    public void The_root_s_values_saved_under_its_id_are_still_read()
+    {
+        Start(new ConnectionEntry { Name = "web", Host = "web.example" });
+        var root = Open("laptop").Tree.Root.Id.ToString("N");
+        var values = Path.Combine(_dir, ComputerFiles.FolderName, "desktop-connections.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(values)!);
+        File.WriteAllText(values, $$"""{ "{{root}}": { "settings.keyFile": "D:\\keys\\default" } }""");
+
+        var (store, tree) = Open("desktop");
+        Assert.Equal(@"D:\keys\default", tree.Root.Settings.KeyFile);
+
+        store.Save(tree);
+        Assert.Equal(@"D:\keys\default", Open("desktop").Tree.Root.Settings.KeyFile);
+        Assert.DoesNotContain(root, File.ReadAllText(values));
+    }
+
+    [Fact]
+    public void A_deleted_connection_s_own_values_go_with_it()
+    {
+        Start(new ConnectionEntry { Name = "web", Host = "web.example", Settings = { KeyFile = @"C:\keys\shared" } });
+        var desktop = Open("desktop");
+        var web = Named<ConnectionEntry>(desktop.Tree, "web");
+        web.Settings.KeyFile = @"D:\keys\web";
+        desktop.Store.Save(desktop.Tree);
+        var values = Path.Combine(_dir, ComputerFiles.FolderName, "desktop-connections.json");
+        Assert.Contains(web.Id.ToString("N"), File.ReadAllText(values));
+
+        desktop.Tree.Remove(web);
+        desktop.Store.Save(desktop.Tree);
+
+        Assert.False(File.Exists(values) && File.ReadAllText(values).Contains(web.Id.ToString("N")));
+    }
+
+    [Fact]
     public void Both_computers_changing_their_own_values_is_no_conflict()
     {
         Start(new ConnectionEntry { Name = "rdp", Host = "10.0.0.5", Settings = { SharedFolders = [@"C:\Share"] } });

@@ -130,6 +130,16 @@ public sealed class ComputerValues(string path)
         }
     }
 
+    /// <summary>Moves the fields set for <paramref name="from"/> to <paramref name="to"/>, unless that has some already.</summary>
+    public void Rename(string from, string to)
+    {
+        if (_values[from] is JsonObject fields && !_values.ContainsKey(to))
+        {
+            _values.Remove(from);
+            _values[to] = fields;
+        }
+    }
+
     /// <summary>Drops every key <paramref name="keep"/> says no to: connections since deleted.</summary>
     public void Keep(Func<string, bool> keep)
     {
