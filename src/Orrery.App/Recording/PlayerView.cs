@@ -543,14 +543,8 @@ sealed partial class PlayerView : DockPanel, IDisposable
         show.Click += (_, _) => ShowInFolderRequested?.Invoke(this, EventArgs.Empty);
         // The shortcut is ?, whichever key types it. A gesture can only name the key ("Shift+/" on a US keyboard), so
         // the item shows ? in its place, as the button and the shortcuts card do.
-        var keys = new MenuItem { Header = "Keyboard shortcuts", InputGesture = new KeyGesture(Key.OemQuestion, KeyModifiers.Shift) };
-        keys.TemplateApplied += (_, e) =>
-        {
-            if (e.NameScope.Find<TextBlock>("PART_InputGestureText") is { } shortcut)
-            {
-                shortcut.Text = "?";
-            }
-        };
+        var keys = new MenuItem { Header = "Keyboard shortcuts" };
+        MenuShortcut.Show(keys, new KeyGesture(Key.OemQuestion, KeyModifiers.Shift), "?");
         keys.Click += (_, _) => ShowKeys(true);
         var delete = new MenuItem { Header = "Delete recording…", Foreground = Dialogs.DangerBrush, InputGesture = new KeyGesture(Key.Delete) };
         delete.Click += (_, _) => DeleteRequested?.Invoke(this, EventArgs.Empty);

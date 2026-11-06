@@ -4001,7 +4001,7 @@ public partial class MainWindow : Window
         var item = new MenuItem { Header = header, IsEnabled = enabled };
         if (shortcut is not null)
         {
-            item.InputGesture = KeyGesture.Parse(shortcut.Replace("Cmd", "Meta"));
+            Controls.MenuShortcut.Show(item, KeyGesture.Parse(shortcut.Replace("Cmd", "Meta")));
         }
 
         if (click is not null)
