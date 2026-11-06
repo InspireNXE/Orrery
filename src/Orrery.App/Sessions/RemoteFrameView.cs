@@ -633,8 +633,9 @@ public sealed partial class RemoteFrameView : Panel
             _askedForSize |= Session.State == SessionState.Connected;
             if (_stretching)
             {
-                // Already that size, or about to be, within what the server rounds to (an even width).
-                if (Math.Abs(width - Session.Width) <= 1 && height == Session.Height)
+                // Already that size, or about to be, within what the server rounds to (an even width), or what an RDP
+                // session leaves as it is (2 pixels more than a width that's a multiple of 4).
+                if (width - Session.Width is >= -1 and <= 3 && height == Session.Height)
                 {
                     StopStretching();
                 }
