@@ -727,7 +727,14 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                     case ActiveStageOutputType.ResponseFrame:
                         using (var frame = output.ResponseFrame)
                         {
-                            await WriteAsync(ToBytes(frame), token);
+                            // IronRDP gives one for nearly every message the server sends, and most are empty: with
+                            // the graphics pipeline, every 1.6 KB piece of a picture has one. On Windows an empty
+                            // write still sends an encrypted record of its own, and each waits on the lock input
+                            // goes through.
+                            if (frame.Size > 0)
+                            {
+                                await WriteAsync(ToBytes(frame), token);
+                            }
                         }
                         break;
 
