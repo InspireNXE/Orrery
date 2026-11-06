@@ -45,6 +45,34 @@ public class DialogKeysTests
     }
 
     [AvaloniaFact]
+    public void A_choice_opens_on_its_default_at_the_right_and_neither_answer_is_in_the_accent()
+    {
+        var owner = new Window();
+        owner.Show();
+        var answer = Dialogs.AskAsync(owner, "Restart to finish", "1 session will close.", "Restart now", "When I quit");
+        Dispatcher.UIThread.RunJobs();
+        var window = owner.OwnedWindows.Single();
+
+        // Everywhere else the accent marks what Enter presses. Here Enter waits, so the accent can't be on "Restart now".
+        var now = ButtonFor(window, "Restart now");
+        var later = ButtonFor(window, "When I quit");
+        Assert.DoesNotContain("accent", now.Classes);
+        Assert.DoesNotContain("accent", later.Classes);
+
+        // The default is at the right, as Cancel is in a confirmation.
+        Assert.Same(later, Focused(window));
+        window.KeyPress(Key.Left, RawInputModifiers.None, PhysicalKey.ArrowLeft, null);
+        Assert.Same(now, Focused(window));
+        window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.ArrowRight, null);
+        Assert.Same(later, Focused(window));
+
+        window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(answer.Result);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Ctrl_enter_in_the_command_box_saves_the_command()
     {
         var owner = new Window();
