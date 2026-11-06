@@ -3935,7 +3935,9 @@ public partial class MainWindow : Window
 
         if (_settingsStore.Load().RecordingNoteShown != true)
         {
-            if (!await Dialogs.ConfirmAsync(WindowOf(tab), "Recording sessions", Recording.RecordingsPanel.Note, "Record"))
+            // Only a terminal's recording keeps what's typed.
+            var typing = tab.View is TerminalView && RecordsTyping(tab.Origin);
+            if (!await Dialogs.ConfirmAsync(WindowOf(tab), "Recording sessions", Recording.RecordingsPanel.NoteFor(typing), "Record"))
             {
                 return;
             }

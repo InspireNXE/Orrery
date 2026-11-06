@@ -37,6 +37,15 @@ public sealed class RecordingUiTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
+    // Shown before the first recording, it said what's typed is never recorded, even for one that records it.
+    [Fact]
+    public void The_first_recording_s_note_says_whether_this_one_keeps_what_s_typed()
+    {
+        Assert.Contains("What you type isn't recorded unless Record what's typed too is on.", RecordingsPanel.NoteFor(typing: false));
+        Assert.Contains("This one keeps what you type too", RecordingsPanel.NoteFor(typing: true));
+        Assert.DoesNotContain("isn't recorded", RecordingsPanel.NoteFor(typing: true));
+    }
+
     sealed class Terminal : ITerminalSession
     {
         public ConnectionTarget Target { get; } = new("web.example", 22, "admin", null);
