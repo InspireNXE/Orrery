@@ -842,6 +842,25 @@ public sealed class RecordingUiTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task The_more_menu_names_the_keys_the_player_takes()
+    {
+        var (player, window, _) = await OpenTerminalRecording("web-01");
+        var more = player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "More options");
+        var flyout = PopupMenu.ShowAt(more, player.MoreMenu(), PlacementMode.BottomEdgeAlignedRight);
+        Dispatcher.UIThread.RunJobs();
+
+        string? Shortcut(string header) => ((Control)flyout.Popup.Child!).GetVisualDescendants().OfType<MenuItem>()
+            .Single(item => item.Header as string == header)
+            .GetVisualDescendants().OfType<TextBlock>().Single(text => text.Name == "PART_InputGestureText").Text;
+        Assert.Equal("?", Shortcut("Keyboard shortcuts")); // as the button and the card say, not "/" or "Shift+/"
+        Assert.Equal("Delete", Shortcut("Delete recording…"));
+
+        flyout.Hide();
+        player.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Recordings_play_with_the_viewers_color_correction()
     {
         _settings.Save(new AppSettings { ColorVision = Orrery.Core.Settings.ColorVision.Deuteranopia });
