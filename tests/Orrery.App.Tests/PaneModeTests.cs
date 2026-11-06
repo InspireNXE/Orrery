@@ -5,7 +5,9 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Orrery.App.Connections;
+using Orrery.Core.Connections;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Xunit;
@@ -254,6 +256,64 @@ public class PaneModeTests : IDisposable
         {
             window.Close();
         }
+    }
+
+    [AvaloniaFact]
+    public void A_settings_pane_opened_by_pointing_stays_while_its_dropdown_is_open()
+    {
+        var window = Open(new AppSettings { InspectorMode = PaneMode.Hidden });
+        try
+        {
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var treeView = VaultAutoLockTests.Private<TreeView>(window, "_treeView");
+            var entry = new ConnectionEntry { Name = "box", Host = "box.example", Settings = { Protocol = Protocol.Rdp, DisplayQuality = Orrery.Core.Sessions.DisplayQuality.Best } };
+            tree.Add(entry, tree.Root);
+            Dispatcher.UIThread.RunJobs();
+            treeView.SelectedItem = ((IEnumerable<NodeViewModel>)treeView.ItemsSource!).Single(r => r.Node == entry);
+            Dispatcher.UIThread.RunJobs();
+
+            var inspector = VaultAutoLockTests.Private<Border>(window, "_propertiesHost");
+            // Pointing at the window's right edge.
+            typeof(MainWindow).GetMethod("FloatInspector", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window, [true]);
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Assert.True(inspector.IsVisible);
+
+            // Open the Display quality row, then its list.
+            var row = VaultAutoLockTests.Private<object>(VaultAutoLockTests.Private<PropertiesPanel>(window, "_properties"), "_qualityRow");
+            row.GetType().GetProperty("Expanded")!.SetValue(row, true);
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var quality = inspector.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "DisplayQuality");
+            Assert.True(quality.IsEffectivelyVisible);
+            quality.IsDropDownOpen = true;
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(quality.IsDropDownOpen);
+            var leave = VaultAutoLockTests.Private<DispatcherTimer>(window, "_inspectorLeave");
+            Leave(window, leave, inspector);
+            Assert.True(inspector.IsVisible);
+            Assert.True(leave.IsEnabled);
+
+            quality.IsDropDownOpen = false;
+            Dispatcher.UIThread.RunJobs();
+            Leave(window, leave, inspector);
+            Assert.False(inspector.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // The pointer has gone onto the dropdown's own window; run the close timer's tick at once.
+    static void Leave(MainWindow window, DispatcherTimer timer, Border pane)
+    {
+        window.Focus();
+        const System.Reflection.BindingFlags Hidden = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        Action close = () => typeof(MainWindow).GetField("_inspectorFloating", Hidden)!.SetValue(window, false);
+        typeof(MainWindow).GetMethod("LeaveFloating", Hidden)!.Invoke(window, [timer, pane, close]);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
     }
 
     static void Click(Window window, string name)
