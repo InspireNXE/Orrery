@@ -1966,7 +1966,7 @@ sealed class SettingsView : UserControl
 
     static TextBlock Note(string text) => new() { Text = text, FontSize = 12, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
 
-    static void OpenFolder(string path)
+    internal static void OpenFolder(string path)
     {
         try
         {

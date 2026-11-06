@@ -465,10 +465,13 @@ public partial class MainWindow : Window
             ShowNotice(notice);
         }
 
-        if (ConflictCopiesWarning(conflicts) is { } warning)
+        if (ConflictCopiesWarning(conflicts, _location.DataDir) is { } warning)
         {
             Log.For("App").LogWarning("The data folder has {Count} sync conflict copies", conflicts.Count);
-            await Dialogs.ShowMessageAsync(this, "Your sync app made conflict copies", warning);
+            if (await Dialogs.AskAsync(this, "Your sync app made conflict copies", warning, "Open data folder", "Close"))
+            {
+                Settings.SettingsView.OpenFolder(_location.DataDir);
+            }
         }
     }
 
@@ -480,11 +483,16 @@ public partial class MainWindow : Window
         _ => $"Orrery is also open on {string.Join(", ", others.Select(o => o.Name))}. Changes on any show on all.",
     };
 
-    /// <summary>What's said about the sync app's conflict copies, or null for none.</summary>
-    internal static string? ConflictCopiesWarning(IReadOnlyList<string> conflicts) => conflicts.Count == 0 ? null
+    /// <summary>What's said about the sync app's conflict copies in <paramref name="dataDir"/>, or null for none.</summary>
+    internal static string? ConflictCopiesWarning(IReadOnlyList<string> conflicts, string dataDir) => conflicts.Count == 0 ? null
         : "Your sync app kept these copies when the same file changed on two computers before it could copy either "
-          + "change. Orrery only reads the files under their own names, so anything in a copy isn't in Orrery. Open the "
-          + "data folder to compare them, then delete the copies:\n" + string.Join("\n", conflicts.Select(c => "  " + c));
+          + "change. Orrery only reads the files under their own names, so anything in a copy isn't in Orrery. Compare "
+          + "each copy with its file, then delete the copy."
+          + (conflicts.Any(c => c.StartsWith("vault", StringComparison.OrdinalIgnoreCase))
+              ? " A copy of the vault is encrypted, so it can't be compared that way: keep it until you've checked that no "
+                + "saved credentials are missing."
+              : "")
+          + $"\n\nIn {dataDir}:\n" + string.Join("\n", conflicts.Select(c => "  " + c));
 
     // A sync app may be part way through writing the file, or holding it: tried again for about a second.
     const int TreeLoadAttempts = 4;
