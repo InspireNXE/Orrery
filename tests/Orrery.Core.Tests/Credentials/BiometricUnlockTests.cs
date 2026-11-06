@@ -274,9 +274,23 @@ public class BiometricUnlockTests : IDisposable
         _hello.NextAnswer = AuthenticatorStatus.Failed;
         var failed = await Biometric.UnlockAsync(vault);
         Assert.Equal(BiometricOutcome.Failed, failed.Outcome);
+        Assert.Equal("Test answer Failed. Use the master password.", failed.Message);
         Assert.True(Biometric.IsOn(vault));
 
         Assert.Equal(BiometricOutcome.Done, (await Biometric.UnlockAsync(vault)).Outcome);
+    }
+
+    [Fact]
+    public async Task A_failure_while_turning_on_doesn_t_say_to_use_the_master_password()
+    {
+        // It was just typed into the window that turns it on.
+        using var vault = await NewVaultAsync();
+        _hello.NextAnswer = AuthenticatorStatus.Failed;
+
+        var result = await Biometric.TurnOnAsync(vault, Password);
+
+        Assert.Equal(BiometricOutcome.Failed, result.Outcome);
+        Assert.Equal("Test answer Failed.", result.Message);
     }
 
     [Fact]

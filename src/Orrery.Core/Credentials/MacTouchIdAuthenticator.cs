@@ -148,9 +148,10 @@ public sealed class MacTouchIdAuthenticator : IPlatformAuthenticator
                 ErrSecUserCanceled => new(AuthenticatorStatus.Canceled),
                 ErrSecItemNotFound or ErrSecAuthFailed => new(AuthenticatorStatus.KeyGone,
                     Message: "Touch ID didn't release Orrery's key. That happens if your finger isn't recognized, and for good once the enrolled fingers change."),
-                ErrSecInteractionNotAllowed => new(AuthenticatorStatus.Failed, Message: "Touch ID can't ask right now. Use the master password."),
+                // The unlock says to use the master password.
+                ErrSecInteractionNotAllowed => new(AuthenticatorStatus.Failed, Message: "Touch ID can't ask right now."),
                 ErrSecMissingEntitlement => new(AuthenticatorStatus.Failed, Message: NeedsSigning),
-                _ => new(AuthenticatorStatus.Failed, Message: $"Touch ID didn't work (keychain error {status}). Use the master password."),
+                _ => new(AuthenticatorStatus.Failed, Message: $"Touch ID didn't work (keychain error {status})."),
             };
         }
         finally

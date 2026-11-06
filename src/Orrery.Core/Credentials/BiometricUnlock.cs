@@ -406,7 +406,7 @@ public sealed class BiometricUnlock(IPlatformAuthenticator authenticator, ISecre
             if (released.Status != AuthenticatorStatus.Success || secret is null)
             {
                 Logger.LogWarning("{Authenticator} unlock failed: {Message}", Name, released.Message);
-                return new(BiometricOutcome.Failed, released.Message ?? $"{Name} didn't work. Use the master password.");
+                return new(BiometricOutcome.Failed, $"{released.Message ?? $"{Name} didn't work."} Use the master password.");
             }
 
             if (secret.Length < MinSecretSize)
