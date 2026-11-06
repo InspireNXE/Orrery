@@ -84,6 +84,20 @@ public class SyncedDataFolderTests : IDisposable
         Assert.StartsWith("Orrery couldn't read connections.json", warning);
     }
 
+    // Deleting an old copy in a folder a sync app shares deletes it on every computer that uses it.
+    [Fact]
+    public void Offering_to_delete_an_old_copy_says_which_other_computers_use_that_folder()
+    {
+        var desktop = new OtherComputer("abcdef", "DESKTOP-2", DateTimeOffset.UtcNow);
+
+        Assert.Null(MainWindow.SharedOldCopyNote([], 0));
+        Assert.StartsWith("Another computer has used that folder too, as a sync app shares it.", MainWindow.SharedOldCopyNote([], 1));
+        Assert.StartsWith("2 other computers have used that folder too,", MainWindow.SharedOldCopyNote([], 2));
+        Assert.StartsWith("Orrery is open on DESKTOP-2 with that folder now, as a sync app shares it.", MainWindow.SharedOldCopyNote([desktop], 1));
+        Assert.StartsWith("Orrery is open on DESKTOP-2 with that folder now, and 1 more computer has used it,", MainWindow.SharedOldCopyNote([desktop], 2));
+        Assert.Contains("Keep it while any of them still uses it.", MainWindow.SharedOldCopyNote([], 1));
+    }
+
     public void Dispose()
     {
         try

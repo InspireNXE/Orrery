@@ -4820,8 +4820,15 @@ public partial class MainWindow : Window
         var biometricNote = biometric is not null && _credentials is VaultFileStore vault && biometric.IsOn(vault)
             ? $"\n\nUntil it's deleted, {biometric.Name} unlock opens the old copy's vault as well."
             : string.Empty;
+        var shared = await Task.Run(() => SharedOldCopyNote(
+            DataFolderPresence.OthersIn(oldDataDir, ComputerFiles.Tag, DateTimeOffset.UtcNow), ComputerFiles.OtherComputersIn(oldDataDir).Count));
+        if (shared is not null)
+        {
+            Log.For("App").LogInformation("The old copy in {OldDataDir} is shared with other computers; asking before deleting it", oldDataDir);
+        }
+
         if (!await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
-                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.{biometricNote}", "Delete old copy"))
+                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\n{(shared is null ? "" : shared + "\n\n")}Only Orrery's own files are deleted. Anything else in that folder stays.{biometricNote}", "Delete old copy"))
         {
             return;
         }
@@ -4842,6 +4849,27 @@ public partial class MainWindow : Window
             await Dialogs.ShowMessageAsync(this, "Some files were left in the old folder",
                 $"{left.Count} {(left.Count == 1 ? "file or folder that wasn't Orrery's was" : "files or folders that weren't Orrery's were")} left in place in\n{oldDataDir}");
         }
+    }
+
+    /// <summary>
+    /// For the offer to delete the old copy after Move data: who else uses that folder, as a sync app shares it, from
+    /// the computers with Orrery open there now (<paramref name="open"/>) and how many others have left files there
+    /// (<paramref name="used"/>, counting those open). Null when none has.
+    /// </summary>
+    internal static string? SharedOldCopyNote(IReadOnlyList<OtherComputer> open, int used)
+    {
+        var more = Math.Max(0, used - open.Count);
+        if (open.Count == 0 && more == 0)
+        {
+            return null;
+        }
+
+        var who = open.Count == 0
+            ? more == 1 ? "Another computer has used that folder too" : $"{more} other computers have used that folder too"
+            : $"Orrery is open on {string.Join(" and ", open.Select(o => o.Name))} with that folder now"
+                + (more == 0 ? "" : more == 1 ? ", and 1 more computer has used it" : $", and {more} more computers have used it");
+        return $"{who}, as a sync app shares it. Deleting the old copy deletes the connections, vault and settings there "
+            + "on every computer it syncs to. Keep it while any of them still uses it.";
     }
 
     void UpdateVaultButton()

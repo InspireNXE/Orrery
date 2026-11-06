@@ -43,6 +43,58 @@ public static class ComputerFiles
     public static string PathFor(DataLocation location, string name) => PathFor(location.DataDir, name);
 
     /// <summary>
+    /// The tags of the other computers that have used <paramref name="dataDir"/>, as a sync app shares it, by what each
+    /// leaves there: its own files, its web-tab profile and cache, and its file saying Orrery is open there. Empty when
+    /// only this computer has. Never throws.
+    /// </summary>
+    public static IReadOnlyList<string> OtherComputersIn(string dataDir)
+    {
+        var tags = new SortedSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var own = Path.Combine(dataDir, FolderName);
+            if (Directory.Exists(own))
+            {
+                foreach (var file in Directory.EnumerateFiles(own, "*-*.json"))
+                {
+                    Add(Path.GetFileName(file).Split('-')[0]);
+                }
+            }
+
+            foreach (var folder in new[] { WebData.FolderName, "cache" })
+            {
+                var top = Path.Combine(dataDir, folder);
+                if (Directory.Exists(top))
+                {
+                    foreach (var computer in Directory.EnumerateDirectories(top))
+                    {
+                        Add(Path.GetFileName(computer));
+                    }
+                }
+            }
+
+            foreach (var file in Directory.EnumerateFiles(dataDir, DataFolderPresence.FilePrefix + "*.json"))
+            {
+                Add(Path.GetFileNameWithoutExtension(file)[DataFolderPresence.FilePrefix.Length..]);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        tags.Remove(Tag);
+        return [.. tags];
+
+        void Add(string tag)
+        {
+            if (tag.Length == 6 && tag.All(char.IsAsciiHexDigitLower))
+            {
+                tags.Add(tag);
+            }
+        }
+    }
+
+    /// <summary>
     /// At start: update downloads a portable copy left in the shared cache folder, from before each computer had its
     /// own (<c>cache/&lt;tag&gt;</c>), so a sync app stops copying them about. Never throws.
     /// </summary>

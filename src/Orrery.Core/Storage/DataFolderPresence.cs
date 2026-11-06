@@ -97,24 +97,29 @@ public sealed class DataFolderPresence : IDisposable
     }
 
     /// <summary>The other computers whose file says Orrery was open there within <see cref="StaleAfter"/>.</summary>
-    public IReadOnlyList<OtherComputer> Others()
+    public IReadOnlyList<OtherComputer> Others() => OthersIn(_dataDir, Tag, _clock());
+
+    /// <summary>
+    /// The computers but the one tagged <paramref name="tag"/> whose file in <paramref name="dataDir"/> says Orrery was open
+    /// there within <see cref="StaleAfter"/> of <paramref name="now"/>.
+    /// </summary>
+    public static IReadOnlyList<OtherComputer> OthersIn(string dataDir, string tag, DateTimeOffset now)
     {
-        var now = _clock();
         var found = new List<OtherComputer>();
         try
         {
-            foreach (var file in Directory.EnumerateFiles(_dataDir, FilePrefix + "*.json"))
+            foreach (var file in Directory.EnumerateFiles(dataDir, FilePrefix + "*.json"))
             {
                 var name = Path.GetFileNameWithoutExtension(file);
-                var tag = name[FilePrefix.Length..];
-                if (tag == Tag || tag.Length != 6)
+                var other = name[FilePrefix.Length..];
+                if (other == tag || other.Length != 6)
                 {
                     continue;
                 }
 
                 if (Read(file) is { } entry && now - entry.Seen < StaleAfter && entry.Seen - now < StaleAfter)
                 {
-                    found.Add(new OtherComputer(tag, entry.Computer, entry.Seen));
+                    found.Add(new OtherComputer(other, entry.Computer, entry.Seen));
                 }
             }
         }
