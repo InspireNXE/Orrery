@@ -8,6 +8,7 @@ public static class CredentialCopier
     /// </summary>
     /// <returns>The ids copied.</returns>
     /// <exception cref="InvalidDataException">A credential didn't read back the same.</exception>
+    /// <exception cref="InvalidOperationException">A store is locked, or one credential couldn't be saved in <paramref name="to"/>, named in the message.</exception>
     public static async Task<IReadOnlyList<Guid>> CopyAllAsync(ICredentialStore from, ICredentialStore to)
     {
         var copied = new List<Guid>();
@@ -20,7 +21,16 @@ public static class CredentialCopier
                 continue;
             }
 
-            await to.SaveAsync(credential);
+            try
+            {
+                await to.SaveAsync(credential);
+            }
+            catch (InvalidOperationException e)
+            {
+                // Which one, of maybe hundreds: one too large for Windows Credential Manager, say.
+                throw new InvalidOperationException($"\"{credential.Name}\" couldn't be copied. {e.Message}", e);
+            }
+
             if (await to.GetAsync(credential.Id) != credential)
             {
                 throw new InvalidDataException($"The credential \"{credential.Name}\" didn't copy correctly.");
