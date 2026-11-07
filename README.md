@@ -199,7 +199,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   tells them apart by comparing the shape's outline with Windows' default pointers, so a server with another
   pointer scheme gets its own shapes. On Linux and macOS, the server's shapes are shown as they are.
 - **Reconnects** happen on their own, waiting longer each time (up to a minute), and at once when the network
-  returns. A refused login or an untrusted host key or certificate is never retried.
+  returns. A refused login or an untrusted host key or certificate is never retried. When the computer itself stops
+  answering, after a session drops or the server ends it, Orrery waits for it to answer again (up to 30 minutes) and
+  reconnects then, rather than running out of tries. A session that ends while its computer stays up, such as a
+  logoff, is left ended.
 - **Many tabs** narrow to fit the tab strip, as in a browser, then show only their state (the current one keeps its
   close button), and past that the strip scrolls with the mouse wheel. The ⌄ button lists every tab.
 - **Pop out** a tab into a window of its own, from its menu, the session toolbar, Ctrl+Shift+O, or by dragging it

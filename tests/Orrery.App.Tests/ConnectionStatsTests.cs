@@ -115,7 +115,7 @@ public class ConnectionStatsTests
         Assert.True(Shown(window, "45 ms"));
         Assert.True(Shown(window, "1920 × 1080"));
         Assert.True(Shown(window, "512 KB in, 0 bytes out"));
-        Assert.True(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text?.EndsWith("/s") == true));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.EndsWith("/s") == true);
         // Scaling and the other view settings are still there above it.
         Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(), c => c.IsEffectivelyVisible && c.Name == "Scaling");
         window.Close();

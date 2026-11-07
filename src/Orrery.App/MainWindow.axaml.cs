@@ -2451,6 +2451,7 @@ public partial class MainWindow : Window
         var origin = new SessionOrigin(files ? $"{entry.Name} · files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
         {
             Files = files,
+            ReachableDirectly = resolved.JumpHostId.Value is null && ChecksHostDirectly(protocol),
         };
         if (protocol == Protocol.Serial)
         {
@@ -2610,7 +2611,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice), AutoReconnect: true);
+        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice), AutoReconnect: true)
+        {
+            ReachableDirectly = ChecksHostDirectly(choice.Protocol),
+        };
         if (choice.Protocol == Protocol.Serial)
         {
             StartSerial(origin, host, SerialLine.Default);
@@ -3345,6 +3349,10 @@ public partial class MainWindow : Window
             {
                 BeginReconnect(tab);
             }
+            else if (MayHaveGoneOffline(tab))
+            {
+                _ = WatchAfterEndAsync(tab);
+            }
 
             RefreshSessionBar(tab);
         };
@@ -3356,9 +3364,92 @@ public partial class MainWindow : Window
 
     bool ShouldReconnect(SessionTab tab) => tab.CanRetryByItself && !tab.IsReconnecting && _tabs.Contains(tab);
 
+    readonly HostReturnWatch _hostReturn = new(new TcpHostProbe());
+
+    static bool ChecksHostDirectly(Protocol protocol) => protocol is Protocol.Rdp or Protocol.Ssh or Protocol.Vnc or Protocol.Telnet;
+
+    /// <summary>
+    /// The server ended the session itself, and it may reconnect by itself: a logoff or an administrator's disconnect,
+    /// or the computer restarting or shutting down. Which one shows in whether the host goes on answering.
+    /// </summary>
+    bool MayHaveGoneOffline(SessionTab tab) =>
+        tab.Session.State == SessionState.Disconnected && tab.HasConnected && !tab.EndedByUser && !tab.RetryStopped
+        && tab.Origin is { Restart: not null, ReachableDirectly: true } && !tab.IsReconnecting && _tabs.Contains(tab);
+
+    /// <summary>
+    /// After the server ended a session: if its host stops answering soon after, waits for it to answer again and
+    /// reconnects. One still answering ended the session on purpose, so it's left as it is.
+    /// </summary>
+    async Task WatchAfterEndAsync(SessionTab tab)
+    {
+        var target = tab.Session.Target;
+        bool wanted() => _tabs.Contains(tab) && !tab.EndedByUser && !tab.RetryStopped && !tab.IsReconnecting;
+        try
+        {
+            if (!await _hostReturn.GoesDownAsync(target.Host, target.Port, wanted, CancellationToken.None) || !wanted())
+            {
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            ConnectLog.LogDebug("Couldn't check whether {Host} went offline: {Message}", target.Host, e.Message);
+            return;
+        }
+
+        ConnectLog.LogInformation("\"{Name}\": {Host} stopped answering after the session ended; reconnecting when it's back", tab.Origin.Title, target.Host);
+        await WaitForHostAsync(tab, sessionEnded: true);
+    }
+
+    /// <summary>Shows the tab waiting for its host, and reconnects when the host answers again.</summary>
+    async Task WaitForHostAsync(SessionTab tab, bool sessionEnded)
+    {
+        var target = tab.Session.Target;
+        var token = tab.ShowWaitingForHost(sessionEnded);
+        bool back;
+        try
+        {
+            back = await _hostReturn.ComesBackAsync(target.Host, target.Port, () => _tabs.Contains(tab), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested || !_tabs.Contains(tab))
+        {
+            return;
+        }
+
+        if (!back)
+        {
+            ConnectLog.LogInformation("\"{Name}\": {Host} didn't answer again within {Minutes} min", tab.Origin.Title, target.Host, HostReturnWatch.WaitAtMost.TotalMinutes);
+            tab.ShowStoppedWaiting(HostReturnWatch.WaitAtMost);
+            return;
+        }
+
+        ConnectLog.LogInformation("\"{Name}\": {Host} is answering again; reconnecting", tab.Origin.Title, target.Host);
+        tab.CancelReconnect();
+        await RestartTabAsync(tab, 0);
+    }
+
+    /// <summary>
+    /// A try after a drop failed because the host didn't answer at all: it went offline, restarting say, so rather
+    /// than spending the tries, the tab waits for it to answer again.
+    /// </summary>
+    internal static bool HostStoppedAnswering(SessionTab tab) =>
+        tab.Origin.ReachableDirectly && tab.Dropped && !tab.HasConnected
+        && tab.Failure is { Kind: FailureKind.Refused or FailureKind.TimedOut or FailureKind.Unreachable };
+
     /// <param name="fresh">Count from the first try again, as when the network has just come back.</param>
     void BeginReconnect(SessionTab tab, bool fresh = false)
     {
+        if (!fresh && HostStoppedAnswering(tab))
+        {
+            _ = WaitForHostAsync(tab, sessionEnded: false);
+            return;
+        }
+
         // A try that got connected starts the count again.
         int attempt = fresh || tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
         if (attempt > ReconnectSchedule.MaxAttempts)
