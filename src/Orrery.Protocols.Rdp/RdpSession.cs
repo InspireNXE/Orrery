@@ -78,6 +78,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     // For the Connection card: when connecting started, and when Orrery last asked for a size the server then took.
     long _connectStarted, _resizeAsked;
 
+    // The connector's steps for the last host it reached; the first picture adds its own.
+    IReadOnlyList<ConnectStep> _connectSteps = [];
+
     /// <summary>The traffic and timings the session pane shows.</summary>
     public LinkStats Link { get; } = new();
 
@@ -310,7 +313,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             {
                 return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token, _audioTap,
                     // Through a tunnel the socket only reaches its local end, whose round trip says nothing.
-                    _route is null ? Link : null);
+                    _route is null ? Link : null, steps => _connectSteps = steps);
             }
             catch (ServerRedirectedException e)
             {
@@ -843,6 +846,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             // What the user waits for: from starting to connect, or asking for the size, to seeing the desktop.
             if (after == "connecting")
             {
+                Link.ConnectSteps = [.. _connectSteps, new ConnectStep("First screen", Stopwatch.GetElapsedTime(_firstPictureFrom))];
                 Link.ConnectTime = Stopwatch.GetElapsedTime(_connectStarted);
             }
             else if (_resizeAsked != 0)

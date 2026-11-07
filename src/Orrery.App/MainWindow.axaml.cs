@@ -3514,6 +3514,12 @@ public partial class MainWindow : Window
         // Reconnecting after a drop, by itself or from the button, is still about that drop.
         var tab = NewTab(view, session, old.Origin, attempt, old.IsShowingFailure && old.Dropped);
 
+        // The Connection card keeps what happened before, drops included.
+        if (tab.Link is { } link && old.Link is { } before)
+        {
+            link.CarryFrom(before);
+        }
+
         // A muted tab stays muted when it reconnects.
         tab.IsMuted = old.IsMuted;
         tab.LastShown = old.LastShown;
