@@ -36,7 +36,7 @@ namespace Orrery.Protocols.Rdp;
 /// that image's size in place (<see cref="FollowGraphicsReset"/>); one without it restarts the session's activation.
 /// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession, ILinkStatsSession
+public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession, ILinkStatsSession, ILockKeysSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
@@ -1035,6 +1035,44 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
         var key = Scancode.FromU16(scancode);
         SendInput(pressed ? key.AsOperationKeyPressed() : key.AsOperationKeyReleased());
+    }
+
+    /// <summary>
+    /// Sets the remote computer's Caps Lock, Num Lock and Scroll Lock to <paramref name="keys"/> with a fast-path
+    /// synchronize event, as mstsc does when it gets the keyboard. Queued with the keys, so it lands between them in order.
+    /// </summary>
+    public void SyncLockKeys(LockKeys keys)
+    {
+        if (State != SessionState.Connected)
+        {
+            return;
+        }
+
+        var pdu = SynchronizePdu(keys);
+        lock (_inputLock)
+        {
+            _inputChain = InOrder(_inputChain, () => SendRawInputAsync(pdu));
+        }
+
+        Logger.LogDebug("{Host}: lock keys set to {Keys}", Target.Host, keys);
+    }
+
+    /// <summary>
+    /// A fast-path input PDU with one synchronize event (MS-RDPBCGR 2.2.8.1.2): the header (action 0, one event), its
+    /// length of 3 bytes, then the event code 3 in the top bits with the lock keys' flags in the bottom ones.
+    /// </summary>
+    internal static byte[] SynchronizePdu(LockKeys keys) => [0x04, 0x03, (byte)(0x60 | ((int)keys & 0x0F))];
+
+    async Task SendRawInputAsync(byte[] pdu)
+    {
+        try
+        {
+            await WriteAsync(pdu, _cts.Token);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Logger.LogError("Sending RDP input failed: {Message}", e.Message);
+        }
     }
 
     public void ReleaseAllKeys()

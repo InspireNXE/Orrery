@@ -514,6 +514,14 @@ public sealed partial class RemoteFrameView : Panel
             return;
         }
 
+        // A lock key for the remote only: set outright and remembered, so the next match with this computer keeps it.
+        if (combo.Toggles is { } toggled && Session is ILockKeysSession locks && ReadLockKeys() is { } local)
+        {
+            _remoteOnlyLocks ^= toggled;
+            locks.SyncLockKeys(local ^ _remoteOnlyLocks);
+            return;
+        }
+
         foreach (var key in combo.Keys) Send(key, pressed: true);
         foreach (var key in combo.Keys.Reverse()) Send(key, pressed: false);
 
@@ -568,6 +576,7 @@ public sealed partial class RemoteFrameView : Panel
         {
             _ = SendLocalClipboardAsync();
             SessionFocus.TakeIfFree(this);
+            MatchLockKeysSoon();
             ScheduleResize(); // The view may have changed size while connecting.
         }
     }
@@ -1196,7 +1205,45 @@ public sealed partial class RemoteFrameView : Panel
     {
         base.OnGotFocus(e);
         UpdateKeyCapture();
+        MatchLockKeysSoon();
         _ = SendLocalClipboardAsync();
+    }
+
+    // Lock keys turned on or off at the remote only, from Send keys: kept that way when matching this computer's.
+    LockKeys _remoteOnlyLocks;
+
+    /// <summary>This computer's lock keys; null where they can't be read. Replaceable for tests.</summary>
+    internal Func<LockKeys?> ReadLockKeys { get; set; } = LocalLockKeys.Read;
+
+    /// <summary>
+    /// Sets the remote computer's Caps Lock, Num Lock and Scroll Lock to this computer's, as mstsc does each time the
+    /// session gets the keyboard: toggled while another window had it, they'd otherwise stay out of step. After input
+    /// already queued, so the state read is the one the user sees.
+    /// </summary>
+    void MatchLockKeysSoon()
+    {
+        // Connecting, focus and the window coming to the front often arrive together: one match covers them.
+        if (_matchPosted)
+        {
+            return;
+        }
+
+        _matchPosted = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _matchPosted = false;
+            MatchLockKeys();
+        }, DispatcherPriority.Input);
+    }
+
+    bool _matchPosted;
+
+    internal void MatchLockKeys()
+    {
+        if (IsFocused && !_viewOnly && Session.State == SessionState.Connected && Session is ILockKeysSession locks && ReadLockKeys() is { } local)
+        {
+            locks.SyncLockKeys(local ^ _remoteOnlyLocks);
+        }
     }
 
     /// <summary>
@@ -1261,6 +1308,7 @@ public sealed partial class RemoteFrameView : Panel
         UpdateKeyCapture();
         if (IsFocused)
         {
+            MatchLockKeysSoon();
             _ = SendLocalClipboardAsync();
         }
     }

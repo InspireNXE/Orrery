@@ -13,11 +13,19 @@ public readonly record struct RemoteKey(ushort Scancode, uint Keysym)
     public static readonly RemoteKey F4 = new(0x3E, 0xFFC1);
     public static readonly RemoteKey PrintScreen = new(0xE037, 0xFF61);
     public static readonly RemoteKey R = new(0x13, 0x0072);
+    public static readonly RemoteKey CapsLock = new(0x3A, 0xFFE5);
+    public static readonly RemoteKey NumLock = new(0x45, 0xFF7F);
 }
 
 /// <summary>Keys pressed together and let go, for shortcuts the local computer would otherwise keep.</summary>
 public sealed record RemoteKeyCombo(string Label, params RemoteKey[] Keys)
 {
+    /// <summary>
+    /// The lock key this turns on or off at the remote computer only. Where the session can set lock keys outright
+    /// (RDP), that's done instead of pressing it, and kept, so matching this computer's lock keys later doesn't undo it.
+    /// </summary>
+    public Orrery.Core.Sessions.LockKeys? Toggles { get; init; }
+
     public static readonly RemoteKeyCombo CtrlAltDel = new("Ctrl+Alt+Del", RemoteKey.Ctrl, RemoteKey.Alt, RemoteKey.Delete);
 
     /// <summary>What the session toolbar's Send keys menu offers.</summary>
@@ -30,5 +38,7 @@ public sealed record RemoteKeyCombo(string Label, params RemoteKey[] Keys)
         new("Windows key", RemoteKey.Windows),
         new("Windows+R (Run)", RemoteKey.Windows, RemoteKey.R),
         new("Print Screen", RemoteKey.PrintScreen),
+        new("Caps Lock", RemoteKey.CapsLock) { Toggles = Orrery.Core.Sessions.LockKeys.CapsLock },
+        new("Num Lock", RemoteKey.NumLock) { Toggles = Orrery.Core.Sessions.LockKeys.NumLock },
     ];
 }

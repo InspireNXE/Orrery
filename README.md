@@ -166,6 +166,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   computer), so Orrery asks. With Orrery already running, a second start says so; use Open in that window.
 - **Ctrl+Alt+End** sends Ctrl+Alt+Del (Ctrl+Cmd+End on macOS). The Send keys menu has it and other keys a remote
   desktop may need; View only stops sending keys and clicks.
+- **Lock keys:** each time an RDP session gets the keyboard, its Caps Lock, Num Lock and Scroll Lock are set to match
+  this computer's, as mstsc does, so they can't drift apart (Windows and macOS; Linux can't read them under Wayland).
+  Send keys' Caps Lock and Num Lock change the remote computer's alone, for a keyboard without the key, and stay so.
 - **Touch and pen** pass through RDP, with pressure, tilt and the eraser, when the server takes them.
 - **Sound** plays here unless you turn it off, in which case the server isn't asked for any. Windows servers only
   send sound with the drive-sharing channel open, so Orrery opens it, empty, when nothing is shared.
