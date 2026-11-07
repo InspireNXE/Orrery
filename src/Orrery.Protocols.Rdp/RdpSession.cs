@@ -852,6 +852,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             else if (_resizeAsked != 0)
             {
                 Link.LastResize = Stopwatch.GetElapsedTime(_resizeAsked);
+                Logger.LogInformation("{Host}: the desktop showed at its new size {Ms:0} ms after Orrery asked", Target.Host, Link.LastResize.Value.TotalMilliseconds);
             }
         }
 

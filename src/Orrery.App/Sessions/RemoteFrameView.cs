@@ -81,6 +81,7 @@ public sealed partial class RemoteFrameView : Panel
     // Something to tell the user while they're looking at the desktop, such as clipboard text that wasn't shared: across
     // the top, where it's seen, not in the status bar.
     readonly Notice _bannerNotice = new(NoticeKind.Warning) { VerticalAlignment = VerticalAlignment.Center };
+    readonly SolidColorBrush _bannerFill = new();
     readonly Border _banner;
     static readonly TimeSpan BannerTime = TimeSpan.FromSeconds(8);
     int _bannerVersion;
@@ -112,8 +113,17 @@ public sealed partial class RemoteFrameView : Panel
     bool _askedForSize;
     long _askedAt;
 
-    /// <summary>How long the server took, from asking to its picture at the new size, the last time it resized.</summary>
-    internal TimeSpan? LastResizeTook { get; set; }
+    /// <summary>
+    /// How long the server took the last time it resized: from asking to its first picture at the new size, as the
+    /// session measures it where it can (RDP), since the picture is the slow part; else to the new size arriving.
+    /// </summary>
+    internal TimeSpan? LastResizeTook
+    {
+        get => (Session as ILinkStatsSession)?.Link.LastResize ?? _measuredResize;
+        set => _measuredResize = value;
+    }
+
+    TimeSpan? _measuredResize;
 
     readonly object _dirtyLock = new();
     readonly DispatcherTimer _resizeTimer;
@@ -164,7 +174,8 @@ public sealed partial class RemoteFrameView : Panel
                 // Forgotten, so the next time the session gets the keyboard it's tried, and refused out loud, again:
                 // the first refusal can come as the session opens, before anyone is looking.
                 _lastClipboard = null;
-                ShowBanner(reason);
+                // Something went wrong with what the user copied, so it stays until they close it.
+                ShowBanner(reason, untilClosed: true);
             });
             clipboardSession.RemoteClipboardChanged += (_, text) => Dispatcher.UIThread.Post(async () =>
             {
@@ -210,14 +221,15 @@ public sealed partial class RemoteFrameView : Panel
         {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(16, 12),
+            Margin = new Thickness(16, 14),
             MaxWidth = 640,
-            Padding = new Thickness(14, 10, 8, 10),
+            Padding = new Thickness(16, 12, 10, 12),
             CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(1),
+            // Tinted with the warning color, not the panel gray, so it stands out on a busy remote desktop.
+            BorderThickness = new Thickness(1.5),
             BorderBrush = Palette.Warning,
-            Background = Dialogs.PanelBrush,
-            BoxShadow = BoxShadows.Parse("0 4 16 0 #80000000"),
+            Background = _bannerFill,
+            BoxShadow = BoxShadows.Parse("0 6 24 0 #A0000000"),
             IsVisible = false,
             Child = new DockPanel { Children = { Pane.Docked(closeBanner, Dock.Right), _bannerNotice } },
         };
@@ -260,19 +272,35 @@ public sealed partial class RemoteFrameView : Panel
     /// <summary>Says <paramref name="text"/> across the top of the desktop for a few seconds, and to the screen reader.</summary>
     internal void ShowNotice(string text) => ShowBanner(text);
 
-    /// <summary>Shows <paramref name="text"/> across the top of the desktop for a few seconds, and has the screen reader read it.</summary>
-    async void ShowBanner(string text)
+    /// <summary>
+    /// Shows <paramref name="text"/> across the top of the desktop, and has the screen reader read it: for a few
+    /// seconds, or with <paramref name="untilClosed"/> until the user closes it.
+    /// </summary>
+    async void ShowBanner(string text, bool untilClosed = false)
     {
         int version = ++_bannerVersion;
         _bannerNotice.Text = text;
+        _bannerNotice.Message.FontWeight = FontWeight.Medium;
+        _bannerFill.Color = Tint(Palette.Warning.Color, ((ISolidColorBrush)Dialogs.PanelBrush).Color, 0.22);
         _banner.IsVisible = true;
         ScreenReader.Announce(this, text, "Orrery.RemoteNotice", ScreenReader.MostRecent);
+        if (untilClosed)
+        {
+            return;
+        }
+
         await Task.Delay(BannerTime);
         if (version == _bannerVersion)
         {
             _banner.IsVisible = false;
         }
     }
+
+    /// <summary><paramref name="color"/> laid over <paramref name="under"/> at <paramref name="share"/>, as one solid color.</summary>
+    static Color Tint(Color color, Color under, double share) => Color.FromRgb(
+        (byte)Math.Round(color.R * share + under.R * (1 - share)),
+        (byte)Math.Round(color.G * share + under.G * (1 - share)),
+        (byte)Math.Round(color.B * share + under.B * (1 - share)));
 
     bool _viewOnly;
 
@@ -803,7 +831,7 @@ public sealed partial class RemoteFrameView : Panel
                 bool followed = ResizesToView;
                 if (_askedForSize && _askedAt != 0)
                 {
-                    LastResizeTook = System.Diagnostics.Stopwatch.GetElapsedTime(_askedAt);
+                    _measuredResize = System.Diagnostics.Stopwatch.GetElapsedTime(_askedAt);
                     _askedAt = 0;
                 }
 
