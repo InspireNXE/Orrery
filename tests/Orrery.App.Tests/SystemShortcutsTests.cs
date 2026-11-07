@@ -94,4 +94,24 @@ public class SystemShortcutsTests
         Assert.Equal([(0x0F, true), (0x0F, false), (0x01, true), (0xE05B, true), (0xE05C, true)], desktop.Keys);
         window.Close();
     }
+
+    [AvaloniaFact]
+    public void A_choice_made_in_the_session_lasts_for_it_and_otherwise_the_saved_one_is_followed()
+    {
+        var saved = SystemShortcuts.FullScreen;
+        var view = new RemoteFrameView(new Desktop()) { Shortcuts = () => saved };
+        Assert.Equal(SystemShortcuts.FullScreen, view.SessionShortcuts);
+
+        // Chosen for this session only: the saved choice changing doesn't undo it.
+        view.SessionShortcuts = SystemShortcuts.Remote;
+        Assert.Equal(SystemShortcuts.Remote, view.SessionShortcuts);
+        saved = SystemShortcuts.Local;
+        Assert.Equal(SystemShortcuts.Remote, view.SessionShortcuts);
+        Assert.Equal(SystemShortcuts.Local, view.SavedShortcuts);
+
+        // Back to what's saved: it follows the saved choice again.
+        view.SessionShortcuts = SystemShortcuts.Local;
+        saved = SystemShortcuts.FullScreen;
+        Assert.Equal(SystemShortcuts.FullScreen, view.SessionShortcuts);
+    }
 }

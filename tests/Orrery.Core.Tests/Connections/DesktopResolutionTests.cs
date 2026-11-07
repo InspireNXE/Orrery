@@ -120,6 +120,11 @@ public class DesktopResolutionTests
         // Kept in the saved file, as other settings are.
         var json = System.Text.Json.JsonSerializer.Serialize(entry.Settings);
         Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Local, System.Text.Json.JsonSerializer.Deserialize<InheritableSettings>(json)!.SystemShortcuts);
+
+        // Orrery 0.1.1 doesn't know it, so a file that chooses refuses to load there instead of losing the choice on save.
+        Assert.Equal(6, ConnectionStore.SchemaFor(tree.Root));
+        folder.Settings.SystemShortcuts = entry.Settings.SystemShortcuts = null;
+        Assert.True(ConnectionStore.SchemaFor(tree.Root) < 6);
     }
 
     [Fact]

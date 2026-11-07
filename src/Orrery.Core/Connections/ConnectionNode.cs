@@ -318,8 +318,13 @@ public sealed class InheritableSettings
     /// <summary>Settings Orrery 0.1.1 doesn't know, written with schema 4 for the same reason.</summary>
     internal static readonly IReadOnlySet<string> AddedInSchema4 = new HashSet<string> { nameof(ConfirmCommands) };
 
-    /// <summary>Whether this uses a protocol Orrery 0.1.2 can't read.</summary>
-    internal bool NeedsSchema6() => Protocol is { } protocol && ProtocolInfo.AddedInSchema6(protocol);
+    /// <summary>Settings Orrery 0.1.1 doesn't know and added with schema 6, written with it for the same reason.</summary>
+    internal static readonly IReadOnlySet<string> AddedInSchema6 = new HashSet<string> { nameof(SystemShortcuts) };
+
+    /// <summary>Whether this uses a protocol, or sets anything, that Orrery 0.1.1 can't read or keep.</summary>
+    internal bool NeedsSchema6() =>
+        (Protocol is { } protocol && ProtocolInfo.AddedInSchema6(protocol))
+        || SettingProperties.Any(p => AddedInSchema6.Contains(p.Name) && p.GetValue(this) is not null);
 
     /// <summary>Whether this sets anything Orrery 0.1.1 can't keep.</summary>
     internal bool NeedsSchema4() => SettingProperties.Any(p => AddedInSchema4.Contains(p.Name) && p.GetValue(this) is not null);

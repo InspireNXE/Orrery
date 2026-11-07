@@ -1212,7 +1212,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         if (IsFocused && !_viewOnly && Session.State == SessionState.Connected && _topLevel?.TryGetPlatformHandle()?.Handle is { } window)
         {
-            WindowsKeyHook.Capture(_windowsKey, window, _topLevel is IFullScreenHost { IsFullScreen: true }, Shortcuts?.Invoke() ?? SystemShortcuts.FullScreen);
+            WindowsKeyHook.Capture(_windowsKey, window, _topLevel is IFullScreenHost { IsFullScreen: true }, SessionShortcuts);
         }
         else
         {
@@ -1247,6 +1247,26 @@ public sealed partial class RemoteFrameView : Panel
     /// the session takes the keyboard; null is mstsc's default, full screen only.
     /// </summary>
     public Func<SystemShortcuts>? Shortcuts { get; init; }
+
+    /// <summary>The saved choice for this session's connection, else Settings'.</summary>
+    public SystemShortcuts SavedShortcuts => Shortcuts?.Invoke() ?? SystemShortcuts.FullScreen;
+
+    // A choice made for this session only, from its This session tab; null follows the saved one.
+    SystemShortcuts? _sessionShortcuts;
+
+    /// <summary>
+    /// Where Alt+Tab and the rest go for this session now: the saved choice, or one made for this session only, which
+    /// lasts until the tab closes. Setting it takes effect at once.
+    /// </summary>
+    public SystemShortcuts SessionShortcuts
+    {
+        get => _sessionShortcuts ?? SavedShortcuts;
+        set
+        {
+            _sessionShortcuts = value == SavedShortcuts ? null : value;
+            UpdateKeyCapture();
+        }
+    }
 
     /// <summary>The choice behind <see cref="Shortcuts"/> may have changed: takes it up now if this session has the keyboard.</summary>
     public void RefreshShortcuts() => UpdateKeyCapture();

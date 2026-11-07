@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Orrery.App.Connections;
 using Orrery.App.Controls;
 using Orrery.Core.Connections;
+using Orrery.Core.Settings;
 
 namespace Orrery.App.Sessions;
 
@@ -27,6 +28,14 @@ sealed class SessionSettingsView : UserControl
         (DesktopScaling.Fit, "Fit the tab"),
         (DesktopScaling.ShrinkToFit, "Shrink to fit"),
         (DesktopScaling.ActualSize, "Actual size"),
+    ];
+
+    /// <summary>Where Alt+Tab, Alt+Esc and Ctrl+Esc go, as the choices read here and in a connection's properties.</summary>
+    internal static readonly (SystemShortcuts Shortcuts, string Label)[] ShortcutLabels =
+    [
+        (SystemShortcuts.FullScreen, "To the remote in full screen"),
+        (SystemShortcuts.Remote, "Always to the remote"),
+        (SystemShortcuts.Local, "Always to this computer"),
     ];
 
     readonly ConnectionTree _tree;
@@ -61,6 +70,13 @@ sealed class SessionSettingsView : UserControl
                 protocol == Protocol.Vnc ? value => _entry.Settings.ViewOnly = value : null));
             _items.Add(LiveItem.Switch("Color correction", () => view.AllowsColorCorrection, value => view.AllowsColorCorrection = value,
                 () => SettingsResolver.Resolve(_entry).ColorCorrection.Value, value => _entry.Settings.ColorCorrection = value));
+
+            // Only Windows lets Orrery take Alt+Tab from the system. Saved is the connection's choice, else Settings'.
+            if (OperatingSystem.IsWindows())
+            {
+                _items.Add(LiveItem.Choice("Alt+Tab and Windows shortcuts", ShortcutLabels, () => view.SessionShortcuts, value => view.SessionShortcuts = value,
+                    () => view.SavedShortcuts, value => _entry.Settings.SystemShortcuts = value));
+            }
         }
 
         foreach (var item in _items)

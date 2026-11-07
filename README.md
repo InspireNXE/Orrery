@@ -693,7 +693,8 @@ Not yet checked on real machines:
 - **Needs:** nothing; packages are self-contained.
 - **Keys:** while a session has the keyboard, Orrery takes the Windows keys for it, as mstsc does. Alt+Tab, Alt+Esc
   and Ctrl+Esc go to it in full screen and stay here in a window, as mstsc does by default; Settings → Remote
-  desktops sends them to the remote computer always, or never, and a connection or folder can choose for itself. Windows keeps Ctrl+Alt+Del, so Ctrl+Alt+End sends it.
+  desktops sends them to the remote computer always, or never, a connection or folder can choose for itself, and an open session's This session tab can change it for that
+  session. Windows keeps Ctrl+Alt+Del, so Ctrl+Alt+End sends it.
 - **Shared drives:** every drive, or any folders, each as its own drive.
 - **Full screen** spans every display or chosen ones, gaps included.
 - **Sound** can also come as AAC.
