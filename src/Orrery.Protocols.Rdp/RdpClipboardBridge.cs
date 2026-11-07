@@ -332,10 +332,7 @@ sealed class RdpClipboardBridge
                 EndDownload(null);
             }
 
-            if (_ready && LocalChangedSinceAnnounced())
-            {
-                await AnnounceAsync(token);
-            }
+            await AnnounceIfChangedAsync(token);
 
             if (_ready && _channel.FileTransfer && Stopwatch.GetElapsedTime(_lastTimeouts) >= TimeoutInterval)
             {
@@ -404,6 +401,18 @@ sealed class RdpClipboardBridge
             {
                 await StartDownloadAsync(queued.Files, queued.LockId, queued.Copies, token);
             }
+        }
+    }
+
+    /// <summary>
+    /// Tells the server about a local copy, once no download of its files is going: a Windows server fails the rest of
+    /// a download, lock or no lock, as soon as the client announces a new clipboard. Internal for tests.
+    /// </summary>
+    internal async Task AnnounceIfChangedAsync(CancellationToken token)
+    {
+        if (_ready && _download is null && LocalChangedSinceAnnounced())
+        {
+            await AnnounceAsync(token);
         }
     }
 

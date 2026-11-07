@@ -334,6 +334,23 @@ public sealed class RdpClipboardFilesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_local_copy_is_announced_once_the_download_going_has_ended()
+    {
+        await Handle(new(RdpClipboardEventKind.Ready));
+        await RemoteFormats((0xC011, FileListName));
+        await Handle(new(RdpClipboardEventKind.RemoteFileList, Format: 0xC011) { Files = [new("big.bin", "", 4, false)], LockId = 3 });
+        _bridge.SetLocalText("copied while it downloaded");
+
+        // A Windows server would fail the rest of the download on a new format list.
+        await _bridge.AnnounceIfChangedAsync(CancellationToken.None);
+        Assert.Empty(_channel.Announced);
+
+        await AnswerAsync(0, "1234"u8.ToArray());
+        await _bridge.AnnounceIfChangedAsync(CancellationToken.None);
+        Assert.Contains(new RdpClipboardFormat(CfUnicodeText), Assert.Single(_channel.Announced));
+    }
+
+    [Fact]
     public async Task A_copy_waiting_for_a_download_is_dropped_by_a_newer_copy()
     {
         await RemoteFormats((0xC011, FileListName));
