@@ -12,7 +12,8 @@ namespace Orrery.Core.Credentials;
 /// after a Hello gesture (face, fingerprint or PIN). The secret is the key's signature over the challenge.
 /// RSASSA-PKCS1-v1_5 is deterministic, so the same key and challenge always sign the same; turning it on checks that
 /// the key is RSA and the signature verifies, so a key type that signs differently each time is refused. A new key is
-/// only accepted when Windows attests that it's held in the TPM. See docs/design-biometric-unlock.md §2.1.
+/// only accepted when Windows attests that it's held in the TPM or, when attestation isn't available, Windows Hello's
+/// own log records it as made in hardware (<see cref="HelloLog"/>). See docs/design-biometric-unlock.md §2.1.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
@@ -128,6 +129,7 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
         var name = WinRt.CreateString(keyName);
         IntPtr operation = 0, result = 0, credential = 0;
         bool made = false, keep = false;
+        var started = DateTime.UtcNow;
         try
         {
             operation = WaitPreferringWindow(
@@ -168,6 +170,7 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
                 },
                 ref windowId, cancel);
 
+            var finished = DateTime.UtcNow;
             result = WinRt.GetObjectResult(operation);
             var status = (KeyCredentialStatus)WinRt.GetInt32(result, ResultStatus);
             if (status != KeyCredentialStatus.Success)
@@ -183,9 +186,21 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
             var attestation = Attestation(credential, cancel);
             if (HardwareProblem(attestation) is { } problem)
             {
-                Logger.LogWarning("Windows Hello didn't attest the new key as held in the TPM: {Status} (TPM 2.0 present: {Tpm}, virtual machine: {Vm})",
-                    attestation, HasTpm2(), LooksVirtual());
-                return new AuthenticatorResult(AuthenticatorStatus.Failed, Message: problem);
+                // Attestation needs a certificate Windows fetches from Microsoft for the TPM, which some working TPMs
+                // never get. Windows Hello's own log of making the key still says where it went.
+                var (verdict, detail) = HelloLog.KeyMadeBetween(started, finished);
+                bool tpm = HasTpm2();
+                if (verdict == HelloLog.Verdict.Hardware && tpm)
+                {
+                    Logger.LogInformation("Windows Hello didn't attest the new key ({Status}), but its log records the key as made in hardware ({Detail}), so it's used",
+                        attestation, detail);
+                }
+                else
+                {
+                    Logger.LogWarning("Windows Hello didn't attest the new key as held in the TPM: {Status}; its log: {Verdict} ({Detail}) (TPM 2.0 present: {Tpm}, virtual machine: {Vm})",
+                        attestation, verdict, detail, tpm, LooksVirtual());
+                    return new AuthenticatorResult(AuthenticatorStatus.Failed, Message: problem);
+                }
             }
 
             var signed = Sign(credential, challenge, windowId, checkKey: true, cancel);

@@ -327,8 +327,9 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   file (Argon2id, XChaCha20-Poly1305) where there's no store or you prefer one. Credential Manager holds at most
   2.5 KB per credential, too little for an RSA key of 3072 bits or more; keep those in the vault file, or use Ed25519.
 - Windows Hello can unlock the vault when its key is held in the TPM (not over Remote Desktop). When it's on, the
-  unlock window asks Windows Hello first and shows the master password field only if that's canceled or fails. If Windows won't
-  confirm the key is in the TPM, turning it on is refused and the setup window says so up front the next time in that
+  unlock window asks Windows Hello first and shows the master password field only if that's canceled or fails. When
+  Windows can't attest the key (some TPMs never get the certificate attestation needs), Orrery accepts it if Windows
+  Hello's own log records it as made in hardware. If neither confirms the key is in the TPM, turning it on is refused and the setup window says so up front the next time in that
   run. Don't reset your Windows PIN to get around this: it deletes every Windows Hello key on the account, passkeys
   included. Touch ID is written
   but needs a signed build. See [the design notes](docs/design-biometric-unlock.md).

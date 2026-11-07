@@ -157,6 +157,115 @@ public class WindowsHelloTests
         Assert.Contains("Try again later", problem);
     }
 
+    // ---- Windows Hello's own log, when attestation isn't available ----
+
+    const uint Service = 9056;
+
+    static HelloLog.KeyCreation Made(uint? provider, int? result = 0, uint? process = Service, string? user = "S-1-5-19") =>
+        new(DateTime.UtcNow, provider, result, process, user);
+
+    [Fact]
+    public void A_key_the_service_records_as_made_in_hardware_is_accepted()
+    {
+        Assert.Equal(HelloLog.Verdict.Hardware, HelloLog.Judge([Made(1)], Service));
+        Assert.Equal(HelloLog.Verdict.Hardware, HelloLog.Judge([Made(1), Made(1)], Service));
+        Assert.Equal(HelloLog.Verdict.Hardware, HelloLog.Judge([Made(1, user: "S-1-5-18")], Service));
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(2u)]
+    [InlineData(null)]
+    public void A_key_made_any_other_way_is_not_taken_as_hardware(uint? provider)
+    {
+        Assert.Equal(HelloLog.Verdict.NotHardware, HelloLog.Judge([Made(provider)], Service));
+    }
+
+    [Fact]
+    public void Another_key_made_at_the_same_time_in_software_means_orrery_cant_tell_which_is_its_own()
+    {
+        Assert.Equal(HelloLog.Verdict.NotHardware, HelloLog.Judge([Made(1), Made(0)], Service));
+    }
+
+    [Fact]
+    public void Only_keys_that_were_made_count()
+    {
+        Assert.Equal(HelloLog.Verdict.NoRecord, HelloLog.Judge([], Service));
+        Assert.Equal(HelloLog.Verdict.NoRecord, HelloLog.Judge([Made(1, unchecked((int)0x80090016)), Made(1, null)], Service));
+
+        // A failed attempt beside the one that worked doesn't matter.
+        Assert.Equal(HelloLog.Verdict.Hardware, HelloLog.Judge([Made(0, unchecked((int)0x80090016)), Made(1)], Service));
+    }
+
+    [Theory]
+    [InlineData(4242u, "S-1-5-19")] // another process, even one running as a service account
+    [InlineData(null, "S-1-5-19")]
+    [InlineData(Service, "S-1-5-21-1-2-3-1001")] // the service's process id, but written as the user
+    [InlineData(Service, null)]
+    public void An_event_windows_hello_didnt_write_is_taken_as_tampering(uint? process, string? user)
+    {
+        // Programs running as the user can write to the channel. A forged hardware event, alone or beside the real
+        // record of a software key, never lets a key through.
+        Assert.Equal(HelloLog.Verdict.NotFromWindows, HelloLog.Judge([Made(1, process: process, user: user)], Service));
+        Assert.Equal(HelloLog.Verdict.NotFromWindows, HelloLog.Judge([Made(0), Made(1, process: process, user: user)], Service));
+        Assert.Equal(HelloLog.Verdict.NotFromWindows, HelloLog.Judge([Made(1), Made(1, process: process, user: user)], Service));
+    }
+
+    [Fact]
+    public void Without_the_service_running_nothing_is_trusted()
+    {
+        Assert.Equal(HelloLog.Verdict.Unreadable, HelloLog.Judge([Made(1, process: 0)], 0));
+    }
+
+    // As Windows renders event 5225 (copied from a real one, with its computer name changed).
+    const string KeyCreatedXml = """
+        <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><Provider Name="Microsoft-Windows-HelloForBusiness" Guid="{04a4ea5e-eb6b-4fd0-a9f9-2f7a8e6f1a77}"/><EventID>5225</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x4000000000000000</Keywords><TimeCreated SystemTime="2026-11-05T21:38:50.3631234Z"/><EventRecordID>1234</EventRecordID><Correlation/><Execution ProcessID="9056" ThreadID="2000"/><Channel>Microsoft-Windows-HelloForBusiness/Operational</Channel><Computer>TEST-PC</Computer><Security UserID="S-1-5-19"/></System><EventData><Data Name="KeyProvider">1</Data><Data Name="Result">0x0</Data></EventData></Event>
+        """;
+
+    [Fact]
+    public void A_key_creation_event_is_read_from_its_xml()
+    {
+        var made = HelloLog.Parse(KeyCreatedXml);
+        Assert.NotNull(made);
+        Assert.Equal(1u, made.Value.KeyProvider);
+        Assert.Equal(0, made.Value.Result);
+        Assert.Equal(9056u, made.Value.ProcessId);
+        Assert.Equal("S-1-5-19", made.Value.UserSid);
+        Assert.Equal(new DateTime(2026, 11, 5, 21, 38, 50, DateTimeKind.Utc), made.Value.TimeUtc.AddTicks(-(made.Value.TimeUtc.Ticks % TimeSpan.TicksPerSecond)));
+        Assert.Equal(DateTimeKind.Utc, made.Value.TimeUtc.Kind);
+
+        var failed = HelloLog.Parse(KeyCreatedXml.Replace(">0x0<", ">0x80090016<"));
+        Assert.Equal(unchecked((int)0x80090016), failed!.Value.Result);
+    }
+
+    [Theory]
+    [InlineData("Microsoft-Windows-HelloForBusiness\"", "Someone-Else\"")]
+    [InlineData("<EventID>5225<", "<EventID>8226<")]
+    [InlineData("SystemTime=\"2026-11-05T21:38:50.3631234Z\"", "")]
+    public void Anything_but_hello_recording_a_key_creation_is_ignored(string from, string to)
+    {
+        Assert.Null(HelloLog.Parse(KeyCreatedXml.Replace(from, to)));
+    }
+
+    [WindowsFact]
+    public void The_container_service_is_looked_up_without_elevation()
+    {
+        // Running or not, Windows Hello's container service is there on any Windows that has Windows Hello.
+        HelloLog.ServiceProcessId(HelloLog.ContainerService);
+        Assert.Throws<System.ComponentModel.Win32Exception>(() => HelloLog.ServiceProcessId("Orrery-no-such-service-" + Guid.NewGuid().ToString("N")));
+    }
+
+    [WindowsFact]
+    public void The_real_log_is_read_without_prompting_or_throwing()
+    {
+        // Nothing can have been made in the future, so this only reads the real channel: no record, or no log at all.
+        var soon = DateTime.UtcNow.AddDays(1);
+        var started = DateTime.UtcNow;
+        var (verdict, _) = HelloLog.KeyMadeBetween(soon, soon.AddSeconds(1));
+        Assert.Contains(verdict, new[] { HelloLog.Verdict.NoRecord, HelloLog.Verdict.Unreadable });
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(15));
+    }
+
     // ---- When a 24H2 "ForWindow" call is asked again without the window ----
 
     [Theory]

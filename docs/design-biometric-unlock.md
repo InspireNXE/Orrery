@@ -69,6 +69,29 @@ folder, and the authenticator secret never exists anywhere on disk.
     Hello key on the account, passkeys and other apps' keys included, and it didn't help on that computer. `TemporaryFailure` (usually Windows hasn't yet fetched the TPM's attestation certificate, which
     needs the internet) and `UnknownError` are refused too, with "try again later". In every refusal the new key is
     deleted and nothing is saved.
+  - **When attestation isn't available, Windows Hello's own log decides.** Attestation needs an AIK certificate that
+    Windows fetches from Microsoft for the TPM (`microsoftaik.azure.net`). Some computers with a working TPM never get
+    one: on an AMD firmware TPM, Windows' `AikCertEnrollTask` fails every day at `_CreateAikClaim` with
+    `TPM_E_KEY_NOT_LOADED`, after Microsoft's server has answered. Their Hello keys are in the TPM, and attestation still
+    answers `NotSupported`. So for any answer but `Success`, Orrery reads `Microsoft-Windows-HelloForBusiness/Operational`
+    (`HelloLog.cs`, through `wevtapi.dll`, no elevation needed). The Hello container service writes event 5225, "Creating
+    a hardware Windows Hello key", as it makes each key, and its `KeyProvider` field is `1` when the key went into
+    hardware. The event doesn't name the key, so Orrery takes the 5225 events written while its own create call ran
+    (two seconds either side, waiting up to five seconds for the event to arrive). It accepts the key only when there's
+    at least one, every one that succeeded says `KeyProvider` 1, and a TPM 2.0 is present. Any other value, a software
+    key made by another program at the same moment, no event, or a log that can't be read, and the refusal above
+    stands.
+  - **Only events Windows Hello wrote count.** The channel lets the user's own programs, and AppContainer apps, write
+    to it, so a 5225 event alone proves nothing. Windows records each event's writing process (`Execution/@ProcessID`)
+    and account (`Security/@UserID`) itself, and the writer can't choose them. Every 5225 event in the window must come
+    from the process now running the Windows Hello container service (`NgcCtnrSvc`, looked up with
+    `QueryServiceStatusEx`, no elevation needed) under a service account (`S-1-5-18`, `-19` or `-20`; it's LocalService
+    today). Orrery checks the service's process after reading the events, so if the service restarted in between, the
+    ids don't match and the key is refused, which costs a retry. If any event in the window came from anywhere else,
+    Orrery treats it as tampering and refuses the key, even when a genuine hardware event is there too. If the service
+    isn't running, nothing is trusted. With this check, the log is as hard to fake as attestation's status: both are
+    Windows' own local answer, and Orrery doesn't check the attestation chain itself either. What was decided, and why
+    (each event's writer and the service's process), goes in Orrery's log.
   - Why not fall back to the key's NCrypt implementation type (`NCRYPT_IMPL_TYPE_PROPERTY` through the Microsoft
     Passport Key Storage Provider) on a temporary failure: opening a `KeyCredentialManager` key there needs its
     internal key name, which Microsoft doesn't document for these keys, so it couldn't be checked without a device and
@@ -250,10 +273,10 @@ keychain turns it off, since the vault file stays behind.
 | Attacker | Can | Can't |
 |---|---|---|
 | Has a copy of the data folder (USB stick, synced folder, backup) | Try master passwords against `vault.frv`, exactly as today | Use biometric unlock: nothing for it is in the folder, and the vault file is byte-for-byte what it would be without it |
-| Has the whole disk or user profile, offline | Read the encrypted Credential Manager store | Decrypt the record without the user's Windows password (DPAPI), and even with it, produce the signature: the Hello private key is attested to be in the TPM, which limits PIN guesses itself. On a Mac, the item's key stays in the Secure Enclave |
+| Has the whole disk or user profile, offline | Read the encrypted Credential Manager store | Decrypt the record without the user's Windows password (DPAPI), and even with it, produce the signature: the Hello private key is attested to be in the TPM (or recorded by Windows Hello as made there, §2.1), which limits PIN guesses itself. On a Mac, the item's key stays in the Secure Enclave |
 | Another local user | Nothing new | Read this user's Credential Manager or keychain, or use their Hello key; both are per user |
 | Someone in a Remote Desktop session as the user | Nothing new | Use Windows Hello unlock: it isn't offered or prompted for remotely (§2.4) |
-| A lower-integrity process of the same user (a sandboxed browser renderer) | At most, raise a Windows Hello prompt the user didn't ask for, if it can reach `KeyCredentialManager` at all | Get the signature without the user approving that prompt. AppContainer apps get their own Hello keys and can't open Orrery's. Not yet tested; §6.3 says how |
+| A lower-integrity process of the same user (a sandboxed browser renderer) | At most, raise a Windows Hello prompt the user didn't ask for, if it can reach `KeyCredentialManager` at all | Get the signature without the user approving that prompt. AppContainer apps get their own Hello keys and can't open Orrery's. Not yet tested; §6.3 says how. Writing a fake "hardware key" event to Windows Hello's log gets the key refused, not accepted (§2.1) |
 | Malware running as the user | What it can do today: read memory, log the master password as it's typed, or show a prompt the user approves | (Accepted risk: same-user code execution) |
 | Someone at the user's unlocked session who knows their Windows Hello PIN | Open the vault | Open it on another computer |
 
@@ -325,7 +348,10 @@ No test makes a real Hello key, keychain item or Credential Manager entry.
   another vault, an old record that decrypts but whose data key no longer opens the vault, and that turning it on
   leaves the data folder untouched.
 - `WindowsHelloTests` (Windows only, no prompt): the WinRT plumbing for real (activation, strings, buffers, wiping a
-  buffer, waiting on an async call), the availability check, the attestation decision for each status, which errors
+  buffer, waiting on an async call), the availability check, the attestation decision for each status, reading event
+  5225 from its XML and deciding from the events in the window (hardware, software, another program's key at the same
+  moment, failed attempts, events from another process or account, the service not running), finding the container
+  service and reading the real log without elevation or a prompt, which errors
   from a 24H2 "ForWindow" call mean asking again without the window, and which window is brought forward. `DeterministicSignatureTests`: the RSA check over public-key blobs made in the test.
 - `SecretLeakTests`: master passwords, authenticator secrets and the vault's data keys stay out of the log.
 - Headless UI tests for the unlock window (cancel, closing, one window for several callers and what they hear when it's
@@ -338,7 +364,9 @@ No test makes a real Hello key, keychain item or Credential Manager entry.
 The Hello and Touch ID prompts can't be driven by a test. On Windows: turn it on, unlock with face, finger and PIN,
 cancel, close the window with the prompt up, reset the Hello PIN and unlock again, check the prompt sits in front of
 Orrery on 24H2 and on an older build, and check what `GetAttestationAsync` returns on a machine with a TPM, one with a
-TPM that's offline (expect `TemporaryFailure`) and one where Hello uses software keys (expect `NotSupported`). Open
+TPM that's offline (expect `TemporaryFailure`) and one where Hello uses software keys (expect `NotSupported`). On a
+computer with a TPM whose AIK certificate never arrives (attestation answers `NotSupported`), check it turns on and the
+log says the key was taken from Windows Hello's log as made in hardware. Open
 Orrery over Remote Desktop and check it falls back to the password. On a Mac, everything in §2.2, starting with a
 signed build.
 
