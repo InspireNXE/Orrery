@@ -112,7 +112,10 @@ public interface IClipboardSession
     /// <summary>Puts <paramref name="text"/> on the remote clipboard.</summary>
     void SendClipboard(string text);
 
-    /// <summary>Clipboard text wasn't shared, with a sentence saying why, for the user. Raised on a background thread.</summary>
+    /// <summary>
+    /// Something copied wasn't shared, or a copy between the two sides failed, with a sentence saying why, for the user.
+    /// Raised on a background thread.
+    /// </summary>
     event EventHandler<string>? ClipboardRefused { add { } remove { } }
 
     /// <summary>Whether images and files are shared too, through the members below.</summary>

@@ -502,6 +502,11 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             {
                 return;
             }
+            catch (IronRdpException e) when (IsRemoteStoppedReading(e.Message))
+            {
+                Logger.LogWarning("The remote desktop stopped reading the files copied from here when something was copied there");
+                ClipboardRefused?.Invoke(this, RemoteStoppedReadingNotice);
+            }
             catch (IronRdpException e)
             {
                 // Only this clipboard operation failed; the session goes on.
@@ -515,6 +520,20 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             }
         }
     }
+
+    /// <summary>
+    /// How IronRDP's Windows clipboard starts the error it reports when the server abandons a paste of files copied from
+    /// here because something was copied on it. It only reports that when it's sure: the server was partway through a
+    /// file, its clipboard changed as it read, and it then asked for nothing more while still holding the files.
+    /// </summary>
+    internal const string RemoteStoppedReadingMarker = "the remote stopped reading the files copied from here";
+
+    internal const string RemoteStoppedReadingNotice =
+        "The remote desktop stopped copying the files from this computer when something was copied there, so its copy is incomplete. "
+        + "Copy the files again, or use a shared drive for large ones.";
+
+    internal static bool IsRemoteStoppedReading(string message) =>
+        message.StartsWith(RemoteStoppedReadingMarker, StringComparison.Ordinal);
 
     /// <summary>Runs the text clipboard. A failed operation is logged and the bridge goes on with the next event.</summary>
     static async Task BridgeLoopAsync(RdpClipboardBridge bridge, CancellationToken token)
