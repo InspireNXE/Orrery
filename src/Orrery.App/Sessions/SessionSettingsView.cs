@@ -50,7 +50,7 @@ sealed class SessionSettingsView : UserControl
     {
         SystemShortcuts.FullScreen => "Full screen",
         SystemShortcuts.Remote => "Remote",
-        _ => "This computer",
+        _ => "Local",
     };
 
     /// <summary>The settings the This session tab can change, by the keys <see cref="SessionOnly"/> uses.</summary>
@@ -100,7 +100,7 @@ sealed class SessionSettingsView : UserControl
             // Only Windows lets Orrery take Alt+Tab from the system. Saved is the connection's choice, else Settings'.
             if (OperatingSystem.IsWindows())
             {
-                var shortcuts = LiveItem.Choice(ShortcutsKey, "Alt+Tab, Alt+Esc and Ctrl+Esc go to", ShortcutLabels, ShortcutsShort,
+                var shortcuts = LiveItem.Choice(ShortcutsKey, "Alt+Tab goes to", ShortcutLabels, ShortcutsShort,
                     () => view.SessionShortcuts, value => view.SessionShortcuts = value, () => view.SavedShortcuts, value => _entry.Settings.SystemShortcuts = value);
                 _items.Add(shortcuts);
                 input.Insert(0, shortcuts.View);
@@ -431,10 +431,9 @@ sealed class SessionSettingsView : UserControl
             return item;
         }
 
-        /// <summary>"Color correction" as ColorCorrection; "Alt+Tab, Alt+Esc and Ctrl+Esc go to" as AltTab.</summary>
+        /// <summary>"Color correction" as ColorCorrection, "Alt+Tab goes to" as AltTabGoesTo.</summary>
         static string ControlName(string label) =>
-            string.Concat(label.Split(' ', ',').TakeWhile(w => !w.StartsWith("Alt+Esc", StringComparison.Ordinal)).Where(w => w.Length > 0)
-                .Select(w => char.ToUpperInvariant(w[0]) + w[1..]).Select(w => w.Replace("+", string.Empty, StringComparison.Ordinal)));
+            string.Concat(label.Replace("+", " ", StringComparison.Ordinal).Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
 
         /// <summary>The user picked <paramref name="value"/>: the open session takes it up.</summary>
         void Set(object value)
