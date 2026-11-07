@@ -88,6 +88,9 @@ static class Shots
 
             await CommandsPageAsync(window, output);
 
+            // Last, since its tab would show in the others.
+            await RemoteDesktopAsync(window, demo, output);
+
             using var preview = await RenderAsync(SocialPreview(hero, new Bitmap(icon)), 1280, 640);
             Save(preview, output, "social-preview.png");
         }
@@ -258,6 +261,98 @@ static class Shots
 
         Invoke(window, "OnRailClick", sides["connections"].RailButton, new Avalonia.Interactivity.RoutedEventArgs());
         await SettleAsync();
+    }
+
+    /// <summary>
+    /// app-03's remote desktop with the properties pane on its This session tab, Alt+Tab sent to the remote for this
+    /// session only; then the Connection card below, cut out of the pane. The link's last five minutes are made up.
+    /// </summary>
+    static async Task RemoteDesktopAsync(MainWindow window, DemoData demo, string output)
+    {
+        var desktop = new DemoDesktop(demo.App03.Host);
+        ConnectStep[] steps =
+        [
+            new("Network", TimeSpan.FromMilliseconds(18)),
+            new("Security", TimeSpan.FromMilliseconds(204)),
+            new("Sign-in", TimeSpan.FromMilliseconds(171)),
+            new("Session setup", TimeSpan.FromMilliseconds(190)),
+            new("First screen", TimeSpan.FromMilliseconds(642)),
+        ];
+        desktop.Link.ConnectSteps = steps;
+        desktop.Link.ConnectTime = steps.Aggregate(TimeSpan.Zero, (sum, step) => sum + step.Time);
+
+        var origin = new SessionOrigin(demo.App03.Name, Protocol.Rdp, demo.App03.Id, () => Task.CompletedTask);
+        var view = (RemoteFrameView)Method(window, "NewRemoteFrameView").Invoke(window, [origin, desktop, false, true])!;
+        Invoke(window, "AddTab", view, desktop, origin);
+        Select(window, demo.App03.Id);
+        desktop.Connect(1024, 768);
+        await SettleAsync(10);
+        // The view asks for its own size once it settles, and the fake server follows.
+        await Task.Delay(800);
+        await SettleAsync(10);
+
+        var tab = Private<List<SessionTab>>(window, "_tabs")[^1];
+        FillLink(tab.Link!, desktop);
+        var panel = Private<PropertiesPanel>(window, "_properties");
+        Invoke(panel, "ShowTab", true);
+        await SettleAsync(10);
+
+        // Alt+Tab to the remote for this session only: CHANGED, with Keep and Undo.
+        var choice = panel.GetVisualDescendants().OfType<Border>().First(b => b.IsEffectivelyVisible && b.Name == "AltTabGoesTo");
+        choice.GetVisualDescendants().OfType<Button>().First(b => Equals(b.Tag, SystemShortcuts.Remote))
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await SettleAsync(10);
+        using (var settings = Capture(window))
+        {
+            Save(settings, output, "session-settings.png");
+        }
+
+        var card = panel.GetVisualDescendants().OfType<ConnectionCard>().First();
+        card.BringIntoView();
+        await SettleAsync(10);
+        var at = card.TranslatePoint(default, window) ?? throw new InvalidOperationException("The card isn't in the window.");
+        var area = new PixelRect((int)at.X, (int)at.Y, (int)card.Bounds.Width, (int)Math.Min(card.Bounds.Height, Height - at.Y));
+        var whole = Capture(window); // The cropped bitmap disposes it.
+        using (var cut = await RenderAsync(new Image { Source = new CroppedBitmap(whole, area), Width = area.Width, Height = area.Height, Margin = new Thickness(20) },
+            area.Width + 40, area.Height + 40))
+        {
+            Save(cut, output, "connection-card.png");
+        }
+    }
+
+    /// <summary>Five minutes of a good link, a resize three minutes ago and files copied from the remote, as if measured.</summary>
+    static void FillLink(LinkMonitor monitor, DemoDesktop desktop)
+    {
+        Private<DispatcherTimer>(monitor, "_timer").Stop();
+        var now = DateTimeOffset.Now;
+        typeof(LinkMonitor).GetProperty(nameof(LinkMonitor.ConnectedAt))!.SetValue(monitor, now.AddMinutes(-42));
+        var events = Private<List<LinkEvent>>(monitor, "_events");
+        events.Clear();
+        events.Add(new LinkEvent(now.AddMinutes(-42), LinkEventKind.Connected, "Connected", LinkMonitor.Milliseconds(desktop.Link.ConnectTime!.Value)));
+        events.Add(new LinkEvent(now.AddSeconds(-185), LinkEventKind.Resized, "Resized to 1600 × 900", "212 ms"));
+        events.Add(new LinkEvent(now.AddSeconds(-185 + 40), LinkEventKind.Resized, $"Resized to {desktop.Width} × {desktop.Height}", "198 ms"));
+        events.Add(new LinkEvent(now.AddSeconds(-70), LinkEventKind.Copied, "Copied 2 files from the remote", "4.2 MB · 11.8 MB/s"));
+
+        // Quiet with small bursts of screen updates, busier around the resizes and the copy.
+        var random = new Random(7);
+        for (int second = LinkMonitor.HistoryLength; second > 0; second--)
+        {
+            bool busy = second is >= 140 and <= 190 && random.NextDouble() < 0.5 || second is >= 66 and <= 72;
+            double updates = busy ? 18 + random.Next(20) : random.NextDouble() < 0.3 ? random.Next(1, 8) : 0;
+            double received = busy ? 250_000 + random.Next(400_000) : updates * 9_000 + random.Next(2_000);
+            if (second is >= 66 and <= 72)
+            {
+                received = 11_800_000 + random.Next(400_000);
+            }
+
+            var roundTrip = TimeSpan.FromMilliseconds(15 + random.Next(7) + (busy ? random.Next(10) : 0));
+            monitor.Add(new LinkSample(received, 1_200 + random.Next(800), updates, busy ? 0.05 + random.NextDouble() * 0.1 : random.NextDouble() * 0.02, roundTrip));
+        }
+
+        // The totals so far, then the last second as the card's Now shows it, which redraws the card.
+        typeof(LinkMonitor).GetField("_last", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(monitor, new LinkReading(212_400_000, 9_800_000, TimeSpan.FromSeconds(31), TimeSpan.FromMilliseconds(17)));
+        monitor.Add(new LinkSample(38_000, 1_400, 4, 0.01, TimeSpan.FromMilliseconds(17)));
     }
 
     /// <summary>Settings › Appearance with a color vision chosen, as choosing one leaves it.</summary>

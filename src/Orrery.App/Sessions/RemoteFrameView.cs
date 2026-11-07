@@ -794,6 +794,7 @@ public sealed partial class RemoteFrameView : Panel
                 {
                     ResizesToViewChanged?.Invoke(this, EventArgs.Empty);
                 }
+
                 if (_stretching)
                 {
                     _stretching = false;

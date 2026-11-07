@@ -12,6 +12,7 @@ sealed class DemoData
     public required ConnectionEntry BuildAgent { get; init; }
     public required ConnectionEntry Db02 { get; init; }
     public required ConnectionEntry Web02 { get; init; }
+    public required ConnectionEntry App03 { get; init; }
 
     /// <summary>Hosts the fake host check reports as down.</summary>
     public static readonly IReadOnlySet<string> DownHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -78,7 +79,7 @@ sealed class DemoData
         history.RecordConnected(web01.Id, DateTimeOffset.Now.AddDays(-3));
         history.RecordConnected(db02.Id, DateTimeOffset.Now.AddDays(-12));
 
-        return new DemoData { Tree = tree, Web01 = web01, BuildAgent = buildAgent, Db02 = db02, Web02 = web02 };
+        return new DemoData { Tree = tree, Web01 = web01, BuildAgent = buildAgent, Db02 = db02, Web02 = web02, App03 = app03 };
     }
 
     static ConnectionEntry Ssh(string name, string host) => new() { Name = name, Host = host, Settings = { Protocol = Protocol.Ssh } };

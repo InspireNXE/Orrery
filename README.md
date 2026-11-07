@@ -314,6 +314,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   back. The saved settings tag those rows "live" and show what the session has instead. Scaling says when it has no
   effect, as while the desktop resizes to fit the tab. Saved settings that wait for a reconnect are listed under On
   next connect with a Reconnect button.
+- **Connection card**, under This session for any open connection: a verdict (Good or Slow), five minutes of screen
+  updates and round trip with what happened marked on them, the data rate now and moved so far, drops, how long
+  connecting took split by step (network, security, sign-in, session setup, first screen), and the recent events.
+  Copy details puts it all on the clipboard, for a bug report.
 - **Pane layouts** (Settings › General, or the pin in each pane's header), for the side panel and the properties
   pane: Pinned docks it; Over the session leaves a strip and opens over the sessions; Hidden leaves no strip (the
   window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; on
@@ -322,6 +326,13 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   Recent or Commands if that's where it was (Credentials and Recordings start on Connections).
 - **Last connected** shows in the properties pane ("3 days ago", exact time on hover), with a newer failed attempt
   if there was one.
+
+<p align="center">
+  <img src="docs/images/session-settings.png" width="720"
+       alt="A remote desktop tab for app-03 showing a services window. The properties pane on the right is on its This session tab, marked with 1 change. Under Display, Scaling has Fit selected with a note that it has no effect now because the desktop resizes to fit the tab, and Color correction is on. Under Keyboard and mouse, Alt+Tab goes to Remote, marked CHANGED, with the saved value To the remote in full screen and Keep for next time and Undo below it; View only is off. The footer says 1 change for this session only, with Keep for next time and Undo buttons.">
+  <img src="docs/images/connection-card.png" width="300"
+       alt="The Connection card for app-03: Good, 17 ms round trip and 4 screen updates a second. A graph of the last five minutes of screen updates with marks for two resizes and a copy. Now: 304 kbit/s in and 11 kbit/s out, decoding 1% of the time, desktop 628 by 643. This session: connected for 42 minutes, 202.6 MB in and 9.3 MB out, no drops. Connecting took 1.2 s, as a bar split into network 18 ms, security 204 ms, sign-in 171 ms, session setup 190 ms and first screen 642 ms. Recent: files copied from the remote, two resizes and the connect.">
+</p>
 
 ### Credentials, import and export
 

@@ -326,9 +326,9 @@ sealed class SessionSettingsView : UserControl
         readonly Func<string?>? _note;
         readonly TextBlock _changed = new() { Text = "CHANGED", FontSize = 10, FontWeight = FontWeight.SemiBold, LetterSpacing = 0.4, Foreground = ChangedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         readonly Button _keepButton = new() { Content = "Keep for next time", Classes = { "link" }, VerticalAlignment = VerticalAlignment.Center };
-        readonly Button _undoButton = new() { Content = "Undo", Classes = { "link" }, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-        readonly TextBlock _savedText = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-        readonly DockPanel _savedLine;
+        readonly Button _undoButton = new() { Content = "Undo", Classes = { "link" }, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+        readonly TextBlock _savedText = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
+        readonly StackPanel _savedLine;
         readonly TextBlock _noteText = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
         bool _showing;
 
@@ -363,7 +363,12 @@ sealed class SessionSettingsView : UserControl
                 item.Children.Add(editor);
             }
 
-            _savedLine = new DockPanel { Children = { Pane.Docked(_undoButton, Dock.Right), Pane.Docked(_keepButton, Dock.Right), _savedText } };
+            // The saved value on a line of its own, so a long one isn't cut short by the buttons.
+            _savedLine = new StackPanel
+            {
+                Spacing = 2,
+                Children = { _savedText, new StackPanel { Orientation = Orientation.Horizontal, Children = { _keepButton, _undoButton } } },
+            };
             item.Children.Add(_savedLine);
             item.Children.Add(_noteText);
             View = new Border { Padding = new Thickness(0, 4), Child = item };

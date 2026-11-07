@@ -21,6 +21,8 @@ platform with real Skia rendering, so the pictures show the app's actual layout,
 - It runs as a portable copy, so credentials go to a vault file in that temp folder. It never opens the system
   keychain, your Orrery data folders, or Windows Hello.
 - The sessions are fakes. The SSH tab shows text the tool writes into the terminal, and nothing connects anywhere.
+  The remote desktop is a picture the tool draws with Avalonia, resized to whatever the view asks for, and its
+  Connection card shows five minutes of made-up measurements.
   The recording shots record that fake session into the temp folder and play it back.
 - The real host check is turned off. A fake one says which demo hosts are up or down, so no host is probed.
 - The status bar's data folder line is replaced with a made-up path.
@@ -50,6 +52,8 @@ The tool is in `Orrery.sln`, so it keeps building, but it isn't a test project a
 | `recording.png` | An SSH tab being recorded, with the red dot and the REC pill |
 | `recording-playback.png` | The Recordings panel and player, paused partway through that recording |
 | `interface-colors.png` | The connection tree in Standard and Clearer interface colors |
+| `session-settings.png` | app-03's remote desktop with the properties pane on This session, Alt+Tab sent to the remote for this session only |
+| `connection-card.png` | The Connection card for that session, cut out of the pane |
 | `social-preview.png` | GitHub's social preview, 1280×640. Upload it under the repository's Settings › General › Social preview |
 
 Look at every image before committing it.
