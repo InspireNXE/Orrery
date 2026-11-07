@@ -309,9 +309,11 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   checks off, and an import asks first whether to check the hosts it adds.
 - **Properties pane:** one line per setting. A blue dot marks values set here; muted ones are inherited. Click to
   change, or "Use that instead" to inherit again. The footer counts what's set here.
-- **This session tab:** while a remote desktop is open, Scaling, View only and Color correction change it at once,
-  until it closes; Keep for next time saves the change. Settings that need a reconnect are listed with a Reconnect
-  button.
+- **This session tab:** while a remote desktop is open, Scaling, Color correction, View only and (on Windows) where
+  Alt+Tab goes change it at once, until it closes; Keep for next time saves the change, Undo puts the saved value
+  back. The saved settings tag those rows "live" and show what the session has instead. Scaling says when it has no
+  effect, as while the desktop resizes to fit the tab. Saved settings that wait for a reconnect are listed under On
+  next connect with a Reconnect button.
 - **Pane layouts** (Settings › General, or the pin in each pane's header), for the side panel and the properties
   pane: Pinned docks it; Over the session leaves a strip and opens over the sessions; Hidden leaves no strip (the
   window's edge or the shortcut brings it back). A pane opened over a session doesn't resize the remote desktop; on

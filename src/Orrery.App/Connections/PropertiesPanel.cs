@@ -103,6 +103,7 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _flowControl = Choices("FlowControl", (SerialFlowControl.None, "None"), (SerialFlowControl.XOnXOff, "XON/XOFF (software)"), (SerialFlowControl.RtsCts, "RTS/CTS (hardware)"));
     readonly TextBlock _hostLabel = Dialogs.Label("Host");
     readonly Button _choosePort = new() { Content = "Ports…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0, IsVisible = false };
+    readonly Control _keyboardSection;
     readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
 
     readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
@@ -408,7 +409,8 @@ sealed class PropertiesPanel : UserControl
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View, _recordTypingRow.View, _recordTypingWarning, _checkHostRow.View)),
                 // Near the top, so it isn't lost below every protocol's settings on a folder.
                 _commandsSection,
-                (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _shortcutsRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_keyboardSection = Pane.RowSection("Keyboard", _shortcutsRow.View)),
                 (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
@@ -420,6 +422,12 @@ sealed class PropertiesPanel : UserControl
                 _notesField,
             },
         };
+
+        // What an open session's This session tab can change while it runs.
+        foreach (var (row, _) in LiveRows())
+        {
+            row.MarkLive();
+        }
 
         _editorView = Pane.WithFooter(editor, new StackPanel
         {
@@ -620,6 +628,13 @@ sealed class PropertiesPanel : UserControl
     /// <summary>A green dot for the connected session, or how many of its settings differ from the saved ones.</summary>
     void ShowSessionBadge()
     {
+        // The saved rows say what the open session has instead, until it's kept or undone.
+        var sessionOnly = _sessionView?.SessionOnly;
+        foreach (var (row, key) in LiveRows())
+        {
+            row.ShowSessionValue(sessionOnly is not null && sessionOnly.TryGetValue(key, out var value) ? value : null);
+        }
+
         int changes = _sessionView?.Changes ?? 0;
         _sessionDot.IsVisible = changes == 0;
         _sessionBadge.IsVisible = changes > 0;
@@ -1105,7 +1120,7 @@ sealed class PropertiesPanel : UserControl
         _enlargeRow.View.IsVisible = _scalingRow.View.IsVisible = _fullScreenRow.View.IsVisible = _qualityRow.View.IsVisible = rdp || vnc;
 
         // Only Windows lets Orrery take Alt+Tab from the system.
-        _shortcutsRow.View.IsVisible = (rdp || vnc) && OperatingSystem.IsWindows();
+        _keyboardSection.IsVisible = _shortcutsRow.View.IsVisible = (rdp || vnc) && OperatingSystem.IsWindows();
         _rdpSection.IsVisible = rdp;
         _vncSection.IsVisible = vnc;
         _sshSection.IsVisible = ssh;
@@ -1700,6 +1715,15 @@ sealed class PropertiesPanel : UserControl
         _ => "This display",
     };
 
+    /// <summary>The saved rows the This session tab can change for the open session, with its keys for them.</summary>
+    IEnumerable<(InheritRow Row, string Key)> LiveRows()
+    {
+        yield return (_scalingRow, SessionSettingsView.ScalingKey);
+        yield return (_colorCorrectionRow, SessionSettingsView.ColorCorrectionKey);
+        yield return (_viewOnlyRow, SessionSettingsView.ViewOnlyKey);
+        yield return (_shortcutsRow, SessionSettingsView.ShortcutsKey);
+    }
+
     static string Describe<T>(Resolved<T> resolved) =>
         resolved.Source is { } source ? source.Parent is null ? "From defaults for all connections" : $"From {source.Name}" : "Orrery's default";
 
@@ -1722,6 +1746,21 @@ sealed class PropertiesPanel : UserControl
         readonly string _whenEmpty;
         readonly bool _canPreview;
         readonly Func<string>? _describe;
+        static readonly IBrush LiveBrush = new SolidColorBrush(Color.Parse("#1E3A2C")).ToImmutable();
+        static readonly IBrush LiveTextBrush = new SolidColorBrush(Color.Parse("#7BD3A0")).ToImmutable();
+        static readonly IBrush SessionBrush = new SolidColorBrush(Color.Parse("#F0B455")).ToImmutable();
+
+        readonly Border _live = new()
+        {
+            IsVisible = false,
+            Background = LiveBrush,
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(5, 0),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = "live", FontSize = 10, Foreground = LiveTextBrush },
+        };
+        readonly TextBlock _sessionValue = new() { IsVisible = false, FontSize = 11, Foreground = SessionBrush, Margin = new Thickness(14, -6, 0, 4), TextTrimming = TextTrimming.CharacterEllipsis };
         readonly Ellipse _dot = new() { Width = 6, Height = 6, Fill = DotBrush, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
         // The value takes only the room it needs, up to a limit, so the name beside it reads in full.
         readonly TextBlock _value = new()
@@ -1760,11 +1799,12 @@ sealed class PropertiesPanel : UserControl
 
             var name = new TextBlock { Text = label, FontSize = 13, Foreground = LabelBrush, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(name, 1);
-            Grid.SetColumn(_value, 2);
+            Grid.SetColumn(_live, 2);
+            Grid.SetColumn(_value, 3);
             _header = new Button
             {
                 Classes = { "setting" },
-                Content = new Grid { ColumnDefinitions = new ColumnDefinitions("14,*,Auto"), Children = { _dot, name, _value } },
+                Content = new Grid { ColumnDefinitions = new ColumnDefinitions("14,*,Auto,Auto"), Children = { _dot, name, _live, _value } },
             };
             _header.Click += (_, _) => Expanded = !Expanded;
 
@@ -1818,7 +1858,21 @@ sealed class PropertiesPanel : UserControl
             editor.AddHandler(SelectingItemsControl.SelectionChangedEvent, OnEditorChanged, handledEventsToo: true);
             editor.AddHandler(ToggleButton.IsCheckedChangedEvent, OnEditorChanged, handledEventsToo: true);
 
-            View = new StackPanel { Children = { _header, _card } };
+            View = new StackPanel { Children = { _header, _sessionValue, _card } };
+        }
+
+        /// <summary>Tags the row as one an open session takes up at once, from its This session tab.</summary>
+        public void MarkLive()
+        {
+            _live.IsVisible = true;
+            ToolTip.SetTip(_live, "Changes an open session at once, from its This session tab");
+        }
+
+        /// <summary>What the open session has instead of the saved value, or null when it has that.</summary>
+        public void ShowSessionValue(string? value)
+        {
+            _sessionValue.IsVisible = value is not null;
+            _sessionValue.Text = value is null ? null : $"This session: {value}";
         }
 
         /// <summary>Raised when the row goes from inherited to set here or back.</summary>

@@ -1,3 +1,4 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
@@ -14,7 +15,14 @@ namespace Orrery.App.Tests;
 
 public class SessionSettingsTests
 {
-    sealed class Desktop : IFrameBufferSession
+    /// <summary>A server that resizes its desktop to the view, as RDP's display control does.</summary>
+    sealed class ResizingDesktop : Desktop, IDisplayScaleSession
+    {
+        public bool FollowsDisplayScale => true;
+        public void SetDisplayScale(double renderScaling) { }
+    }
+
+    class Desktop : IFrameBufferSession
     {
         public ConnectionTarget Target { get; } = new("desk.example", 3389, "user", null);
         public SessionState State { get; set; } = SessionState.Connected;
@@ -46,7 +54,7 @@ public class SessionSettingsTests
         public Task DeleteAsync(Guid id) => Task.CompletedTask;
     }
 
-    static async Task<(PropertiesPanel Panel, Window Window, RemoteFrameView View, ConnectionEntry Entry, SessionTab Tab, ConnectionTree Tree)> Open(Protocol protocol = Protocol.Rdp)
+    static async Task<(PropertiesPanel Panel, Window Window, RemoteFrameView View, ConnectionEntry Entry, SessionTab Tab, ConnectionTree Tree)> Open(Protocol protocol = Protocol.Rdp, Desktop? session = null)
     {
         var tree = ConnectionTree.Empty();
         var folder = new ConnectionFolder { Name = "Lab servers", Settings = { Scaling = DesktopScaling.ShrinkToFit } };
@@ -54,7 +62,7 @@ public class SessionSettingsTests
         tree.Add(folder, tree.Root);
         tree.Add(entry, folder);
 
-        var desktop = new Desktop();
+        var desktop = session ?? new Desktop();
         var view = new RemoteFrameView(desktop) { Scaling = DesktopScaling.ShrinkToFit };
         var tab = new SessionTab(desktop, view, new SessionOrigin(entry.Name, protocol, entry.Id, () => Task.CompletedTask));
         var panel = new PropertiesPanel(tree, new NoCredentials());
@@ -76,6 +84,10 @@ public class SessionSettingsTests
         Dispatcher.UIThread.RunJobs();
     }
 
+    static Button Choice(Window window, string name, object value) =>
+        window.GetVisualDescendants().OfType<Border>().Single(b => b.IsEffectivelyVisible && b.Name == name)
+            .GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Tag, value));
+
     static bool Shown(Window window, string text) =>
         window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
 
@@ -85,15 +97,21 @@ public class SessionSettingsTests
         var (_, window, view, entry, _, _) = await Open();
         Click(ButtonNamed(window, "This session"));
 
-        var scaling = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.IsEffectivelyVisible && c.Name == "Scaling");
-        scaling.SelectedItem = scaling.Items.OfType<ComboBoxItem>().Single(i => Equals(i.Tag, DesktopScaling.ActualSize));
-        Dispatcher.UIThread.RunJobs();
+        Click(Choice(window, "Scaling", DesktopScaling.ActualSize));
 
         Assert.Equal(DesktopScaling.ActualSize, view.Scaling);
+        Assert.True(Choice(window, "Scaling", DesktopScaling.ActualSize).Classes.Contains("selected"));
+        Assert.False(Choice(window, "Scaling", DesktopScaling.ShrinkToFit).Classes.Contains("selected"));
         Assert.Null(entry.Settings.Scaling); // Only this session so far.
         Assert.True(Shown(window, "CHANGED"));
         Assert.True(Shown(window, "Saved: Shrink to fit"));
         Assert.True(Shown(window, "1 change for this session only"));
+
+        // The saved settings say what the session has instead.
+        Click(ButtonNamed(window, "Saved settings"));
+        Assert.True(Shown(window, "This session: Actual size"));
+        Assert.True(Shown(window, "live"));
+        Click(ButtonNamed(window, "This session"));
 
         Click(window.GetVisualDescendants().OfType<Button>().First(b => b.IsEffectivelyVisible && Equals(b.Content, "Keep for next time")));
         Assert.Equal(DesktopScaling.ActualSize, entry.Settings.Scaling);
@@ -115,7 +133,7 @@ public class SessionSettingsTests
         Assert.False(view.AllowsColorCorrection);
         Assert.True(Shown(window, "1 change for this session only"));
 
-        Click(ButtonNamed(window, "Undo"));
+        Click(window.GetVisualDescendants().OfType<Button>().First(b => b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "Undo Color correction"));
         Assert.True(view.AllowsColorCorrection);
         Assert.True(correction.IsChecked);
         Assert.Null(entry.Settings.ColorCorrection);
@@ -128,14 +146,14 @@ public class SessionSettingsTests
         var reconnects = new List<SessionTab>();
         panel.ReconnectRequested += (_, t) => reconnects.Add(t);
         Click(ButtonNamed(window, "This session"));
-        Assert.False(Shown(window, "Need a reconnect")); // Nothing changed since it started.
+        Assert.False(Shown(window, "On next connect")); // Nothing changed since it started.
 
         entry.Settings.RemoteAudio = RemoteAudio.DoNotPlay;
         tree.NotifyChanged();
         Dispatcher.UIThread.RunJobs();
-        Assert.True(Shown(window, "Need a reconnect"));
+        Assert.True(Shown(window, "On next connect"));
         Assert.True(Shown(window, "Remote audio"));
-        Assert.True(Shown(window, "This session: Play here"));
+        Assert.True(Shown(window, "Play here → Don't play"));
         Assert.False(Shown(window, "Display quality")); // Unchanged, so not listed.
         Click(ButtonNamed(window, "Reconnect"));
         Assert.Equal([tab], reconnects);
@@ -144,7 +162,7 @@ public class SessionSettingsTests
         entry.Settings.RemoteAudio = null;
         tree.NotifyChanged();
         Dispatcher.UIThread.RunJobs();
-        Assert.False(Shown(window, "Need a reconnect"));
+        Assert.False(Shown(window, "On next connect"));
 
         // Another connection shown: its saved settings only.
         var other = new ConnectionEntry { Name = "other", Host = "other.example" };
@@ -152,6 +170,25 @@ public class SessionSettingsTests
         await panel.ShowAsync(other);
         Dispatcher.UIThread.RunJobs();
         Assert.False(Shown(window, "This session"));
-        Assert.False(Shown(window, "Need a reconnect"));
+        Assert.False(Shown(window, "On next connect"));
+    }
+
+    [AvaloniaFact]
+    public async Task Scaling_says_it_has_no_effect_while_the_desktop_resizes_to_the_tab()
+    {
+        static bool NoEffect(Window window) =>
+            window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text?.StartsWith("No effect now", StringComparison.Ordinal) == true);
+
+        // A server that doesn't resize to the tab: scaling matters.
+        var (_, window, _, _, _, _) = await Open();
+        Click(ButtonNamed(window, "This session"));
+        Assert.False(NoEffect(window));
+        window.Close();
+
+        // One that does: the desktop always fits, so scaling waits for a fixed size.
+        var (_, resizing, _, _, _, _) = await Open(session: new ResizingDesktop());
+        Click(ButtonNamed(resizing, "This session"));
+        Assert.True(NoEffect(resizing));
+        resizing.Close();
     }
 }

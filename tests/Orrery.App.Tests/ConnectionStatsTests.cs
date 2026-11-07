@@ -129,7 +129,7 @@ public class ConnectionStatsTests
         Assert.True(Shown(window, "512 KB in, 0 bytes out"));
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.EndsWith("/s") == true);
         // Scaling and the other view settings are still there above it.
-        Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(), c => c.IsEffectivelyVisible && c.Name == "Scaling");
+        Assert.Contains(window.GetVisualDescendants().OfType<Border>(), c => c.IsEffectivelyVisible && c.Name == "Scaling");
         window.Close();
     }
 
@@ -145,8 +145,8 @@ public class ConnectionStatsTests
         Assert.True(Shown(window, "Connection"));
         Assert.True(Shown(window, "Data in"));
         Assert.False(Shown(window, "Screen updates"));
-        Assert.DoesNotContain(window.GetVisualDescendants().OfType<ComboBox>(), c => c.IsEffectivelyVisible && c.Name == "Scaling");
-        Assert.False(Shown(window, "Need a reconnect"));
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Border>(), c => c.IsEffectivelyVisible && c.Name == "Scaling");
+        Assert.False(Shown(window, "On next connect"));
         window.Close();
     }
 

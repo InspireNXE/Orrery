@@ -38,6 +38,24 @@ sealed class SessionSettingsView : UserControl
         (SystemShortcuts.Local, "Always to this computer"),
     ];
 
+    /// <summary>The scaling choices as the session tab's buttons name them, where there's less room.</summary>
+    static string ScalingShort(DesktopScaling scaling) => scaling switch
+    {
+        DesktopScaling.Fit => "Fit",
+        DesktopScaling.ShrinkToFit => "Shrink",
+        _ => "Actual size",
+    };
+
+    static string ShortcutsShort(SystemShortcuts shortcuts) => shortcuts switch
+    {
+        SystemShortcuts.FullScreen => "Full screen",
+        SystemShortcuts.Remote => "Remote",
+        _ => "This computer",
+    };
+
+    /// <summary>The settings the This session tab can change, by the keys <see cref="SessionOnly"/> uses.</summary>
+    internal const string ScalingKey = "Scaling", ColorCorrectionKey = "ColorCorrection", ViewOnlyKey = "ViewOnly", ShortcutsKey = "SystemShortcuts";
+
     readonly ConnectionTree _tree;
     readonly ConnectionEntry _entry;
     readonly List<LiveItem> _items = [];
@@ -48,6 +66,7 @@ sealed class SessionSettingsView : UserControl
     readonly IReadOnlyList<(string Label, string Value)> _startedWith;
     readonly StackPanel _fixedRows = new() { Spacing = 2 };
     readonly Border _reconnectGroup;
+    readonly Control? _display, _input;
 
     /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, for a connection that doesn't set its own.</param>
     /// <param name="startedWith">The fixed settings as they were when the session started (<see cref="FixedSettingsNow"/>).</param>
@@ -61,22 +80,34 @@ sealed class SessionSettingsView : UserControl
 
         if (view is not null)
         {
-            _items.Add(LiveItem.Choice("Scaling", ScalingLabels, () => view.Scaling, value => view.Scaling = value,
-                () => SettingsResolver.Resolve(_entry).Scaling.Value, value => _entry.Settings.Scaling = value));
+            // While the server resizes the desktop to the tab it always fits, so the choice waits for a fixed size.
+            var scaling = LiveItem.Choice(ScalingKey, "Scaling", ScalingLabels, ScalingShort, () => view.Scaling, value => view.Scaling = value,
+                () => SettingsResolver.Resolve(_entry).Scaling.Value, value => _entry.Settings.Scaling = value,
+                () => view.ResizesToView ? "No effect now: the desktop resizes to fit the tab. It applies with a fixed desktop size." : null);
+            view.ResizesToViewChanged += (_, _) => scaling.Refresh();
+            var correction = LiveItem.Switch(ColorCorrectionKey, "Color correction", () => view.AllowsColorCorrection, value => view.AllowsColorCorrection = value,
+                () => SettingsResolver.Resolve(_entry).ColorCorrection.Value, value => _entry.Settings.ColorCorrection = value);
+            _items.Add(scaling);
+            _items.Add(correction);
+            _display = Pane.Section("Display", scaling.View, correction.View);
 
             // Saved only for VNC, which can open watching; an RDP session can still watch for a while.
-            _items.Add(LiveItem.Switch("View only", () => view.ViewOnly, value => view.ViewOnly = value,
+            var viewOnly = LiveItem.Switch(ViewOnlyKey, "View only", () => view.ViewOnly, value => view.ViewOnly = value,
                 () => protocol == Protocol.Vnc && SettingsResolver.Resolve(_entry).ViewOnly.Value,
-                protocol == Protocol.Vnc ? value => _entry.Settings.ViewOnly = value : null));
-            _items.Add(LiveItem.Switch("Color correction", () => view.AllowsColorCorrection, value => view.AllowsColorCorrection = value,
-                () => SettingsResolver.Resolve(_entry).ColorCorrection.Value, value => _entry.Settings.ColorCorrection = value));
+                protocol == Protocol.Vnc ? value => _entry.Settings.ViewOnly = value : null);
+            var input = new List<Control> { viewOnly.View };
 
             // Only Windows lets Orrery take Alt+Tab from the system. Saved is the connection's choice, else Settings'.
             if (OperatingSystem.IsWindows())
             {
-                _items.Add(LiveItem.Choice("Alt+Tab and Windows shortcuts", ShortcutLabels, () => view.SessionShortcuts, value => view.SessionShortcuts = value,
-                    () => view.SavedShortcuts, value => _entry.Settings.SystemShortcuts = value));
+                var shortcuts = LiveItem.Choice(ShortcutsKey, "Alt+Tab, Alt+Esc and Ctrl+Esc go to", ShortcutLabels, ShortcutsShort,
+                    () => view.SessionShortcuts, value => view.SessionShortcuts = value, () => view.SavedShortcuts, value => _entry.Settings.SystemShortcuts = value);
+                _items.Add(shortcuts);
+                input.Insert(0, shortcuts.View);
             }
+
+            _items.Add(viewOnly);
+            _input = Pane.Section("Keyboard and mouse", [.. input]);
         }
 
         foreach (var item in _items)
@@ -91,7 +122,7 @@ sealed class SessionSettingsView : UserControl
         var reconnect = new Button { Content = "Reconnect", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, Foreground = ChangedBrush };
         reconnect.Click += (_, _) => ReconnectRequested?.Invoke(this, EventArgs.Empty);
 
-        var heading = new TextBlock { Text = "Need a reconnect", FontSize = 13, FontWeight = FontWeight.SemiBold };
+        var heading = new TextBlock { Text = "On next connect", FontSize = 13, FontWeight = FontWeight.SemiBold };
         AutomationProperties.SetHeadingLevel(heading, 2);
         _reconnectGroup = new Border
         {
@@ -107,7 +138,7 @@ sealed class SessionSettingsView : UserControl
                 Children =
                 {
                     heading,
-                    Note("These saved settings changed after the session started, and take effect when it reconnects. Reconnecting also drops this session's changes."),
+                    Note("Saved differently since this session started. They take effect when it reconnects, which also drops this session's own changes."),
                     _fixedRows,
                     reconnect,
                 },
@@ -137,9 +168,10 @@ sealed class SessionSettingsView : UserControl
             body.Children.Add(Note("Changes here reach the open tab at once and last until it closes. Saved settings stay as they are unless you keep a change."));
         }
 
-        foreach (var item in _items)
+        if (_display is not null)
         {
-            body.Children.Add(item.View);
+            body.Children.Add(_display);
+            body.Children.Add(_input!);
         }
 
         body.Children.Add(_reconnectGroup);
@@ -179,21 +211,16 @@ sealed class SessionSettingsView : UserControl
                 continue;
             }
 
-            _fixedRows.Children.Add(new StackPanel
+            // What this session has, then what the next connect brings.
+            var change = new TextBlock { Text = $"{then} → {value}", FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 200, Margin = new Thickness(10, 0, 0, 0) };
+            AutomationProperties.SetName(change, $"{label}: {then} now, {value} after reconnecting");
+            _fixedRows.Children.Add(new DockPanel
             {
                 Margin = new Thickness(0, 4),
-                Spacing = 1,
                 Children =
                 {
-                    new DockPanel
-                    {
-                        Children =
-                        {
-                            Pane.Docked(new TextBlock { Text = value, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 180 }, Dock.Right),
-                            new TextBlock { Text = label, FontSize = 12, Foreground = SoftBrush, TextTrimming = TextTrimming.CharacterEllipsis },
-                        },
-                    },
-                    new TextBlock { Text = $"This session: {then}", FontSize = 11, Foreground = Dialogs.MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis },
+                    Pane.Docked(change, Dock.Right),
+                    new TextBlock { Text = label, FontSize = 12, Foreground = SoftBrush, TextTrimming = TextTrimming.CharacterEllipsis },
                 },
             });
         }
@@ -218,6 +245,9 @@ sealed class SessionSettingsView : UserControl
 
     /// <summary>How many settings differ from the saved ones, for the tab's badge.</summary>
     public int Changes => _items.Count(i => i.IsChanged);
+
+    /// <summary>The settings this session has changed and not kept, by key (<see cref="ScalingKey"/> and the rest), as they read.</summary>
+    public IReadOnlyDictionary<string, string> SessionOnly => _items.Where(i => i.IsChanged).ToDictionary(i => i.Key, i => i.Describe());
 
     void Keep(LiveItem item)
     {
@@ -282,8 +312,9 @@ sealed class SessionSettingsView : UserControl
     static TextBlock Note(string text) => new() { Text = text, FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
 
     /// <summary>
-    /// One setting the open session takes up at once: its editor, CHANGED and "Keep for next time" while it differs from
-    /// the saved value, and that value under it.
+    /// One setting the open session takes up at once: its editor, CHANGED while it differs from the saved value, and
+    /// under it the saved value with Keep for next time and Undo. A choice is a row of buttons; on or off is a switch.
+    /// A note under it says when the setting can't do anything at the moment.
     /// </summary>
     sealed class LiveItem
     {
@@ -292,23 +323,31 @@ sealed class SessionSettingsView : UserControl
         readonly Action<object>? _keep;
         readonly Func<object, string> _describe;
         readonly Action<object> _show;
+        readonly Func<string?>? _note;
         readonly TextBlock _changed = new() { Text = "CHANGED", FontSize = 10, FontWeight = FontWeight.SemiBold, LetterSpacing = 0.4, Foreground = ChangedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         readonly Button _keepButton = new() { Content = "Keep for next time", Classes = { "link" }, VerticalAlignment = VerticalAlignment.Center };
-        readonly TextBlock _savedLine = new() { FontSize = 11, Foreground = Dialogs.MutedBrush };
+        readonly Button _undoButton = new() { Content = "Undo", Classes = { "link" }, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        readonly TextBlock _savedText = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        readonly DockPanel _savedLine;
+        readonly TextBlock _noteText = new() { FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
         bool _showing;
 
-        LiveItem(string label, Control editor, bool inline, Func<object> current, Action<object> apply, Func<object> saved, Action<object>? keep,
-            Func<object, string> describe, Action<object> show)
+        LiveItem(string key, string label, Control editor, bool inline, Func<object> current, Action<object> apply, Func<object> saved, Action<object>? keep,
+            Func<object, string> describe, Action<object> show, Func<string?>? note)
         {
+            Key = key;
             _current = current;
             _apply = apply;
             _saved = saved;
             _keep = keep;
             _describe = describe;
             _show = show;
+            _note = note;
             AutomationProperties.SetName(editor, label);
             AutomationProperties.SetName(_keepButton, $"Keep {label} for next time");
+            AutomationProperties.SetName(_undoButton, $"Undo {label}");
             _keepButton.Click += (_, _) => Kept?.Invoke(this, EventArgs.Empty);
+            _undoButton.Click += (_, _) => Undo();
 
             var head = new DockPanel();
             if (inline)
@@ -316,7 +355,6 @@ sealed class SessionSettingsView : UserControl
                 head.Children.Add(Pane.Docked(editor, Dock.Right));
             }
 
-            head.Children.Add(Pane.Docked(_keepButton, Dock.Right));
             head.Children.Add(Pane.Docked(_changed, Dock.Right));
             head.Children.Add(new TextBlock { Text = label, FontSize = 13, FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
             var item = new StackPanel { Spacing = 8, Children = { head } };
@@ -325,13 +363,18 @@ sealed class SessionSettingsView : UserControl
                 item.Children.Add(editor);
             }
 
+            _savedLine = new DockPanel { Children = { Pane.Docked(_undoButton, Dock.Right), Pane.Docked(_keepButton, Dock.Right), _savedText } };
             item.Children.Add(_savedLine);
-            View = new Border { BorderBrush = Pane.LineBrush, BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, 12), Child = item };
+            item.Children.Add(_noteText);
+            View = new Border { Padding = new Thickness(0, 4), Child = item };
         }
 
         public event EventHandler? Changed;
 
         public event EventHandler? Kept;
+
+        /// <summary>Which setting this is, as <see cref="SessionOnly"/> names it.</summary>
+        public string Key { get; }
 
         public Control View { get; }
 
@@ -339,41 +382,59 @@ sealed class SessionSettingsView : UserControl
 
         public bool CanKeep => _keep is not null;
 
-        public static LiveItem Choice<T>(string label, (T Value, string Label)[] choices, Func<T> current, Action<T> apply, Func<T> saved, Action<T> keep)
+        /// <summary>The session's value as it reads.</summary>
+        public string Describe() => _describe(_current());
+
+        /// <summary>A choice as a row of buttons, one selected, each named by <paramref name="shortLabel"/> where room is short.</summary>
+        public static LiveItem Choice<T>(string key, string label, (T Value, string Label)[] choices, Func<T, string> shortLabel, Func<T> current, Action<T> apply,
+            Func<T> saved, Action<T> keep, Func<string?>? note = null)
             where T : struct
         {
-            var box = new ComboBox { Name = ControlName(label), HorizontalAlignment = HorizontalAlignment.Stretch };
+            var grid = new Grid { ColumnSpacing = 4 };
+            var buttons = new List<Button>();
+            LiveItem? item = null;
             foreach (var (value, text) in choices)
             {
-                box.Items.Add(new ComboBoxItem { Content = text, Tag = value });
+                var button = new Button { Content = shortLabel(value), Tag = value, Classes = { "segment" }, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
+                ToolTip.SetTip(button, text);
+                AutomationProperties.SetName(button, $"{label}: {text}");
+                button.Click += (_, _) => item!.Set(value);
+                Grid.SetColumn(button, buttons.Count);
+                grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+                grid.Children.Add(button);
+                buttons.Add(button);
             }
 
-            LiveItem? item = null;
-            item = new LiveItem(label, box, inline: false, () => current(), v => apply((T)v), () => saved(), v => keep((T)v),
+            var row = new Border { Name = ControlName(label), Classes = { "segments" }, Child = grid };
+            item = new LiveItem(key, label, row, inline: false, () => current(), v => apply((T)v), () => saved(), v => keep((T)v),
                 v => choices.First(c => Equals(c.Value, v)).Label,
-                v => box.SelectedItem = box.Items.OfType<ComboBoxItem>().First(i => Equals(i.Tag, v)));
-            box.SelectionChanged += (_, _) =>
-            {
-                if (box.SelectedItem is ComboBoxItem { Tag: T value })
+                v =>
                 {
-                    item.Set(value);
-                }
-            };
+                    foreach (var button in buttons)
+                    {
+                        bool selected = Equals(button.Tag, v);
+                        button.Classes.Set("selected", selected);
+                        AutomationProperties.SetItemStatus(button, selected ? "Selected" : string.Empty);
+                    }
+                },
+                note);
             return item;
         }
 
-        public static LiveItem Switch(string label, Func<bool> current, Action<bool> apply, Func<bool> saved, Action<bool>? keep)
+        public static LiveItem Switch(string key, string label, Func<bool> current, Action<bool> apply, Func<bool> saved, Action<bool>? keep)
         {
             var toggle = new ToggleSwitch { Name = ControlName(label), OnContent = null, OffContent = null, MinWidth = 0, Margin = new Thickness(10, 0, -11, 0), VerticalAlignment = VerticalAlignment.Center };
             LiveItem? item = null;
-            item = new LiveItem(label, toggle, inline: true, () => current(), v => apply((bool)v), () => saved(), keep is null ? null : v => keep((bool)v),
-                v => (bool)v ? "On" : "Off", v => toggle.IsChecked = (bool)v);
+            item = new LiveItem(key, label, toggle, inline: true, () => current(), v => apply((bool)v), () => saved(), keep is null ? null : v => keep((bool)v),
+                v => (bool)v ? "On" : "Off", v => toggle.IsChecked = (bool)v, null);
             toggle.IsCheckedChanged += (_, _) => item.Set(toggle.IsChecked == true);
             return item;
         }
 
-        /// <summary>"Color correction" as ColorCorrection.</summary>
-        static string ControlName(string label) => string.Concat(label.Split(' ').Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
+        /// <summary>"Color correction" as ColorCorrection; "Alt+Tab, Alt+Esc and Ctrl+Esc go to" as AltTab.</summary>
+        static string ControlName(string label) =>
+            string.Concat(label.Split(' ', ',').TakeWhile(w => !w.StartsWith("Alt+Esc", StringComparison.Ordinal)).Where(w => w.Length > 0)
+                .Select(w => char.ToUpperInvariant(w[0]) + w[1..]).Select(w => w.Replace("+", string.Empty, StringComparison.Ordinal)));
 
         /// <summary>The user picked <paramref name="value"/>: the open session takes it up.</summary>
         void Set(object value)
@@ -399,7 +460,7 @@ sealed class SessionSettingsView : UserControl
             }
         }
 
-        /// <summary>Shows the session's value, and whether and how it differs from the saved one.</summary>
+        /// <summary>Shows the session's value, whether and how it differs from the saved one, and any note.</summary>
         public void Refresh()
         {
             _showing = true;
@@ -416,7 +477,10 @@ sealed class SessionSettingsView : UserControl
             _changed.IsVisible = changed;
             _keepButton.IsVisible = changed && _keep is not null;
             _savedLine.IsVisible = changed;
-            _savedLine.Text = $"Saved: {_describe(_saved())}";
+            _savedText.Text = $"Saved: {_describe(_saved())}";
+            string? note = _note?.Invoke();
+            _noteText.Text = note;
+            _noteText.IsVisible = note is not null;
         }
     }
 }

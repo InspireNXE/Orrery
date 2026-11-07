@@ -294,6 +294,15 @@ public sealed partial class RemoteFrameView : Panel
     DesktopScaling _scaling = DesktopScaling.Fit;
 
     /// <summary>
+    /// The server resizes the desktop to the view, so it always fits and <see cref="Scaling"/> has nothing to do but
+    /// for a moment while one resizes. False until the server has followed a resize, and with a fixed desktop size.
+    /// </summary>
+    public bool ResizesToView => FollowsViewSize && _serverFollows && _spannedMonitors is null;
+
+    /// <summary>Raised when <see cref="ResizesToView"/> changes.</summary>
+    public event EventHandler? ResizesToViewChanged;
+
+    /// <summary>
     /// How a desktop that doesn't match the view is fitted into it: shrunk when it's bigger (the default), shrunk or
     /// enlarged to fill it, or shown at its actual size with scroll bars. Either way it keeps its shape.
     /// </summary>
@@ -778,8 +787,13 @@ public sealed partial class RemoteFrameView : Panel
                 _bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Opaque);
                 _image.Source = _bitmap;
                 // A new size after Orrery asked for one: the server follows the view, so later resizes stretch meanwhile.
+                bool followed = ResizesToView;
                 _serverFollows |= _askedForSize;
                 _askedForSize = false;
+                if (ResizesToView != followed)
+                {
+                    ResizesToViewChanged?.Invoke(this, EventArgs.Empty);
+                }
                 if (_stretching)
                 {
                     _stretching = false;
