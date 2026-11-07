@@ -389,7 +389,7 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 - **What's recorded:** what a terminal printed, or what a remote desktop showed, at up to 60
   frames a second, taken only when the screen changes, with RDP sound. A remote desktop's pointer is recorded with
   the shape its server gives it (an I-beam over text, a resize arrow, hidden while you type); recordings from
-  before 0.1.2 show a plain arrow, and older builds say a recording with shapes is from a newer Orrery. On Windows, a web page in a tab is recorded
+  0.1.1 and earlier show a plain arrow, and older builds say a recording with shapes is from a newer Orrery. On Windows, a web page in a tab is recorded
   the same way, from the engine's own picture of the page (no sound); WebKit on Linux and macOS can't give one.
 - **What's typed,** only if you turn on *Record what's typed too* (off by default, terminals only). Keys and pastes
   go in; passwords Orrery types for you and typing at a password prompt it recognizes don't, and a marker shows
@@ -578,7 +578,7 @@ tag up on your own computer. Versions, protocols, ports, error codes, timings an
 names and addresses in logs* writes them out for reading a log yourself, until Orrery closes, and says so in the log.
 
 Hiding works on what Orrery knows is a name, plus anything shaped like an address. A library's error message can
-still name a host Orrery hadn't seen yet, so skim a log before you share it. Logs from before 0.1.2 aren't hidden;
+still name a host Orrery hadn't seen yet, so skim a log before you share it. Logs from 0.1.1 and earlier aren't hidden;
 *Delete logs* clears them. IronRDP's own log, `ironrdp.log`, is only written when you turn it on with
 `IRONRDP_LOG`, and isn't hidden.
 

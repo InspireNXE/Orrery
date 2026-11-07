@@ -4,6 +4,16 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 ## Built lately
 
+- **0.2.0 preview 1:** a Connection card in This session (a verdict first, five minutes on one graph, where
+  connecting spent its time and what happened), a slow mark on the tab and hints; This session laid out like the
+  saved settings, with Keep and Undo beside each change; on Windows, Alt+Tab, Alt+Esc and Ctrl+Esc go to the session
+  in full screen as mstsc does, with a choice in Settings, per connection or folder, and for the open session; Caps
+  Lock, Num Lock and Scroll Lock matched to this computer's when a session gets the keyboard, and Caps Lock and Num
+  Lock in Send keys; a server slow to resize asked once at the start of a drag and once when it settles; a quick
+  left-then-right click no longer leaves the left button held; reconnecting waits for a computer that stopped
+  answering; the clipboard warning stands out and stays until closed; the vault refuses an older copy put back and
+  forgets decrypted credentials on idle lock; Windows Hello accepts a key its own log records as made in hardware; the
+  properties pane is at least 300 wide.
 - **0.1.2 preview 10 (2026-11-05):** RDP input sent at once and no longer held up by decoding; setup offers to add
   the shells it finds to the tree as LOCAL connections; RDP and VNC recordings keep the remote pointer's shape, and
   the live view shows it, in your own pointer scheme on Windows; a second file copy in an RDP session no longer fails;
