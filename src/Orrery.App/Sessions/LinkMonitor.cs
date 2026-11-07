@@ -17,15 +17,42 @@ enum LinkHealth
 /// <summary>One second of a connection: the rates over it, and the round trip at its end.</summary>
 readonly record struct LinkSample(double ReceivedPerSecond, double SentPerSecond, double UpdatesPerSecond, double BusyShare, TimeSpan? RoundTrip);
 
+/// <summary>What kind of thing happened, which sets its mark on the Connection card's graph.</summary>
+enum LinkEventKind
+{
+    Connected,
+
+    /// <summary>The connection dropped: a failure, not a session the server or user ended.</summary>
+    Lost,
+
+    /// <summary>The server ended the session.</summary>
+    Ended,
+    Resized,
+
+    /// <summary>Files copied on the remote finished downloading here.</summary>
+    Copied,
+}
+
+/// <summary>Something that happened to the connection, for the card's Recent list and its graph.</summary>
+/// <param name="Value">A figure to go with it, such as how long it took; null when there's none.</param>
+sealed record LinkEvent(DateTimeOffset At, LinkEventKind Kind, string Text, string? Value);
+
 /// <summary>
 /// Reads a session's <see cref="LinkStats"/> once a second, and counts a remote desktop's screen updates itself, keeping
-/// the last minute for the Connection card's graphs and judging the link for the tab's mark. Runs on the UI thread
-/// while the session is connected.
+/// the last five minutes for the Connection card's graph and judging the link for the tab's mark. Also notes what
+/// happened along the way (connecting, resizes, drops, downloaded files), carried over when the tab reconnects. Runs
+/// on the UI thread while the session is connected.
 /// </summary>
 sealed class LinkMonitor
 {
-    /// <summary>How much history the graphs show, in samples of a second.</summary>
-    public const int HistoryLength = 60;
+    /// <summary>How much history the graph shows, in samples of a second.</summary>
+    public const int HistoryLength = 300;
+
+    /// <summary>How many events the card keeps.</summary>
+    public const int EventsKept = 20;
+
+    /// <summary>How long to wait for the first picture's connect time before noting the connection without it.</summary>
+    static readonly TimeSpan ConnectTimeWait = TimeSpan.FromSeconds(30);
 
     /// <summary>A round trip from here on reads as slow. Typing and the pointer start to feel behind.</summary>
     public static readonly TimeSpan SlowRoundTrip = TimeSpan.FromMilliseconds(150);
@@ -37,9 +64,13 @@ sealed class LinkMonitor
     readonly LinkStats? _link;
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     readonly Queue<LinkSample> _history = new();
+    readonly List<LinkEvent> _events = [];
     long _updates, _lastUpdates;
     LinkReading _last;
     long _lastAt;
+    int _lastResizes;
+    bool _wasConnected, _connectNoted, _reconnected;
+    long? _copyStarted;
 
     public LinkMonitor(IConnectionSession session)
     {
@@ -49,6 +80,11 @@ sealed class LinkMonitor
         if (session is IFrameBufferSession frames)
         {
             frames.FrameUpdated += (_, _) => Interlocked.Increment(ref _updates);
+        }
+
+        if (session is IClipboardSession clipboard)
+        {
+            clipboard.ClipboardTransferChanged += (_, transfer) => Dispatcher.UIThread.Post(() => FollowTransfer(transfer));
         }
 
         _timer.Tick += (_, _) => Sample();
@@ -80,29 +116,125 @@ sealed class LinkMonitor
 
     public LinkHealth Health { get; private set; }
 
+    /// <summary>What happened, oldest first, including what the tab's earlier connections noted.</summary>
+    public IReadOnlyList<LinkEvent> Events => _events;
+
+    /// <summary>How many times the connection dropped in this tab, counting earlier connections.</summary>
+    public int Drops { get; private set; }
+
     /// <summary>A sample was taken, or the session's state changed. On the UI thread.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>
+    /// Takes over what the tab's previous connection noted, when a new one replaces it: its events and drops. The
+    /// next connect then reads as a reconnect.
+    /// </summary>
+    public void CarryFrom(LinkMonitor previous)
+    {
+        _events.InsertRange(0, previous._events);
+        Trim();
+        Drops += previous.Drops;
+        _reconnected = true;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     void FollowState()
     {
-        if (_session.State == SessionState.Connected)
+        var state = _session.State;
+        if (state == SessionState.Connected)
         {
             ConnectedAt ??= DateTimeOffset.Now;
+            _wasConnected = true;
             if (!_timer.IsEnabled)
             {
                 _last = _link?.Read() ?? default;
                 _lastAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _lastUpdates = Interlocked.Read(ref _updates);
+                _lastResizes = _link?.Resizes ?? 0;
                 _timer.Start();
             }
+
+            NoteConnected();
         }
         else
         {
             _timer.Stop();
             Health = LinkHealth.Unknown;
+            if (_wasConnected && state is SessionState.Failed or SessionState.Disconnected)
+            {
+                _wasConnected = false;
+                if (state == SessionState.Failed)
+                {
+                    Drops++;
+                    Note(LinkEventKind.Lost, "Connection lost", null);
+                }
+                else
+                {
+                    Note(LinkEventKind.Ended, "Session ended", null);
+                }
+            }
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Notes the connection once its connect time is known, which for a remote desktop is at the first picture, a
+    /// moment after the session says it's connected; without one after a while, notes it anyway.
+    /// </summary>
+    void NoteConnected()
+    {
+        if (_connectNoted || ConnectedAt is not { } at)
+        {
+            return;
+        }
+
+        var took = _link?.ConnectTime;
+        if (took is null && _link is not null && DateTimeOffset.Now - at < ConnectTimeWait)
+        {
+            return;
+        }
+
+        _connectNoted = true;
+        _events.Add(new LinkEvent(at, LinkEventKind.Connected, _reconnected ? "Reconnected" : "Connected", took is { } t ? Milliseconds(t) : null));
+        Trim();
+    }
+
+    /// <summary>Files copied on the remote downloading here: noted once they're all in, with how fast they came.</summary>
+    internal void FollowTransfer(ClipboardTransfer transfer)
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        _copyStarted ??= now;
+        if (!transfer.Ended)
+        {
+            return;
+        }
+
+        var took = System.Diagnostics.Stopwatch.GetElapsedTime(_copyStarted.Value, now);
+        _copyStarted = null;
+        if (transfer.Total <= 0 || transfer.Done < transfer.Total)
+        {
+            return;
+        }
+
+        string what = transfer.Files == 1 ? "1 file" : $"{transfer.Files} files";
+        string speed = took >= TimeSpan.FromMilliseconds(200) ? $" · {Size((long)(transfer.Total / took.TotalSeconds))}/s" : string.Empty;
+        Note(LinkEventKind.Copied, $"Copied {what} from the remote", Size(transfer.Total) + speed);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    void Note(LinkEventKind kind, string text, string? value)
+    {
+        _events.Add(new LinkEvent(DateTimeOffset.Now, kind, text, value));
+        Trim();
+    }
+
+    void Trim()
+    {
+        if (_events.Count > EventsKept)
+        {
+            _events.RemoveRange(0, _events.Count - EventsKept);
+        }
     }
 
     /// <summary>Takes a sample now; the timer calls it every second. Internal for tests.</summary>
@@ -120,6 +252,14 @@ sealed class LinkMonitor
             Math.Clamp((reading.Busy - _last.Busy).TotalSeconds / seconds, 0, 1),
             reading.RoundTrip);
         (_last, _lastAt, _lastUpdates) = (reading, now, updates);
+
+        NoteConnected();
+        if (_link is { } link && link.Resizes != _lastResizes)
+        {
+            _lastResizes = link.Resizes;
+            string size = _session is IFrameBufferSession frames && frames.Width > 0 ? $"Resized to {frames.Width} × {frames.Height}" : "Resized";
+            Note(LinkEventKind.Resized, size, link.LastResize is { } took ? Milliseconds(took) : null);
+        }
 
         Add(sample);
     }
@@ -157,6 +297,46 @@ sealed class LinkMonitor
         var recent = history.Skip(Math.Max(0, history.Count - 3)).ToList();
         return recent.Count == 3 && recent.All(s => s.BusyShare >= BusyShareSlow) ? LinkHealth.Slow : LinkHealth.Good;
     }
+
+    /// <summary>The verdict at the top of the card, in a word or two.</summary>
+    public string Verdict() => Health switch
+    {
+        LinkHealth.Good => "Good",
+        LinkHealth.Slow => "Slow",
+        _ => _session.State == SessionState.Connected ? "Measuring" : "Not connected",
+    };
+
+    /// <summary>
+    /// The steps connecting took, with what they don't cover (an earlier host that redirected, a tunnel) as Other once
+    /// it's worth showing. Empty when the session doesn't time its steps.
+    /// </summary>
+    public IReadOnlyList<ConnectStep> ConnectSteps()
+    {
+        if (_link is not { ConnectTime: { } total } link || link.ConnectSteps is not { Count: > 0 } steps)
+        {
+            return [];
+        }
+
+        var rest = total - steps.Aggregate(TimeSpan.Zero, (sum, s) => sum + s.Time);
+        return rest >= TimeSpan.FromMilliseconds(100) && rest.TotalMilliseconds >= total.TotalMilliseconds * 0.03
+            ? [.. steps, new ConnectStep("Other", rest)]
+            : steps;
+    }
+
+    /// <summary>The drops line: none, or how many and when the last was.</summary>
+    public string DropsText()
+    {
+        if (Drops == 0)
+        {
+            return "none";
+        }
+
+        var last = _events.LastOrDefault(e => e.Kind == LinkEventKind.Lost);
+        return last is null ? $"{Drops}" : $"{Drops}, last {Ago(DateTimeOffset.Now - last.At)}";
+    }
+
+    /// <summary>How long ago, as the Recent list says it.</summary>
+    public static string Ago(TimeSpan time) => time.TotalMinutes < 1 ? "just now" : Duration(time) + " ago";
 
     /// <summary>What to make of the numbers, in plain words; empty while all is well.</summary>
     public IReadOnlyList<string> Hints()

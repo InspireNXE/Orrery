@@ -17,11 +17,23 @@ namespace Orrery.App.Tests;
 /// <summary>The Connection card on the "This session" tab, and the tab's mark for a slow link.</summary>
 public class ConnectionStatsTests
 {
-    sealed class Desktop : IFrameBufferSession, ILinkStatsSession
+    sealed class Desktop : IFrameBufferSession, ILinkStatsSession, IClipboardSession
     {
         public ConnectionTarget Target { get; } = new("desk.example", 3389, "user", null);
-        public SessionState State { get; set; } = SessionState.Connected;
-        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public SessionState State { get; private set; } = SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
+        public event EventHandler<ClipboardTransfer>? ClipboardTransferChanged;
+        public event EventHandler<string>? RemoteClipboardChanged { add { } remove { } }
+        public void SendClipboard(string text) { }
+        public void Transfer(ClipboardTransfer transfer) => ClipboardTransferChanged?.Invoke(this, transfer);
+
+        public void Become(SessionState state)
+        {
+            State = state;
+            StateChanged?.Invoke(this, new SessionStateChangedEventArgs(state, null));
+            Dispatcher.UIThread.RunJobs();
+        }
+
         public event EventHandler<FrameUpdatedEventArgs>? FrameUpdated;
         public LinkStats Link { get; } = new();
         public int Width => 1920;
@@ -157,6 +169,121 @@ public class ConnectionStatsTests
         Assert.False(glyph.Slow);
         Assert.Empty(tab.Link.Hints());
         window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_card_leads_with_a_verdict_and_shows_where_connecting_spent_its_time()
+    {
+        var desktop = new Desktop();
+        var (window, tab) = await Open(desktop, new RemoteFrameView(desktop), Protocol.Rdp);
+        desktop.Link.ConnectSteps =
+        [
+            new ConnectStep("Network", TimeSpan.FromMilliseconds(200)),
+            new ConnectStep("Security", TimeSpan.FromMilliseconds(800)),
+            new ConnectStep("Sign-in", TimeSpan.FromMilliseconds(10_400)),
+            new ConnectStep("Session setup", TimeSpan.FromMilliseconds(600)),
+            new ConnectStep("First screen", TimeSpan.FromMilliseconds(1000)),
+        ];
+        // A second the steps don't cover, as after a redirection.
+        desktop.Link.ConnectTime = TimeSpan.FromMilliseconds(14_000);
+        tab.Link!.Add(new LinkSample(5000, 4000, 31, 0, TimeSpan.FromMilliseconds(5)));
+        tab.Link.Sample();
+        ShowSessionTab(window);
+
+        Assert.True(Shown(window, "Good"));
+        Assert.True(Shown(window, "Connecting took 14 s"));
+        Assert.True(Shown(window, "Sign-in 10 s"));
+        Assert.True(Shown(window, "First screen 1.0 s"));
+        Assert.True(Shown(window, "Other 1.0 s"));
+        // With its steps, the connect time isn't a row of its own as well.
+        Assert.False(Shown(window, "Connecting took"));
+        Assert.True(Shown(window, "Recent"));
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text?.EndsWith(" Connected") == true);
+        Assert.True(Shown(window, "Drops"));
+        Assert.True(Shown(window, "none"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_drop_is_counted_and_carried_to_the_tabs_next_connection()
+    {
+        var first = new Desktop();
+        var (window, tab) = await Open(first, new RemoteFrameView(first), Protocol.Rdp);
+        first.Link.ConnectTime = TimeSpan.FromMilliseconds(900);
+        tab.Link!.Sample();
+        first.Become(SessionState.Failed);
+        Assert.Equal(1, tab.Link.Drops);
+        Assert.Equal(new[] { LinkEventKind.Connected, LinkEventKind.Lost }, tab.Link.Events.Select(e => e.Kind));
+
+        var second = new Desktop();
+        var next = new LinkMonitor(second);
+        next.CarryFrom(tab.Link);
+        second.Link.ConnectTime = TimeSpan.FromMilliseconds(700);
+        next.Sample();
+
+        Assert.Equal(1, next.Drops);
+        Assert.StartsWith("1, last ", next.DropsText());
+        Assert.Equal("Reconnected", next.Events[^1].Text);
+        Assert.Equal("700 ms", next.Events[^1].Value);
+        Assert.Equal(3, next.Events.Count);
+
+        // A session the server ended isn't a drop.
+        second.Become(SessionState.Disconnected);
+        Assert.Equal(1, next.Drops);
+        Assert.Equal(LinkEventKind.Ended, next.Events[^1].Kind);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void Resizes_and_downloaded_files_are_noted()
+    {
+        var desktop = new Desktop();
+        var monitor = new LinkMonitor(desktop);
+        desktop.Link.LastResize = TimeSpan.FromMilliseconds(620);
+        monitor.Sample();
+        var resized = monitor.Events.Single(e => e.Kind == LinkEventKind.Resized);
+        Assert.Equal("Resized to 1920 × 1080", resized.Text);
+        Assert.Equal("620 ms", resized.Value);
+
+        // A download that ends short (cancelled, or the remote gave up) isn't noted as copied.
+        monitor.FollowTransfer(new ClipboardTransfer(2, 0, 4 << 20, Ended: false));
+        monitor.FollowTransfer(new ClipboardTransfer(2, 1 << 20, 4 << 20, Ended: true));
+        Assert.DoesNotContain(monitor.Events, e => e.Kind == LinkEventKind.Copied);
+
+        monitor.FollowTransfer(new ClipboardTransfer(2, 0, 4 << 20, Ended: false));
+        monitor.FollowTransfer(new ClipboardTransfer(2, 4 << 20, 4 << 20, Ended: true));
+        var copied = monitor.Events.Single(e => e.Kind == LinkEventKind.Copied);
+        Assert.Equal("Copied 2 files from the remote", copied.Text);
+        Assert.StartsWith("4.0 MB", copied.Value);
+
+        // The session's own event reaches the monitor too.
+        desktop.Transfer(new ClipboardTransfer(1, 0, 10, Ended: false));
+        desktop.Transfer(new ClipboardTransfer(1, 10, 10, Ended: true));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(monitor.Events, e => e.Text == "Copied 1 file from the remote");
+    }
+
+    [AvaloniaFact]
+    public void Copy_details_has_the_build_the_groups_and_what_happened()
+    {
+        var desktop = new Desktop();
+        var monitor = new LinkMonitor(desktop);
+        desktop.Link.ConnectSteps = [new ConnectStep("Network", TimeSpan.FromMilliseconds(3)), new ConnectStep("Sign-in", TimeSpan.FromMilliseconds(400))];
+        desktop.Link.ConnectTime = TimeSpan.FromMilliseconds(403);
+        monitor.Sample();
+        var card = new ConnectionCard(monitor, "RDP");
+
+        var details = card.Details();
+        Assert.Contains("RDP to desk.example:3389", details);
+        Assert.Contains($"Orrery {ConnectionCard.Version()}", details);
+        Assert.Contains("Good: ", details);
+        Assert.Contains("Now:", details);
+        Assert.Contains("  Desktop: 1920 × 1080", details);
+        Assert.Contains("This session:", details);
+        Assert.Contains("Connecting took 403 ms: Network 3 ms, Sign-in 400 ms", details);
+        Assert.Contains("Connected (403 ms)", details);
+        // The version is the build's, not the four-part assembly version.
+        Assert.DoesNotMatch(@"^\d+\.\d+\.\d+\.\d+$", ConnectionCard.Version());
     }
 
     [Fact]

@@ -47,6 +47,15 @@ public class LinkStatsTests
         Assert.Equal(TimeSpan.FromMilliseconds(45), stats.LastResize);
         stats.LastResize = null;
         Assert.Null(stats.LastResize);
+
+        // The same time again is still a new resize; clearing it isn't one.
+        Assert.Equal(1, stats.Resizes);
+        stats.LastResize = TimeSpan.FromMilliseconds(45);
+        Assert.Equal(2, stats.Resizes);
+
+        Assert.Empty(stats.ConnectSteps);
+        stats.ConnectSteps = [new ConnectStep("Network", TimeSpan.FromMilliseconds(4))];
+        Assert.Equal("Network", Assert.Single(stats.ConnectSteps).Name);
     }
 
     [Fact]

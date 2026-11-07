@@ -40,12 +40,35 @@ public sealed class LinkStats
         set => Interlocked.Exchange(ref _connectTicks, value?.Ticks ?? -1);
     }
 
+    /// <summary>
+    /// Where connecting spent its time, step by step, when the session times them (RDP). Set before
+    /// <see cref="ConnectTime"/>, so whoever sees the total also sees the steps. Empty otherwise.
+    /// </summary>
+    public IReadOnlyList<ConnectStep> ConnectSteps
+    {
+        get => Volatile.Read(ref _steps);
+        set => Volatile.Write(ref _steps, value);
+    }
+
+    IReadOnlyList<ConnectStep> _steps = [];
+    int _resizes;
+
     /// <summary>How long the server took to change the desktop size the last time it was asked to.</summary>
     public TimeSpan? LastResize
     {
         get => Ticks(Interlocked.Read(ref _resizeTicks));
-        set => Interlocked.Exchange(ref _resizeTicks, value?.Ticks ?? -1);
+        set
+        {
+            Interlocked.Exchange(ref _resizeTicks, value?.Ticks ?? -1);
+            if (value is not null)
+            {
+                Interlocked.Increment(ref _resizes);
+            }
+        }
     }
+
+    /// <summary>How many resizes have been timed, so a viewer can tell a new one from the same time again.</summary>
+    public int Resizes => Volatile.Read(ref _resizes);
 
     static TimeSpan? Ticks(long ticks) => ticks < 0 ? null : TimeSpan.FromTicks(ticks);
 
@@ -55,6 +78,9 @@ public sealed class LinkStats
         TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
         Socket is { } socket ? TcpRoundTrip.Of(socket) : null);
 }
+
+/// <summary>One step of connecting, as the Connection card names it: Network, Security, Sign-in, Session setup, First screen.</summary>
+public readonly record struct ConnectStep(string Name, TimeSpan Time);
 
 /// <summary>The totals so far, and the round trip right now (null where it can't be measured).</summary>
 public readonly record struct LinkReading(long Received, long Sent, TimeSpan Busy, TimeSpan? RoundTrip);

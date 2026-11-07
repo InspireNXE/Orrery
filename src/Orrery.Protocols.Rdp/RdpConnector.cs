@@ -45,11 +45,13 @@ static class RdpConnector
     /// <returns>The connection, and whether drives are shared, so the session drives their file operations.</returns>
     public static async Task<(ConnectionResult Result, Framed<SslStream> Framed, bool DrivesShared)> ConnectAsync(
         Config config, ConnectionTarget target, (string Host, int Port) dial, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
-        RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token, RdpAudioTap? audioTap = null, LinkStats? link = null)
+        RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token, RdpAudioTap? audioTap = null, LinkStats? link = null,
+        Action<IReadOnlyList<ConnectStep>>? timed = null)
     {
         long started = Stopwatch.GetTimestamp();
         var tcp = await OpenTcpAsync(dial.Host, dial.Port, token);
         var tcpTime = Stopwatch.GetElapsedTime(started);
+        long tcpDone = Stopwatch.GetTimestamp();
         if (link is not null)
         {
             link.Socket = tcp.Client;
@@ -154,6 +156,16 @@ static class RdpConnector
         {
             await Connection.SingleSequenceStep(connector, writeBuf, framedSsl, token);
         }
+
+        // For the Connection card. Security runs from the TCP connection to TLS being up: the negotiation before it,
+        // the handshake, and the certificate check, including any time spent answering about the certificate.
+        timed?.Invoke(
+        [
+            new("Network", tcpTime),
+            new("Security", Stopwatch.GetElapsedTime(tcpDone, credsspStarted)),
+            new("Sign-in", credsspTime),
+            new("Session setup", Stopwatch.GetElapsedTime(setupStarted)),
+        ]);
 
         // Where a slow connect spends its time. TLS includes the certificate check, which may wait on the user.
         Logger.LogDebug("{Host}: connecting took {Total:0} ms: TCP {Tcp:0} ms, TLS {Tls:0} ms, sign-in {Credssp:0} ms, session setup {Setup:0} ms",
