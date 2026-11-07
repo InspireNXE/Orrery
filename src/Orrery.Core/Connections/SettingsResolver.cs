@@ -61,6 +61,12 @@ public sealed record ResolvedSettings(
 
     /// <summary>Whether web pages open in an Orrery tab: the tree's value, else <paramref name="appSetting"/>.</summary>
     public bool InOrrery(bool appSetting) => WebPagesInOrrery.Value ?? appSetting;
+
+    /// <summary>Where Alt+Tab and the rest go, as the tree sets it; null leaves it to the app setting, see <see cref="ShortcutsGo"/>.</summary>
+    public required Resolved<Settings.SystemShortcuts?> SystemShortcuts { get; init; }
+
+    /// <summary>Where Alt+Tab and the rest go: the tree's choice, else <paramref name="appSetting"/>.</summary>
+    public Settings.SystemShortcuts ShortcutsGo(Settings.SystemShortcuts appSetting) => SystemShortcuts.Value ?? appSetting;
 }
 
 public static class SettingsResolver
@@ -135,6 +141,10 @@ public static class SettingsResolver
             WebPagesInOrrery = Find(node, includeSelf, nameof(InheritableSettings.WebPagesInOrrery), s => s.WebPagesInOrrery) is { } web
                 ? new Resolved<bool?>(web.Value, web.Source)
                 : new Resolved<bool?>(null, null),
+            // The app's setting fills in here too, see ResolvedSettings.ShortcutsGo.
+            SystemShortcuts = Find(node, includeSelf, nameof(InheritableSettings.SystemShortcuts), s => s.SystemShortcuts) is { } shortcuts
+                ? new Resolved<Settings.SystemShortcuts?>(shortcuts.Value, shortcuts.Source)
+                : new Resolved<Settings.SystemShortcuts?>(null, null),
             ShareAllDrives = Flag(nameof(InheritableSettings.ShareAllDrives), s => s.ShareAllDrives, false),
             SharedFolders = shared,
             FullScreen = fullScreen,

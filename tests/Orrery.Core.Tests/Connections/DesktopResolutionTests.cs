@@ -98,6 +98,31 @@ public class DesktopResolutionTests
     }
 
     [Fact]
+    public void Where_alt_tab_goes_follows_the_app_setting_until_a_folder_or_connection_chooses()
+    {
+        var tree = ConnectionTree.Empty();
+        var folder = new ConnectionFolder { Name = "Servers" };
+        var entry = new ConnectionEntry { Name = "desk", Host = "desk.lan", Settings = { Protocol = Protocol.Rdp } };
+        tree.Add(folder, tree.Root);
+        tree.Add(entry, folder);
+
+        Assert.True(SettingsResolver.Resolve(entry).SystemShortcuts.IsDefault);
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.FullScreen, SettingsResolver.Resolve(entry).ShortcutsGo(Orrery.Core.Settings.SystemShortcuts.FullScreen));
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Local, SettingsResolver.Resolve(entry).ShortcutsGo(Orrery.Core.Settings.SystemShortcuts.Local));
+
+        folder.Settings.SystemShortcuts = Orrery.Core.Settings.SystemShortcuts.Remote;
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Remote, SettingsResolver.Resolve(entry).ShortcutsGo(Orrery.Core.Settings.SystemShortcuts.FullScreen));
+        Assert.Same(folder, SettingsResolver.Resolve(entry).SystemShortcuts.Source);
+
+        entry.Settings.SystemShortcuts = Orrery.Core.Settings.SystemShortcuts.Local;
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Local, SettingsResolver.Resolve(entry).ShortcutsGo(Orrery.Core.Settings.SystemShortcuts.Remote));
+
+        // Kept in the saved file, as other settings are.
+        var json = System.Text.Json.JsonSerializer.Serialize(entry.Settings);
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Local, System.Text.Json.JsonSerializer.Deserialize<InheritableSettings>(json)!.SystemShortcuts);
+    }
+
+    [Fact]
     public void Color_correction_follows_the_app_setting_until_a_folder_or_connection_turns_it_off()
     {
         var tree = ConnectionTree.Empty();

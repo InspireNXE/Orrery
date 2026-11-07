@@ -228,6 +228,9 @@ sealed class SettingsView : UserControl
     /// <summary>A new full-screen shortcut was saved.</summary>
     public event EventHandler<KeyGesture>? FullScreenShortcutChanged;
 
+    /// <summary>Where Alt+Tab and Windows' other shortcuts go from a remote desktop changed, and was saved.</summary>
+    public event EventHandler<SystemShortcuts>? SystemShortcutsChanged;
+
     /// <summary>Terminal announcements were turned on (true) or off.</summary>
     public event EventHandler<bool>? TerminalAnnouncementsChanged;
 
@@ -1228,7 +1231,7 @@ sealed class SettingsView : UserControl
             _settings = _settings with { RemoteSystemShortcuts = choice };
             if (TrySaveSettings())
             {
-                Input.WindowsKeyHook.Shortcuts = choice;
+                SystemShortcutsChanged?.Invoke(this, choice);
             }
         };
 
@@ -1238,7 +1241,8 @@ sealed class SettingsView : UserControl
             Row("Alt+Tab, Alt+Esc and Ctrl+Esc go to the remote", shortcuts),
             Note("In full screen, as Windows' own client does, they work on the remote desktop; in a window they stay with this "
                 + "computer, so Alt+Tab still gets you out. The Windows key always goes to the remote desktop while it has the keyboard, "
-                + "and Ctrl+Alt+Del and Win+L always stay here. Takes effect at once."));
+                + "and Ctrl+Alt+Del and Win+L always stay here. A connection or folder can set its own choice in its properties. "
+                + "Takes effect at once."));
     }
 
     // ---- Web pages ----

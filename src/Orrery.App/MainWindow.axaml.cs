@@ -97,6 +97,22 @@ public partial class MainWindow : Window, IFullScreenHost
 
     bool IFullScreenHost.IsFullScreen => _fullScreen;
 
+    // Settings' choice for where Alt+Tab and the rest go, which a connection or folder can override.
+    SystemShortcuts _systemShortcuts;
+
+    /// <summary>Where Alt+Tab and the rest go for a session opened from <paramref name="origin"/>: its connection's choice, else Settings'.</summary>
+    SystemShortcuts ShortcutsFor(SessionOrigin origin) =>
+        origin.EntryId is { } id && _tree.Find(id) is { } node ? SettingsResolver.Resolve(node).ShortcutsGo(_systemShortcuts) : _systemShortcuts;
+
+    /// <summary>Open remote desktops take up a changed choice for Alt+Tab, the one with the keyboard at once.</summary>
+    void RefreshShortcuts()
+    {
+        foreach (var view in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
+        {
+            view.RefreshShortcuts();
+        }
+    }
+
     event EventHandler? FullScreenChanged;
 
     event EventHandler? IFullScreenHost.FullScreenChanged
@@ -176,7 +192,7 @@ public partial class MainWindow : Window, IFullScreenHost
         _settingsStore = AppSettingsStore.In(location);
         _presence = new DataFolderPresence(location.DataDir, Environment.MachineName);
         Palette.Use(_settingsStore.Load().InterfaceColorScheme);
-        Input.WindowsKeyHook.Shortcuts = _settingsStore.Load().SystemShortcutsGo;
+        _systemShortcuts = _settingsStore.Load().SystemShortcutsGo;
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = location.DataDir;
@@ -295,6 +311,7 @@ public partial class MainWindow : Window, IFullScreenHost
         {
             RebuildTree();
             ScheduleSave();
+            RefreshShortcuts();
         };
 
         _saveTimer = new DispatcherTimer { Interval = SaveDelay };
@@ -303,7 +320,7 @@ public partial class MainWindow : Window, IFullScreenHost
         _history = ConnectionHistory.In(location);
         _tree.Removed += (_, e) => _history.Forget(e.Ids);
         _properties = new PropertiesPanel(_tree, _credentials, () => _settingsStore.Load().ZoomRemoteDesktops, _history,
-            webPagesInOrreryByDefault: () => _settingsStore.Load().OpensWebPagesInOrrery);
+            webPagesInOrreryByDefault: () => _settingsStore.Load().OpensWebPagesInOrrery, shortcutsByDefault: () => _systemShortcuts);
         _properties.ConnectRequested += async (_, entry) => await ConnectAsync(entry);
         _properties.SessionSettingsApplied += (_, _) => UpdateSessionToolbar();
         _properties.ReconnectRequested += async (_, tab) =>
@@ -2772,6 +2789,7 @@ public partial class MainWindow : Window, IFullScreenHost
         {
             FollowsViewSize = followsViewSize,
             AllowsColorCorrection = AllowsColorCorrection(origin),
+            Shortcuts = () => ShortcutsFor(origin),
             Correction = ColorCorrection.For(settings.Vision, settings.CorrectionStrength),
         };
     }
@@ -4886,6 +4904,11 @@ public partial class MainWindow : Window, IFullScreenHost
                 {
                     await _properties.ShowAsync(_tree.Root);
                 }
+            };
+            view.SystemShortcutsChanged += (_, choice) =>
+            {
+                _systemShortcuts = choice;
+                RefreshShortcuts();
             };
             view.FullScreenShortcutChanged += (_, shortcut) =>
             {

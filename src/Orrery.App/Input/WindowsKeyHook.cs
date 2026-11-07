@@ -25,8 +25,8 @@ enum HookedKey
 /// Windows acts on some keys before any app sees them, so pressing the Windows key in a remote session also opened
 /// the local Start menu, Win+E or Win+R ran locally, and Alt+Tab switched local windows. While a session has focus, a
 /// low-level keyboard hook takes those keys away from Windows and hands them to the session instead, as mstsc does:
-/// the two Windows keys always, and Alt+Tab, Alt+Esc and Ctrl+Esc as <see cref="Shortcuts"/> says (by default only
-/// in full screen, so in a window Alt+Tab still leaves the session). Win+L and Ctrl+Alt+Del stay with this
+/// the two Windows keys always, and Alt+Tab, Alt+Esc and Ctrl+Esc as the session's connection or Settings says (by
+/// default only in full screen, so in a window Alt+Tab still leaves the session). Win+L and Ctrl+Alt+Del stay with this
 /// computer: Windows handles them below any hook.
 /// <para>
 /// Windows gives a hook only a fraction of a second. A slow one is skipped, so the key reaches Windows after
@@ -53,30 +53,24 @@ static class WindowsKeyHook
 
     // Read on the hook thread, set on the UI thread.
     static volatile Capturer? _capturer;
-    static volatile int _shortcuts;
 
-    sealed record Capturer(Action<HookedKey, bool> Target, IntPtr Window, bool FullScreen);
-
-    /// <summary>Where Alt+Tab, Alt+Esc and Ctrl+Esc go while a session captures keys; from the app's settings.</summary>
-    public static SystemShortcuts Shortcuts
-    {
-        get => (SystemShortcuts)_shortcuts;
-        set => _shortcuts = (int)value;
-    }
+    // Whether Alt+Tab and the rest go to the session, worked out on the UI thread, which can read the settings.
+    sealed record Capturer(Action<HookedKey, bool> Target, IntPtr Window, bool Shortcuts);
 
     /// <summary>
     /// Sends the hooked keys to <paramref name="target"/> (key, pressed?) on the UI thread, whenever
-    /// <paramref name="window"/> is the foreground window, until <see cref="Release"/>. Call again when the window goes
-    /// in or out of full screen.
+    /// <paramref name="window"/> is the foreground window, until <see cref="Release"/>. Alt+Tab, Alt+Esc and Ctrl+Esc
+    /// go too as <paramref name="shortcuts"/> says for a window in or out of full screen, as <paramref name="fullScreen"/>
+    /// says. Call again when either changes.
     /// </summary>
-    public static void Capture(Action<HookedKey, bool> target, IntPtr window, bool fullScreen)
+    public static void Capture(Action<HookedKey, bool> target, IntPtr window, bool fullScreen, SystemShortcuts shortcuts)
     {
         if (!OperatingSystem.IsWindows())
         {
             return;
         }
 
-        _capturer = new Capturer(target, window, fullScreen);
+        _capturer = new Capturer(target, window, TakesShortcuts(shortcuts, fullScreen));
         lock (Gate)
         {
             // Installed once, then left in place: an idle hook just passes keys along.
@@ -183,7 +177,7 @@ static class WindowsKeyHook
             {
                 bool altDown = ((uint)Marshal.ReadInt32(data, 8) & LLKHF_ALTDOWN) != 0;
                 bool controlDown = (GetAsyncKeyState((int)VK_CONTROL) & 0x8000) != 0;
-                if (Take(virtualKey, altDown, controlDown, TakesShortcuts(Shortcuts, capturer.FullScreen)) is { } key)
+                if (Take(virtualKey, altDown, controlDown, capturer.Shortcuts) is { } key)
                 {
                     Taken.Add(virtualKey);
                     var target = capturer.Target;

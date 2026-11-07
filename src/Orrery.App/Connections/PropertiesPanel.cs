@@ -16,6 +16,7 @@ using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Network;
 using Orrery.Core.Sessions;
+using Orrery.Core.Settings;
 using Orrery.Protocols.Serial;
 using Ellipse = Avalonia.Controls.Shapes.Ellipse;
 
@@ -70,6 +71,9 @@ sealed class PropertiesPanel : UserControl
     readonly ComboBox _quality = new() { Name = "DisplayQuality", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _colorCorrection = new() { Name = "ColorCorrection", HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly ComboBox _webPages = new() { Name = "WebPages", HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _shortcuts = new() { Name = "SystemShortcuts", HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly InheritRow _shortcutsRow;
+    readonly Func<SystemShortcuts> _shortcutsByDefault;
     readonly TextBox _forwards = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, PlaceholderText = "L 8080:db.internal:5432\nD 1080" };
     readonly Control _forwardsField;
     readonly TextBox _mac = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "00:1A:2B:3C:4D:5E" };
@@ -146,13 +150,15 @@ sealed class PropertiesPanel : UserControl
     /// <param name="now">The clock, for wording like "3 days ago".</param>
     /// <param name="displays">This computer's displays, for choosing them for full screen; by default the window's screens.</param>
     /// <param name="webPagesInOrreryByDefault">The app setting for where web pages open, used where no folder chooses.</param>
+    /// <param name="shortcutsByDefault">The app setting for where Alt+Tab and the rest go, used where no folder chooses.</param>
     public PropertiesPanel(ConnectionTree tree, ICredentialStore credentials, Func<bool>? enlargeByDefault = null, ConnectionHistory? history = null, Func<DateTimeOffset>? now = null,
-        Func<IReadOnlyList<LocalDisplay>>? displays = null, Func<bool>? webPagesInOrreryByDefault = null)
+        Func<IReadOnlyList<LocalDisplay>>? displays = null, Func<bool>? webPagesInOrreryByDefault = null, Func<SystemShortcuts>? shortcutsByDefault = null)
     {
         _displayPicker = new DisplayPicker(displays) { IsVisible = false };
         _tree = tree;
         _enlargeByDefault = enlargeByDefault ?? (() => true);
         _webPagesInOrreryByDefault = webPagesInOrreryByDefault ?? (() => true);
+        _shortcutsByDefault = shortcutsByDefault ?? (() => SystemShortcuts.FullScreen);
         _history = history;
         _now = now ?? (() => DateTimeOffset.Now);
         _historyTimer.Tick += (_, _) => ShowHistory();
@@ -207,6 +213,14 @@ sealed class PropertiesPanel : UserControl
         _webPagesRow.Tip("Web connections and management pages. In an Orrery tab they sit beside your sessions; the default browser is for "
             + "pages that need its extensions, saved passwords or sign-ins.");
         _webSection = Pane.RowSection("Web pages", _webPagesRow.View);
+        _shortcuts.Items.Add(new ComboBoxItem { Content = "In full screen", Tag = SystemShortcuts.FullScreen });
+        _shortcuts.Items.Add(new ComboBoxItem { Content = "On the remote computer", Tag = SystemShortcuts.Remote });
+        _shortcuts.Items.Add(new ComboBoxItem { Content = "On this computer", Tag = SystemShortcuts.Local });
+        _shortcutsRow = new InheritRow("Alt+Tab, Alt+Esc and Ctrl+Esc go to the remote", _shortcuts,
+            () => ShowInherited(r => SelectShortcuts(r.ShortcutsGo(_shortcutsByDefault()))));
+        _shortcutsRow.Tip("RDP and VNC on Windows. In full screen, as Windows' own client does, they work on the remote desktop; in a window "
+            + "they stay with this computer, so Alt+Tab still gets you out. The Windows key always goes to the remote desktop. "
+            + "Changes apply to sessions already open.");
         _autoReconnectRow = new InheritRow("Reconnect if the connection drops", _autoReconnect, () => ShowInherited(r => _autoReconnect.IsChecked = r.AutoReconnect.Value));
         _autoReconnectRow.Tip("If a session drops or the network fails, Orrery tries again by itself, sooner when the network comes back. It doesn't after a refused login, an untrusted host key or certificate, a logoff or Disconnect.");
         _recordRow = new InheritRow("Record sessions", _record, () => ShowInherited(r => _record.IsChecked = r.RecordSessions.Value));
@@ -394,7 +408,7 @@ sealed class PropertiesPanel : UserControl
                 (_sessionSection = Pane.RowSection("Session", _clipboardRow.View, _autoReconnectRow.View, _recordRow.View, _recordTypingRow.View, _recordTypingWarning, _checkHostRow.View)),
                 // Near the top, so it isn't lost below every protocol's settings on a folder.
                 _commandsSection,
-                (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
+                (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _shortcutsRow.View, _qualityRow.View, _colorCorrectionRow.View)),
                 (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
                 (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
                 (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
@@ -438,7 +452,7 @@ sealed class PropertiesPanel : UserControl
         };
 
         _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _sshAgent, _sshLegacy, _jumpHost, _autoReconnect, _record, _recordTyping, _checkHost, _enlarge,
-            _quality, _colorCorrection, _webPages]);
+            _quality, _colorCorrection, _webPages, _shortcuts]);
         foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _startFolder, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
         {
             _fields.Add(box);
@@ -490,6 +504,7 @@ sealed class PropertiesPanel : UserControl
         _quality.SelectionChanged += (_, _) => MarkDirty();
         _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
         _webPages.SelectionChanged += (_, _) => MarkDirty();
+        _shortcuts.SelectionChanged += (_, _) => MarkDirty();
         foreach (var box in new[] { _remoteAudio, _fullScreenOn, _scaling, _dataBits, _parity, _stopBits, _flowControl })
         {
             _fields.Add(box);
@@ -507,7 +522,7 @@ sealed class PropertiesPanel : UserControl
                      _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow,
                      _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
                      _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
-                     _confirmCommandsRow,
+                     _confirmCommandsRow, _shortcutsRow,
                  })
         {
             row.IsLoading = () => _loading;
@@ -692,6 +707,9 @@ sealed class PropertiesPanel : UserControl
 
             _webPagesRow.Load(own.WebPagesInOrrery is null, inherited.WebPagesInOrrery.IsDefault ? "From Settings" : Describe(inherited.WebPagesInOrrery));
             SelectWebPages(own.WebPagesInOrrery ?? inherited.InOrrery(_webPagesInOrreryByDefault()));
+
+            _shortcutsRow.Load(own.SystemShortcuts is null, inherited.SystemShortcuts.IsDefault ? "From Settings" : Describe(inherited.SystemShortcuts));
+            SelectShortcuts(own.SystemShortcuts ?? inherited.ShortcutsGo(_shortcutsByDefault()));
 
             _qualityRow.Load(own.DisplayQuality is null, Describe(inherited.DisplayQuality));
             SelectQuality(own.DisplayQuality ?? inherited.DisplayQuality.Value);
@@ -1000,6 +1018,7 @@ sealed class PropertiesPanel : UserControl
             DesktopSize = desktopSize,
             EnlargeRemoteDesktop = _enlargeRow.Inheriting ? null : _enlarge.IsChecked == true,
             WebPagesInOrrery = _webPagesRow.Inheriting ? null : (_webPages.SelectedItem as ComboBoxItem)?.Tag as bool?,
+            SystemShortcuts = _shortcutsRow.Inheriting ? null : (_shortcuts.SelectedItem as ComboBoxItem)?.Tag as SystemShortcuts?,
             DisplayQuality = _qualityRow.Inheriting ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?,
             ColorCorrection = _colorCorrectionRow.Inheriting ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
             AutoReconnect = _autoReconnectRow.Inheriting ? null : _autoReconnect.IsChecked == true,
@@ -1084,6 +1103,9 @@ sealed class PropertiesPanel : UserControl
         _displaySection.IsVisible = rdp || vnc || web;
         _desktopSizeRow.View.IsVisible = rdp;
         _enlargeRow.View.IsVisible = _scalingRow.View.IsVisible = _fullScreenRow.View.IsVisible = _qualityRow.View.IsVisible = rdp || vnc;
+
+        // Only Windows lets Orrery take Alt+Tab from the system.
+        _shortcutsRow.View.IsVisible = (rdp || vnc) && OperatingSystem.IsWindows();
         _rdpSection.IsVisible = rdp;
         _vncSection.IsVisible = vnc;
         _sshSection.IsVisible = ssh;
@@ -1604,6 +1626,9 @@ sealed class PropertiesPanel : UserControl
 
     void SelectWebPages(bool inOrrery) =>
         _webPages.SelectedItem = _webPages.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == inOrrery);
+
+    void SelectShortcuts(SystemShortcuts shortcuts) =>
+        _shortcuts.SelectedItem = _shortcuts.Items.OfType<ComboBoxItem>().First(i => (SystemShortcuts)i.Tag! == shortcuts);
 
     void SelectColorCorrection(bool useAppSetting) =>
         _colorCorrection.SelectedItem = _colorCorrection.Items.OfType<ComboBoxItem>().First(i => (bool)i.Tag! == useAppSetting);

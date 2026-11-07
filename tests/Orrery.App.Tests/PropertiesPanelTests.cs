@@ -491,6 +491,35 @@ public class PropertiesPanelTests
     }
 
     [AvaloniaFact]
+    public async Task Where_alt_tab_goes_shows_the_app_setting_until_the_connection_sets_its_own()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var tree = ConnectionTree.Empty();
+        var entry = new ConnectionEntry { Name = "desk", Host = "desk.lan", Settings = { Protocol = Protocol.Rdp } };
+        tree.Add(entry, tree.Root);
+        var panel = new PropertiesPanel(tree, new EmptyCredentialStore(), shortcutsByDefault: () => Orrery.Core.Settings.SystemShortcuts.Local);
+        var window = new Window { Content = panel, Width = 400, Height = 1600 };
+        window.Show();
+        await panel.ShowAsync(entry);
+        Dispatcher.UIThread.RunJobs();
+
+        var shortcuts = window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "SystemShortcuts");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "Alt+Tab, Alt+Esc and Ctrl+Esc go to the remote");
+        Assert.Equal("On this computer", (shortcuts.SelectedItem as ComboBoxItem)?.Content);
+
+        shortcuts.SelectedItem = shortcuts.Items.OfType<ComboBoxItem>().Single(i => (Orrery.Core.Settings.SystemShortcuts)i.Tag! == Orrery.Core.Settings.SystemShortcuts.Remote);
+        Assert.True(panel.TrySave());
+
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Remote, entry.Settings.SystemShortcuts);
+        Assert.Equal(Orrery.Core.Settings.SystemShortcuts.Remote, SettingsResolver.Resolve(entry).ShortcutsGo(Orrery.Core.Settings.SystemShortcuts.Local));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Color_correction_can_be_turned_off_for_one_connection()
     {
         var tree = ConnectionTree.Empty();

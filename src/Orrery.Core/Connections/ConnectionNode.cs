@@ -235,6 +235,13 @@ public sealed class InheritableSettings
     /// </summary>
     public List<ChosenDisplay>? ChosenDisplays { get; set; }
 
+    /// <summary>
+    /// RDP and VNC on Windows: where Alt+Tab, Alt+Esc and Ctrl+Esc go while the session has the keyboard. Null inherits;
+    /// with nothing set, the app setting applies (full screen only, as mstsc does). An older build drops it on save,
+    /// which puts it back to the app setting.
+    /// </summary>
+    public Orrery.Core.Settings.SystemShortcuts? SystemShortcuts { get; set; }
+
     /// <summary>RDP: connect to the server's console (administrative) session, as mstsc /admin does. Null inherits; off by default.</summary>
     public bool? AdminSession { get; set; }
 
@@ -293,7 +300,7 @@ public sealed class InheritableSettings
         nameof(RemoteAudio), nameof(ShareAllDrives), nameof(SharedFolders), nameof(UseAllMonitors), nameof(ChosenDisplays), nameof(AdminSession),
         nameof(ViewOnly), nameof(Scaling), nameof(KeepAliveSeconds), nameof(SocksProxy),
         nameof(BaudRate), nameof(DataBits), nameof(Parity), nameof(StopBits), nameof(FlowControl), nameof(WebPagesInOrrery),
-        nameof(CheckHostStatus), nameof(ConfirmCommands),
+        nameof(CheckHostStatus), nameof(ConfirmCommands), nameof(SystemShortcuts),
     };
 
     /// <summary>

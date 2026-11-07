@@ -16,6 +16,7 @@ using Orrery.App.Input;
 using Orrery.Core.Connections;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Sessions;
+using Orrery.Core.Settings;
 
 namespace Orrery.App.Sessions;
 
@@ -1211,7 +1212,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         if (IsFocused && !_viewOnly && Session.State == SessionState.Connected && _topLevel?.TryGetPlatformHandle()?.Handle is { } window)
         {
-            WindowsKeyHook.Capture(_windowsKey, window, _topLevel is IFullScreenHost { IsFullScreen: true });
+            WindowsKeyHook.Capture(_windowsKey, window, _topLevel is IFullScreenHost { IsFullScreen: true }, Shortcuts?.Invoke() ?? SystemShortcuts.FullScreen);
         }
         else
         {
@@ -1240,6 +1241,15 @@ public sealed partial class RemoteFrameView : Panel
 
     // In or out of full screen: Alt+Tab and the rest may change sides.
     void OnFullScreenChanged(object? sender, EventArgs e) => UpdateKeyCapture();
+
+    /// <summary>
+    /// Where Alt+Tab, Alt+Esc and Ctrl+Esc go for this session: its connection's choice, else Settings'. Asked each time
+    /// the session takes the keyboard; null is mstsc's default, full screen only.
+    /// </summary>
+    public Func<SystemShortcuts>? Shortcuts { get; init; }
+
+    /// <summary>The choice behind <see cref="Shortcuts"/> may have changed: takes it up now if this session has the keyboard.</summary>
+    public void RefreshShortcuts() => UpdateKeyCapture();
 
     void ReleaseAllKeys()
     {
