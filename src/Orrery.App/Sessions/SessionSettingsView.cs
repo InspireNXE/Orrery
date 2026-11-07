@@ -13,7 +13,8 @@ namespace Orrery.App.Sessions;
 /// The properties pane's "This session" tab, for an open remote desktop. What the view can change while it runs (scaling,
 /// view only, color correction) changes the open tab at once and lasts until it closes; each change can be kept for
 /// next time, which saves it on the connection. The rest were fixed when the session started; once any of those is
-/// saved differently, a card lists the changes with a button to reconnect with them.
+/// saved differently, a card lists the changes with a button to reconnect with them. The Connection card under them
+/// shows how the connection is doing; a terminal's tab has only that.
 /// </summary>
 sealed class SessionSettingsView : UserControl
 {
@@ -41,21 +42,26 @@ sealed class SessionSettingsView : UserControl
 
     /// <param name="enlargeByDefault">The app's "Enlarge remote desktops" setting, for a connection that doesn't set its own.</param>
     /// <param name="startedWith">The fixed settings as they were when the session started (<see cref="FixedSettingsNow"/>).</param>
-    public SessionSettingsView(ConnectionTree tree, ConnectionEntry entry, Protocol protocol, RemoteFrameView view, Func<bool> enlargeByDefault,
-        IReadOnlyList<(string Label, string Value)> startedWith)
+    /// <param name="view">The remote desktop, whose view settings can change; null for a terminal, which has only the Connection card.</param>
+    /// <param name="link">How the connection is doing, for the Connection card; no card when null.</param>
+    public SessionSettingsView(ConnectionTree tree, ConnectionEntry entry, Protocol protocol, RemoteFrameView? view, Func<bool> enlargeByDefault,
+        IReadOnlyList<(string Label, string Value)> startedWith, LinkMonitor? link = null)
     {
         _tree = tree;
         _entry = entry;
 
-        _items.Add(LiveItem.Choice("Scaling", ScalingLabels, () => view.Scaling, value => view.Scaling = value,
-            () => SettingsResolver.Resolve(_entry).Scaling.Value, value => _entry.Settings.Scaling = value));
+        if (view is not null)
+        {
+            _items.Add(LiveItem.Choice("Scaling", ScalingLabels, () => view.Scaling, value => view.Scaling = value,
+                () => SettingsResolver.Resolve(_entry).Scaling.Value, value => _entry.Settings.Scaling = value));
 
-        // Saved only for VNC, which can open watching; an RDP session can still watch for a while.
-        _items.Add(LiveItem.Switch("View only", () => view.ViewOnly, value => view.ViewOnly = value,
-            () => protocol == Protocol.Vnc && SettingsResolver.Resolve(_entry).ViewOnly.Value,
-            protocol == Protocol.Vnc ? value => _entry.Settings.ViewOnly = value : null));
-        _items.Add(LiveItem.Switch("Color correction", () => view.AllowsColorCorrection, value => view.AllowsColorCorrection = value,
-            () => SettingsResolver.Resolve(_entry).ColorCorrection.Value, value => _entry.Settings.ColorCorrection = value));
+            // Saved only for VNC, which can open watching; an RDP session can still watch for a while.
+            _items.Add(LiveItem.Switch("View only", () => view.ViewOnly, value => view.ViewOnly = value,
+                () => protocol == Protocol.Vnc && SettingsResolver.Resolve(_entry).ViewOnly.Value,
+                protocol == Protocol.Vnc ? value => _entry.Settings.ViewOnly = value : null));
+            _items.Add(LiveItem.Switch("Color correction", () => view.AllowsColorCorrection, value => view.AllowsColorCorrection = value,
+                () => SettingsResolver.Resolve(_entry).ColorCorrection.Value, value => _entry.Settings.ColorCorrection = value));
+        }
 
         foreach (var item in _items)
         {
@@ -110,13 +116,21 @@ sealed class SessionSettingsView : UserControl
         };
 
         var body = new StackPanel { Margin = new Thickness(16, 12, 16, 16) };
-        body.Children.Add(Note("Changes here reach the open tab at once and last until it closes. Saved settings stay as they are unless you keep a change."));
+        if (view is not null)
+        {
+            body.Children.Add(Note("Changes here reach the open tab at once and last until it closes. Saved settings stay as they are unless you keep a change."));
+        }
+
         foreach (var item in _items)
         {
             body.Children.Add(item.View);
         }
 
         body.Children.Add(_reconnectGroup);
+        if (link is not null)
+        {
+            body.Children.Add(new ConnectionCard(link, ProtocolName(protocol)));
+        }
         _footer = Pane.Footer(new StackPanel { Spacing = 10, Children = { _changes, Pane.Pair(keepAll, undoAll) } });
         Content = new DockPanel { Children = { Pane.Docked(_footer, Dock.Bottom), new ScrollViewer { Content = body } } };
         Refresh();
@@ -239,6 +253,15 @@ sealed class SessionSettingsView : UserControl
             yield return ("Console session", OnOff(saved.AdminSession.Value));
         }
     }
+
+    static string ProtocolName(Protocol protocol) => protocol switch
+    {
+        Protocol.Rdp => "RDP",
+        Protocol.Vnc => "VNC",
+        Protocol.Ssh => "SSH",
+        Protocol.Telnet => "Telnet",
+        _ => protocol.ToString(),
+    };
 
     static TextBlock Note(string text) => new() { Text = text, FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
 

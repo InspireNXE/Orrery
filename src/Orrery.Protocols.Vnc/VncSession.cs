@@ -27,7 +27,7 @@ namespace Orrery.Protocols.Vnc;
 /// through <see cref="IRenderTarget"/>; keys go over as X11 keysyms, so the server needs no keyboard layout.
 /// </summary>
 public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSession, IRenderTarget, IOutputHandler, ICursorHandler,
-    IRemotePointerSession
+    IRemotePointerSession, ILinkStatsSession
 {
     const int BytesPerPixel = 4;
     const int WheelNotch = 120;
@@ -71,6 +71,9 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
     }
 
     public ConnectionTarget Target { get; }
+
+    /// <summary>The traffic and round trip the session pane shows.</summary>
+    public LinkStats Link { get; } = new();
     public SessionState State { get; private set; } = SessionState.Connecting;
     public int Width => _bufferWidth;
     public int Height => _bufferHeight;
@@ -665,10 +668,25 @@ public sealed class VncSession : IFrameBufferSession, IKeysymInput, IClipboardSe
         {
             public async Task<ITransport> ConnectAsync(CancellationToken cancellationToken)
             {
-                var transport = await inner.ConnectAsync(cancellationToken);
+                var transport = new CountedTransport(await inner.ConnectAsync(cancellationToken), session.Link);
+                // Through a tunnel the socket only reaches its local end, whose round trip says nothing.
+                if (session._route is null && transport.Inner.Stream is System.Net.Sockets.NetworkStream network)
+                {
+                    session.Link.Socket = network.Socket;
+                }
+
                 session._transport = transport;
                 return transport;
             }
+        }
+
+        /// <summary>The library's transport, with what goes through it counted for the Connection card.</summary>
+        sealed class CountedTransport(ITransport inner, LinkStats link) : ITransport
+        {
+            public ITransport Inner => inner;
+            public Stream Stream { get; } = new CountingStream(inner.Stream, link);
+            public bool IsEncrypted => inner.IsEncrypted;
+            public void Dispose() => inner.Dispose();
         }
     }
 

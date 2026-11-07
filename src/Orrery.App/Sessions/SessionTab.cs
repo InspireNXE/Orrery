@@ -151,6 +151,11 @@ sealed class SessionTab
         }, RoutingStrategies.Tunnel);
 
         session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => Apply(e));
+        if (LinkMonitor.Covers(session))
+        {
+            Link = new LinkMonitor(session);
+            Link.Changed += (_, _) => ShowState();
+        }
 
         // A try that the server turns down at once can fail before this tab exists to hear it.
         if (session.LastChange is { } missed)
@@ -851,13 +856,19 @@ sealed class SessionTab
     }
 
     /// <summary>The state in words, as the tooltip and screen readers give it.</summary>
-    public string StateText => StateGlyph.Describe(Session.State);
+    public string StateText => Session.State == SessionState.Connected && Link?.Health == LinkHealth.Slow
+        ? "Connected, slow" : StateGlyph.Describe(Session.State);
+
+    /// <summary>How the connection is doing, for the tab's mark and the Connection card; null for sessions with nothing to measure.</summary>
+    public LinkMonitor? Link { get; }
 
     // The mark's shape and the tooltip say the state too, so it never rests on the color alone.
     void ShowState()
     {
         _state.State = Session.State;
-        ToolTip.SetTip(Header, $"{Address} · {StateText}");
+        _state.Slow = Link?.Health == LinkHealth.Slow;
+        string? numbers = Session.State == SessionState.Connected ? Link?.Summary() : null;
+        ToolTip.SetTip(Header, numbers is null ? $"{Address} · {StateText}" : $"{Address} · {StateText}{Environment.NewLine}{numbers}");
 
         // A screen reader hears the tab's name ("web01, SSH") and this as its status.
         Header.Status = StateText;

@@ -36,7 +36,7 @@ namespace Orrery.Protocols.Rdp;
 /// that image's size in place (<see cref="FollowGraphicsReset"/>); one without it restarts the session's activation.
 /// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession
+public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession, ILinkStatsSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
@@ -74,6 +74,12 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     // For the detailed log: when the session connected or the server resized, until the first picture after it.
     long _firstPictureFrom;
     string? _firstPictureAfter;
+
+    // For the Connection card: when connecting started, and when Orrery last asked for a size the server then took.
+    long _connectStarted, _resizeAsked;
+
+    /// <summary>The traffic and timings the session pane shows.</summary>
+    public LinkStats Link { get; } = new();
 
     // Keyboard and mouse input goes out after the input before it, in the order it was applied. Under _stageLock.
     Task _inputChain = Task.CompletedTask;
@@ -210,6 +216,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     async Task RunAsync(string password, int desktopWidth, int desktopHeight, DisplayQuality quality)
     {
         var token = _cts.Token;
+        _connectStarted = Stopwatch.GetTimestamp();
         try
         {
             var (result, framed, drivesShared) = await ConnectFollowingRedirectionsAsync(password, desktopWidth, desktopHeight, quality, token);
@@ -301,7 +308,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
             try
             {
-                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token, _audioTap);
+                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token, _audioTap,
+                    // Through a tunnel the socket only reaches its local end, whose round trip says nothing.
+                    _route is null ? Link : null);
             }
             catch (ServerRedirectedException e)
             {
@@ -397,8 +406,10 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         while (!token.IsCancellationRequested)
         {
             var (action, payload) = await _framed!.ReadPdu(token);
+            Link.Received(payload.Length);
             bool resized = false;
             DesktopRequest? waitingResize = null;
+            long decodeStarted = Stopwatch.GetTimestamp();
             var outputs = WithStageLock(() =>
             {
                 var processed = _activeStage!.Process(_image!, action, payload);
@@ -415,6 +426,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
                 return processed;
             });
+            Link.Busy(Stopwatch.GetElapsedTime(decodeStarted));
 
             if (resized)
             {
@@ -809,6 +821,15 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         {
             _firstPictureAfter = null;
             Logger.LogDebug("{Host}: first picture {Ms:0} ms after {After}", Target.Host, Stopwatch.GetElapsedTime(_firstPictureFrom).TotalMilliseconds, after);
+            // What the user waits for: from starting to connect, or asking for the size, to seeing the desktop.
+            if (after == "connecting")
+            {
+                Link.ConnectTime = Stopwatch.GetElapsedTime(_connectStarted);
+            }
+            else if (_resizeAsked != 0)
+            {
+                Link.LastResize = Stopwatch.GetElapsedTime(_resizeAsked);
+            }
         }
 
         FrameRect rect;
@@ -868,7 +889,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         if (_resizes.Answered() is var asked and not 0)
         {
             Logger.LogDebug("{Host}: the server resized {Ms:0} ms after Orrery asked", Target.Host, Stopwatch.GetElapsedTime(asked).TotalMilliseconds);
-            (_firstPictureFrom, _firstPictureAfter) = (Stopwatch.GetTimestamp(), "resizing");
+            (_firstPictureFrom, _firstPictureAfter, _resizeAsked) = (Stopwatch.GetTimestamp(), "resizing", asked);
         }
     }
 
@@ -1534,6 +1555,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         try
         {
             await _framed!.Write(bytes);
+            Link.Sent(bytes.Length);
         }
         finally
         {

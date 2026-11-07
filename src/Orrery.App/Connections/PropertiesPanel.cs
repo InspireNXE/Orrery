@@ -529,8 +529,9 @@ sealed class PropertiesPanel : UserControl
     public event EventHandler<SessionTab>? ReconnectRequested;
 
     /// <summary>
-    /// The session tab in front, if any. While it's a remote desktop connected to the connection shown, the pane gets a
-    /// "This session" tab beside the saved settings.
+    /// The session tab in front, if any. While it's connected to the connection shown, the pane gets a "This session"
+    /// tab beside the saved settings: a remote desktop's view settings and how the connection is doing, or for a
+    /// terminal only the latter.
     /// </summary>
     public void ShowSession(SessionTab? tab)
     {
@@ -550,7 +551,7 @@ sealed class PropertiesPanel : UserControl
 
     void UpdateTabs()
     {
-        bool live = _liveTab is { View: RemoteFrameView, Session.State: SessionState.Connected } tab
+        bool live = _liveTab is { Session.State: SessionState.Connected } tab && (tab.View is RemoteFrameView || tab.Link is not null)
             && _node is ConnectionEntry entry && tab.Origin.EntryId == entry.Id && !tab.Origin.Files;
         _tabStrip.IsVisible = live;
         if (!live)
@@ -562,8 +563,11 @@ sealed class PropertiesPanel : UserControl
         else if (_sessionFor is not { } shown || shown.Tab != _liveTab || shown.Node != _node)
         {
             var open = _liveTab!;
-            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, (RemoteFrameView)open.View, _enlargeByDefault,
-                open.FixedAtStart ?? SessionSettingsView.FixedSettingsNow((ConnectionEntry)_node!, open.Origin.Protocol, _enlargeByDefault()));
+            // A terminal has nothing fixed at the start to compare: only the Connection card.
+            var desktop = open.View as RemoteFrameView;
+            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, desktop, _enlargeByDefault,
+                desktop is null ? [] : open.FixedAtStart ?? SessionSettingsView.FixedSettingsNow((ConnectionEntry)_node!, open.Origin.Protocol, _enlargeByDefault()),
+                open.Link);
             view.Applied += (_, _) =>
             {
                 ShowSessionBadge();
