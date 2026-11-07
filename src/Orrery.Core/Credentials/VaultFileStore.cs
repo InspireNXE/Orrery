@@ -64,9 +64,21 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     (long Length, DateTime Written) _knownStamp;
     string? _knownFingerprint;
 
-    public VaultFileStore(string path, KdfSettings? kdf = null, TimeSpan? autoLockAfter = null)
+    // Rollback protection: each save carries a count, authenticated with the data key, and this computer's keychain keeps
+    // the highest count it has seen for that data key. An older copy put back is refused. Null where there's no keychain.
+    readonly ISecretBackend? _seen;
+    const string SeenPrefix = "orrery:vault-seen:";
+    string? _seenName;
+    long _saveCount;
+
+    /// <param name="seenSaves">
+    /// Where this computer remembers the highest save count it has seen, outside the data folder (the OS keychain). Null
+    /// turns rollback protection off.
+    /// </param>
+    public VaultFileStore(string path, KdfSettings? kdf = null, TimeSpan? autoLockAfter = null, ISecretBackend? seenSaves = null)
     {
         _path = path;
+        _seen = seenSaves;
         _kdfForNewVaults = kdf ?? KdfSettings.Default;
         AutoLockAfter = autoLockAfter;
         _autoLockTimer = new Timer(_ => AutoLockIfIdle(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -136,6 +148,8 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
                 _file = new VaultFile(Format, Version, kdf, new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(wrapped)), null);
                 _dataKey = Key.Import(Aead, dataKeyBytes, KeyBlobFormat.RawSymmetricKey);
                 _items = [];
+                _seenName = SeenNameFor(dataKeyBytes);
+                _saveCount = 0;
                 Touch();
                 Save();
             }
@@ -235,10 +249,19 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
     void OpenWith(VaultFile file, byte[] dataKeyBytes, string text)
     {
         var dataKey = Key.Import(Aead, dataKeyBytes, KeyBlobFormat.RawSymmetricKey);
+        var seenName = SeenNameFor(dataKeyBytes);
         List<Credential> items;
+        long count, seen;
         try
         {
             items = Decrypt(file, dataKey);
+            count = SaveCountOf(file, dataKey);
+            seen = ReadSeen(seenName);
+            if (count < seen && !AllowOlderCopy)
+            {
+                Logger.LogWarning("Vault not opened: the file is save {Count}, but this computer has seen save {Seen}", count, seen);
+                throw new VaultRollbackException(count, seen);
+            }
         }
         catch
         {
@@ -253,11 +276,96 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             _items = items;
             _file = file;
             _failedAttempts = 0;
+            _seenName = seenName;
+            // Opened anyway when older: the next save still counts on from the highest seen, so it isn't refused later.
+            _saveCount = Math.Max(count, seen);
             Known(text, items);
             Touch();
         }
 
+        if (count < seen)
+        {
+            Logger.LogWarning("Opened an older copy of the vault, as asked (save {Count}, this computer has seen {Seen})", count, seen);
+        }
+        else
+        {
+            WriteSeen(seenName, count);
+        }
+
+        AllowOlderCopy = false;
         Logger.LogInformation("Vault unlocked, {Count} credentials", items.Count);
+    }
+
+    /// <summary>
+    /// Set before trying again after <see cref="VaultRollbackException"/>, when the user means to open the older copy (a
+    /// backup they put back). Applies to the next unlock only.
+    /// </summary>
+    public bool AllowOlderCopy { get; set; }
+
+    // The keychain entry naming no secret: a hash of the data key, so it's the same on every computer and new after a
+    // password change. The value is only a number.
+    static string SeenNameFor(byte[] dataKeyBytes) =>
+        SeenPrefix + Convert.ToHexStringLower(SHA256.HashData([.. Encoding.UTF8.GetBytes($"{Format}|seen|"), .. dataKeyBytes]))[..32];
+
+    long ReadSeen(string name)
+    {
+        if (_seen is null)
+        {
+            return 0;
+        }
+
+        try
+        {
+            return _seen.Read(name) is { } bytes && long.TryParse(Encoding.ASCII.GetString(bytes), out long value) && value > 0 ? value : 0;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Logger.LogWarning("Couldn't read which vault save this computer last saw: {Message}", e.Message);
+            return 0;
+        }
+    }
+
+    void WriteSeen(string? name, long count)
+    {
+        if (_seen is null || name is null || count <= 0 || count <= ReadSeen(name))
+        {
+            return;
+        }
+
+        try
+        {
+            _seen.Write(name, Encoding.ASCII.GetBytes(count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Logger.LogWarning("Couldn't note which vault save this computer has seen: {Message}", e.Message);
+        }
+    }
+
+    /// <summary>
+    /// The save count the file carries, checked with the data key; 0 for a file without one (made before counts, or
+    /// saved by an older Orrery). A count that doesn't check out means the header was edited.
+    /// </summary>
+    static long SaveCountOf(VaultFile file, Key dataKey)
+    {
+        if (file.Saves is not { } saves)
+        {
+            return 0;
+        }
+
+        var tag = Aead.Decrypt(dataKey, Convert.FromBase64String(saves.Nonce), SaveCountData(saves.Count, file.Payload!), Convert.FromBase64String(saves.Tag));
+        return tag is not null ? saves.Count : throw new InvalidDataException(Damaged);
+    }
+
+    // Binds the count to these contents, so a count can't be moved onto an older payload.
+    static byte[] SaveCountData(long count, CipherBlock payload) => Encoding.UTF8.GetBytes(
+        $"{Format}|v{Version}|saves={count}|payload={Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes($"{payload.Nonce}|{payload.Ciphertext}")))}");
+
+    static SaveCountBlock SealSaveCount(long count, CipherBlock payload, Key dataKey)
+    {
+        var nonce = RandomNumberGenerator.GetBytes(Aead.NonceSize);
+        var tag = Aead.Encrypt(dataKey, nonce, SaveCountData(count, payload), []);
+        return new SaveCountBlock(count, Convert.ToBase64String(nonce), Convert.ToBase64String(tag));
     }
 
     // ---- For biometric unlock (docs/design-biometric-unlock.md). The vault file itself never changes for it. ----
@@ -387,20 +495,24 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
 
                 lock (_lock)
                 {
+                    // Another computer's changes are taken in under the old key first.
+                    Unlocked();
+
                     // Save re-encrypts the contents under the new data key, bound to the new salt, so an old copy
-                    // of the file and the old password can't read anything saved from now on.
-                    var (previousFile, previousKey) = (_file!, _dataKey);
+                    // of the file and the old password can't read anything saved from now on. The save count goes on
+                    // from where it was, and is noted under the new key's name too.
+                    var (previousFile, previousKey, previousSeen) = (_file!, _dataKey, _seenName);
                     var newKey = Key.Import(Aead, newKeyBytes, KeyBlobFormat.RawSymmetricKey);
                     _file = previousFile with { Kdf = kdf, WrappedKey = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(wrappedNew)) };
                     _dataKey = newKey;
+                    _seenName = SeenNameFor(newKeyBytes);
                     try
                     {
-                        Unlocked();
                         Save();
                     }
                     catch
                     {
-                        (_file, _dataKey) = (previousFile, previousKey);
+                        (_file, _dataKey, _seenName) = (previousFile, previousKey, previousSeen);
                         newKey.Dispose();
                         throw;
                     }
@@ -423,17 +535,25 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         lock (_lock)
         {
             wasOpen = _dataKey is not null;
-            _dataKey?.Dispose();
-            _dataKey = null;
-            _items = null;
-            _knownItems = null;
-            _knownText = null;
+            ForgetUnlocked();
         }
 
         if (wasOpen)
         {
             Logger.LogInformation("Vault locked");
         }
+    }
+
+    // Caller holds _lock. Drops the data key and everything decrypted with it, including the copy kept for merging.
+    void ForgetUnlocked()
+    {
+        _dataKey?.Dispose();
+        _dataKey = null;
+        _items = null;
+        _knownItems = null;
+        _knownText = null;
+        _seenName = null;
+        _saveCount = 0;
     }
 
     public Task<IReadOnlyList<CredentialSummary>> ListAsync()
@@ -536,10 +656,14 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         {
             var nonce = RandomNumberGenerator.GetBytes(Aead.NonceSize);
             var ciphertext = Aead.Encrypt(_dataKey!, nonce, AssociatedData(_file!.Kdf, "payload"), plaintext);
-            _file = _file with { Payload = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(ciphertext)) };
-            var text = JsonSerializer.Serialize(_file, JsonOptions);
+            var payload = new CipherBlock(CipherName, Convert.ToBase64String(nonce), Convert.ToBase64String(ciphertext));
+            long count = _saveCount + 1;
+            var file = _file with { Payload = payload, Saves = SealSaveCount(count, payload, _dataKey!) };
+            var text = JsonSerializer.Serialize(file, JsonOptions);
             AtomicFile.WriteAllText(_path, text);
+            (_file, _saveCount) = (file, count);
             Known(text, _items!);
+            WriteSeen(_seenName, count);
         }
         finally
         {
@@ -626,15 +750,28 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         }
 
         List<Credential> theirs;
+        long count;
         try
         {
             theirs = Decrypt(file, _dataKey);
+            count = SaveCountOf(file, _dataKey);
         }
         catch (InvalidDataException e)
         {
             Logger.LogWarning("The vault file changed on disk but can't be read yet: {Problem}", e.Message);
             return;
         }
+
+        if (count < _saveCount)
+        {
+            // An older copy put in its place: not taken in. The next save writes this computer's newer one over it.
+            Logger.LogWarning("An older copy of the vault replaced the file (save {Count}, this computer has save {Seen}); not taking it in",
+                count, _saveCount);
+            return;
+        }
+
+        _saveCount = count;
+        WriteSeen(_seenName, count);
 
         var merged = MergeCredentials(_knownItems ?? [], _items, theirs, out int conflicts);
         _items.Clear();
@@ -697,7 +834,9 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
             && DecodedLength(wrapped.Nonce) == Aead.NonceSize
             && DecodedLength(payload.Nonce) == Aead.NonceSize
             && DecodedLength(wrapped.Ciphertext) >= Aead.TagSize
-            && DecodedLength(payload.Ciphertext) >= Aead.TagSize;
+            && DecodedLength(payload.Ciphertext) >= Aead.TagSize
+            && (file.Saves is not { } saves
+                || (saves.Count >= 1 && DecodedLength(saves.Nonce) == Aead.NonceSize && DecodedLength(saves.Tag) == Aead.TagSize));
         if (!valid)
         {
             throw new InvalidDataException(Damaged);
@@ -725,9 +864,7 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         {
             if (_dataKey is not null && DateTime.UtcNow - _lastUsed > AutoLockAfter)
             {
-                _dataKey.Dispose();
-                _dataKey = null;
-                _items = null;
+                ForgetUnlocked();
                 locked = true;
             }
         }
@@ -769,7 +906,12 @@ public sealed class VaultFileStore : ICredentialStore, IDisposable
         Lock();
     }
 
-    sealed record VaultFile(string Format, int Version, KdfBlock Kdf, CipherBlock WrappedKey, CipherBlock? Payload);
+    /// <param name="Saves">The save count, for rollback protection. Missing in files from before it, and in files an older
+    /// Orrery saved (it drops what it doesn't know), which count as save 0.</param>
+    sealed record VaultFile(string Format, int Version, KdfBlock Kdf, CipherBlock WrappedKey, CipherBlock? Payload, SaveCountBlock? Saves = null);
+
+    /// <param name="Tag">XChaCha20-Poly1305 over nothing, with the count and a hash of the payload as associated data.</param>
+    sealed record SaveCountBlock(long Count, string Nonce, string Tag);
 
     sealed record KdfBlock(string Alg, int MemoryKiB, int Iterations, int Parallelism, string Salt);
 

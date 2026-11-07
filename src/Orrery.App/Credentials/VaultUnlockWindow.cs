@@ -228,6 +228,11 @@ sealed class VaultUnlockWindow : Window
                     break;
             }
         }
+        catch (VaultRollbackException e) when (!_closed)
+        {
+            // Asked once; on yes the next prompt opens it.
+            if (await OpenOlderCopyAnywayAsync(vault, e)) ShowError("Use the master password or try again to open the older copy.");
+        }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             if (!_closed) ShowError(e.Message);
@@ -272,7 +277,20 @@ sealed class VaultUnlockWindow : Window
         _ok.Content = _creating ? "Creating…" : "Unlocking…";
         try
         {
-            await _store.UnlockAsync(password);
+            try
+            {
+                await _store.UnlockAsync(password);
+            }
+            catch (VaultRollbackException e) when (_store is VaultFileStore vault)
+            {
+                if (!await OpenOlderCopyAnywayAsync(vault, e))
+                {
+                    return;
+                }
+
+                await _store.UnlockAsync(password);
+            }
+
             Close(true);
         }
         catch (WrongVaultPasswordException)
@@ -290,6 +308,27 @@ sealed class VaultUnlockWindow : Window
             _ok.IsEnabled = true;
             _ok.Content = _creating ? "Create vault" : "Unlock";
         }
+    }
+
+    /// <summary>
+    /// Says the file is older than one this computer opened, and asks. Yes lets the next unlock open it; no shows why it
+    /// stayed locked.
+    /// </summary>
+    async Task<bool> OpenOlderCopyAnywayAsync(VaultFileStore vault, VaultRollbackException e)
+    {
+        bool open = await Dialogs.ConfirmAsync(this, "This vault is an older copy",
+            $"{e.Message}\n\nThis computer has seen save {e.SeenSave:N0} of this vault; the file is save {e.FileSave:N0}. "
+            + "If you put a backup back yourself, open it. Otherwise, credentials changed or added since may be lost or "
+            + "put back the way they were, so don't open it: restore the newer file from your sync app's history instead.",
+            "Open the older copy");
+        if (!open)
+        {
+            ShowError(e.Message);
+            return false;
+        }
+
+        vault.AllowOlderCopy = true;
+        return true;
     }
 
     void ShowError(string message)

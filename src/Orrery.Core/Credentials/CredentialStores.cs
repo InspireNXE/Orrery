@@ -38,7 +38,8 @@ public static class CredentialStores
             return new KeychainCredentialStore(location.FileIn("credentials.json"), backend);
         }
 
-        return new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: autoLockAfter);
+        // This computer's keychain remembers the newest vault save it has seen, so an older copy put back is noticed.
+        return new VaultFileStore(location.FileIn("vault.frv"), autoLockAfter: autoLockAfter, seenSaves: OsKeychain);
     }
 
     static ISecretBackend? FindOsKeychain()

@@ -50,6 +50,21 @@ public sealed class VaultLockedException() : InvalidOperationException("The vaul
 
 public sealed class WrongVaultPasswordException() : Exception("The master password is incorrect.");
 
+/// <summary>
+/// The vault file is an older copy than one this computer has already opened: a backup put back, or someone rolling it
+/// back to undo changes. It stays locked; <see cref="VaultFileStore.AllowOlderCopy"/> opens it anyway.
+/// </summary>
+public sealed class VaultRollbackException(long fileSave, long seenSave) : IOException(
+    "This vault file is older than one this computer has already opened, so it wasn't opened. "
+    + "It may be a backup put back, or someone may have replaced it to undo changes.")
+{
+    /// <summary>The save count the file carries.</summary>
+    public long FileSave { get; } = fileSave;
+
+    /// <summary>The highest save count this computer has seen for the vault.</summary>
+    public long SeenSave { get; } = seenSave;
+}
+
 public interface ICredentialStore
 {
     /// <summary>True when secrets can't be read until <see cref="UnlockAsync"/> succeeds.</summary>
