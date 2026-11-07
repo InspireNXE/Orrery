@@ -46,6 +46,20 @@ public class CredentialCopierTests : IDisposable
         Assert.Empty(await to.ListAsync());
     }
 
+    [Fact]
+    public async Task A_credential_too_large_for_the_new_store_is_named()
+    {
+        using var from = await OpenVaultAsync("a.frv");
+        await from.SaveAsync(new Credential(Guid.NewGuid(), "admin", CredentialKind.Password, "root", null, "dummy-pass"));
+        await from.SaveAsync(new Credential(Guid.NewGuid(), "big RSA key", CredentialKind.SshKey, "git", null, new string('k', 4000)));
+        var to = new KeychainCredentialStore(Path.Combine(_root, "credentials.json"), new MemorySecrets());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => CredentialCopier.CopyAllAsync(from, to));
+
+        Assert.StartsWith("\"big RSA key\" couldn't be copied. This credential is too large for test keychain, which holds at most 2.5 KB.", error.Message);
+        Assert.Contains("encrypted vault file", error.Message);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

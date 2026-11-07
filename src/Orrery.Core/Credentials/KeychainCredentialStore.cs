@@ -170,8 +170,11 @@ public sealed class KeychainCredentialStore(string indexPath, ISecretBackend bac
         {
             if (backend.MaxSecretSize is { } max && blob.Length > max)
             {
+                // The store is chosen for every credential at once, in Settings; a big RSA key is what usually doesn't fit.
                 throw new InvalidOperationException(
-                    $"This secret is too large for {backend.Name} ({max / 1024.0:0.#} KB). Store it in an encrypted vault instead.");
+                    $"This credential is too large for {backend.Name}, which holds at most {max / 1024.0:0.#} KB. To save it, keep "
+                    + "saved credentials in the encrypted vault file instead (Settings › Data and security › Credentials), or use "
+                    + "a smaller key, such as Ed25519.");
             }
 
             backend.Write(KeyPrefix + id, blob);

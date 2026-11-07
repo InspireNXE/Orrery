@@ -338,6 +338,92 @@ public class SessionTabTests
     }
 
     [AvaloniaFact]
+    public void A_session_the_server_ended_says_its_host_stopped_answering_while_waiting_for_it()
+    {
+        var (tab, session, window) = ShowFailing();
+        session.Become(SessionState.Connected);
+        session.Become(SessionState.Disconnected);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(tab.IsShowingFailure);
+
+        var token = tab.ShowWaitingForHost(sessionEnded: true);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(tab.IsShowingFailure);
+        Assert.True(tab.IsWaitingForHost);
+        Assert.True(tab.IsReconnecting);
+        var texts = Texts(window).Select(t => t.Text).ToList();
+        Assert.Contains("Connection lost", texts);
+        Assert.Contains("The session ended, then box stopped answering.", texts);
+        Assert.Contains("Orrery will reconnect when it answers again.", texts);
+        // It doesn't guess why the computer went away.
+        Assert.DoesNotContain(texts, t => t?.Contains("restart", StringComparison.OrdinalIgnoreCase) == true);
+
+        tab.StopReconnecting();
+        Assert.True(token.IsCancellationRequested);
+        Assert.False(tab.IsWaitingForHost);
+        Assert.True(tab.RetryStopped);
+    }
+
+    [AvaloniaFact]
+    public void A_failed_try_waiting_for_its_host_keeps_what_went_wrong_and_says_its_waiting()
+    {
+        var (tab, session, window) = ShowFailing();
+        session.Become(SessionState.Failed, Refused.Message, Refused);
+        Dispatcher.UIThread.RunJobs();
+
+        var token = tab.ShowWaitingForHost(sessionEnded: false);
+        var texts = Texts(window).Select(t => t.Text).ToList();
+        Assert.Contains("box turned down the connection on port 3389.", texts);
+        Assert.Contains("box isn't answering. Orrery will reconnect when it does.", texts);
+
+        // Reconnect pressed, or the tab replaced: the wait ends.
+        tab.CancelReconnect();
+        Assert.True(token.IsCancellationRequested);
+        Assert.False(tab.IsReconnecting);
+    }
+
+    [AvaloniaFact]
+    public void Only_a_try_after_a_drop_that_the_host_didnt_answer_waits_for_it()
+    {
+        SessionTab Failed(Exception error, bool direct = true, bool followsDrop = true)
+        {
+            var session = new ScriptedSession();
+            var tab = new SessionTab(session, new Border(), new SessionOrigin("box", Protocol.Rdp, null, () => Task.CompletedTask, AutoReconnect: true)
+            {
+                Restart = () => throw new InvalidOperationException("not in this test"),
+                ReachableDirectly = direct,
+            })
+            { FollowsDrop = followsDrop };
+            session.Become(SessionState.Failed, error.Message, error);
+            Dispatcher.UIThread.RunJobs();
+            return tab;
+        }
+
+        Assert.True(MainWindow.HostStoppedAnswering(Failed(Refused)));
+        Assert.True(MainWindow.HostStoppedAnswering(Failed(new SocketException((int)SocketError.TimedOut))));
+        // Through a jump host the host can't be checked; a first connect that fails isn't a drop.
+        Assert.False(MainWindow.HostStoppedAnswering(Failed(Refused, direct: false)));
+        Assert.False(MainWindow.HostStoppedAnswering(Failed(Refused, followsDrop: false)));
+        // A host that answered and refused the login is up.
+        Assert.False(MainWindow.HostStoppedAnswering(Failed(new SessionFailureException(FailureKind.LoginFailed, "no"))));
+    }
+
+    [AvaloniaFact]
+    public void Waiting_too_long_for_a_host_says_so_and_leaves_Reconnect()
+    {
+        var (tab, session, window) = ShowFailing();
+        session.Become(SessionState.Failed, Refused.Message, Refused);
+        Dispatcher.UIThread.RunJobs();
+        tab.ShowWaitingForHost(sessionEnded: false);
+
+        tab.ShowStoppedWaiting(TimeSpan.FromMinutes(30));
+
+        Assert.False(tab.IsReconnecting);
+        Assert.Contains("Stopped waiting after 30 min. Press Reconnect to try again.", Texts(window).Select(t => t.Text));
+    }
+
+    [AvaloniaFact]
     public void Stop_ends_the_countdown_and_further_tries()
     {
         var (tab, session, _) = ShowFailing();

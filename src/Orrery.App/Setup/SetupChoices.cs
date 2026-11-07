@@ -32,8 +32,11 @@ static class FirstLaunch
         _ => SetupKind.None,
     };
 
-    static bool IsNew(DataLocation location) =>
-        !File.Exists(location.FileIn(AppSettingsStore.FileName)) && !File.Exists(location.FileIn("connections.json"));
+    internal static bool IsNew(DataLocation location) => !HasData(location.DataDir);
+
+    /// <summary>Whether <paramref name="dataDir"/> already has Orrery's data: settings or connections.</summary>
+    internal static bool HasData(string dataDir) =>
+        File.Exists(Path.Combine(dataDir, AppSettingsStore.FileName)) || File.Exists(Path.Combine(dataDir, "connections.json"));
 }
 
 /// <summary>What first-launch setup decided. Each starts at Orrery's own default.</summary>

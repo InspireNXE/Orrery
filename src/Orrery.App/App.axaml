@@ -455,7 +455,7 @@
     <Style Selector="Button.setting:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{StaticResource OrreryHover}" />
     </Style>
-    <!-- Which option is on: toggle groups (the settings pane's Saved settings and This session, the frame rates) side by
+    <!-- Which option is on: toggle groups (the properties pane's Saved settings and This session, the frame rates) side by
          side in a dark strip. The one that's on has the selected fill and a hairline, never the marker, and keeps its
          weight; the hairline is there, unseen, on every segment so none changes size. -->
     <Style Selector="Border.segments">

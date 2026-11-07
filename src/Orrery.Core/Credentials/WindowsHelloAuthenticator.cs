@@ -521,13 +521,25 @@ public sealed unsafe class WindowsHelloAuthenticator : IPlatformAuthenticator
 
     static bool IsCancellation(int hresult) => hresult is NteUserCancelled or ErrorCancelled;
 
-    static AuthenticatorResult Failure(KeyCredentialStatus status) => status switch
+    /// <summary>
+    /// What went wrong, for turning unlock on as well as for unlocking, so it says nothing about what to do next; that's
+    /// for the caller. Windows's own name for the answer goes in the log.
+    /// </summary>
+    static AuthenticatorResult Failure(KeyCredentialStatus status)
     {
-        KeyCredentialStatus.UserCanceled or KeyCredentialStatus.UserPrefersPassword => new(AuthenticatorStatus.Canceled),
-        KeyCredentialStatus.NotFound => new(AuthenticatorStatus.KeyGone, Message: "Windows Hello couldn't find Orrery's key."),
-        KeyCredentialStatus.SecurityDeviceLocked => new(AuthenticatorStatus.Failed, Message: "Windows Hello is locked after too many tries. Use the master password."),
-        _ => new(AuthenticatorStatus.Failed, Message: $"Windows Hello didn't work ({status}). Use the master password."),
-    };
+        if (status is not (KeyCredentialStatus.UserCanceled or KeyCredentialStatus.UserPrefersPassword))
+        {
+            Logger.LogWarning("Windows Hello answered {Status}", status);
+        }
+
+        return status switch
+        {
+            KeyCredentialStatus.UserCanceled or KeyCredentialStatus.UserPrefersPassword => new(AuthenticatorStatus.Canceled),
+            KeyCredentialStatus.NotFound => new(AuthenticatorStatus.KeyGone, Message: "Windows Hello couldn't find Orrery's key."),
+            KeyCredentialStatus.SecurityDeviceLocked => new(AuthenticatorStatus.Failed, Message: "Windows Hello is locked after too many tries."),
+            _ => new(AuthenticatorStatus.Failed, Message: "Windows Hello didn't work."),
+        };
+    }
 
     /// <summary>
     /// Before 24H2 the prompt can't be given an owner window and may open behind Orrery, so bring it forward once it

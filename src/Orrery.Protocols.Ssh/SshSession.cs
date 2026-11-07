@@ -34,7 +34,7 @@ public sealed record SshHop(ConnectionTarget Target, SshLogin Login, bool AllowL
 /// An interactive shell over SSH.NET with an xterm-256color pty. The host key is checked during key
 /// exchange, before any credentials are sent. Jump hosts are gone through with an <see cref="SshTunnel"/>.
 /// </summary>
-public sealed class SshSession : ITerminalSession
+public sealed class SshSession : ITerminalSession, ILinkStatsSession
 {
     const string TerminalType = "xterm-256color";
     internal static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
@@ -95,8 +95,12 @@ public sealed class SshSession : ITerminalSession
         return session;
     }
 
+    /// <summary>The terminal's traffic, after decryption, and the round trip, for the session pane.</summary>
+    public LinkStats Link { get; } = new();
+
     void Run(SshLogin login)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             string host = Target.Host;
@@ -136,6 +140,11 @@ public sealed class SshSession : ITerminalSession
 
             WarnAboutKeyFile(login);
             OpenForwards(client);
+            // Behind a jump host the socket only reaches the local forward, whose round trip says nothing.
+            if (_jumps.Count == 0)
+            {
+                Link.Socket = SshSocket.Of(client);
+            }
 
             int columns, rows;
             lock (_lock) (columns, rows) = (_columns, _rows);
@@ -145,7 +154,7 @@ public sealed class SshSession : ITerminalSession
             // Output is read off the stream, not taken from its DataReceived event: the stream keeps everything
             // until it's read. The reader reports the end once the last output is out, which the stream's
             // Closed event (raised on another thread) can't promise.
-            var pump = new ShellPump(shell, data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
+            var pump = new ShellPump(new CountingStream(shell, Link), data => DataReceived?.Invoke(data), () => SetState(SessionState.Disconnected),
                 (message, error) => Fail(message, error is null ? null : Recognize(error)));
             lock (_lock)
             {
@@ -159,6 +168,7 @@ public sealed class SshSession : ITerminalSession
                 }
             }
 
+            Link.ConnectTime = System.Diagnostics.Stopwatch.GetElapsedTime(started);
             SetState(SessionState.Connected);
             pump.Start();
         }

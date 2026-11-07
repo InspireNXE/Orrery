@@ -405,6 +405,81 @@ public class SetupWizardTests : IDisposable
         Assert.Equal(PortableDataChoice.WithApp, PortableMarker.TryLoad(portable.AppDirectory)!.Choice);
     }
 
+    /// <summary>A portable copy whose folder another computer, or an earlier copy, already set up.</summary>
+    (PortableSetup Portable, string Data)? PortableWithData()
+    {
+        var portable = Portable();
+        if (FolderAccess.IsOpenToOthers(portable.AppDirectory))
+        {
+            return null; // The open-folder question would come first.
+        }
+
+        var data = Path.Combine(portable.AppDirectory, "data");
+        Directory.CreateDirectory(data);
+        File.WriteAllText(Path.Combine(data, "connections.json"), "{}");
+        return (portable, data);
+    }
+
+    static async Task AnswerAsync(Window owner, string button)
+    {
+        for (int i = 0; i < 500 && owner.OwnedWindows.Count == 0; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+
+        var dialog = Assert.Single(owner.OwnedWindows);
+        dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Content as string == button)
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+    }
+
+    [AvaloniaFact]
+    public async Task A_folder_that_already_has_data_is_used_as_it_is_and_setup_ends_there()
+    {
+        if (PortableWithData() is not var (portable, data))
+        {
+            return;
+        }
+
+        var window = Open(portable, keychain: null, found: []);
+        SetupResult? result = null;
+        window.Completed += r => result = r;
+
+        var next = window.NextAsync();
+        await AnswerAsync(window, "Use this data");
+        await next;
+        window.Close();
+
+        Assert.NotNull(result);
+        Assert.True(result.UsesExistingData);
+        Assert.Equal(data, result.Location!.DataDir);
+        Assert.Equal(PortableDataChoice.WithApp, PortableMarker.TryLoad(portable.AppDirectory)!.Choice);
+    }
+
+    [AvaloniaFact]
+    public async Task Choosing_another_folder_over_existing_data_goes_back_to_the_data_step()
+    {
+        if (PortableWithData() is not var (portable, _))
+        {
+            return;
+        }
+
+        var window = Open(portable, keychain: null, found: []);
+        SetupResult? result = null;
+        window.Completed += r => result = r;
+
+        // From the end too: Start checks the folder again.
+        window.SkipToEnd();
+        var start = window.NextAsync();
+        await AnswerAsync(window, "Choose another folder");
+        await start;
+
+        Assert.Null(result);
+        Assert.Equal(SetupStep.Data, window.Current);
+        Assert.Null(PortableMarker.TryLoad(portable.AppDirectory)?.Choice);
+        window.Close();
+    }
+
     [AvaloniaFact]
     public async Task Somewhere_else_with_no_folder_stays_on_the_data_step_and_says_why()
     {
@@ -477,6 +552,22 @@ public class SetupWizardTests : IDisposable
 
         Assert.Equal([file], window.Choices.Imports);
         Assert.Contains(("Import", "Orrery export"), window.Summary());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void A_CSV_file_says_why_it_can_t_be_imported_and_what_to_use()
+    {
+        var window = Open(portable: null, keychain: null, found: []);
+        window.GoTo(SetupStep.Import);
+
+        window.AddFile(Path.Combine(_dir, "connections.csv"));
+
+        Assert.Empty(window.Choices.Imports);
+        var notice = VaultAutoLockTests.Private<Notice>(window, "_message");
+        Assert.True(notice.IsVisible);
+        Assert.Equal(MainWindow.WhyNotImported("connections.csv"), notice.Text);
+        Assert.Contains("Orrery file (.json)", notice.Text);
         window.Close();
     }
 

@@ -45,6 +45,59 @@ public class SyncedDataFolderTests : IDisposable
         }
     }
 
+    // Moved aside, it went from every computer sharing the folder, and the first to save had its few connections
+    // merged into the others' as if the rest had been deleted.
+    [Fact]
+    public void A_file_a_newer_Orrery_saved_stays_where_it_is_and_isn_t_saved_over()
+    {
+        var location = Location();
+        var path = location.FileIn("connections.json");
+        var newer = """{ "schemaVersion": 99, "root": { "type": "folder", "name": "Connections", "children": [] } }""";
+        File.WriteAllText(path, newer);
+        var store = ConnectionStore.In(location);
+
+        var (tree, warning) = MainWindow.LoadTree(store, location);
+
+        Assert.Empty(tree.Root.Children);
+        Assert.Contains("newer version of Orrery", warning);
+        Assert.Equal(newer, File.ReadAllText(path));
+        Assert.Single(Directory.GetFiles(location.DataDir, "connections.json*"));
+
+        tree.Add(new ConnectionEntry { Name = "here", Host = "10.0.0.1" }, tree.Root);
+        Assert.Throws<InvalidDataException>(() => store.Save(tree));
+        Assert.Equal(newer, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void A_damaged_file_is_moved_aside_and_the_message_says_where()
+    {
+        var location = Location();
+        var path = location.FileIn("connections.json");
+        File.WriteAllText(path, "{ \"schemaVersion\": 6, \"root\": { \"type\": \"fol");
+
+        var (tree, warning) = MainWindow.LoadTree(ConnectionStore.In(location), location);
+
+        Assert.Empty(tree.Root.Children);
+        Assert.False(File.Exists(path));
+        var aside = Assert.Single(Directory.GetFiles(location.DataDir, "connections.json.unreadable-*"));
+        Assert.Contains(aside, warning);
+        Assert.StartsWith("Orrery couldn't read connections.json", warning);
+    }
+
+    // Deleting an old copy in a folder a sync app shares deletes it on every computer that uses it.
+    [Fact]
+    public void Offering_to_delete_an_old_copy_says_which_other_computers_use_that_folder()
+    {
+        var desktop = new OtherComputer("abcdef", "DESKTOP-2", DateTimeOffset.UtcNow);
+
+        Assert.Null(MainWindow.SharedOldCopyNote([], 0));
+        Assert.StartsWith("Another computer has used that folder too, as a sync app shares it.", MainWindow.SharedOldCopyNote([], 1));
+        Assert.StartsWith("2 other computers have used that folder too,", MainWindow.SharedOldCopyNote([], 2));
+        Assert.StartsWith("Orrery is open on DESKTOP-2 with that folder now, as a sync app shares it.", MainWindow.SharedOldCopyNote([desktop], 1));
+        Assert.StartsWith("Orrery is open on DESKTOP-2 with that folder now, and 1 more computer has used it,", MainWindow.SharedOldCopyNote([desktop], 2));
+        Assert.Contains("Keep it while any of them still uses it.", MainWindow.SharedOldCopyNote([], 1));
+    }
+
     public void Dispose()
     {
         try

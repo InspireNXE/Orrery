@@ -268,11 +268,40 @@ public class BiometricUnlockUiTests : IDisposable
         Assert.True(toggle.IsChecked);
 
         toggle.IsChecked = false;
+        await Settle(() => window.OwnedWindows.Count == 1);
+        var confirm = window.OwnedWindows.Single();
+        Assert.Contains(Texts(confirm), t => t.Contains("opens only with its master password"));
+        Buttons(confirm).Single(b => b.Content as string == "Turn off").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Settle(() => !Biometric.IsOn(vault));
 
         Assert.Empty(_records.Items);
         Assert.Equal(1, _hello.Deleted);
         Assert.Contains(Texts(window), t => t.Contains("its key was deleted"));
+        Assert.DoesNotContain(Texts(window), t => t.Contains("opens the vault on this computer only"));
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Turning_the_switch_off_asks_first_and_canceling_leaves_it_on()
+    {
+        using var vault = await NewVaultAsync();
+        await Biometric.TurnOnAsync(vault, Password);
+        var view = new SettingsView(Location, AppSettingsStore.In(Location), vault, Nothing, Nothing, Nothing, biometric: Biometric);
+        var window = Show(view);
+        await view.BiometricChecked;
+        bool toggled = false;
+        view.BiometricToggled += (_, _) => toggled = true;
+
+        var toggle = Switch(window);
+        toggle.IsChecked = false;
+        await Settle(() => window.OwnedWindows.Count == 1);
+        Buttons(window.OwnedWindows.Single()).Single(b => b.Content as string == "Cancel").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Settle(() => toggled);
+
+        Assert.True(Biometric.IsOn(vault));
+        Assert.Equal(0, _hello.Deleted);
+        Assert.True(toggle.IsChecked);
+        Assert.True(toggle.IsEnabled);
         window.Close();
     }
 
@@ -466,6 +495,8 @@ public class BiometricUnlockUiTests : IDisposable
         bool toggled = false;
         view.BiometricToggled += (_, _) => toggled = true;
         toggle.IsChecked = false;
+        await Settle(() => window.OwnedWindows.Count == 1);
+        Buttons(window.OwnedWindows.Single()).Single(b => b.Content as string == "Turn off").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Settle(() => toggled);
 
         Assert.False(toggle.IsChecked);

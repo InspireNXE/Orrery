@@ -465,10 +465,13 @@ public partial class MainWindow : Window
             ShowNotice(notice);
         }
 
-        if (ConflictCopiesWarning(conflicts) is { } warning)
+        if (ConflictCopiesWarning(conflicts, _location.DataDir) is { } warning)
         {
             Log.For("App").LogWarning("The data folder has {Count} sync conflict copies", conflicts.Count);
-            await Dialogs.ShowMessageAsync(this, "Your sync app made conflict copies", warning);
+            if (await Dialogs.AskAsync(this, "Your sync app made conflict copies", warning, "Open data folder", "Close"))
+            {
+                Settings.SettingsView.OpenFolder(_location.DataDir);
+            }
         }
     }
 
@@ -480,37 +483,76 @@ public partial class MainWindow : Window
         _ => $"Orrery is also open on {string.Join(", ", others.Select(o => o.Name))}. Changes on any show on all.",
     };
 
-    /// <summary>What's said about the sync app's conflict copies, or null for none.</summary>
-    internal static string? ConflictCopiesWarning(IReadOnlyList<string> conflicts) => conflicts.Count == 0 ? null
+    /// <summary>What's said about the sync app's conflict copies in <paramref name="dataDir"/>, or null for none.</summary>
+    internal static string? ConflictCopiesWarning(IReadOnlyList<string> conflicts, string dataDir) => conflicts.Count == 0 ? null
         : "Your sync app kept these copies when the same file changed on two computers before it could copy either "
-          + "change. Orrery only reads the files under their own names, so anything in a copy isn't in Orrery. Open the "
-          + "data folder to compare them, then delete the copies:\n" + string.Join("\n", conflicts.Select(c => "  " + c));
+          + "change. Orrery only reads the files under their own names, so anything in a copy isn't in Orrery. Compare "
+          + "each copy with its file, then delete the copy."
+          + (conflicts.Any(c => c.StartsWith("vault", StringComparison.OrdinalIgnoreCase))
+              ? " A copy of the vault is encrypted, so it can't be compared that way: keep it until you've checked that no "
+                + "saved credentials are missing."
+              : "")
+          + $"\n\nIn {dataDir}:\n" + string.Join("\n", conflicts.Select(c => "  " + c));
+
+    // A sync app may be part way through writing the file, or holding it: tried again for about a second.
+    const int TreeLoadAttempts = 4;
+    static readonly TimeSpan TreeLoadRetryDelay = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
-    /// A damaged connections.json is moved aside, never overwritten, and Orrery starts with an empty tree.
+    /// A damaged connections.json is moved aside, never overwritten, and Orrery starts with an empty tree. One a newer
+    /// Orrery saved, or one that can't be opened just now, is left where it is: in a folder a sync app shares, moving
+    /// it would take it from every computer, and the first to save would then have its few connections merged in as if
+    /// the others had been deleted. The store doesn't save over either.
     /// </summary>
-    static (ConnectionTree Tree, string? Warning) LoadTree(ConnectionStore store, DataLocation location)
+    internal static (ConnectionTree Tree, string? Warning) LoadTree(ConnectionStore store, DataLocation location)
     {
-        try
+        var path = location.FileIn("connections.json");
+        for (int attempt = 1; ; attempt++)
         {
-            return (store.Load(), null);
-        }
-        catch (Exception e) when (e is JsonException or InvalidDataException or IOException or NotSupportedException)
-        {
-            var path = location.FileIn("connections.json");
-            var aside = $"{path}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
             try
             {
-                File.Move(path, aside);
+                return (store.Load(), null);
             }
-            catch (IOException)
+            catch (InvalidDataException e) when (ConnectionStore.IsNewerFile(e))
             {
-                aside = path;
+                StorageLog.LogError("connections.json was saved by a newer Orrery; left as it is, and started empty");
+                return (ConnectionTree.Empty(),
+                    "connections.json was saved by a newer version of Orrery, on this computer or another that shares the data "
+                    + "folder. This copy can't read it, so it shows no connections and leaves the file as it is. Update Orrery "
+                    + $"to see them again.\n\nThe file is:\n{path}");
             }
+            catch (Exception e) when (attempt < TreeLoadAttempts && e is JsonException or IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(TreeLoadRetryDelay);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                StorageLog.LogError("Couldn't open connections.json ({Message}); left as it is, and started empty", e.Message);
+                return (ConnectionTree.Empty(),
+                    "Orrery couldn't open connections.json, so it's starting with an empty list. The file is left as it is, and "
+                    + "Orrery takes its connections in once it can open it. If a sync app is still downloading it, wait for "
+                    + $"that, then restart Orrery.\n\nThe file is:\n{path}\n\nDetails: {e.Message}");
+            }
+            catch (Exception e) when (e is JsonException or InvalidDataException or NotSupportedException)
+            {
+                var aside = $"{path}.unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
+                string where;
+                try
+                {
+                    File.Move(path, aside);
+                    where = $"The file was moved to:\n{aside}";
+                }
+                catch (Exception moveFailure) when (moveFailure is IOException or UnauthorizedAccessException)
+                {
+                    aside = path;
+                    where = $"It couldn't be moved aside, so it's still at:\n{path}";
+                }
 
-            StorageLog.LogError("Couldn't read connections.json ({Message}); kept it as {Aside} and started empty", e.Message, aside);
-            return (ConnectionTree.Empty(),
-                $"{e.Message}\n\nThe file was kept as:\n{aside}\n\nRecent copies are in the backups folder next to it. Orrery is starting with an empty list.");
+                StorageLog.LogError("Couldn't read connections.json ({Message}); kept it as {Aside} and started empty", e.Message, aside);
+                return (ConnectionTree.Empty(),
+                    $"Orrery couldn't read connections.json, so it's starting with an empty list. {where}\n\nRecent copies are in "
+                    + $"the backups folder next to it.\n\nDetails: {e.Message}");
+            }
         }
     }
 
@@ -2133,7 +2175,7 @@ public partial class MainWindow : Window
             ConnectionEntry entry => entry.Guests.Count(),
             _ => 0,
         });
-        string body = $"{nodes.Count} items will be deleted" + (inside > 0 ? $", with the {inside} items in them." : ".");
+        string body = $"{nodes.Count} items will be deleted" + (inside > 0 ? $", with {Plural(inside, "item")} in them." : ".");
         bool editedGoes = EditedGoesWith(nodes, withGuests: true);
         if ((editedGoes || SaveEdits()) && await Dialogs.ConfirmAsync(this, $"Delete {nodes.Count} items?", body, "Delete"))
         {
@@ -2171,7 +2213,7 @@ public partial class MainWindow : Window
         }
 
         string body = node is ConnectionFolder folder && folder.Children.Count > 0
-            ? $"\"{node.Name}\" and the {folder.Descendants().Count()} items in it will be deleted."
+            ? $"\"{node.Name}\" and {Plural(folder.Descendants().Count(), "item")} in it will be deleted."
             : $"\"{node.Name}\" will be deleted.";
         bool editedGoes = EditedGoesWith([node], withGuests: true);
         if ((editedGoes || SaveEdits()) && await Dialogs.ConfirmAsync(this, $"Delete {(node is ConnectionFolder ? "folder" : "connection")}?", body, "Delete"))
@@ -2409,6 +2451,7 @@ public partial class MainWindow : Window
         var origin = new SessionOrigin(files ? $"{entry.Name} · files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
         {
             Files = files,
+            ReachableDirectly = resolved.JumpHostId.Value is null && ChecksHostDirectly(protocol),
         };
         if (protocol == Protocol.Serial)
         {
@@ -2448,7 +2491,13 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (await _credentials.GetAsync(id) is { } credential)
+                var (read, credential) = await ReadSavedCredentialAsync(id);
+                if (!read)
+                {
+                    return;
+                }
+
+                if (credential is not null)
                 {
                     saved = credential;
                     (username, domain, password) = (credential.Username, credential.Domain, credential.Secret);
@@ -2511,8 +2560,14 @@ public partial class MainWindow : Window
                 }
 
                 (username, domain, password) = (prompt.Username, prompt.Domain, prompt.Password);
-                if (prompt.CredentialId is { } chosenId && await _credentials.GetAsync(chosenId) is { } chosenCredential)
+                if (prompt.CredentialId is { } chosenId)
                 {
+                    var (chosenRead, chosenCredential) = await ReadSavedCredentialAsync(chosenId);
+                    if (!chosenRead)
+                    {
+                        return;
+                    }
+
                     saved = chosenCredential;
                 }
             }
@@ -2525,7 +2580,25 @@ public partial class MainWindow : Window
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
+            // Jump hosts, the key file, the prompt or the session itself: reading the credential says so itself.
+            await Dialogs.ShowMessageAsync(this, $"Couldn't connect to \"{entry.Name}\"", e.Message);
+        }
+    }
+
+    /// <summary>
+    /// The saved credential <paramref name="id"/>, null when it's been deleted; Read is false, after saying so, when
+    /// the store couldn't be read.
+    /// </summary>
+    async Task<(bool Read, Credential? Credential)> ReadSavedCredentialAsync(Guid id)
+    {
+        try
+        {
+            return (true, await _credentials.GetAsync(id));
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
             await Dialogs.ShowMessageAsync(this, "Couldn't read the saved credential", e.Message);
+            return (false, null);
         }
     }
 
@@ -2538,7 +2611,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice), AutoReconnect: true);
+        var origin = new SessionOrigin(host, choice.Protocol, null, () => ConnectDirectAsync(choice), AutoReconnect: true)
+        {
+            ReachableDirectly = ChecksHostDirectly(choice.Protocol),
+        };
         if (choice.Protocol == Protocol.Serial)
         {
             StartSerial(origin, host, SerialLine.Default);
@@ -3273,6 +3349,10 @@ public partial class MainWindow : Window
             {
                 BeginReconnect(tab);
             }
+            else if (MayHaveGoneOffline(tab))
+            {
+                _ = WatchAfterEndAsync(tab);
+            }
 
             RefreshSessionBar(tab);
         };
@@ -3284,9 +3364,92 @@ public partial class MainWindow : Window
 
     bool ShouldReconnect(SessionTab tab) => tab.CanRetryByItself && !tab.IsReconnecting && _tabs.Contains(tab);
 
+    readonly HostReturnWatch _hostReturn = new(new TcpHostProbe());
+
+    static bool ChecksHostDirectly(Protocol protocol) => protocol is Protocol.Rdp or Protocol.Ssh or Protocol.Vnc or Protocol.Telnet;
+
+    /// <summary>
+    /// The server ended the session itself, and it may reconnect by itself: a logoff or an administrator's disconnect,
+    /// or the computer restarting or shutting down. Which one shows in whether the host goes on answering.
+    /// </summary>
+    bool MayHaveGoneOffline(SessionTab tab) =>
+        tab.Session.State == SessionState.Disconnected && tab.HasConnected && !tab.EndedByUser && !tab.RetryStopped
+        && tab.Origin is { Restart: not null, ReachableDirectly: true } && !tab.IsReconnecting && _tabs.Contains(tab);
+
+    /// <summary>
+    /// After the server ended a session: if its host stops answering soon after, waits for it to answer again and
+    /// reconnects. One still answering ended the session on purpose, so it's left as it is.
+    /// </summary>
+    async Task WatchAfterEndAsync(SessionTab tab)
+    {
+        var target = tab.Session.Target;
+        bool wanted() => _tabs.Contains(tab) && !tab.EndedByUser && !tab.RetryStopped && !tab.IsReconnecting;
+        try
+        {
+            if (!await _hostReturn.GoesDownAsync(target.Host, target.Port, wanted, CancellationToken.None) || !wanted())
+            {
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            ConnectLog.LogDebug("Couldn't check whether {Host} went offline: {Message}", target.Host, e.Message);
+            return;
+        }
+
+        ConnectLog.LogInformation("\"{Name}\": {Host} stopped answering after the session ended; reconnecting when it's back", tab.Origin.Title, target.Host);
+        await WaitForHostAsync(tab, sessionEnded: true);
+    }
+
+    /// <summary>Shows the tab waiting for its host, and reconnects when the host answers again.</summary>
+    async Task WaitForHostAsync(SessionTab tab, bool sessionEnded)
+    {
+        var target = tab.Session.Target;
+        var token = tab.ShowWaitingForHost(sessionEnded);
+        bool back;
+        try
+        {
+            back = await _hostReturn.ComesBackAsync(target.Host, target.Port, () => _tabs.Contains(tab), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested || !_tabs.Contains(tab))
+        {
+            return;
+        }
+
+        if (!back)
+        {
+            ConnectLog.LogInformation("\"{Name}\": {Host} didn't answer again within {Minutes} min", tab.Origin.Title, target.Host, HostReturnWatch.WaitAtMost.TotalMinutes);
+            tab.ShowStoppedWaiting(HostReturnWatch.WaitAtMost);
+            return;
+        }
+
+        ConnectLog.LogInformation("\"{Name}\": {Host} is answering again; reconnecting", tab.Origin.Title, target.Host);
+        tab.CancelReconnect();
+        await RestartTabAsync(tab, 0);
+    }
+
+    /// <summary>
+    /// A try after a drop failed because the host didn't answer at all: it went offline, restarting say, so rather
+    /// than spending the tries, the tab waits for it to answer again.
+    /// </summary>
+    internal static bool HostStoppedAnswering(SessionTab tab) =>
+        tab.Origin.ReachableDirectly && tab.Dropped && !tab.HasConnected
+        && tab.Failure is { Kind: FailureKind.Refused or FailureKind.TimedOut or FailureKind.Unreachable };
+
     /// <param name="fresh">Count from the first try again, as when the network has just come back.</param>
     void BeginReconnect(SessionTab tab, bool fresh = false)
     {
+        if (!fresh && HostStoppedAnswering(tab))
+        {
+            _ = WaitForHostAsync(tab, sessionEnded: false);
+            return;
+        }
+
         // A try that got connected starts the count again.
         int attempt = fresh || tab.HasConnected ? 1 : tab.ReconnectAttempt + 1;
         if (attempt > ReconnectSchedule.MaxAttempts)
@@ -3893,7 +4056,9 @@ public partial class MainWindow : Window
 
         if (_settingsStore.Load().RecordingNoteShown != true)
         {
-            if (!await Dialogs.ConfirmAsync(WindowOf(tab), "Recording sessions", Recording.RecordingsPanel.Note, "Record"))
+            // Only a terminal's recording keeps what's typed.
+            var typing = tab.View is TerminalView && RecordsTyping(tab.Origin);
+            if (!await Dialogs.ConfirmAsync(WindowOf(tab), "Recording sessions", Recording.RecordingsPanel.NoteFor(typing), "Record"))
             {
                 return;
             }
@@ -3957,7 +4122,7 @@ public partial class MainWindow : Window
         var item = new MenuItem { Header = header, IsEnabled = enabled };
         if (shortcut is not null)
         {
-            item.InputGesture = KeyGesture.Parse(shortcut.Replace("Cmd", "Meta"));
+            Controls.MenuShortcut.Show(item, KeyGesture.Parse(shortcut.Replace("Cmd", "Meta")));
         }
 
         if (click is not null)
@@ -4130,6 +4295,12 @@ public partial class MainWindow : Window
     /// <summary>A file Import can read, chosen by hand: any of the formats, or anything else read as an SSH config.</summary>
     internal static bool CanImport(string path) => IsImportFile(path) || IsSshConfig(path);
 
+    /// <summary>Why <paramref name="path"/> can't be imported. Export writes CSV, which is the one kind turned away.</summary>
+    internal static string WhyNotImported(string path) => ConnectionExporter.FormatFor(path) == ExportFormat.Csv
+        ? "Orrery can't import CSV files, which are for spreadsheets. To move connections into another copy of Orrery, "
+          + "export them as an Orrery file (.json) and import that."
+        : "Orrery can't import this kind of file.";
+
     async void OnOpenRdpFileClick(object? sender, RoutedEventArgs e)
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -4216,9 +4387,18 @@ public partial class MainWindow : Window
             FileTypeFilter = ImportFileTypes,
         });
 
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path && CanImport(path))
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
+        {
+            return;
+        }
+
+        if (CanImport(path))
         {
             await ImportAsync(path);
+        }
+        else
+        {
+            await Dialogs.ShowMessageAsync(this, "Couldn't import this file", WhyNotImported(path));
         }
     }
 
@@ -4786,8 +4966,15 @@ public partial class MainWindow : Window
         var biometricNote = biometric is not null && _credentials is VaultFileStore vault && biometric.IsOn(vault)
             ? $"\n\nUntil it's deleted, {biometric.Name} unlock opens the old copy's vault as well."
             : string.Empty;
+        var shared = await Task.Run(() => SharedOldCopyNote(
+            DataFolderPresence.OthersIn(oldDataDir, ComputerFiles.Tag, DateTimeOffset.UtcNow), ComputerFiles.OtherComputersIn(oldDataDir).Count));
+        if (shared is not null)
+        {
+            Log.For("App").LogInformation("The old copy in {OldDataDir} is shared with other computers; asking before deleting it", oldDataDir);
+        }
+
         if (!await Dialogs.ConfirmAsync(this, "Delete the old copy of your data?",
-                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\nOnly Orrery's own files are deleted. Anything else in that folder stays.{biometricNote}", "Delete old copy"))
+                $"Orrery now uses\n{_location.DataDir}\n\nThe old copy is still in\n{oldDataDir}\n\n{(shared is null ? "" : shared + "\n\n")}Only Orrery's own files are deleted. Anything else in that folder stays.{biometricNote}", "Delete old copy"))
         {
             return;
         }
@@ -4809,6 +4996,29 @@ public partial class MainWindow : Window
                 $"{left.Count} {(left.Count == 1 ? "file or folder that wasn't Orrery's was" : "files or folders that weren't Orrery's were")} left in place in\n{oldDataDir}");
         }
     }
+
+    /// <summary>
+    /// For the offer to delete the old copy after Move data: who else uses that folder, as a sync app shares it, from
+    /// the computers with Orrery open there now (<paramref name="open"/>) and how many others have left files there
+    /// (<paramref name="used"/>, counting those open). Null when none has.
+    /// </summary>
+    internal static string? SharedOldCopyNote(IReadOnlyList<OtherComputer> open, int used)
+    {
+        var more = Math.Max(0, used - open.Count);
+        if (open.Count == 0 && more == 0)
+        {
+            return null;
+        }
+
+        var who = open.Count == 0
+            ? more == 1 ? "Another computer has used that folder too" : $"{more} other computers have used that folder too"
+            : $"Orrery is open on {string.Join(" and ", open.Select(o => o.Name))} with that folder now"
+                + (more == 0 ? "" : more == 1 ? ", and 1 more computer has used it" : $", and {more} more computers have used it");
+        return $"{who}, as a sync app shares it. Deleting the old copy deletes the connections, vault and settings there "
+            + "on every computer it syncs to. Keep it while any of them still uses it.";
+    }
+
+    static string Plural(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
     void UpdateVaultButton()
     {

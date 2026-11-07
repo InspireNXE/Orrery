@@ -46,7 +46,7 @@ sealed class CommandPlacePicker : DockPanel
         _filter.Margin = new Thickness(0);
         ToolTip.SetTip(_tickShown, "Ticks every connection the filter shows");
         _tickShown.Click += (_, _) => SetMany(Shown().Where(n => n is ConnectionEntry), on: true);
-        ToolTip.SetTip(_clear, "Unticks everything");
+        ToolTip.SetTip(_clear, "Clears every check box");
         _clear.Click += (_, _) => SetMany([.. _chosen], on: false);
         Children.Add(Pane.Docked(new DockPanel
         {
@@ -213,7 +213,7 @@ sealed class CommandPlacePicker : DockPanel
             row.Box.IsChecked = cover is not null || _chosen.Contains(row.Node);
             row.Box.IsEnabled = cover is null;
             ToolTip.SetTip(row.Box, cover is null ? null
-                : $"It has the command from {(cover.Parent is null ? "the defaults" : cover.Name)}, which is ticked");
+                : $"It has the command from {(cover.Parent is null ? "the defaults" : cover.Name)}, which is checked");
             if (row.Node is ConnectionEntry host && row.GuestCount is { } count && row.GuestsLink is { } link)
             {
                 int ticked = host.Guests.Count(g => _chosen.Contains(g) || CoveredBy(g) is not null);
@@ -235,7 +235,7 @@ sealed class CommandPlacePicker : DockPanel
         var chosen = Chosen;
         if (chosen.Count == 0)
         {
-            return "Tick where to save it.";
+            return "Check where to save it.";
         }
 
         if (chosen.Contains(_root))
@@ -261,6 +261,6 @@ sealed class CommandPlacePicker : DockPanel
         // Only with a filter typed: with none, it would tick every connection one by one, which the defaults do better.
         int shown = filter.Length == 0 ? 0 : Shown().Count(n => n is ConnectionEntry);
         _tickShown.IsVisible = shown > 0;
-        _tickShown.Content = shown == 1 ? "Tick the 1 shown" : $"Tick the {shown} shown";
+        _tickShown.Content = shown == 1 ? "Check the 1 shown" : $"Check the {shown} shown";
     }
 }

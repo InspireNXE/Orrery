@@ -12,6 +12,7 @@ using Orrery.App.Controls;
 using Orrery.App.Credentials;
 using Orrery.App.Input;
 using Orrery.App.Logging;
+using Orrery.App.Setup;
 using Orrery.App.Updates;
 using Orrery.Core.Credentials;
 using Orrery.Core.Diagnostics;
@@ -294,7 +295,7 @@ sealed class SettingsView : UserControl
     {
         var folders = await Owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Choose an empty folder for Orrery's data",
+            Title = "Choose an empty folder for Orrery's data, or one that has it already",
             AllowMultiple = false,
         });
         if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } target)
@@ -304,6 +305,12 @@ sealed class SettingsView : UserControl
 
         if (DataMover.CheckTarget(_location.DataDir, target) is { } problem)
         {
+            if (problem == DataMover.NotEmptyMessage && FirstLaunch.HasData(target))
+            {
+                await UseExistingDataAsync(target);
+                return;
+            }
+
             await Dialogs.ShowMessageAsync(Owner, "Can't move the data there", problem);
             return;
         }
@@ -319,7 +326,7 @@ sealed class SettingsView : UserControl
             ? $"\n\n{_biometric.Name} unlock keeps working with the moved vault. Until you delete the old copy, it opens that one too."
             : string.Empty;
         if (!await Dialogs.ConfirmAsync(Owner, "Move Orrery's data?",
-                $"Orrery will copy its own files (connections, settings, the vault, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is. The old copy is kept until you choose to delete it. Web pages' sign-ins and cookies don't move: you'll sign in to them again.{biometricNote}",
+                $"Orrery will copy its own files (connections, settings, the vault, recordings, trusted host keys, backups and import reports) to\n{target}\ncheck every file, and restart using the new folder. Open sessions will close.\n\nAnything else in the current folder stays where it is, and so does the old copy: after the restart, Orrery asks once whether to delete it. Web pages' sign-ins and cookies don't move: you'll sign in to them again.{biometricNote}",
                 "Move and restart"))
         {
             return;
@@ -344,6 +351,46 @@ sealed class SettingsView : UserControl
         }
 
         RestartRequested?.Invoke(this, ["--moved-from", _location.DataDir]);
+    }
+
+    /// <summary>
+    /// A folder that already has Orrery's data, as on a computer that joins one a sync app shares: Orrery restarts using it
+    /// as it is, as setup does for a new copy, and nothing is copied. The data in use now stays where it is.
+    /// </summary>
+    async Task UseExistingDataAsync(string target)
+    {
+        if (DataMover.CheckExisting(_location.DataDir, target) is { } problem)
+        {
+            await Dialogs.ShowMessageAsync(Owner, "Can't use that folder", problem);
+            return;
+        }
+
+        if (DataMover.WarnAboutTarget(target) is { } warning
+            && !await Dialogs.ConfirmAsync(Owner, "Other people can change this folder", $"{warning}\n\n{target}", "Use anyway"))
+        {
+            return;
+        }
+
+        var vaultNote = File.Exists(Path.Combine(target, "vault.frv")) ? " Its vault opens with its own master password." : "";
+        if (!await Dialogs.AskAsync(Owner, "This folder already has Orrery's data",
+                $"{target}\n\nIt has connections or settings from another computer that shares this folder, or from an earlier copy of "
+                + $"Orrery. Orrery can restart using them as they are: nothing is copied, and open sessions will close.{vaultNote}\n\n"
+                + $"The data Orrery uses now stays in\n{_location.DataDir}",
+                "Use this data", "Cancel"))
+        {
+            return;
+        }
+
+        await _saveEverything();
+        if (!PointAt(target, out var error))
+        {
+            await Dialogs.ShowMessageAsync(Owner, "Couldn't switch to that folder",
+                $"Orrery couldn't record the new location:\n{error}\n\nOrrery still uses\n{_location.DataDir}");
+            return;
+        }
+
+        Log.For("Storage").LogInformation("Switching to a data folder that already has Orrery's data");
+        RestartRequested?.Invoke(this, []);
     }
 
     /// <summary>Portable mode records the folder in the marker beside the app; installed mode in a pointer file.</summary>
@@ -539,8 +586,21 @@ sealed class SettingsView : UserControl
         }
         else
         {
+            // Deleting the key can't be undone, and someone who's forgotten the master password would lose the vault.
+            if (!await Dialogs.ConfirmAsync(Owner, $"Turn off {biometric.Name} unlock?",
+                    $"Orrery deletes its {biometric.Name} key on this computer, and from then on the vault opens only with its master "
+                    + "password. Make sure you know it first.", "Turn off"))
+            {
+                SetBiometricSwitch(true);
+                _biometricSwitch.IsEnabled = true;
+                BiometricToggled?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
             await biometric.TurnOffAsync(vault);
-            note = $"{biometric.Name} unlock is off, and its key was deleted. {BiometricNote(biometric)}";
+
+            // Not followed by what it does when it's on, which read as if it still did.
+            note = $"{biometric.Name} unlock is off, and its key was deleted.";
         }
 
         var unavailable = await RefreshBiometricSwitchAsync(vault, biometric);
@@ -1025,7 +1085,7 @@ sealed class SettingsView : UserControl
         return files.Count == 0 ? "No recordings yet." : $"{files.Count} recording{(files.Count == 1 ? "" : "s")}, {bytes / (1024.0 * 1024):0.#} MB.";
     }
 
-    // ---- Start-up ----
+    // ---- Startup ----
 
     Control StartupSection()
     {
@@ -1074,11 +1134,11 @@ sealed class SettingsView : UserControl
             RememberRecentConnectionsChanged?.Invoke(this, on);
         };
         const string recentNote = "Keeps the Recent list, and the last connected and last failed times shown in a connection's properties. "
-            + "Turning this off clears the list and those times, and nothing is recorded until you turn it back on, which starts afresh. "
+            + "Turning this off clears the list and those times, and nothing is recorded until you turn it back on, which starts over. "
             + "The log still notes what connected where.";
         AutomationProperties.SetHelpText(recent, recentNote);
 
-        return Section("Start-up",
+        return Section("Startup",
             new TextBlock { Text = "Reopen the sessions that were open when Orrery last closed" },
             choiceList,
             Note("Never also stops Orrery writing down which sessions are open, and deletes the list it kept. The window's size and position, "
@@ -1365,7 +1425,7 @@ sealed class SettingsView : UserControl
         };
 
         var visionNote = "If you're color blind, choose which kind. Orrery then switches to its color-blind interface and terminal colors, "
-            + "with terminal colors tuned to that kind, and corrects remote desktops so colors you'd confuse look different. "
+            + "with terminal colors tuned to that kind, and corrects remote desktops and web pages in tabs so colors you'd confuse look different. "
             + "You can still change the interface and terminal colors below, and turn correction off for a connection in its settings.";
         var vision = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var (choice, label) in ColorVisionChoices)
@@ -1376,7 +1436,7 @@ sealed class SettingsView : UserControl
         vision.SelectedItem = vision.Items.OfType<ComboBoxItem>().First(i => (ColorVision)i.Tag! == _settings.Vision);
         Avalonia.Automation.AutomationProperties.SetHelpText(vision, visionNote);
 
-        var strengthNote = "Only for remote desktops: how far their colors are shifted. Lower it if pictures look too changed; "
+        var strengthNote = "Only for remote desktops and web pages in tabs: how far their colors are shifted. Lower it if pictures look too changed; "
             + "0% leaves them as they are.";
         var strength = new Slider
         {
@@ -1485,7 +1545,7 @@ sealed class SettingsView : UserControl
 
         return Section("Layout",
             Row("Side panel (connections, credentials, recent)", Choice("Side panel", _settings.SidePanel, (s, m) => s with { SidePanelMode = m })),
-            Row("Settings pane (connection and credential details)", Choice("Settings pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
+            Row("Properties pane (connection and credential details)", Choice("Properties pane", _settings.Inspector, (s, m) => s with { InspectorMode = m })),
             Note(string.Join(" ", PaneModes.All.Select(mode => $"{mode.Label}: {mode.Description}"))),
             Note("A pane that isn't pinned opens over the session rather than beside it, so a remote desktop doesn't resize each time. "
                 + "On Linux and macOS it opens beside a web page instead, since nothing can be drawn over the page there. Ctrl+B and Ctrl+Alt+B show and hide "
@@ -1765,7 +1825,7 @@ sealed class SettingsView : UserControl
         delete.Click += async (_, _) =>
         {
             if (!await Dialogs.ConfirmAsync(Owner, "Delete the logs?",
-                    "Every log file in the log folder is deleted, today's too, and the log starts again in a new file. This can't be undone.", "Delete logs"))
+                    "Every log file this computer wrote is deleted, today's too, and the log starts again in a new file. Other computers' logs in a shared folder stay. This can't be undone.", "Delete logs"))
             {
                 return;
             }
@@ -1906,7 +1966,7 @@ sealed class SettingsView : UserControl
 
     static TextBlock Note(string text) => new() { Text = text, FontSize = 12, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap };
 
-    static void OpenFolder(string path)
+    internal static void OpenFolder(string path)
     {
         try
         {

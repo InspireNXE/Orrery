@@ -374,7 +374,7 @@ sealed class FileBrowserView : DockPanel
         var item = new MenuItem { Header = entry.Header, IsEnabled = entry.Enabled };
         if (entry.Shortcut is { } shortcut)
         {
-            item.InputGesture = KeyGesture.Parse(shortcut.Replace("Cmd", "Meta"));
+            MenuShortcut.Show(item, KeyGesture.Parse(shortcut.Replace("Cmd", "Meta")));
         }
 
         item.Click += (_, _) => Do(entry.Action);

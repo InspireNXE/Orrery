@@ -37,6 +37,15 @@ public sealed class RecordingUiTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
+    // Shown before the first recording, it said what's typed is never recorded, even for one that records it.
+    [Fact]
+    public void The_first_recording_s_note_says_whether_this_one_keeps_what_s_typed()
+    {
+        Assert.Contains("What you type isn't recorded unless Record what's typed too is on.", RecordingsPanel.NoteFor(typing: false));
+        Assert.Contains("This one keeps what you type too", RecordingsPanel.NoteFor(typing: true));
+        Assert.DoesNotContain("isn't recorded", RecordingsPanel.NoteFor(typing: true));
+    }
+
     sealed class Terminal : ITerminalSession
     {
         public ConnectionTarget Target { get; } = new("web.example", 22, "admin", null);
@@ -828,6 +837,25 @@ public sealed class RecordingUiTests : IDisposable
         player.DeleteRequested += (_, _) => deleteAsked = true;
         Press(player, Key.Delete);
         Assert.True(deleteAsked);
+        player.Dispose();
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task The_more_menu_names_the_keys_the_player_takes()
+    {
+        var (player, window, _) = await OpenTerminalRecording("web-01");
+        var more = player.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "More options");
+        var flyout = PopupMenu.ShowAt(more, player.MoreMenu(), PlacementMode.BottomEdgeAlignedRight);
+        Dispatcher.UIThread.RunJobs();
+
+        string? Shortcut(string header) => ((Control)flyout.Popup.Child!).GetVisualDescendants().OfType<MenuItem>()
+            .Single(item => item.Header as string == header)
+            .GetVisualDescendants().OfType<TextBlock>().Single(text => text.Name == "PART_InputGestureText").Text;
+        Assert.Equal("?", Shortcut("Keyboard shortcuts")); // as the button and the card say, not "/" or "Shift+/"
+        Assert.Equal("Delete", Shortcut("Delete recording…"));
+
+        flyout.Hide();
         player.Dispose();
         window.Close();
     }

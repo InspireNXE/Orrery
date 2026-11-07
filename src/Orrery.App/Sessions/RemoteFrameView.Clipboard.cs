@@ -23,9 +23,13 @@ public sealed partial class RemoteFrameView
     string? _lastImage;
     string? _lastFiles;
 
-    // Shows while files the server copied are downloaded, with a way to stop it.
+    // Shows while files the server copied are downloaded, with a way to stop it. Also offers files whose download ended
+    // after something newer was copied, which aren't put on the clipboard over it.
     readonly Notice _transferNotice = new(NoticeKind.Info) { VerticalAlignment = VerticalAlignment.Center };
     Border? _transfer;
+    Button? _transferCancel;
+    StackPanel? _readyButtons;
+    IReadOnlyList<string>? _ready;
 
     /// <summary>Replaces the write of an image to the local clipboard, for tests.</summary>
     internal Func<Bitmap, Task>? SetClipboardImage { get; set; }
@@ -38,8 +42,24 @@ public sealed partial class RemoteFrameView
 
     void ShareFilesAndImages(IClipboardSession session)
     {
-        var cancel = new Button { Content = "Cancel", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        var cancel = new Button { Content = "Cancel", VerticalAlignment = VerticalAlignment.Center };
         cancel.Click += (_, _) => session.CancelClipboardTransfer();
+        var copy = new Button { Content = "Copy them", VerticalAlignment = VerticalAlignment.Center };
+        copy.Classes.Add("accent");
+        copy.Click += async (_, _) =>
+        {
+            var paths = _ready;
+            HideReady();
+            if (paths is not null)
+            {
+                await PutFilesOnClipboardAsync(paths);
+            }
+        };
+        var dismiss = new Button { Content = "Dismiss", VerticalAlignment = VerticalAlignment.Center };
+        dismiss.Click += (_, _) => HideReady();
+        _transferCancel = cancel;
+        _readyButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, IsVisible = false, Children = { copy, dismiss } };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0), Children = { cancel, _readyButtons } };
         _transfer = new Border
         {
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -53,7 +73,7 @@ public sealed partial class RemoteFrameView
             Background = Dialogs.PanelBrush,
             BoxShadow = BoxShadows.Parse("0 4 16 0 #80000000"),
             IsVisible = false,
-            Child = new DockPanel { Children = { Pane.Docked(cancel, Dock.Right), _transferNotice } },
+            Child = new DockPanel { Children = { Pane.Docked(buttons, Dock.Right), _transferNotice } },
         };
         Children.Add(_transfer);
 
@@ -76,14 +96,40 @@ public sealed partial class RemoteFrameView
             var write = SetClipboardImage ?? (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard ? b => clipboard.SetBitmapAsync(b) : null);
             await WriteClipboardAsync(write is null ? null : () => write(bitmap));
         });
-        session.RemoteClipboardFilesChanged += (_, paths) => Dispatcher.UIThread.Post(async () =>
+        session.RemoteClipboardFilesChanged += (_, paths) => Dispatcher.UIThread.Post(async () => await PutFilesOnClipboardAsync(paths));
+        session.RemoteClipboardFilesReady += (_, paths) => Dispatcher.UIThread.Post(() => ShowReady(paths));
+    }
+
+    async Task PutFilesOnClipboardAsync(IReadOnlyList<string> paths)
+    {
+        _lastFiles = FilesKey(paths);
+        var write = SetClipboardFiles ?? (TopLevel.GetTopLevel(this) is { Clipboard: { } clipboard, StorageProvider: { } storage }
+            ? async p => await clipboard.SetFilesAsync(await StorageItemsAsync(storage, p))
+            : null);
+        await WriteClipboardAsync(write is null ? null : () => write(paths));
+    }
+
+    /// <summary>Offers files whose download ended after something newer was copied, which stays on the clipboard.</summary>
+    void ShowReady(IReadOnlyList<string> paths)
+    {
+        if (_transfer is null)
         {
-            _lastFiles = FilesKey(paths);
-            var write = SetClipboardFiles ?? (TopLevel.GetTopLevel(this) is { Clipboard: { } clipboard, StorageProvider: { } storage }
-                ? async p => await clipboard.SetFilesAsync(await StorageItemsAsync(storage, p))
-                : null);
-            await WriteClipboardAsync(write is null ? null : () => write(paths));
-        });
+            return;
+        }
+
+        _ready = paths;
+        var items = paths.Count == 1 ? $"\"{Path.GetFileName(Path.TrimEndingDirectorySeparator(paths[0]))}\"" : $"{paths.Count:N0} items";
+        _transferNotice.Text = $"{items} from the remote desktop finished copying after you copied something else, so they aren't on the clipboard.";
+        _transferCancel!.IsVisible = false;
+        _readyButtons!.IsVisible = true;
+        _transfer.IsVisible = true;
+        ScreenReader.Announce(this, _transferNotice.Text, "Orrery.ClipboardTransfer", ScreenReader.MostRecent);
+    }
+
+    void HideReady()
+    {
+        _ready = null;
+        _transfer!.IsVisible = false;
     }
 
     static async Task WriteClipboardAsync(Func<Task>? write)
@@ -129,10 +175,24 @@ public sealed partial class RemoteFrameView
 
         if (transfer.Ended)
         {
-            _transfer.IsVisible = false;
+            // Files offered stay offered until they're copied or dismissed.
+            if (_ready is null)
+            {
+                _transfer.IsVisible = false;
+            }
+
             return;
         }
 
+        if (_ready is not null)
+        {
+            // A new download takes the strip over; the offered files stay in their folder until the session ends.
+            _ready = null;
+            _transfer.IsVisible = false;
+        }
+
+        _transferCancel!.IsVisible = true;
+        _readyButtons!.IsVisible = false;
         var files = transfer.Files == 1 ? "1 file" : $"{transfer.Files:N0} files";
         _transferNotice.Text = $"Copying {files} from the remote desktop: {Size(transfer.Done)} of {Size(transfer.Total)}";
         if (!_transfer.IsVisible)

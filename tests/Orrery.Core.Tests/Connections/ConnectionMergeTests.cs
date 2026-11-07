@@ -236,6 +236,99 @@ public class ConnectionMergeTests : IDisposable
         Assert.Equal(newer, File.ReadAllText(FilePath));
     }
 
+    // Two computers saving at once leave one file under the real name and the other as a sync app's conflict copy. The
+    // file kept was saved from what both had before, not from the other computer's save: measured against that save,
+    // what it added looked deleted.
+    [Fact]
+    public void A_sync_conflict_keeps_what_the_computer_whose_file_lost_added()
+    {
+        Start(Entry("web"));
+        var laptop = Open();
+        var desktop = Open();
+        var before = File.ReadAllText(FilePath);
+
+        laptop.Tree.Add(Entry("db"), laptop.Tree.Root);
+        laptop.Store.Save(laptop.Tree);
+
+        // The desktop saved from the file before the laptop's save, and its file is the one the sync app kept.
+        File.WriteAllText(FilePath, before);
+        ((ConnectionEntry)Named(desktop.Tree, "web")).Notes = "edited on the desktop";
+        desktop.Store.Save(desktop.Tree);
+
+        Assert.NotNull(laptop.Store.ReloadIfChanged(laptop.Tree));
+        Assert.Equal(["web", "db"], Names(laptop.Tree.Root));
+        Assert.Equal("edited on the desktop", ((ConnectionEntry)Named(laptop.Tree, "web")).Notes);
+        Assert.True(laptop.Store.NeedsSave);
+    }
+
+    [Fact]
+    public void A_computer_that_saved_without_the_file_doesn_t_delete_the_other_computer_s_connections()
+    {
+        Start(Entry("web"), Entry("db"));
+        var laptop = Open();
+
+        // The desktop started while the file wasn't there (a sync app still bringing it, say), and saved what it had.
+        var away = FilePath + ".away";
+        File.Move(FilePath, away);
+        var desktop = Open();
+        desktop.Tree.Add(Entry("new"), desktop.Tree.Root);
+        desktop.Store.Save(desktop.Tree);
+        File.Delete(away);
+
+        Assert.NotNull(laptop.Store.ReloadIfChanged(laptop.Tree));
+        Assert.Equal(["db", "new", "web"], Names(laptop.Tree.Root).Order());
+    }
+
+    // Each tree that starts empty makes its own root, so after taking in the file its text differed in the root's id,
+    // and two computers open on the folder kept saving it at each other.
+    [Fact]
+    public void A_tree_that_started_empty_takes_the_file_in_without_saving_it_again()
+    {
+        Start(Entry("web"));
+        var away = FilePath + ".away";
+        File.Move(FilePath, away);
+        var desktop = Open();
+        File.Move(away, FilePath);
+
+        Assert.NotNull(desktop.Store.ReloadIfChanged(desktop.Tree));
+        Assert.Equal(["web"], Names(desktop.Tree.Root));
+        Assert.False(desktop.Store.NeedsSave);
+
+        var written = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(FilePath, written);
+        Assert.Null(desktop.Store.Save(desktop.Tree));
+        Assert.Equal(written, File.GetLastWriteTimeUtc(FilePath));
+    }
+
+    [Fact]
+    public void Line_ends_history_and_the_root_s_id_don_t_count_as_changes()
+    {
+        Start(Entry("web"));
+        var text = File.ReadAllText(FilePath);
+        var json = System.Text.Json.Nodes.JsonNode.Parse(text)!.AsObject();
+        json["history"] = new System.Text.Json.Nodes.JsonArray("0123456789abcdef");
+        json["root"]!["id"] = Guid.NewGuid().ToString();
+
+        Assert.True(ConnectionStore.SameContent(text.ReplaceLineEndings("\n"), text.ReplaceLineEndings("\r\n")));
+        Assert.True(ConnectionStore.SameContent(text, json.ToJsonString()));
+        Assert.False(ConnectionStore.SameContent(text, text.Replace("10.0.0.1", "10.0.0.2")));
+    }
+
+    [Fact]
+    public void Each_save_names_the_versions_it_came_from_up_to_twenty()
+    {
+        var (store, tree) = Open();
+        for (int i = 0; i < 25; i++)
+        {
+            tree.Add(Entry("c" + i), tree.Root);
+            store.Save(tree);
+        }
+
+        var history = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath))!["history"]!.AsArray();
+        Assert.Equal(20, history.Count);
+        Assert.Equal(20, history.Select(h => h!.GetValue<string>()).Distinct().Count());
+    }
+
     public void Dispose()
     {
         try

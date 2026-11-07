@@ -45,9 +45,15 @@ sealed class PerComputerFields(ComputerValues values)
     // Each field's value in connections.json, by node.
     readonly Dictionary<(Guid, string), JsonNode?> _shared = [];
 
-    static string KeyOf(ConnectionNode node) => node.Id.ToString("N");
+    // The root's values are under this key, not its id: a computer that started without the file made a root of its own,
+    // which it keeps after taking the file in, while the file keeps the root it was first saved with.
+    const string RootKey = "root";
 
     static IEnumerable<ConnectionNode> Nodes(ConnectionTree tree) => tree.Root.Descendants().Prepend(tree.Root);
+
+    // Each node with the key its values are under here.
+    static IEnumerable<(ConnectionNode Node, string Key)> Keyed(ConnectionTree tree) =>
+        tree.Root.Descendants().Select(n => (n, n.Id.ToString("N"))).Prepend((tree.Root, RootKey));
 
     /// <summary>Notes the values the tree has now as connections.json's: just after reading it or merging with it.</summary>
     public void NoteShared(ConnectionTree tree)
@@ -65,9 +71,11 @@ sealed class PerComputerFields(ComputerValues values)
     /// <summary>Puts this computer's own values in the tree, over the shared ones.</summary>
     public void PutOwn(ConnectionTree tree)
     {
-        foreach (var node in Nodes(tree))
+        // A file from before RootKey has the root's values under its id.
+        values.Rename(tree.Root.Id.ToString("N"), RootKey);
+        foreach (var (node, key) in Keyed(tree))
         {
-            var own = values.For(KeyOf(node));
+            var own = values.For(key);
             foreach (var field in Fields.Where(f => own.ContainsKey(f.Name) && f.Applies(node)))
             {
                 field.Set(node, own[field.Name]);
@@ -81,11 +89,8 @@ sealed class PerComputerFields(ComputerValues values)
     /// </summary>
     public void TakeOwn(ConnectionTree tree)
     {
-        var ids = new HashSet<string>();
-        foreach (var node in Nodes(tree))
+        foreach (var (node, key) in Keyed(tree))
         {
-            var key = KeyOf(node);
-            ids.Add(key);
             foreach (var field in Fields)
             {
                 if (!field.Applies(node))
@@ -111,8 +116,21 @@ sealed class PerComputerFields(ComputerValues values)
                 }
             }
         }
+    }
 
-        values.Keep(ids.Contains);
+    // Every node a tree here has held: only their values are dropped once they're gone. A tree that started empty (no
+    // file yet, or one that couldn't be read) dropped every value here as the file came in, before.
+    readonly HashSet<string> _seen = [];
+
+    /// <summary>
+    /// Drops this computer's values for connections <paramref name="tree"/> held and doesn't any more: deleted, here or
+    /// by a merge. With <paramref name="all"/>, for every connection not in it, for a tree just read from the file.
+    /// </summary>
+    public void Prune(ConnectionTree tree, bool all = false)
+    {
+        var ids = Keyed(tree).Select(k => k.Key).ToHashSet();
+        values.Keep(key => ids.Contains(key) || !all && !_seen.Contains(key));
+        _seen.UnionWith(ids);
     }
 
     /// <summary>Writes this computer's file, if anything in it changed.</summary>

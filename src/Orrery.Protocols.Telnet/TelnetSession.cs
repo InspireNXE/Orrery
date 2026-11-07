@@ -12,7 +12,7 @@ namespace Orrery.Protocols.Telnet;
 /// type (RFC 1091) and window size (RFC 1073), and refuses every other option. Telnet has no login of its
 /// own: the server prompts in the terminal. Nothing is encrypted, so passwords cross the network as typed.
 /// </summary>
-public sealed class TelnetSession : ITerminalSession
+public sealed class TelnetSession : ITerminalSession, ILinkStatsSession
 {
     const byte Se = 240, Sb = 250, Will = 251, Wont = 252, Do = 253, Dont = 254, Iac = 255;
     const byte OptBinary = 0, OptEcho = 1, OptSuppressGoAhead = 3, OptTerminalType = 24, OptWindowSize = 31;
@@ -48,6 +48,9 @@ public sealed class TelnetSession : ITerminalSession
     }
 
     public ConnectionTarget Target { get; }
+
+    /// <summary>The traffic and round trip the session pane shows.</summary>
+    public LinkStats Link { get; } = new();
     public SessionState State { get; private set; } = SessionState.Connecting;
 
     public event EventHandler<SessionStateChangedEventArgs>? StateChanged;
@@ -71,6 +74,7 @@ public sealed class TelnetSession : ITerminalSession
         var connected = new System.Diagnostics.Stopwatch();
         try
         {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
             var (host, port) = await _route.DialAsync(Target, token);
             var client = new TcpClient { NoDelay = true };
             lock (_lock) _client = client;
@@ -82,6 +86,13 @@ public sealed class TelnetSession : ITerminalSession
 
             var stream = client.GetStream();
             lock (_lock) _stream = stream;
+            Link.ConnectTime = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            // Through a tunnel the socket only reaches its local end, whose round trip says nothing.
+            if (_route is null)
+            {
+                Link.Socket = client.Client;
+            }
+
             SetState(SessionState.Connected);
             connected.Start();
 
@@ -94,6 +105,8 @@ public sealed class TelnetSession : ITerminalSession
                 {
                     break;
                 }
+
+                Link.Received(read);
 
                 heard = true;
                 var (data, replies) = parser.Feed(buffer.AsSpan(0, read));
@@ -247,6 +260,7 @@ public sealed class TelnetSession : ITerminalSession
             try
             {
                 await stream.WriteAsync(bytes, _cts.Token);
+                Link.Sent(bytes.Length);
             }
             finally
             {

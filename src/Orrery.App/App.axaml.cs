@@ -95,7 +95,7 @@ public partial class App : Application
             ImportSources.OnThisComputer());
 
         bool started = false;
-        void Start(DataLocation location, SetupChoices choices, IReadOnlyList<string>? imports, string? vaultPassword = null)
+        void Start(DataLocation location, SetupChoices? choices, IReadOnlyList<string>? imports, string? vaultPassword = null)
         {
             // Swap the main window before closing setup, or closing it would end the app.
             started = true;
@@ -105,7 +105,16 @@ public partial class App : Application
 
         wizard.Completed += result =>
         {
-            Start(result.Location ?? known!, result.Choices, result.Choices.Imports, result.VaultPassword);
+            // A folder that already had Orrery's data keeps the settings it has: setup's choices aren't saved over them.
+            if (result.UsesExistingData)
+            {
+                Start(result.Location ?? known!, choices: null, imports: null);
+            }
+            else
+            {
+                Start(result.Location ?? known!, result.Choices, result.Choices.Imports, result.VaultPassword);
+            }
+
             wizard.Close();
         };
 

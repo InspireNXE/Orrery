@@ -112,7 +112,10 @@ public interface IClipboardSession
     /// <summary>Puts <paramref name="text"/> on the remote clipboard.</summary>
     void SendClipboard(string text);
 
-    /// <summary>Clipboard text wasn't shared, with a sentence saying why, for the user. Raised on a background thread.</summary>
+    /// <summary>
+    /// Something copied wasn't shared, or a copy between the two sides failed, with a sentence saying why, for the user.
+    /// Raised on a background thread.
+    /// </summary>
     event EventHandler<string>? ClipboardRefused { add { } remove { } }
 
     /// <summary>Whether images and files are shared too, through the members below.</summary>
@@ -126,6 +129,12 @@ public interface IClipboardSession
     /// until the session ends or the next files are copied. Raised on a background thread.
     /// </summary>
     event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged { add { } remove { } }
+
+    /// <summary>
+    /// Files the remote side copied finished downloading after something newer was copied, so they weren't put on the
+    /// clipboard over it: the paths of the copied items, kept until the session ends. Raised on a background thread.
+    /// </summary>
+    event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesReady { add { } remove { } }
 
     /// <summary>How a download of copied files is going: raised as it starts, as it goes and once as it ends. Raised on a background thread.</summary>
     event EventHandler<ClipboardTransfer>? ClipboardTransferChanged { add { } remove { } }

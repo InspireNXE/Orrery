@@ -199,7 +199,10 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
   tells them apart by comparing the shape's outline with Windows' default pointers, so a server with another
   pointer scheme gets its own shapes. On Linux and macOS, the server's shapes are shown as they are.
 - **Reconnects** happen on their own, waiting longer each time (up to a minute), and at once when the network
-  returns. A refused login or an untrusted host key or certificate is never retried.
+  returns. A refused login or an untrusted host key or certificate is never retried. When the computer itself stops
+  answering, after a session drops or the server ends it, Orrery waits for it to answer again (up to 30 minutes) and
+  reconnects then, rather than running out of tries. A session that ends while its computer stays up, such as a
+  logoff, is left ended.
 - **Many tabs** narrow to fit the tab strip, as in a browser, then show only their state (the current one keeps its
   close button), and past that the strip scrolls with the mouse wheel. The ⌄ button lists every tab.
 - **Pop out** a tab into a window of its own, from its menu, the session toolbar, Ctrl+Shift+O, or by dragging it
@@ -321,7 +324,8 @@ It runs commands too: start with `>` to list them all, or type a few words ("dis
 ### Credentials, import and export
 
 - Passwords go in Windows Credential Manager, the macOS Keychain or the Linux Secret Service, or an encrypted vault
-  file (Argon2id, XChaCha20-Poly1305) where there's no store or you prefer one.
+  file (Argon2id, XChaCha20-Poly1305) where there's no store or you prefer one. Credential Manager holds at most
+  2.5 KB per credential, too little for an RSA key of 3072 bits or more; keep those in the vault file, or use Ed25519.
 - Windows Hello can unlock the vault when its key is held in the TPM (not over Remote Desktop). When it's on, the
   unlock window asks Windows Hello first and shows the master password field only if that's canceled or fails. If Windows won't
   confirm the key is in the TPM, turning it on is refused and the setup window says so up front the next time in that
@@ -522,16 +526,22 @@ another computer uses until it sets its own.
 Recordings are in `recordings/` in the data folder, encrypted. Move data takes them along.
 
 A portable data folder can be kept in a sync app's folder (OneDrive, Dropbox, Synology Drive, Syncthing) and used on
-more than one computer, at the same time too. When the sync app brings in another computer's changes to connections,
-the vault or settings, Orrery takes them in while it's open, and merges them with this computer's own when it saves,
+more than one computer, at the same time too. On the next computer, choose that folder in setup's first step: Orrery
+sees it already has data, uses it as it is, and skips the rest of setup. Where Orrery is set up already, choose it
+in Settings › Storage › Move data instead: Orrery restarts using it as it is, nothing is copied, and the data it
+used before stays where it was. When the sync app brings in another computer's changes to connections or the vault,
+Orrery takes them in while it's open, and settings when it next saves them. It merges them with this computer's own,
 connection by connection and field by field, so neither computer's changes are lost. Where both changed the same
-field, this computer's change is kept and the status bar says so. A master password changed on one computer locks
-the vault on the others, to be opened with the new one. Each computer with Orrery open leaves a small
-`open-on-<tag>.json` file, so the others can say it's open there. If the sync app still makes conflict copies of
-Orrery's files, Orrery lists them at start, as it never reads them. Windows Hello and the system's credential store
-are per computer, so each one is set up on its own, and so are the values in `computers/` above. Each computer also
-has its own web-tab profile (`web/<tag>`: cookies and sign-ins, which WebView2 encrypts for one computer only) and
-its own cache for update downloads (`cache/<tag>`).
+field, this computer's change is kept and the status bar says so. connections.json also names the versions each save
+came from, so when both computers saved at once and the sync app kept the other's file, what this computer added
+isn't taken as deleted. A file a newer Orrery saved is left as it is, and so is one that can't be opened at start,
+until Orrery can read it and merge. A master password changed on one computer locks the vault on the others, to be
+opened with the new one. Each computer with Orrery open leaves a small `open-on-<tag>.json` file, so the others can
+say it's open there. If the sync app still makes conflict copies of Orrery's files, Orrery lists them at start, as
+it never reads them. Windows Hello and the system's credential store are per computer, so each one is set up on its
+own, and so are the values in `computers/` above. Each computer also has its own web-tab profile (`web/<tag>`:
+cookies and sign-ins, which WebView2 encrypts for one computer only) and its own cache for update downloads
+(`cache/<tag>`).
 
 <details>
 <summary>Logs</summary>
@@ -699,7 +709,9 @@ Not yet checked on real machines:
 - **Shared drives:** your home folder when sharing every drive, or any folders, each as its own drive.
 - **Full screen** is on one display, since macOS gives each its own space. A connection can pick which; Orrery says
   so when it's set to several.
-- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
+- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted. A
+  download keeps going if you copy something else; if it finishes after that, Orrery offers its files instead of
+  replacing what you copied.
 - **Not yet checked:** all of it on a real Mac, including local terminals, the RDP clipboard, Touch ID (needs a
   signed build) and VoiceOver.
 
@@ -717,7 +729,9 @@ X11-specific code. X11 sessions aren't supported.
 - **Shared drives:** your home folder when sharing every drive, or any folders, each as its own drive.
 - **Full screen** is on the window's display: Wayland doesn't let windows place themselves or span displays. Orrery
   says so when a connection is set to several.
-- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted.
+- **RDP clipboard:** text, images and files. Remote files download when copied (up to 1 GB), not when pasted. A
+  download keeps going if you copy something else; if it finishes after that, Orrery offers its files instead of
+  replacing what you copied.
 - **Screen readers:** Avalonia 12 reads to screen readers through AT-SPI, but Orca hasn't been tried with Orrery yet.
 - **Not yet checked:** all of it on a real machine: the .deb, .rpm and AppImage, arm64, local terminals, the RDP
   clipboard, sound, a serial device and the Secret Service.

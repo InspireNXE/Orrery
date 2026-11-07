@@ -64,6 +64,46 @@ public class DataMoverTests : IDisposable
         Assert.Null(DataMover.CheckTarget(_source, target));
     }
 
+    // A computer joining a folder a sync app shares, where another computer's Orrery keeps its data.
+    [Fact]
+    public void A_folder_with_data_isn_t_moved_into_but_can_be_used_as_it_is()
+    {
+        var shared = Path.Combine(_root, "shared");
+        Directory.CreateDirectory(shared);
+        File.WriteAllText(Path.Combine(shared, "connections.json"), "{}");
+
+        Assert.Equal(DataMover.NotEmptyMessage, DataMover.CheckTarget(_source, shared));
+        Assert.Null(DataMover.CheckExisting(_source, shared));
+        Assert.Equal("{}", File.ReadAllText(Path.Combine(shared, "connections.json")));
+    }
+
+    [Theory]
+    [InlineData("data")]
+    [InlineData("data/inner")]
+    [InlineData("")]
+    public void The_folder_in_use_or_one_nested_with_it_isn_t_used_as_it_is_either(string relative)
+    {
+        Assert.NotNull(DataMover.CheckExisting(_source, Path.Combine(_root, relative)));
+    }
+
+    [Fact]
+    public void A_portable_copy_s_logs_and_cache_are_neither_copied_nor_deleted_nor_counted_as_someone_else_s()
+    {
+        Directory.CreateDirectory(Path.Combine(_source, "logs"));
+        File.WriteAllText(Path.Combine(_source, "logs", "orrery-abcdef-20261105.log"), "log");
+        Directory.CreateDirectory(Path.Combine(_source, "cache", "abcdef"));
+        var target = Path.Combine(_root, "moved");
+
+        DataMover.Copy(_source, target);
+        var left = DataMover.DeleteOldCopy(_source);
+
+        Assert.False(Directory.Exists(Path.Combine(target, "logs")));
+        Assert.False(Directory.Exists(Path.Combine(target, "cache")));
+        Assert.Empty(left);
+        Assert.True(File.Exists(Path.Combine(_source, "logs", "orrery-abcdef-20261105.log")));
+        Assert.True(Directory.Exists(Path.Combine(_source, "cache", "abcdef")));
+    }
+
     [Fact]
     public void Deleting_the_old_copy_keeps_what_isnt_orrerys_data()
     {

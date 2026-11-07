@@ -45,11 +45,16 @@ static class RdpConnector
     /// <returns>The connection, and whether drives are shared, so the session drives their file operations.</returns>
     public static async Task<(ConnectionResult Result, Framed<SslStream> Framed, bool DrivesShared)> ConnectAsync(
         Config config, ConnectionTarget target, (string Host, int Port) dial, ServerCertificateValidator validator, CliprdrBackendFactory? clipboard,
-        RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token, RdpAudioTap? audioTap = null)
+        RdpOptions options, RdpRedirection? redirectedFrom, CancellationToken token, RdpAudioTap? audioTap = null, LinkStats? link = null)
     {
         long started = Stopwatch.GetTimestamp();
         var tcp = await OpenTcpAsync(dial.Host, dial.Port, token);
         var tcpTime = Stopwatch.GetElapsedTime(started);
+        if (link is not null)
+        {
+            link.Socket = tcp.Client;
+        }
+
         var framed = new Framed<NetworkStream>(tcp.GetStream());
 
         var connector = ClientConnector.New(config, tcp.Client.LocalEndPoint!.ToString()!);

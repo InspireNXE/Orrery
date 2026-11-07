@@ -27,6 +27,12 @@ sealed record SessionOrigin(string Title, Protocol Protocol, Guid? EntryId, Func
     /// <summary>A shell on this computer rather than a connection; <see cref="Protocol"/> only picks its colors.</summary>
     public bool Local { get; init; }
 
+    /// <summary>
+    /// Connected straight to its host (no jump host), over a network protocol, so the host can be checked on the
+    /// session's own port to see whether it went offline and when it's back.
+    /// </summary>
+    public bool ReachableDirectly { get; init; }
+
     /// <summary>A local terminal's shell, by id ("pwsh", "wsl:Ubuntu"), so it can be opened again the same way.</summary>
     public string? LocalShell { get; init; }
 
@@ -151,6 +157,11 @@ sealed class SessionTab
         }, RoutingStrategies.Tunnel);
 
         session.StateChanged += (_, e) => Dispatcher.UIThread.Post(() => Apply(e));
+        if (LinkMonitor.Covers(session))
+        {
+            Link = new LinkMonitor(session);
+            Link.Changed += (_, _) => ShowState();
+        }
 
         // A try that the server turns down at once can fail before this tab exists to hear it.
         if (session.LastChange is { } missed)
@@ -409,7 +420,7 @@ sealed class SessionTab
             .MaxBy(t => t.LastShown);
 
     /// <summary>
-    /// The settings a running remote desktop can't take up, as they were saved when it opened, so the settings pane
+    /// The settings a running remote desktop can't take up, as they were saved when it opened, so the properties pane
     /// asks for a reconnect only once one of them is saved differently.
     /// </summary>
     public IReadOnlyList<(string Label, string Value)>? FixedAtStart { get; set; }
@@ -426,8 +437,11 @@ sealed class SessionTab
     /// <summary>The user pressed Stop, so it isn't tried again by itself, not even when the network comes back.</summary>
     public bool RetryStopped { get; private set; }
 
-    /// <summary>Counting down to an automatic try.</summary>
-    public bool IsReconnecting => _reconnectNow is not null;
+    /// <summary>Counting down to an automatic try, or waiting for the host to answer again.</summary>
+    public bool IsReconnecting => _reconnectNow is not null || IsWaitingForHost;
+
+    /// <summary>Waiting for a host that stopped answering to answer again, to reconnect then.</summary>
+    public bool IsWaitingForHost => _waitForHost is not null;
 
     /// <summary>The connection-lost screen is up.</summary>
     public bool IsShowingFailure => _screen.IsVisible;
@@ -476,6 +490,7 @@ sealed class SessionTab
     DateTime _reconnectAt;
     string _attemptText = string.Empty;
     Action? _reconnectNow;
+    CancellationTokenSource? _waitForHost;
     string? _iconBrush;
 
     // Set while this tab is a try at the connection the screen was up for: the screen stays, saying so, until the try
@@ -736,6 +751,51 @@ sealed class SessionTab
         ShowFailure();
     }
 
+    /// <summary>
+    /// Shows that the host stopped answering and that Orrery reconnects when it answers again, until Stop, Reconnect or
+    /// the returned token is canceled. <paramref name="sessionEnded"/>: the server ended the session itself, so no
+    /// connection-lost screen is up yet and this one says what happened.
+    /// </summary>
+    public CancellationToken ShowWaitingForHost(bool sessionEnded)
+    {
+        CancelReconnect();
+        _waitForHost = new CancellationTokenSource();
+        if (sessionEnded)
+        {
+            IconShown = Icons.Refresh;
+            _iconBrush = "OrreryAccent";
+            _icon.Child = Themed(StrokeIcon.Create(Icons.Refresh, 30), StrokeIcon.ForegroundProperty, _iconBrush);
+            _heading.Text = "Connection lost";
+            _summary.Text = $"The session ended, then {Session.Target.Host} stopped answering.";
+            _advice.IsVisible = false;
+            _when.Text = $"At {DateTimeOffset.Now:HH:mm:ss} on {DateTimeOffset.Now:d MMMM yyyy}";
+            _detail.Text = $"{Session.Target.Host} stopped answering on port {Session.Target.Port} after the session ended.";
+            _reconnect.IsEnabled = true;
+        }
+
+        _retryText.Text = sessionEnded ? "Orrery will reconnect when it answers again."
+            : $"{Session.Target.Host} isn't answering. Orrery will reconnect when it does.";
+        _stop.IsVisible = _retryText.IsVisible = true;
+        _screen.IsVisible = true;
+
+        var spoken = $"{_heading.Text}. {_retryText.Text}";
+        Avalonia.Automation.AutomationProperties.SetHelpText(_reconnect, spoken);
+        if (Host.IsVisible)
+        {
+            ScreenReader.Announce(_screen, spoken, "connection-lost", ScreenReader.MostRecent);
+        }
+
+        return _waitForHost.Token;
+    }
+
+    /// <summary>The host didn't answer again within the longest wait.</summary>
+    public void ShowStoppedWaiting(TimeSpan waited)
+    {
+        CancelReconnect();
+        _retryText.Text = $"Stopped waiting after {waited.TotalMinutes:0} min. Press Reconnect to try again.";
+        _retryText.IsVisible = true;
+    }
+
     /// <summary>Says the automatic tries have run out. Reconnect still works, and so does the network coming back.</summary>
     public void ShowGaveUp(int attempts)
     {
@@ -777,6 +837,12 @@ sealed class SessionTab
     {
         _countdown.Stop();
         _reconnectNow = null;
+        if (_waitForHost is { } waiting)
+        {
+            _waitForHost = null;
+            waiting.Cancel();
+            waiting.Dispose();
+        }
         _stop.IsVisible = false;
         _retryText.IsVisible = false;
     }
@@ -851,13 +917,19 @@ sealed class SessionTab
     }
 
     /// <summary>The state in words, as the tooltip and screen readers give it.</summary>
-    public string StateText => StateGlyph.Describe(Session.State);
+    public string StateText => Session.State == SessionState.Connected && Link?.Health == LinkHealth.Slow
+        ? "Connected, slow" : StateGlyph.Describe(Session.State);
+
+    /// <summary>How the connection is doing, for the tab's mark and the Connection card; null for sessions with nothing to measure.</summary>
+    public LinkMonitor? Link { get; }
 
     // The mark's shape and the tooltip say the state too, so it never rests on the color alone.
     void ShowState()
     {
         _state.State = Session.State;
-        ToolTip.SetTip(Header, $"{Address} · {StateText}");
+        _state.Slow = Link?.Health == LinkHealth.Slow;
+        string? numbers = Session.State == SessionState.Connected ? Link?.Summary() : null;
+        ToolTip.SetTip(Header, numbers is null ? $"{Address} · {StateText}" : $"{Address} · {StateText}{Environment.NewLine}{numbers}");
 
         // A screen reader hears the tab's name ("web01, SSH") and this as its status.
         Header.Status = StateText;

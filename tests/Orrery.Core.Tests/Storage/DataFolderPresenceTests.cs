@@ -117,6 +117,39 @@ public class DataFolderPresenceTests : IDisposable
         Assert.Empty(SyncConflicts.Find(Path.Combine(_dir, "missing")));
     }
 
+    [Fact]
+    public void The_other_computers_that_used_a_folder_are_known_by_what_they_left_there()
+    {
+        Assert.Empty(ComputerFiles.OtherComputersIn(_dir));
+        Assert.Empty(ComputerFiles.OtherComputersIn(Path.Combine(_dir, "missing")));
+
+        var laptop = DataFolderPresence.ComputerTag("LAPTOP-7");
+        var desktop = DataFolderPresence.ComputerTag("DESKTOP-2");
+        var tablet = DataFolderPresence.ComputerTag("TABLET-1");
+        var own = Path.Combine(_dir, ComputerFiles.FolderName);
+        Directory.CreateDirectory(own);
+        File.WriteAllText(Path.Combine(own, $"{laptop}-recent.json"), "{}");
+        File.WriteAllText(Path.Combine(own, $"{ComputerFiles.Tag}-recent.json"), "{}");
+        Directory.CreateDirectory(Path.Combine(_dir, WebData.FolderName, desktop));
+        Directory.CreateDirectory(Path.Combine(_dir, WebData.FolderName, "EBWebView"));
+        Directory.CreateDirectory(Path.Combine(_dir, "cache", "updates"));
+        using var open = On("TABLET-1");
+        open.Mark();
+
+        Assert.Equal(new[] { laptop, desktop, tablet }.Order(StringComparer.Ordinal), ComputerFiles.OtherComputersIn(_dir));
+        var seen = Assert.Single(DataFolderPresence.OthersIn(_dir, ComputerFiles.Tag, _now));
+        Assert.Equal(("TABLET-1", tablet), (seen.Name, seen.Tag));
+    }
+
+    [Fact]
+    public void Each_computer_s_open_file_is_deleted_with_an_old_copy_and_never_copied()
+    {
+        var name = DataFolderPresence.FilePrefix + "abcdef.json";
+
+        Assert.True(DataFolderFiles.IsDeleted(name));
+        Assert.False(DataFolderFiles.IsCopied(name));
+    }
+
     public void Dispose()
     {
         try

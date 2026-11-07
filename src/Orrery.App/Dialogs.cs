@@ -47,15 +47,15 @@ static class Dialogs
     }
 
     /// <summary>
-    /// Asks a choice between two ordinary answers, neither destructive. <paramref name="noLabel"/> is the default, and
-    /// closing the window answers it too.
+    /// Asks a choice between two ordinary answers, neither destructive. <paramref name="noLabel"/> is the default, at the
+    /// right as Cancel is in <see cref="ConfirmAsync"/>, and closing the window answers it too. Neither button is in the
+    /// accent: everywhere else the accent marks the button Enter presses, and here Enter takes the cautious answer.
     /// </summary>
     public static async Task<bool> AskAsync(Window owner, string title, string body, string yesLabel, string noLabel)
     {
         var no = new Button { Content = noLabel, IsDefault = true, IsCancel = true };
         var yes = new Button { Content = yesLabel };
-        yes.Classes.Add("accent");
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { no, yes } };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { yes, no } };
 
         var window = Shell(title, buttons);
         AutomationProperties.SetHelpText(window, body);

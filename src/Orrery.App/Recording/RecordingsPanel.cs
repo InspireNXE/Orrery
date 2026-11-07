@@ -39,8 +39,17 @@ sealed record RecordingItem(string Path, long Size, DateTime Modified, Recording
 /// </summary>
 sealed class RecordingsPanel : DockPanel
 {
-    public const string Note = "Recordings hold everything the session showed: what's on screen, and every line a terminal printed. "
-        + "What you type isn't recorded. They're encrypted, and play only in Orrery with this data folder's saved credentials. "
+    /// <summary>
+    /// Shown before the first recording. <paramref name="typing"/>: this one keeps what's typed too, where the note used
+    /// to say it never did.
+    /// </summary>
+    public static string NoteFor(bool typing) =>
+        "Recordings hold everything the session showed: what's on screen, and every line a terminal printed. "
+        + (typing
+            ? "This one keeps what you type too, as Record what's typed too is on for it. A password typed at a prompt Orrery "
+                + "doesn't recognize, or pasted, is kept, and anyone who can open the recording can read it. "
+            : "What you type isn't recorded unless Record what's typed too is on. ")
+        + "They're encrypted, and play only in Orrery with this data folder's saved credentials. "
         + "The remote side isn't told it's being recorded; recording other people's sessions may need their agreement.";
 
     const string EmptyNote = "Sessions you record show up here. Turn on Record sessions for a connection, or start one from a tab's menu.";
@@ -432,7 +441,7 @@ sealed class RecordingsPanel : DockPanel
             return;
         }
 
-        if (!await Dialogs.ConfirmAsync(owner, "Delete recording", $"Delete \"{item.Title}\" from {item.Started:g} for good? It can't be got back.", "Delete"))
+        if (!await Dialogs.ConfirmAsync(owner, "Delete recording", $"Delete \"{item.Title}\" from {item.Started:g} for good? This can't be undone.", "Delete"))
         {
             return;
         }

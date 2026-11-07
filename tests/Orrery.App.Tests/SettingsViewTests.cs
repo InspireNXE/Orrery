@@ -39,7 +39,7 @@ public class SettingsViewTests : IDisposable
         // Every section sits on exactly one page, and only that page's headings show.
         static List<string> Headings(Window w) =>
             w.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Classes.Contains("section") && t.IsEffectivelyVisible).Select(t => t.Text!).ToList();
-        Assert.Equal(["START-UP", "OPENING CONNECTIONS", "LAYOUT", "KEYBOARD", "HOST STATUS"], Headings(window));
+        Assert.Equal(["STARTUP", "OPENING CONNECTIONS", "LAYOUT", "KEYBOARD", "HOST STATUS"], Headings(window));
 
         list.SelectedItem = list.Items.OfType<ListBoxItem>().Single(i => Equals(i.Content, "Appearance"));
         Dispatcher.UIThread.RunJobs();

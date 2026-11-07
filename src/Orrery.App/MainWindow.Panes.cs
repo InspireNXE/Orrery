@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -60,7 +61,7 @@ public partial class MainWindow
         _inspectorHiddenForNow = _inspectorMode == PaneMode.Expanded && settings.InspectorPutAway == true;
         _savedPutAway = (_sideHiddenForNow, _inspectorHiddenForNow);
         _sidePanelToggle.ContextMenu = ModeMenu("Side panel", () => _sideMode, SetSidePanelMode);
-        _inspectorToggle.ContextMenu = ModeMenu("Settings pane", () => _inspectorMode, SetInspectorMode);
+        _inspectorToggle.ContextMenu = ModeMenu("Properties pane", () => _inspectorMode, SetInspectorMode);
 
         // A pin in each of the side panel's headers, and one in the right-hand pane's top corner.
         foreach (var header in new[] { _credentialsView.Header, _recentPanel.Header, _commandsPanel.Header, _recordingsPanel.Header })
@@ -167,11 +168,11 @@ public partial class MainWindow
 
         if (_inspectorPin is not null)
         {
-            ShowPin(_inspectorPin, "settings pane", _inspectorMode == PaneMode.Expanded);
+            ShowPin(_inspectorPin, "properties pane", _inspectorMode == PaneMode.Expanded);
         }
 
         ToolTip.SetTip(_sidePanelToggle, Tip("side panel", "Ctrl+B", _sideMode, _sidePanel.IsVisible));
-        ToolTip.SetTip(_inspectorToggle, Tip("settings pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
+        ToolTip.SetTip(_inspectorToggle, Tip("properties pane", "Ctrl+Alt+B", _inspectorMode, _propertiesHost.IsVisible));
         FitPanes();
         SavePutAway();
     }
@@ -523,6 +524,13 @@ public partial class MainWindow
             return;
         }
 
+        // A dropdown's list is a window of its own, so moving onto it leaves the pane. Wait until it shuts.
+        if (HasOpenPopup(pane))
+        {
+            timer.Start();
+            return;
+        }
+
         if (pane == _propertiesHost)
         {
             _properties.TrySave();
@@ -551,10 +559,28 @@ public partial class MainWindow
         }
 
         Control[] keep = [_sidePanel, _propertiesHost, _rail, _inspectorStrip, _sidePanelToggle, _inspectorToggle];
-        if (!keep.Any(control => control == source || control.IsVisualAncestorOf(source)))
+        if (!keep.Any(control => IsWithin(control, source)))
         {
             CloseFloatingPanes();
         }
+    }
+
+    static bool HasOpenPopup(Control pane) => pane.GetVisualDescendants().OfType<Popup>().Any(popup => popup.IsOpen);
+
+    /// <summary>Whether a visual is in a control, following a popup (a dropdown's list) back to what opened it.</summary>
+    static bool IsWithin(Control control, Visual? visual)
+    {
+        while (visual is not null)
+        {
+            if (visual == control)
+            {
+                return true;
+            }
+
+            visual = visual is PopupRoot or OverlayPopupHost && visual is StyledElement { Parent: Visual opener } ? opener : visual.GetVisualParent();
+        }
+
+        return false;
     }
 
     // ---- Modes ----

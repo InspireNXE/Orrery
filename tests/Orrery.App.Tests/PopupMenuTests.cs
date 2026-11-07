@@ -1,8 +1,11 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Orrery.App.Controls;
+using Orrery.App.Input;
 using Xunit;
 
 namespace Orrery.App.Tests;
@@ -34,6 +37,36 @@ public class PopupMenuTests
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
         }
+    }
+
+    [AvaloniaFact]
+    public void Menus_write_shortcuts_as_the_palette_and_tooltips_do()
+    {
+        if (FullScreenShortcut.CurrentPlatform == ShortcutPlatform.MacOS)
+        {
+            return; // macOS keeps Avalonia's symbols
+        }
+
+        var anchor = new Button { Content = "..." };
+        var window = new Window { Content = new StackPanel { Children = { anchor } }, Width = 800, Height = 500 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var items = new List<Control>();
+        foreach (var gesture in new[] { "Ctrl+Alt+Enter", "Ctrl+OemPlus", "Ctrl+D0", "Delete" })
+        {
+            var item = new MenuItem { Header = gesture };
+            MenuShortcut.Show(item, KeyGesture.Parse(gesture));
+            items.Add(item);
+        }
+
+        var flyout = PopupMenu.ShowAt(anchor, items, PlacementMode.BottomEdgeAlignedRight);
+        Dispatcher.UIThread.RunJobs();
+
+        // Avalonia itself writes the first two "Ctrl+Alt+Return" and "Ctrl++".
+        var shown = Presenter(flyout).GetVisualDescendants().OfType<TextBlock>().Where(t => t.Name == "PART_InputGestureText").Select(t => t.Text);
+        Assert.Equal(["Ctrl+Alt+Enter", "Ctrl+=", "Ctrl+0", "Delete"], shown);
+        flyout.Hide();
+        window.Close();
     }
 
     [AvaloniaFact]

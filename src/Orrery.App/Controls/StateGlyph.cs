@@ -15,7 +15,11 @@ public sealed class StateGlyph : Control
     public static readonly StyledProperty<SessionState?> StateProperty =
         AvaloniaProperty.Register<StateGlyph, SessionState?>(nameof(State));
 
-    static StateGlyph() => AffectsRender<StateGlyph>(StateProperty);
+    /// <summary>Connected, but the link is slow (a long round trip): the dot turns the warning color.</summary>
+    public static readonly StyledProperty<bool> SlowProperty =
+        AvaloniaProperty.Register<StateGlyph, bool>(nameof(Slow));
+
+    static StateGlyph() => AffectsRender<StateGlyph>(StateProperty, SlowProperty);
 
     public StateGlyph()
     {
@@ -27,6 +31,12 @@ public sealed class StateGlyph : Control
     {
         get => GetValue(StateProperty);
         set => SetValue(StateProperty, value);
+    }
+
+    public bool Slow
+    {
+        get => GetValue(SlowProperty);
+        set => SetValue(SlowProperty, value);
     }
 
     /// <summary>The state in words, for tooltips and screen readers.</summary>
@@ -50,9 +60,9 @@ public sealed class StateGlyph : Control
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == StateProperty)
+        if (change.Property == StateProperty || change.Property == SlowProperty)
         {
-            AutomationProperties.SetName(this, Describe(State));
+            AutomationProperties.SetName(this, State == SessionState.Connected && Slow ? "Connected, slow" : Describe(State));
         }
     }
 
@@ -79,7 +89,7 @@ public sealed class StateGlyph : Control
             return;
         }
 
-        var brush = BrushFor(State);
+        var brush = State == SessionState.Connected && Slow ? Palette.Warning : BrushFor(State);
         var center = new Point(Bounds.Width / 2, Bounds.Height / 2);
         double radius = size / 2;
         double stroke = Math.Max(1.2, size / 6);

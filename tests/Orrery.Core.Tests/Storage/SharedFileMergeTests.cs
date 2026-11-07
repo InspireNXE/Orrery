@@ -85,6 +85,28 @@ public class SharedFileMergeTests : IDisposable
         Assert.Equal(["desktop", "shared"], (await desktop.ListAsync()).Select(c => c.Name));
     }
 
+    // The change swapped in the new key before reading the other computer's save, which then didn't decrypt, counted
+    // as part written, and was saved over.
+    [Fact]
+    public async Task Changing_the_master_password_keeps_what_the_other_computer_saved_since()
+    {
+        using var laptop = new VaultFileStore(In("vault.frv"), FastKdf);
+        await laptop.UnlockAsync("a long master password");
+        await laptop.SaveAsync(Password("shared"));
+        using var desktop = new VaultFileStore(In("vault.frv"), FastKdf);
+        await desktop.UnlockAsync("a long master password");
+
+        Later(In("vault.frv"));
+        await desktop.SaveAsync(Password("desktop"));
+        Later(In("vault.frv"));
+        await laptop.ChangePasswordAsync("a long master password", "a new long password");
+
+        Assert.Equal(["desktop", "shared"], (await laptop.ListAsync()).Select(c => c.Name));
+        using var reopened = new VaultFileStore(In("vault.frv"), FastKdf);
+        await reopened.UnlockAsync("a new long password");
+        Assert.Equal(["desktop", "shared"], (await reopened.ListAsync()).Select(c => c.Name));
+    }
+
     [Fact]
     public void A_setting_changed_on_the_other_computer_isn_t_saved_over_by_a_different_one_here()
     {
@@ -95,6 +117,24 @@ public class SharedFileMergeTests : IDisposable
         // The other computer, through the sync app.
         var text = File.ReadAllText(In("settings.json"));
         File.WriteAllText(In("settings.json"), JsonNode.Parse(text)!.AsObject().Also(o => o["terminalFontSize"] = 18).ToJsonString());
+
+        store.Save(here with { FfmpegPath = "C:\\tools\\ffmpeg.exe" });
+
+        var saved = store.Load();
+        Assert.Equal(18, saved.TerminalFontSize);
+        Assert.Equal("C:\\tools\\ffmpeg.exe", saved.FfmpegPath);
+    }
+
+    // With no version of the file to measure against, its settings, defaults and all, were saved over the other's.
+    [Fact]
+    public void A_computer_that_started_without_the_file_keeps_the_other_s_settings_when_it_comes()
+    {
+        var store = new AppSettingsStore(In("settings.json"));
+        var here = store.Load();
+
+        // Then the other computer's file comes, through the sync app.
+        new AppSettingsStore(In("elsewhere.json")).Save(new AppSettings { TerminalFontSize = 18 });
+        File.Copy(In("elsewhere.json"), In("settings.json"));
 
         store.Save(here with { FfmpegPath = "C:\\tools\\ffmpeg.exe" });
 

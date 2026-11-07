@@ -371,7 +371,7 @@ sealed class SavedCommandEditor : StackPanel
         Guid? credential = password == CommandPassword.Credential ? _passwordCredential?.SelectedId : null;
         if (_picker is not null && _picker.Chosen.Count == 0)
         {
-            return Fail("Tick at least one place to save it on.", _picker);
+            return Fail("Check at least one place to save it on.", _picker);
         }
 
         if (password == CommandPassword.Credential && SavedOn.Any(n => n.Parent is null))

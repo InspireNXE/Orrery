@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Orrery.Core.Diagnostics;
@@ -32,8 +35,19 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
     readonly TimeSpan _backupInterval = backupInterval ?? TimeSpan.FromMinutes(10);
 
-    // The file as last read or written here: the base the next merge measures both sides against. Null: there was none.
+    // The file as last read or written here. Null: there was none.
     string? _known;
+
+    // The versions of the file this computer read or wrote lately, by VersionHash, oldest first. A merge measures both
+    // sides against the newest of them the file on disk was saved from (FileModel.History): with a sync app, that isn't
+    // always the one this computer saw last. When both computers saved at once, the app keeps one file under the real
+    // name and makes the other a conflict copy, and the one kept was saved from what both had before.
+    readonly Dictionary<string, string> _versions = [];
+    readonly Queue<string> _versionOrder = [];
+    const int VersionsKept = 20;
+
+    // How many versions back a file says it was saved from.
+    const int HistoryLength = 20;
 
     // 2 added hosts' guests; 3 added the serial and web protocols and the settings in InheritableSettings.AddedInSchema3;
     // 4 added saved commands and InheritableSettings.AddedInSchema4; 5 added commands sent when connected and answering a password prompt;
@@ -81,9 +95,11 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
         var text = File.ReadAllText(path);
         var tree = new ConnectionTree(Parse(text));
+        Remember(text);
         _known = text;
         _fields?.NoteShared(tree);
         _fields?.PutOwn(tree);
+        _fields?.Prune(tree, all: true);
 
         // A number that isn't a choice (hand-edited) would throw once used, so it's dropped and the folder's value applies.
         foreach (var node in tree.Root.Descendants().Prepend(tree.Root))
@@ -130,16 +146,129 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
     }
 
-    static ConnectionFolder Parse(string text)
+    static ConnectionFolder Parse(string text) => ParseFile(text).Root;
+
+    const string NewerFileKey = "Orrery.NewerConnectionsFile";
+
+    /// <summary>
+    /// Whether <paramref name="e"/> says connections.json was saved by a newer Orrery, with what this one doesn't know.
+    /// Such a file is never saved over.
+    /// </summary>
+    public static bool IsNewerFile(Exception e) => e is InvalidDataException && e.Data.Contains(NewerFileKey);
+
+    static FileModel ParseFile(string text)
     {
         var file = JsonSerializer.Deserialize<FileModel>(text, JsonOptions)
             ?? throw new InvalidDataException("connections.json is empty.");
         if (file.SchemaVersion > SchemaVersion)
         {
-            throw new InvalidDataException("connections.json was written by a newer version of Orrery.");
+            var newer = new InvalidDataException("connections.json was written by a newer version of Orrery.");
+            newer.Data[NewerFileKey] = true;
+            throw newer;
         }
 
-        return file.Root ?? throw new InvalidDataException("connections.json has no connections in it.");
+        return file.Root is null ? throw new InvalidDataException("connections.json has no connections in it.") : file;
+    }
+
+    /// <summary>A short hash of one version of the file, as the history in later versions names it.</summary>
+    static string VersionHash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
+
+    void Remember(string text)
+    {
+        var hash = VersionHash(text);
+        if (!_versions.TryAdd(hash, text))
+        {
+            return;
+        }
+
+        _versionOrder.Enqueue(hash);
+        while (_versionOrder.Count > VersionsKept)
+        {
+            _versions.Remove(_versionOrder.Dequeue());
+        }
+    }
+
+    /// <summary>
+    /// The history for a file saved from <paramref name="from"/>: it, then what it was saved from, newest first. Empty for
+    /// one saved from no file at all.
+    /// </summary>
+    static List<string> HistoryAfter(string? from)
+    {
+        if (from is null)
+        {
+            return [];
+        }
+
+        IReadOnlyList<string> earlier = [];
+        try
+        {
+            earlier = JsonSerializer.Deserialize<HistoryOnly>(from, JsonOptions)?.History ?? [];
+        }
+        catch (JsonException)
+        {
+        }
+
+        return [VersionHash(from), .. earlier.Take(HistoryLength - 1)];
+    }
+
+    /// <summary>
+    /// The version of the file the one on disk and this computer's tree both come from, which the merge measures each
+    /// side's changes against: the newest this computer has seen of those the file says it was saved from. A file
+    /// without a history was saved by an Orrery from before it, so as then: the version this computer saw last. Null
+    /// when this computer has seen none of them, and then nothing counts as deleted, so nothing is lost.
+    /// </summary>
+    string? BaseFor(FileModel theirs)
+    {
+        if (theirs.History is null)
+        {
+            return _known;
+        }
+
+        foreach (var hash in theirs.History)
+        {
+            if (_versions.TryGetValue(hash, out var text))
+            {
+                return text;
+            }
+        }
+
+        return null;
+    }
+
+    static readonly JsonDocumentOptions ReadOptions = new() { MaxDepth = 256 };
+
+    /// <summary>
+    /// Whether two versions of the file hold the same tree, apart from their history, the root's id (each computer that
+    /// started without the file made its own) and how the text is laid out (line ends differ between systems). Saving
+    /// on such a difference made two computers rewrite the file at each other for as long as both were open.
+    /// </summary>
+    internal static bool SameContent(string a, string b)
+    {
+        if (a == b)
+        {
+            return true;
+        }
+
+        try
+        {
+            return JsonNode.DeepEquals(Comparable(a), Comparable(b));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        static JsonNode? Comparable(string text)
+        {
+            var node = JsonNode.Parse(text, documentOptions: ReadOptions);
+            if (node is JsonObject file)
+            {
+                file.Remove("history");
+                (file["root"] as JsonObject)?.Remove("id");
+            }
+
+            return node;
+        }
     }
 
     static string? ReadOrNull(string path)
@@ -154,7 +283,8 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
     }
 
-    string Serialize(ConnectionTree tree) => JsonSerializer.Serialize(new FileModel(SchemaFor(tree.Root), tree.Root), JsonOptions);
+    static string Serialize(ConnectionTree tree, IReadOnlyList<string>? history) =>
+        JsonSerializer.Serialize(new FileModel(SchemaFor(tree.Root), history, tree.Root), JsonOptions);
 
     /// <summary>
     /// Saves the tree, first merging in what another computer saved to the file since this one last read or wrote it.
@@ -181,6 +311,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         {
             _fields.NoteShared(tree);
             _fields.PutOwn(tree);
+            _fields.Prune(tree);
             _fields.Save();
         }
     }
@@ -194,8 +325,9 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             report = MergeFrom(tree, disk, saving: true);
         }
 
-        var text = Serialize(tree);
-        if (text == disk)
+        // The tree now holds _known: the file as it is, merged, or as last seen here when what's there can't be read.
+        var text = Serialize(tree, HistoryAfter(_known));
+        if (disk is not null && SameContent(text, disk))
         {
             _known = disk;
             return report;
@@ -207,6 +339,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
 
         AtomicFile.WriteAllText(path, text);
+        Remember(text);
         _known = text;
         Logger.LogDebug("Saved {Connections} connections", tree.Root.Descendants().OfType<ConnectionEntry>().Count());
         return report;
@@ -239,7 +372,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         try
         {
             var report = MergeFrom(tree, disk, saving: false);
-            NeedsSave = Serialize(tree) != disk;
+            NeedsSave = !SameContent(Serialize(tree, history: null), disk);
             return report;
         }
         catch (Exception e) when (e is JsonException or InvalidDataException)
@@ -267,10 +400,10 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
 
     ConnectionMergeReport? MergeFrom(ConnectionTree tree, string disk, bool saving)
     {
-        ConnectionFolder theirs;
+        FileModel theirs;
         try
         {
-            theirs = Parse(disk);
+            theirs = ParseFile(disk);
         }
         catch (JsonException e) when (saving)
         {
@@ -279,19 +412,24 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             return null;
         }
 
+        Remember(disk);
         ConnectionFolder? baseline = null;
-        if (_known is not null)
+        if (BaseFor(theirs) is { } baseText)
         {
             try
             {
-                baseline = Parse(_known);
+                baseline = Parse(baseText);
             }
             catch (Exception e) when (e is JsonException or InvalidDataException)
             {
             }
         }
+        else if (_known is not null)
+        {
+            Logger.LogInformation("connections.json was saved from a version this computer hasn't seen, as after a sync app's conflict; nothing in it counts as deleted");
+        }
 
-        var report = ConnectionMerge.Merge(tree, baseline, theirs);
+        var report = ConnectionMerge.Merge(tree, baseline, theirs.Root);
         _known = disk;
         LearnNames(tree.Root);
         Logger.LogInformation("Took in changes to connections.json from another computer: {Added} added, {Removed} removed, {Updated} changed, {Conflicts} changed on both",
@@ -325,5 +463,11 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
         }
     }
 
-    sealed record FileModel(int SchemaVersion, ConnectionFolder Root);
+    /// <param name="History">
+    /// The versions this one was saved from, newest first, each by <see cref="VersionHash"/>; empty for one saved from no
+    /// file. Null in a file from an Orrery from before it, which ignores it.
+    /// </param>
+    sealed record FileModel(int SchemaVersion, IReadOnlyList<string>? History, ConnectionFolder Root);
+
+    sealed record HistoryOnly(IReadOnlyList<string>? History);
 }

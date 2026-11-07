@@ -36,7 +36,7 @@ namespace Orrery.Protocols.Rdp;
 /// that image's size in place (<see cref="FollowGraphicsReset"/>); one without it restarts the session's activation.
 /// </para>
 /// </remarks>
-public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession
+public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardSession, ITouchInput, IMultiMonitorSession, IDisplayScaleSession, IRemotePointerSession, ILinkStatsSession
 {
     const int BytesPerPixel = 4;
     const uint ClipboardWaitMs = 1000;
@@ -51,6 +51,11 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     static readonly TimeSpan GracefulShutdownTimeout = TimeSpan.FromSeconds(2);
 
     readonly object _stageLock = new();
+
+    // The managed copy of the picture (_frame) and the size it's laid out at, as CopyRegion reads them. Taken inside
+    // _stageLock, never around it, so the view and a recording copy pixels out without waiting while IronRDP decodes
+    // the next update under _stageLock.
+    readonly object _frameLock = new();
     readonly SemaphoreSlim _writeLock = new(1, 1);
     readonly InputDatabase _inputDatabase = InputDatabase.New();
     readonly CancellationTokenSource _cts = new();
@@ -62,13 +67,19 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     byte[] _frame = [];
     bool _pointerSoftwareRendering;
 
-    // The size asked for before the display-control channel opened, sent once it's ready. Under _stageLock.
-    (int Width, int Height)? _waitingResize;
+    // Resizes asked for and not yet sent: before the display-control channel opened, or while the server was still
+    // working on the last one. Under _stageLock.
+    readonly ResizeGate _resizes = new();
 
-    // For the detailed log: when the session connected or a resize was asked for, until the first picture after it.
+    // For the detailed log: when the session connected or the server resized, until the first picture after it.
     long _firstPictureFrom;
     string? _firstPictureAfter;
-    long _resizeAskedAt;
+
+    // For the Connection card: when connecting started, and when Orrery last asked for a size the server then took.
+    long _connectStarted, _resizeAsked;
+
+    /// <summary>The traffic and timings the session pane shows.</summary>
+    public LinkStats Link { get; } = new();
 
     // Keyboard and mouse input goes out after the input before it, in the order it was applied. Under _stageLock.
     Task _inputChain = Task.CompletedTask;
@@ -148,6 +159,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesChanged;
 
     /// <inheritdoc/>
+    public event EventHandler<IReadOnlyList<string>>? RemoteClipboardFilesReady;
+
+    /// <inheritdoc/>
     public event EventHandler<ClipboardTransfer>? ClipboardTransferChanged;
 
     /// <summary>
@@ -202,6 +216,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     async Task RunAsync(string password, int desktopWidth, int desktopHeight, DisplayQuality quality)
     {
         var token = _cts.Token;
+        _connectStarted = Stopwatch.GetTimestamp();
         try
         {
             var (result, framed, drivesShared) = await ConnectFollowingRedirectionsAsync(password, desktopWidth, desktopHeight, quality, token);
@@ -231,6 +246,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 _bridge.TextRefused += (_, reason) => ClipboardRefused?.Invoke(this, reason);
                 _bridge.RemoteImageChanged += (_, image) => RemoteClipboardImageChanged?.Invoke(this, image);
                 _bridge.RemoteFilesChanged += (_, paths) => RemoteClipboardFilesChanged?.Invoke(this, paths);
+                _bridge.RemoteFilesReady += (_, paths) => RemoteClipboardFilesReady?.Invoke(this, paths);
                 _bridge.TransferChanged += (_, transfer) => ClipboardTransferChanged?.Invoke(this, transfer);
             }
 
@@ -238,13 +254,16 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             SetState(SessionState.Connected);
             FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
             _inputFrameLoop = Task.Run(() => InputFrameLoopAsync(token));
+            // Each waits for the clipboard in a blocking call, so on a thread of its own rather than the pool's.
             if (_clipboard is not null)
             {
-                _clipboardLoop = Task.Run(() => ClipboardLoopAsync(_clipboard, token));
+                var clipboard = _clipboard;
+                _clipboardLoop = OwnThread.Run("RDP clipboard", () => ClipboardLoopAsync(clipboard, token));
             }
             else if (_bridge is not null)
             {
-                _clipboardLoop = Task.Run(() => BridgeLoopAsync(_bridge, token));
+                var bridge = _bridge;
+                _clipboardLoop = OwnThread.Run("RDP clipboard", () => BridgeLoopAsync(bridge, token));
             }
 
             if (drivesShared)
@@ -289,7 +308,9 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             var clipboardFactory = _clipboard?.BackendFactory() ?? _textClipboard?.BackendFactory();
             try
             {
-                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token, _audioTap);
+                return await RdpConnector.ConnectAsync(config, target, dial, _certificateValidator, clipboardFactory, _options, redirectedFrom, token, _audioTap,
+                    // Through a tunnel the socket only reaches its local end, whose round trip says nothing.
+                    _route is null ? Link : null);
             }
             catch (ServerRedirectedException e)
             {
@@ -385,8 +406,10 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         while (!token.IsCancellationRequested)
         {
             var (action, payload) = await _framed!.ReadPdu(token);
+            Link.Received(payload.Length);
             bool resized = false;
-            (int Width, int Height)? waitingResize = null;
+            DesktopRequest? waitingResize = null;
+            long decodeStarted = Stopwatch.GetTimestamp();
             var outputs = WithStageLock(() =>
             {
                 var processed = _activeStage!.Process(_image!, action, payload);
@@ -403,6 +426,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
                 return processed;
             });
+            Link.Busy(Stopwatch.GetElapsedTime(decodeStarted));
 
             if (resized)
             {
@@ -417,19 +441,20 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
             if (waitingResize is { } size)
             {
-                Logger.LogDebug("{Host}: the display control channel is open, asking for the size wanted before it was", Target.Host);
-                RequestResize(size.Width, size.Height);
+                Logger.LogDebug("{Host}: the server can resize now, asking for the size wanted meanwhile", Target.Host);
+                _ = Task.Run(() => SendResizeAsync(size));
             }
         }
     }
 
     /// <summary>
-    /// The size asked for before the server opened its display-control channel, once that channel is ready, and
-    /// forgets it. Null while there's none, or the channel isn't ready yet. Caller holds _stageLock.
+    /// The size asked for while the server couldn't take it (before its display-control channel opened, or while it
+    /// was still resizing), once it can, and forgets it. Null while there's none, or it still can't. Caller holds
+    /// _stageLock.
     /// </summary>
-    (int Width, int Height)? TakeReadyResize()
+    DesktopRequest? TakeReadyResize()
     {
-        if (_waitingResize is not { } size)
+        if (!_resizes.HasWaiting)
         {
             return null;
         }
@@ -442,17 +467,11 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         catch (EntryPointNotFoundException)
         {
             // A native library that can't say: the size is dropped, as it was before.
-            _waitingResize = null;
+            _resizes.Drop();
             return null;
         }
 
-        if (!ready)
-        {
-            return null;
-        }
-
-        _waitingResize = null;
-        return size;
+        return ready ? _resizes.TakeWaiting(Stopwatch.GetTimestamp()) : null;
     }
 
     /// <summary>
@@ -483,6 +502,11 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             {
                 return;
             }
+            catch (IronRdpException e) when (IsRemoteStoppedReading(e.Message))
+            {
+                Logger.LogWarning("The remote desktop stopped reading the files copied from here when something was copied there");
+                ClipboardRefused?.Invoke(this, RemoteStoppedReadingNotice);
+            }
             catch (IronRdpException e)
             {
                 // Only this clipboard operation failed; the session goes on.
@@ -496,6 +520,20 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             }
         }
     }
+
+    /// <summary>
+    /// How IronRDP's Windows clipboard starts the error it reports when the server abandons a paste of files copied from
+    /// here because something was copied on it. It only reports that when it's sure: the server was partway through a
+    /// file, its clipboard changed as it read, and it then asked for nothing more while still holding the files.
+    /// </summary>
+    internal const string RemoteStoppedReadingMarker = "the remote stopped reading the files copied from here";
+
+    internal const string RemoteStoppedReadingNotice =
+        "The remote desktop stopped copying the files from this computer when something was copied there, so its copy is incomplete. "
+        + "Copy the files again, or use a shared drive for large ones.";
+
+    internal static bool IsRemoteStoppedReading(string message) =>
+        message.StartsWith(RemoteStoppedReadingMarker, StringComparison.Ordinal);
 
     /// <summary>Runs the text clipboard. A failed operation is logged and the bridge goes on with the next event.</summary>
     static async Task BridgeLoopAsync(RdpClipboardBridge bridge, CancellationToken token)
@@ -724,7 +762,14 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                     case ActiveStageOutputType.ResponseFrame:
                         using (var frame = output.ResponseFrame)
                         {
-                            await WriteAsync(ToBytes(frame), token);
+                            // IronRDP gives one for nearly every message the server sends, and most are empty: with
+                            // the graphics pipeline, every 1.6 KB piece of a picture has one. On Windows an empty
+                            // write still sends an encrypted record of its own, and each waits on the lock input
+                            // goes through.
+                            if (frame.Size > 0)
+                            {
+                                await WriteAsync(ToBytes(frame), token);
+                            }
                         }
                         break;
 
@@ -795,12 +840,25 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         {
             _firstPictureAfter = null;
             Logger.LogDebug("{Host}: first picture {Ms:0} ms after {After}", Target.Host, Stopwatch.GetElapsedTime(_firstPictureFrom).TotalMilliseconds, after);
+            // What the user waits for: from starting to connect, or asking for the size, to seeing the desktop.
+            if (after == "connecting")
+            {
+                Link.ConnectTime = Stopwatch.GetElapsedTime(_connectStarted);
+            }
+            else if (_resizeAsked != 0)
+            {
+                Link.LastResize = Stopwatch.GetElapsedTime(_resizeAsked);
+            }
         }
 
         FrameRect rect;
         lock (_stageLock)
         {
-            _image!.CopyRectInto(damage, _frame, (nuint)(Width * BytesPerPixel));
+            lock (_frameLock)
+            {
+                _image!.CopyRectInto(damage, _frame, (nuint)(Width * BytesPerPixel));
+            }
+
             rect = new FrameRect(damage.Left, damage.Top, damage.Right - damage.Left + 1, damage.Bottom - damage.Top + 1);
         }
 
@@ -835,19 +893,22 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
                 finalized.WindowSupportLevel);
             _activeStage.EnableServerPointer = finalized.EnableServerPointer;
             _pointerSoftwareRendering = finalized.PointerSoftwareRendering;
+            NoteServerResized();
         }
 
-        NoteServerResized();
         FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(new FrameRect(0, 0, Width, Height), resized: true));
     }
 
-    /// <summary>For the detailed log: how long the server took to resize after Orrery asked, and then to draw.</summary>
+    /// <summary>
+    /// The server resized, so a size held back meanwhile can go. For the detailed log, how long it took after Orrery
+    /// asked, and then to draw. Caller holds _stageLock.
+    /// </summary>
     void NoteServerResized()
     {
-        if (Interlocked.Exchange(ref _resizeAskedAt, 0) is var asked and not 0)
+        if (_resizes.Answered() is var asked and not 0)
         {
             Logger.LogDebug("{Host}: the server resized {Ms:0} ms after Orrery asked", Target.Host, Stopwatch.GetElapsedTime(asked).TotalMilliseconds);
-            (_firstPictureFrom, _firstPictureAfter) = (Stopwatch.GetTimestamp(), "resizing");
+            (_firstPictureFrom, _firstPictureAfter, _resizeAsked) = (Stopwatch.GetTimestamp(), "resizing", asked);
         }
     }
 
@@ -877,11 +938,13 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         }
 
         CheckDesktopSize(width, height);
-        var frame = new byte[checked((long)width * height * BytesPerPixel)];
-        _image.FillData(frame);
-        _frame = frame;
-        Width = width;
-        Height = height;
+        lock (_frameLock)
+        {
+            var frame = FrameFor(width, height);
+            _image.FillData(frame);
+            (_frame, Width, Height) = (frame, width, height);
+        }
+
         Logger.LogInformation("{Host}: the server reset its graphics, desktop {Width}x{Height}", Target.Host, width, height);
         NoteServerResized();
         return true;
@@ -891,11 +954,15 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     // allocation leaves the previous frame whole.
     void ResetImage(ushort width, ushort height)
     {
-        var frame = new byte[checked((long)width * height * BytesPerPixel)];
         var image = DecodedImage.New(RdpPixelFormat.RgbA32, width, height);
         try
         {
-            image.FillData(frame);
+            lock (_frameLock)
+            {
+                var frame = FrameFor(width, height);
+                image.FillData(frame);
+                (_frame, Width, Height) = (frame, width, height);
+            }
         }
         catch
         {
@@ -904,15 +971,24 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         }
 
         var previous = _image;
-        (_image, _frame) = (image, frame);
+        _image = image;
         previous?.Dispose();
-        Width = width;
-        Height = height;
+    }
+
+    /// <summary>
+    /// A buffer for a picture of this size: the current one when it's big enough, as it is when the desktop shrinks,
+    /// so a window dragged smaller doesn't allocate a large array for each step. Otherwise a new one, not cleared
+    /// first, as the image is copied over the part that's used. Caller holds _frameLock.
+    /// </summary>
+    byte[] FrameFor(int width, int height)
+    {
+        int size = checked((int)((long)width * height * BytesPerPixel));
+        return _frame.Length >= size ? _frame : GC.AllocateUninitializedArray<byte>(size);
     }
 
     public void CopyRegion(FrameRect region, IntPtr destination, int destinationStride)
     {
-        lock (_stageLock)
+        lock (_frameLock)
         {
             int x = Math.Clamp(region.X, 0, Width), y = Math.Clamp(region.Y, 0, Height);
             int right = Math.Clamp(region.Right, x, Width), bottom = Math.Clamp(region.Bottom, y, Height);
@@ -1173,45 +1249,90 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         }
 
         // MS-RDPEDISP: 200 to 8192 pixels, and the width must be even.
-        width = Math.Clamp(width, 200, DesktopLimits.MaxSide) & ~1;
-        height = Math.Clamp(height, 200, DesktopLimits.MaxSide);
-        int scale = _desktopScale;
-        if (width == Width && height == Height && scale == _sentScale)
-        {
-            return;
-        }
+        var wanted = new DesktopRequest(Math.Clamp(width, 200, DesktopLimits.MaxSide) & ~1, Math.Clamp(height, 200, DesktopLimits.MaxSide), _desktopScale);
+        _ = Task.Run(() => SendResizeAsync(wanted));
+    }
 
-        _ = Task.Run(async () =>
+    /// <summary>
+    /// Asks the server for <paramref name="wanted"/> unless the desktop is that already. While the server can't take
+    /// it, as before its display-control channel opens or while it's still working on the last resize, it's kept and
+    /// asked for once it can (see <see cref="ResizeGate"/>).
+    /// </summary>
+    async Task SendResizeAsync(DesktopRequest wanted)
+    {
+        try
         {
-            try
+            var token = _cts.Token;
+            var (decision, outputs, heldFor) = WithStageLock(() =>
             {
-                // Null when the server hasn't opened the display-control channel, i.e. it can't resize yet. The size
-                // is kept then, and the read loop asks for it once the channel is ready.
-                var outputs = WithStageLock(() =>
+                long now = Stopwatch.GetTimestamp();
+                var decision = _resizes.Offer(wanted, new DesktopRequest(Width, Height, _sentScale), now);
+                if (decision != ResizeGate.Decision.Send)
                 {
-                    var encoded = _followsDisplayScale
-                        ? _activeStage!.EncodedResizeWithScale((uint)width, (uint)height, (uint)scale)
-                        : _activeStage!.EncodedResize((uint)width, (uint)height);
-                    _waitingResize = encoded is null ? (width, height) : null;
-                    return encoded;
-                });
-                if (outputs is not null)
+                    return (decision, (ActiveStageOutputIterator?)null, _resizes.HeldFor(now));
+                }
+
+                // Null when the server hasn't opened the display-control channel, i.e. it can't resize yet.
+                var encoded = _followsDisplayScale
+                    ? _activeStage!.EncodedResizeWithScale((uint)wanted.Width, (uint)wanted.Height, (uint)wanted.Scale)
+                    : _activeStage!.EncodedResize((uint)wanted.Width, (uint)wanted.Height);
+                if (encoded is null)
                 {
-                    _sentScale = scale;
-                    Interlocked.Exchange(ref _resizeAskedAt, Stopwatch.GetTimestamp());
-                    Logger.LogDebug("{Host}: asking for a {Width}x{Height} desktop at {Scale}%", Target.Host, width, height, scale);
-                    await HandleOutputsAsync(outputs, _cts.Token);
+                    _resizes.Keep(wanted);
                 }
                 else
                 {
-                    Logger.LogDebug("{Host}: can't resize yet, the server has no display control channel", Target.Host);
+                    // Before it's written, so an answer can't come before the request is counted as asked.
+                    _resizes.Sent(wanted, now);
+                    _sentScale = wanted.Scale;
                 }
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
+
+                return (decision, encoded, TimeSpan.Zero);
+            });
+
+            if (decision == ResizeGate.Decision.Hold)
             {
-                Logger.LogError("RDP resize to {Width}x{Height} failed: {Message}", width, height, e.Message);
+                Logger.LogDebug("{Host}: holding a {Width}x{Height} desktop until the server has finished resizing", Target.Host, wanted.Width, wanted.Height);
+                _ = SendHeldResizeAsync(heldFor, token);
             }
-        });
+            else if (decision == ResizeGate.Decision.Send && outputs is null)
+            {
+                Logger.LogDebug("{Host}: can't resize yet, the server has no display control channel", Target.Host);
+            }
+            else if (outputs is not null)
+            {
+                Logger.LogDebug("{Host}: asking for a {Width}x{Height} desktop at {Scale}%", Target.Host, wanted.Width, wanted.Height, wanted.Scale);
+                await HandleOutputsAsync(outputs, token);
+            }
+        }
+        catch (ObjectDisposedException) when (State != SessionState.Connected)
+        {
+            // Closed meanwhile.
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Logger.LogError("RDP resize to {Width}x{Height} failed: {Message}", wanted.Width, wanted.Height, e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Asks for a size held back once the resize before it stops holding it back, for a server that leaves the size
+    /// as it was without a word. When the server resizes first, the read loop has already sent it.
+    /// </summary>
+    async Task SendHeldResizeAsync(TimeSpan after, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(after + TimeSpan.FromMilliseconds(10), token);
+            if (State == SessionState.Connected && WithStageLock(TakeReadyResize) is { } held)
+            {
+                await SendResizeAsync(held);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Closed meanwhile.
+        }
     }
 
     /// <summary>
@@ -1453,6 +1574,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         try
         {
             await _framed!.Write(bytes);
+            Link.Sent(bytes.Length);
         }
         finally
         {
@@ -1495,8 +1617,35 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             PerformanceFlagsType.DisableWallpaper, PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations,
             PerformanceFlagsType.DisableTheming, PerformanceFlagsType.DisableCursorShadow, PerformanceFlagsType.DisableCursorSettings,
         ],
-        _ => [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing],
+        _ => IronRdpDefault,
     };
+
+    /// <summary>The flags IronRDP sends when it's given none: no window contents while dragging, no menu animations, font smoothing.</summary>
+    static readonly PerformanceFlagsType[] IronRdpDefault =
+        [PerformanceFlagsType.DisableFullWindowDrag, PerformanceFlagsType.DisableMenuAnimations, PerformanceFlagsType.EnableFontSmoothing];
+
+    /// <summary>
+    /// Whether <paramref name="quality"/>'s flags start from IronRDP's default rather than from none. IronRDP's
+    /// EnableFontSmoothing flag sends desktop composition instead (its bindings map it to the wrong bit), and its
+    /// default is the only way to send font smoothing, so flags that include the whole default, as Balanced's do, start
+    /// from it. Best goes without font smoothing until a release of IronRDP maps the flag right.
+    /// </summary>
+    internal static bool StartsFromIronRdpDefault(DisplayQuality quality) => IronRdpDefault.All(VisualEffects(quality).Contains);
+
+    static PerformanceFlags PerformanceFlagsFor(DisplayQuality quality)
+    {
+        bool fromDefault = StartsFromIronRdpDefault(quality);
+        var flags = fromDefault ? PerformanceFlags.NewDefault() : PerformanceFlags.NewEmpty();
+        foreach (var flag in VisualEffects(quality))
+        {
+            if (!fromDefault || !IronRdpDefault.Contains(flag))
+            {
+                flags.AddFlag(flag);
+            }
+        }
+
+        return flags;
+    }
 
     static Config BuildConfig(ConnectionTarget target, string password, int width, int height, DisplayQuality quality, bool playAudio, int? desktopScale)
     {
@@ -1511,13 +1660,7 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         builder.SetDesktopSize((ushort)height, (ushort)width);
         builder.ClientName = RdpConnector.ClientName;
         builder.ClientDir = "C:\\";
-        var flags = PerformanceFlags.NewEmpty();
-        foreach (var flag in VisualEffects(quality))
-        {
-            flags.AddFlag(flag);
-        }
-
-        builder.PerformanceFlags = flags;
+        builder.PerformanceFlags = PerformanceFlagsFor(quality);
         if (!playAudio)
         {
             try

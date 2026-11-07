@@ -226,7 +226,7 @@ sealed class PropertiesPanel : UserControl
         _commandsSection = Pane.Section("Commands", Pane.Rows(_confirmCommandsRow.View), _commandList, addCommand,
             new TextBlock
             {
-                Text = "Sent to the terminal from Ctrl+K or the session's menu, never by themselves. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.",
+                Text = "Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.",
                 FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap,
             });
         _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
@@ -333,7 +333,7 @@ sealed class PropertiesPanel : UserControl
         _nameField = Dialogs.Field("Name", _name);
         _managementUrlField = Dialogs.Field("Management URL (optional)", _managementUrl);
         ToolTip.SetTip(_managementUrl, "A web page for managing this machine, such as a firewall's or a server's out-of-band console. "
-            + "Open management page in the connection's right-click menu opens it in the browser. Set here only; folders don't pass it on.");
+            + "Open management page in the connection's right-click menu opens it in a tab, or in your browser where Settings or this connection says so. Set here only; folders don't pass it on.");
         _notesField = Pane.Section("Notes", _notes);
 
         var browseStart = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0 };
@@ -529,8 +529,9 @@ sealed class PropertiesPanel : UserControl
     public event EventHandler<SessionTab>? ReconnectRequested;
 
     /// <summary>
-    /// The session tab in front, if any. While it's a remote desktop connected to the connection shown, the pane gets a
-    /// "This session" tab beside the saved settings.
+    /// The session tab in front, if any. While it's connected to the connection shown, the pane gets a "This session"
+    /// tab beside the saved settings: a remote desktop's view settings and how the connection is doing, or for a
+    /// terminal only the latter.
     /// </summary>
     public void ShowSession(SessionTab? tab)
     {
@@ -550,7 +551,7 @@ sealed class PropertiesPanel : UserControl
 
     void UpdateTabs()
     {
-        bool live = _liveTab is { View: RemoteFrameView, Session.State: SessionState.Connected } tab
+        bool live = _liveTab is { Session.State: SessionState.Connected } tab && (tab.View is RemoteFrameView || tab.Link is not null)
             && _node is ConnectionEntry entry && tab.Origin.EntryId == entry.Id && !tab.Origin.Files;
         _tabStrip.IsVisible = live;
         if (!live)
@@ -562,8 +563,11 @@ sealed class PropertiesPanel : UserControl
         else if (_sessionFor is not { } shown || shown.Tab != _liveTab || shown.Node != _node)
         {
             var open = _liveTab!;
-            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, (RemoteFrameView)open.View, _enlargeByDefault,
-                open.FixedAtStart ?? SessionSettingsView.FixedSettingsNow((ConnectionEntry)_node!, open.Origin.Protocol, _enlargeByDefault()));
+            // A terminal has nothing fixed at the start to compare: only the Connection card.
+            var desktop = open.View as RemoteFrameView;
+            var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, desktop, _enlargeByDefault,
+                desktop is null ? [] : open.FixedAtStart ?? SessionSettingsView.FixedSettingsNow((ConnectionEntry)_node!, open.Origin.Protocol, _enlargeByDefault()),
+                open.Link);
             view.Applied += (_, _) =>
             {
                 ShowSessionBadge();
