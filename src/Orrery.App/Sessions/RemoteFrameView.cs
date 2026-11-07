@@ -48,6 +48,9 @@ public sealed partial class RemoteFrameView : Panel
     readonly HashSet<int> _touches = [];
     readonly HashSet<int> _pensInRange = [];
 
+    // The mouse buttons the remote has been told are down.
+    readonly HashSet<PointerButton> _buttonsDown = [];
+
     // The End key of a Ctrl+Alt+End that was sent as Ctrl+Alt+Del, so its release isn't sent too.
     PhysicalKey? _ctrlAltDelKey;
 
@@ -924,6 +927,9 @@ public sealed partial class RemoteFrameView : Panel
             LastRemotePointer = (x, y);
             Session.SendPointerMove(x, y);
         }
+
+        // While a button is held, Avalonia reports another button going down or up as a move, not a press or release.
+        SendButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind);
     }
 
     /// <summary>Where the pointer last was on the remote desktop, in its pixels, for a recording; null before it's moved there.</summary>
@@ -959,9 +965,8 @@ public sealed partial class RemoteFrameView : Panel
         {
             e.Handled = true;
         }
-        else if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
+        else if (!_viewOnly && SendButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind))
         {
-            Session.SendPointerButton(button, pressed: true);
             e.Handled = true;
         }
     }
@@ -973,10 +978,51 @@ public sealed partial class RemoteFrameView : Panel
         {
             e.Handled = true;
         }
-        else if (!_viewOnly && ToButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind) is { } button)
+        else if (!_viewOnly && SendButton(e.GetCurrentPoint(this).Properties.PointerUpdateKind))
         {
-            Session.SendPointerButton(button, pressed: false);
             e.Handled = true;
+        }
+
+        // The last button up ends the press, so anything the remote still thinks is down goes up with it, in case a
+        // change went unreported.
+        if (!_viewOnly && e.Pointer.Type == PointerType.Mouse && !AnyButton(e.GetCurrentPoint(this).Properties))
+        {
+            ReleaseButtons();
+        }
+    }
+
+    /// <summary>
+    /// Sends a mouse button going down or up, as <paramref name="kind"/> says, once: the remote keeps its own idea of
+    /// what's held, so a change reported twice or a release of a button it never had down would confuse it.
+    /// </summary>
+    /// <returns>Whether <paramref name="kind"/> was a button changing.</returns>
+    bool SendButton(PointerUpdateKind kind)
+    {
+        if (_viewOnly || ToButton(kind) is not { } button)
+        {
+            return false;
+        }
+
+        bool pressed = kind is PointerUpdateKind.LeftButtonPressed or PointerUpdateKind.RightButtonPressed or PointerUpdateKind.MiddleButtonPressed
+            or PointerUpdateKind.XButton1Pressed or PointerUpdateKind.XButton2Pressed;
+        if (pressed ? _buttonsDown.Add(button) : _buttonsDown.Remove(button))
+        {
+            Session.SendPointerButton(button, pressed);
+        }
+
+        return true;
+    }
+
+    static bool AnyButton(PointerPointProperties p) =>
+        p.IsLeftButtonPressed || p.IsRightButtonPressed || p.IsMiddleButtonPressed || p.IsXButton1Pressed || p.IsXButton2Pressed;
+
+    /// <summary>Lets go of every button the remote thinks is held, as when the view loses the mouse.</summary>
+    void ReleaseButtons()
+    {
+        foreach (var button in _buttonsDown.ToList())
+        {
+            _buttonsDown.Remove(button);
+            Session.SendPointerButton(button, pressed: false);
         }
     }
 
@@ -989,6 +1035,11 @@ public sealed partial class RemoteFrameView : Panel
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
+        if (e.Pointer.Type == PointerType.Mouse)
+        {
+            ReleaseButtons();
+        }
+
         int id = e.Pointer.Id;
         if (Session is ITouchInput touch)
         {
@@ -1184,6 +1235,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         _keysymsDown.Clear();
         Session.ReleaseAllKeys();
+        ReleaseButtons();
     }
 
     /// <summary>The window moved to a monitor with different scaling.</summary>
