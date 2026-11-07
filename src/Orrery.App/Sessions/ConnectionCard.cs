@@ -60,14 +60,11 @@ sealed class ConnectionCard : Border
             }
         };
 
-        var legend = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-        var keys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, Children = { Key(_primaryLegend, Palette.Accent, dashed: false), _secondaryKey } };
-        var right = Muted("now");
-        Grid.SetColumn(keys, 1);
-        Grid.SetColumn(right, 2);
-        legend.Children.Add(Muted(LinkMonitor.Duration(TimeSpan.FromSeconds(LinkMonitor.HistoryLength)) + " ago"));
-        legend.Children.Add(keys);
-        legend.Children.Add(right);
+        // The time axis under the graph, then the keys on a line of their own: side by side they ran into each other
+        // in a narrow pane.
+        var axis = new DockPanel { Children = { Pane.Docked(Muted("now"), Dock.Right), Muted(LinkMonitor.Duration(TimeSpan.FromSeconds(LinkMonitor.HistoryLength)) + " ago") } };
+        var keys = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0), Children = { Key(_primaryLegend, Palette.Accent, dashed: false), _secondaryKey } };
+        _secondaryKey.Margin = new Thickness(12, 0, 0, 0);
 
         Background = GroupBrush;
         BorderBrush = Pane.LineBrush;
@@ -83,7 +80,7 @@ sealed class ConnectionCard : Border
                 new DockPanel { Children = { Pane.Docked(copy, Dock.Right), heading } },
                 new DockPanel { Children = { Pane.Docked(_figures, Dock.Right), _dot, _verdict } },
                 _hints,
-                new StackPanel { Spacing = 2, Children = { _graph, legend } },
+                new StackPanel { Spacing = 2, Children = { _graph, axis, keys } },
                 _body,
             },
         };

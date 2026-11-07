@@ -487,6 +487,9 @@ public class RemoteFrameViewTests
         Dispatcher.UIThread.RunJobs();
         await Run(TimeSpan.FromMilliseconds(50));
         Assert.False(view.Stretching);
+
+        // How long that took is measured, from asking to the picture at the new size.
+        Assert.True(view.LastResizeTook >= RemoteFrameView.ResizeSettleDelay - TimeSpan.FromMilliseconds(100), $"Took {view.LastResizeTook}");
         window.Close();
     }
 
@@ -509,6 +512,32 @@ public class RemoteFrameViewTests
 
         Assert.True(session.Requests.Count >= 2, $"Asked {session.Requests.Count} times during the drag.");
         Assert.True(session.Requests.Count <= 6, $"Asked {session.Requests.Count} times during the drag.");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task A_server_slow_to_resize_is_asked_at_the_start_of_a_drag_and_when_it_settles_only()
+    {
+        var session = new FollowingDesktop();
+        var view = new RemoteFrameView(session);
+        var window = new Window { Content = view, Width = 640, Height = 480 };
+        window.Show();
+        session.Show();
+        await Run(TimeSpan.FromMilliseconds(400));
+        session.Requests.Clear();
+        // As a server measured at 13:40 took; it doesn't answer during the drag, so that stays what's known.
+        view.LastResizeTook = TimeSpan.FromMilliseconds(520);
+        session.Answers = false;
+
+        for (int i = 1; i <= 25; i++)
+        {
+            window.Width = 640 + i * 8;
+            await Run(TimeSpan.FromMilliseconds(40));
+        }
+
+        await Run(RemoteFrameView.ResizeSettleDelay + TimeSpan.FromMilliseconds(100));
+        Assert.Equal(2, session.Requests.Count);
+        Assert.True(session.Requests[1].Width > session.Requests[0].Width + 100, "The second ask is for where the drag ended.");
         window.Close();
     }
 

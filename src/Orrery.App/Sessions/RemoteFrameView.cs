@@ -94,6 +94,10 @@ public sealed partial class RemoteFrameView : Panel
     internal static readonly TimeSpan ResizeSettleDelay = TimeSpan.FromMilliseconds(150);
     internal static readonly TimeSpan ResizeMaxWait = TimeSpan.FromMilliseconds(300);
 
+    // Some servers take half a second or more to resize. Asking on the way through a drag then only queues resizes
+    // behind each other, so for those the size is asked for at the start of a drag and once it settles, not on the way.
+    internal static readonly TimeSpan SlowResize = TimeSpan.FromMilliseconds(250);
+
     // How long the old picture stays stretched to the view if the server never sends the new size.
     static readonly TimeSpan StretchGiveUp = TimeSpan.FromSeconds(2);
 
@@ -106,6 +110,10 @@ public sealed partial class RemoteFrameView : Panel
     bool _serverFollows;
     bool _stretching;
     bool _askedForSize;
+    long _askedAt;
+
+    /// <summary>How long the server took, from asking to its picture at the new size, the last time it resized.</summary>
+    internal TimeSpan? LastResizeTook { get; set; }
 
     readonly object _dirtyLock = new();
     readonly DispatcherTimer _resizeTimer;
@@ -668,7 +676,7 @@ public sealed partial class RemoteFrameView : Panel
             {
                 _resizeWantedSince = now;
             }
-            else if (System.Diagnostics.Stopwatch.GetElapsedTime(_resizeWantedSince, now) >= ResizeMaxWait)
+            else if (System.Diagnostics.Stopwatch.GetElapsedTime(_resizeWantedSince, now) >= ResizeMaxWait && !(LastResizeTook >= SlowResize))
             {
                 // Still dragging: ask for the size so far, so the desktop follows instead of catching up at the end.
                 AskForViewSize();
@@ -698,6 +706,11 @@ public sealed partial class RemoteFrameView : Panel
         if (_spannedMonitors is not { } monitors || Session is not IMultiMonitorSession spread || !spread.RequestMonitorLayout(monitors))
         {
             var (width, height) = DesktopSize(Bounds.Size, _topLevel?.RenderScaling ?? 1, _zoom);
+            if (Session.State == SessionState.Connected && (width != Session.Width || height != Session.Height))
+            {
+                _askedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            }
+
             Session.RequestResize(width, height);
             _askedForSize |= Session.State == SessionState.Connected;
             if (_stretching)
@@ -788,6 +801,12 @@ public sealed partial class RemoteFrameView : Panel
                 _image.Source = _bitmap;
                 // A new size after Orrery asked for one: the server follows the view, so later resizes stretch meanwhile.
                 bool followed = ResizesToView;
+                if (_askedForSize && _askedAt != 0)
+                {
+                    LastResizeTook = System.Diagnostics.Stopwatch.GetElapsedTime(_askedAt);
+                    _askedAt = 0;
+                }
+
                 _serverFollows |= _askedForSize;
                 _askedForSize = false;
                 if (ResizesToView != followed)
