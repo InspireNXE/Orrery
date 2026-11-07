@@ -38,7 +38,7 @@ using Orrery.Protocols.Vnc;
 
 namespace Orrery.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IFullScreenHost
 {
     // The session toolbar's height, which isn't laid out yet when the first session starts.
     const double SessionToolbarHeight = 45;
@@ -94,6 +94,16 @@ public partial class MainWindow : Window
     // Full screen hides every pane and bar; these are what to put back.
     bool _fullScreen;
     WindowState _stateBeforeFullScreen;
+
+    bool IFullScreenHost.IsFullScreen => _fullScreen;
+
+    event EventHandler? FullScreenChanged;
+
+    event EventHandler? IFullScreenHost.FullScreenChanged
+    {
+        add => FullScreenChanged += value;
+        remove => FullScreenChanged -= value;
+    }
     (PixelPoint Position, WindowState State)? _positionBeforeFullScreen;
 
     // The offer to reopen last time's sessions, set aside while a session is full screen.
@@ -166,6 +176,7 @@ public partial class MainWindow : Window
         _settingsStore = AppSettingsStore.In(location);
         _presence = new DataFolderPresence(location.DataDir, Environment.MachineName);
         Palette.Use(_settingsStore.Load().InterfaceColorScheme);
+        Input.WindowsKeyHook.Shortcuts = _settingsStore.Load().SystemShortcutsGo;
 
         var storageText = this.FindControl<TextBlock>("StorageText")!;
         storageText.Text = location.DataDir;
@@ -1525,6 +1536,7 @@ public partial class MainWindow : Window
             WindowState = WindowState.FullScreen;
         }
 
+        FullScreenChanged?.Invoke(this, EventArgs.Empty);
         Dispatcher.UIThread.Post(tab.FocusContent, DispatcherPriority.Background);
     }
 
@@ -1674,6 +1686,7 @@ public partial class MainWindow : Window
 
         WindowState = _stateBeforeFullScreen;
         ExtendClientAreaToDecorationsHint = true;
+        FullScreenChanged?.Invoke(this, EventArgs.Empty);
         UpdateSessionToolbar();
         if (_currentTab is { } tab)
         {

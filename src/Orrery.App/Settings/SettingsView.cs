@@ -1194,12 +1194,51 @@ sealed class SettingsView : UserControl
             TrySaveSettings();
         };
 
+        var zoomNote = Note("RDP tells the server this display's scaling, as Windows' own client does, so the desktop stays sharp with text the size of "
+            + "your other apps'. VNC can't be told, so its picture is enlarged instead: sharp at 200%, slightly soft at 125% or 150%. "
+            + "Off, remote text looks as small as it would at 100%. Applies to new connections. "
+            + "A connection or folder can set its own choice in its properties.");
+
+        // Only Windows lets Orrery take Alt+Tab from the system; elsewhere the Send keys menu sends it.
+        if (!OperatingSystem.IsWindows())
+        {
+            return Section("Remote desktops", zoom, zoomNote);
+        }
+
+        var shortcuts = new ComboBox
+        {
+            MinWidth = 160,
+            Name = "SystemShortcuts",
+            ItemsSource = new[]
+            {
+                new ComboBoxItem { Content = "In full screen", Tag = SystemShortcuts.FullScreen },
+                new ComboBoxItem { Content = "On the remote computer", Tag = SystemShortcuts.Remote },
+                new ComboBoxItem { Content = "On this computer", Tag = SystemShortcuts.Local },
+            },
+            SelectedIndex = _settings.SystemShortcutsGo switch { SystemShortcuts.Remote => 1, SystemShortcuts.Local => 2, _ => 0 },
+        };
+        AutomationProperties.SetName(shortcuts, "Alt+Tab and other Windows shortcuts go to the remote computer");
+        shortcuts.SelectionChanged += (_, _) =>
+        {
+            if (_loading || shortcuts.SelectedItem is not ComboBoxItem { Tag: SystemShortcuts choice })
+            {
+                return;
+            }
+
+            _settings = _settings with { RemoteSystemShortcuts = choice };
+            if (TrySaveSettings())
+            {
+                Input.WindowsKeyHook.Shortcuts = choice;
+            }
+        };
+
         return Section("Remote desktops",
             zoom,
-            Note("RDP tells the server this display's scaling, as Windows' own client does, so the desktop stays sharp with text the size of "
-                + "your other apps'. VNC can't be told, so its picture is enlarged instead: sharp at 200%, slightly soft at 125% or 150%. "
-                + "Off, remote text looks as small as it would at 100%. Applies to new connections. "
-                + "A connection or folder can set its own choice in its properties."));
+            zoomNote,
+            Row("Alt+Tab, Alt+Esc and Ctrl+Esc go to the remote", shortcuts),
+            Note("In full screen, as Windows' own client does, they work on the remote desktop; in a window they stay with this "
+                + "computer, so Alt+Tab still gets you out. The Windows key always goes to the remote desktop while it has the keyboard, "
+                + "and Ctrl+Alt+Del and Win+L always stay here. Takes effect at once."));
     }
 
     // ---- Web pages ----

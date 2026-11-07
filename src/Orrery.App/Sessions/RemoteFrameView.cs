@@ -57,7 +57,7 @@ public sealed partial class RemoteFrameView : Panel
     // VNC takes keysyms; the keysym sent on key down is remembered so the release matches it, even if
     // Shift changed what the key types in between.
     readonly Dictionary<PhysicalKey, uint> _keysymsDown = [];
-    readonly Action<bool, bool> _windowsKey;
+    readonly Action<HookedKey, bool> _windowsKey;
 
     // The clipboard text last exchanged with the server (VNC, or RDP off Windows), so a change isn't sent back where it came from.
     string? _lastClipboard;
@@ -147,7 +147,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         Session = session;
         _zoom = zoom;
-        _windowsKey = OnWindowsKey;
+        _windowsKey = OnHookedKey;
         if (session is IClipboardSession clipboardSession)
         {
             clipboardSession.ClipboardRefused += (_, reason) => Dispatcher.UIThread.Post(() =>
@@ -1211,7 +1211,7 @@ public sealed partial class RemoteFrameView : Panel
     {
         if (IsFocused && !_viewOnly && Session.State == SessionState.Connected && _topLevel?.TryGetPlatformHandle()?.Handle is { } window)
         {
-            WindowsKeyHook.Capture(_windowsKey, window);
+            WindowsKeyHook.Capture(_windowsKey, window, _topLevel is IFullScreenHost { IsFullScreen: true });
         }
         else
         {
@@ -1219,17 +1219,27 @@ public sealed partial class RemoteFrameView : Panel
         }
     }
 
-    void OnWindowsKey(bool right, bool pressed)
+    /// <summary>A key the hook took from Windows. Alt or Ctrl held with Tab or Esc already went to the session as usual.</summary>
+    internal void OnHookedKey(HookedKey key, bool pressed)
     {
+        if (_viewOnly)
+        {
+            return;
+        }
+
         if (Session is IKeysymInput keysyms)
         {
-            keysyms.SendKeysym(right ? 0xFFECu : 0xFFEBu, pressed); // Super_R / Super_L
+            // Super_L, Super_R, Tab, Escape
+            keysyms.SendKeysym(key switch { HookedKey.LeftWindows => 0xFFEBu, HookedKey.RightWindows => 0xFFECu, HookedKey.Tab => 0xFF09u, _ => 0xFF1Bu }, pressed);
         }
         else
         {
-            Session.SendKey(right ? (ushort)0xE05C : (ushort)0xE05B, pressed);
+            Session.SendKey(key switch { HookedKey.LeftWindows => (ushort)0xE05B, HookedKey.RightWindows => (ushort)0xE05C, HookedKey.Tab => (ushort)0x0F, _ => (ushort)0x01 }, pressed);
         }
     }
+
+    // In or out of full screen: Alt+Tab and the rest may change sides.
+    void OnFullScreenChanged(object? sender, EventArgs e) => UpdateKeyCapture();
 
     void ReleaseAllKeys()
     {
@@ -1282,6 +1292,11 @@ public sealed partial class RemoteFrameView : Panel
                 window.Deactivated += OnWindowDeactivated;
                 window.Activated += OnWindowActivated;
             }
+
+            if (_topLevel is IFullScreenHost host)
+            {
+                host.FullScreenChanged += OnFullScreenChanged;
+            }
         }
 
         _cursors ??= new RemotePointerCursors();
@@ -1308,6 +1323,11 @@ public sealed partial class RemoteFrameView : Panel
             {
                 window.Deactivated -= OnWindowDeactivated;
                 window.Activated -= OnWindowActivated;
+            }
+
+            if (_topLevel is IFullScreenHost host)
+            {
+                host.FullScreenChanged -= OnFullScreenChanged;
             }
 
             _topLevel = null;

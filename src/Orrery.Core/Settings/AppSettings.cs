@@ -79,6 +79,22 @@ public enum InterfaceColorScheme
 }
 
 /// <summary>
+/// Where Windows' own shortcuts (Alt+Tab, Alt+Esc, Ctrl+Esc) go while a remote desktop has the keyboard, as mstsc's
+/// "Apply Windows key combinations" picks. The Windows key itself always goes to the session.
+/// </summary>
+public enum SystemShortcuts
+{
+    /// <summary>To the remote computer in full screen, and to this one in a window, so Alt+Tab still leaves it: mstsc's default.</summary>
+    FullScreen,
+
+    /// <summary>Always to the remote computer.</summary>
+    Remote,
+
+    /// <summary>Always to this computer.</summary>
+    Local,
+}
+
+/// <summary>
 /// App preferences, kept in <c>settings.json</c> in the data folder. A null value means "use the default",
 /// so defaults can change in later versions without rewriting everyone's file.
 /// </summary>
@@ -103,6 +119,12 @@ public sealed record AppSettings
 
     [JsonIgnore]
     public bool ZoomRemoteDesktops => RemoteDesktopZoom ?? true;
+
+    /// <summary>Where Alt+Tab and Windows' other shortcuts go from a remote desktop on Windows. Null is <see cref="SystemShortcuts.FullScreen"/>.</summary>
+    public SystemShortcuts? RemoteSystemShortcuts { get; init; }
+
+    [JsonIgnore]
+    public SystemShortcuts SystemShortcutsGo => RemoteSystemShortcuts ?? SystemShortcuts.FullScreen;
 
     /// <summary>
     /// Open web connections and management pages in a tab in Orrery (null is on) rather than the default browser.

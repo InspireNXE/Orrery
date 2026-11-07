@@ -18,7 +18,7 @@ namespace Orrery.App.Sessions;
 /// comes back over the session when the pointer reaches the top. Closing the window puts the session back in the
 /// tabs rather than ending it (<see cref="RejoinRequested"/>).
 /// </summary>
-sealed class PopoutWindow : Window
+sealed class PopoutWindow : Window, IFullScreenHost
 {
     public const double MinSessionWidth = 480, MinSessionHeight = 320;
 

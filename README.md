@@ -88,7 +88,7 @@ machine yet, hence the 🧪.
 | Mute a tab | ✅ | 🧪 | 🧪 |
 | Shared drives and folders | 🧪 every drive or any folders | 🧪 home or any folders | 🧪 home or any folders |
 | Full screen over several displays | 🧪 | ➖ one display [^spaces] | ➖ one display [^wayland] |
-| System keys (Windows key, Alt+Tab) sent to the session | ✅ | 🔸 Send keys menu | 🔸 Send keys menu |
+| System keys (Windows key, Alt+Tab) sent to the session | ✅ Alt+Tab in full screen, or as set | 🔸 Send keys menu | 🔸 Send keys menu |
 | Touch and pen, console session, broker redirection | 🧪 | 🧪 | 🧪 |
 | **Recording** | | | |
 | Record terminals and remote desktops, with sound | ✅ | 🧪 | 🧪 |
@@ -691,8 +691,9 @@ Not yet checked on real machines:
 ### Windows
 
 - **Needs:** nothing; packages are self-contained.
-- **Keys:** while a session has the keyboard, Orrery takes the Windows keys for it, as mstsc does. Windows keeps
-  Ctrl+Alt+Del, so Ctrl+Alt+End sends it.
+- **Keys:** while a session has the keyboard, Orrery takes the Windows keys for it, as mstsc does. Alt+Tab, Alt+Esc
+  and Ctrl+Esc go to it in full screen and stay here in a window, as mstsc does by default; Settings → Remote
+  desktops sends them to the remote computer always, or never. Windows keeps Ctrl+Alt+Del, so Ctrl+Alt+End sends it.
 - **Shared drives:** every drive, or any folders, each as its own drive.
 - **Full screen** spans every display or chosen ones, gaps included.
 - **Sound** can also come as AAC.
