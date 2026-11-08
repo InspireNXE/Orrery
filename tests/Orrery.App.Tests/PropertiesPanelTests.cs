@@ -710,12 +710,12 @@ public class PropertiesPanelTests
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        Assert.Equal("~/.ssh/id_ed25519", PropertiesPanel.WithHome(Path.Combine(home, ".ssh", "id_ed25519")));
-        Assert.Equal("~/keys/work/id", PropertiesPanel.WithHome(Path.Combine(home, "keys", "work", "id")));
+        Assert.Equal("~/.ssh/id_ed25519", PropertyEditors.WithHome(Path.Combine(home, ".ssh", "id_ed25519")));
+        Assert.Equal("~/keys/work/id", PropertyEditors.WithHome(Path.Combine(home, "keys", "work", "id")));
 
         // Beside the home folder, not under it.
         var outside = Path.Combine(Path.GetDirectoryName(home.TrimEnd(Path.DirectorySeparatorChar))!, Path.GetFileName(home.TrimEnd(Path.DirectorySeparatorChar)) + "-other", "id");
-        Assert.Equal(outside, PropertiesPanel.WithHome(outside));
+        Assert.Equal(outside, PropertyEditors.WithHome(outside));
     }
 
     internal sealed class EmptyCredentialStore : ICredentialStore

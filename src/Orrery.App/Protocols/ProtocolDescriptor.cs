@@ -28,6 +28,18 @@ abstract class ProtocolDescriptor
     /// <summary>A <see cref="Controls.Icons"/> path: remote desktops get a monitor, terminals a prompt.</summary>
     public abstract string Icon { get; }
 
+    /// <summary>What the properties pane calls the connection's host, and what it suggests.</summary>
+    public virtual HostField Host => HostField.Network;
+
+    /// <summary>Whether a connection can ask for a fixed remote desktop size (RDP); a VNC server sets its own.</summary>
+    public virtual bool ChoosesDesktopSize => false;
+
+    /// <summary>
+    /// The protocol's own section in the properties pane, or null when it has none. Shown for its connections, and
+    /// for folders and the defaults, whose settings reach connections of every protocol.
+    /// </summary>
+    public virtual PropertiesSection? CreateSection(PropertiesContext context) => null;
+
     /// <summary>
     /// The saved settings a running session can't take up until it reconnects, as they'd be used then. These are the
     /// ones every session has; a protocol with more lists its own.

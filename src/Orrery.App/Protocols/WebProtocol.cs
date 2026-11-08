@@ -1,4 +1,5 @@
 using Avalonia.Media;
+using Orrery.App.Connections;
 using Orrery.App.Controls;
 using Orrery.Core.Connections;
 
@@ -12,4 +13,7 @@ sealed class WebProtocol() : ProtocolDescriptor(Protocol.Http, Protocol.Https)
     public override IBrush Foreground { get; } = Brush("#7FD8DE");
 
     public override string Icon => Icons.Globe;
+
+    /// <summary>A web page's host can have a path after it.</summary>
+    public override HostField Host { get; } = new("Host (and path)", "router.lan/admin");
 }

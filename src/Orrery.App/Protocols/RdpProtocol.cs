@@ -1,4 +1,5 @@
 using Avalonia.Media;
+using Orrery.App.Connections;
 using Orrery.App.Controls;
 using Orrery.Core.Connections;
 
@@ -27,4 +28,8 @@ sealed class RdpProtocol() : ProtocolDescriptor(Protocol.Rdp)
             : saved.SharedFolders.Value is { Count: > 0 } folders ? string.Join(", ", folders) : "None");
         yield return ("Console session", OnOff(saved.AdminSession.Value));
     }
+
+    public override bool ChoosesDesktopSize => true;
+
+    public override PropertiesSection CreateSection(PropertiesContext context) => new RdpSection(context);
 }

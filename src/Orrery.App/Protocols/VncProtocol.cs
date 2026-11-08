@@ -1,4 +1,5 @@
 using Avalonia.Media;
+using Orrery.App.Connections;
 using Orrery.App.Controls;
 using Orrery.Core.Connections;
 
@@ -11,4 +12,6 @@ sealed class VncProtocol() : ProtocolDescriptor(Protocol.Vnc)
     public override IBrush Foreground { get; } = Brush("#F3B672");
 
     public override string Icon => Icons.Monitor;
+
+    public override PropertiesSection CreateSection(PropertiesContext context) => new VncSection(context);
 }

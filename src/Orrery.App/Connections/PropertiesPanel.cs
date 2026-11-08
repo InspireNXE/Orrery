@@ -11,13 +11,14 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Orrery.App.Controls;
 using Orrery.App.Credentials;
+using Orrery.App.Protocols;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;
 using Orrery.Core.Network;
 using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
-using Orrery.Protocols.Serial;
+using static Orrery.App.Connections.PropertyEditors;
 using Ellipse = Avalonia.Controls.Shapes.Ellipse;
 
 namespace Orrery.App.Connections;
@@ -48,8 +49,6 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _username = new(), _domain = new();
     readonly TextBox _keyFile = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "~/.ssh/id_ed25519" };
     readonly ToggleSwitch _clipboard = Switch("ShareClipboard");
-    readonly ToggleSwitch _sshAgent = Switch("UseSshAgent");
-    readonly ToggleSwitch _sshLegacy = Switch("AllowLegacySsh");
     readonly ToggleSwitch _autoReconnect = Switch("AutoReconnect");
     readonly ToggleSwitch _record = Switch("RecordSessions");
     readonly ToggleSwitch _recordTyping = Switch("RecordTyping");
@@ -81,34 +80,22 @@ sealed class PropertiesPanel : UserControl
     readonly TextBox _managementUrl = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "https://10.20.0.1:8443" };
     readonly Control _managementUrlField;
     readonly Control _wakeSection;
-    readonly TextBox _startFolder = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "~" };
-    readonly ToggleSwitch _runAsAdmin = Switch("RunAsAdministrator");
-    readonly Control _localSection;
 
-    readonly ComboBox _remoteAudio = Choices("RemoteAudio", (RemoteAudio.PlayHere, "Play on this computer"), (RemoteAudio.DoNotPlay, "Don't play"));
-    readonly ToggleSwitch _shareAllDrives = Switch("ShareAllDrives");
-    readonly TextBox _sharedFolders = new() { AcceptsReturn = true, MinHeight = 56, FontFamily = Dialogs.MonoFont, PlaceholderText = OperatingSystem.IsWindows() ? "~/Documents\nD:\\Projects" : "~/Documents\n/Volumes/Projects" };
     readonly ComboBox _fullScreenOn = Choices("FullScreenOn", (FullScreenOn.ThisDisplay, "The display the window is on"), (FullScreenOn.EveryDisplay, "Every display"),
         (FullScreenOn.ChosenDisplays, "Chosen displays"));
     readonly DisplayPicker _displayPicker;
-    readonly ToggleSwitch _adminSession = Switch("AdminSession");
-    readonly ToggleSwitch _viewOnly = Switch("ViewOnly");
     readonly ComboBox _scaling = Choices("Scaling", SessionSettingsView.ScalingLabels);
-    readonly TextBox _keepAlive = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = SettingsResolver.DefaultKeepAliveSeconds.ToString(CultureInfo.InvariantCulture) };
-    readonly TextBox _socksProxy = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = "None" };
-    readonly TextBox _baudRate = new() { FontFamily = Dialogs.MonoFont, PlaceholderText = SettingsResolver.DefaultBaudRate.ToString(CultureInfo.InvariantCulture) };
-    readonly ComboBox _dataBits = Choices("DataBits", (8, "8"), (7, "7"), (6, "6"), (5, "5"));
-    readonly ComboBox _parity = Choices("Parity", (SerialParity.None, "None"), (SerialParity.Even, "Even"), (SerialParity.Odd, "Odd"), (SerialParity.Mark, "Mark"), (SerialParity.Space, "Space"));
-    readonly ComboBox _stopBits = Choices("StopBits", (SerialStopBits.One, "1"), (SerialStopBits.OnePointFive, "1.5"), (SerialStopBits.Two, "2"));
-    readonly ComboBox _flowControl = Choices("FlowControl", (SerialFlowControl.None, "None"), (SerialFlowControl.XOnXOff, "XON/XOFF (software)"), (SerialFlowControl.RtsCts, "RTS/CTS (hardware)"));
     readonly TextBlock _hostLabel = Dialogs.Label("Host");
     readonly Button _choosePort = new() { Content = "Ports…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0, IsVisible = false };
+    HostChooser? _hostChooser;
     readonly Control _keyboardSection;
-    readonly Control _credentialsSection, _sessionSection, _displaySection, _rdpSection, _vncSection, _sshSection, _serialSection, _tunnelSection;
+    readonly Control _credentialsSection, _sessionSection, _displaySection, _tunnelSection;
 
-    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
-    readonly InheritRow _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow, _adminSessionRow, _viewOnlyRow, _scalingRow,
-        _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow, _confirmCommandsRow;
+    /// <summary>Each protocol's own section, in the registry's order.</summary>
+    readonly List<(ProtocolDescriptor Descriptor, PropertiesSection Section)> _sections = [];
+
+    readonly InheritRow _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow, _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow;
+    readonly InheritRow _fullScreenRow, _scalingRow, _confirmCommandsRow;
     readonly Notice _error = new(NoticeKind.Error) { IsVisible = false };
     readonly Button _connect, _save, _revert;
     readonly List<InheritRow> _rows = [];
@@ -244,11 +231,6 @@ sealed class PropertiesPanel : UserControl
                 Text = "Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.",
                 FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap,
             });
-        _sshAgentRow = new InheritRow("Use SSH agent keys", _sshAgent, () => ShowInherited(r => _sshAgent.IsChecked = r.UseSshAgent.Value));
-        _sshAgentRow.Tip("SSH: log in with keys from Pageant or the OpenSSH agent when there is no saved credential.");
-        _sshLegacyRow = new InheritRow("Allow older, weaker algorithms", _sshLegacy, () => ShowInherited(r => _sshLegacy.IsChecked = r.AllowLegacySsh.Value));
-        _sshLegacyRow.Tip("SSH: also accept SHA-1, CBC and 3DES algorithms.");
-        var legacyHint = new TextBlock { Text = "Only for old devices that can't connect otherwise", FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, -4, 0, 4) };
         _jumpHostRow = new InheritRow("Jump host", _jumpHost, () => ShowInherited(r => SelectJumpHost(r.JumpHostId.Value)));
         _jumpHostRow.Tip("Reach this through a saved SSH connection first, like ssh -J. RDP, VNC and Telnet go through an SSH tunnel to it.");
         _forwardsField = new StackPanel
@@ -269,19 +251,6 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
-        _remoteAudioRow = new InheritRow("Remote audio", _remoteAudio, () => ShowInherited(r => Choose(_remoteAudio, r.RemoteAudio.Value)));
-        _remoteAudioRow.Tip("RDP: play the remote computer's sound here, or not at all. Applies to new connections.");
-        _shareAllDrivesRow = new InheritRow("Share every drive", _shareAllDrives, () => ShowInherited(r => _shareAllDrives.IsChecked = r.ShareAllDrives.Value));
-        _shareAllDrivesRow.Tip("RDP: every drive on this computer shows on the remote one, under This PC, and the remote computer can read and change their files. "
-            + "On Linux and macOS it's your home folder.");
-        var browseFolder = new Button { Content = "Add folder…", MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Left };
-        browseFolder.Click += async (_, _) => await AddSharedFolderAsync();
-        AutomationProperties.SetName(browseFolder, "Add a shared folder");
-        AutomationProperties.SetName(_sharedFolders, "Shared folders");
-        _sharedFoldersRow = new InheritRow("Shared folders", new StackPanel { Spacing = 6, Children = { _sharedFolders, browseFolder } },
-            () => ShowInherited(r => _sharedFolders.Text = string.Join("\n", r.SharedFolders.Value)));
-        _sharedFoldersRow.Tip("RDP: folders on this computer to show on the remote one as drives, one per line; ~ means your home folder. "
-            + "The remote computer can read and change their files. Leave it empty to share none.");
         _fullScreenRow = new InheritRow("Full screen on", new StackPanel { Spacing = 8, Children = { _fullScreenOn, _displayPicker } },
             () => ShowInherited(r => ShowFullScreen(r.FullScreen.Value)), describe: DescribeFullScreen);
         _fullScreenRow.Tip("RDP and VNC: the displays full screen fills. Every display, or several chosen ones, make one remote desktop with a "
@@ -293,40 +262,22 @@ sealed class PropertiesPanel : UserControl
             _fullScreenRow.Edited();
             MarkDirty();
         };
-        _adminSessionRow = new InheritRow("Connect to the console session", _adminSession, () => ShowInherited(r => _adminSession.IsChecked = r.AdminSession.Value));
-        _adminSessionRow.Tip("RDP: the server's console (administrative) session, as mstsc /admin, for administering a server without a Remote Desktop license.");
-        _viewOnlyRow = new InheritRow("View only", _viewOnly, () => ShowInherited(r => _viewOnly.IsChecked = r.ViewOnly.Value));
-        _viewOnlyRow.Tip("VNC: watch the remote desktop without sending keys, clicks or the clipboard. The session's More menu turns it off.");
         _scalingRow = new InheritRow("Scaling", _scaling, () => ShowInherited(r => Choose(_scaling, r.Scaling.Value)));
         _scalingRow.Tip("RDP and VNC, for a desktop that doesn't match the tab (a fixed desktop size, a server that won't resize, or a moment while one "
             + "resizes): Fit the tab shrinks or enlarges it to fill the tab; Shrink to fit makes a bigger one smaller and leaves a smaller one as it is; "
             + "Actual size shows it pixel for pixel, with scroll bars. Each keeps its shape.");
-        _keepAliveRow = new InheritRow("Keep-alive (seconds)", _keepAlive, () => ShowInherited(r => _keepAlive.Text = r.KeepAliveSeconds.Value.ToString(CultureInfo.InvariantCulture)));
-        _keepAliveRow.Tip("SSH: how often to send the server a keep-alive message, so an idle session isn't dropped by a firewall or the server. 0 sends none. "
-            + "Also used for the connection as a jump host.");
-        _socksProxyRow = new InheritRow("SOCKS proxy", _socksProxy, () => ShowInherited(r => _socksProxy.Text = r.SocksProxy.Value));
-        _socksProxyRow.Tip("SSH: every SSH connection under this opens a SOCKS proxy on this port, like its own D port forward: a port, such as 1080, "
-            + "or an address and a port, such as 127.0.0.1:1080. Only one open session can have the port; the others say so in their terminal.");
-        _baudRateRow = new InheritRow("Speed (baud)", _baudRate, () => ShowInherited(r => _baudRate.Text = r.BaudRate.Value.ToString(CultureInfo.InvariantCulture)));
-        _baudRateRow.Tip("Serial: bits per second, the same as the device's. Consoles mostly use 9600 or 115200.");
-        _dataBitsRow = new InheritRow("Data bits", _dataBits, () => ShowInherited(r => Choose(_dataBits, r.DataBits.Value)));
-        _parityRow = new InheritRow("Parity", _parity, () => ShowInherited(r => Choose(_parity, r.Parity.Value)));
-        _stopBitsRow = new InheritRow("Stop bits", _stopBits, () => ShowInherited(r => Choose(_stopBits, r.StopBits.Value)));
-        _flowControlRow = new InheritRow("Flow control", _flowControl, () => ShowInherited(r => Choose(_flowControl, r.FlowControl.Value)));
-        _flowControlRow.Tip("Serial: how the two ends pause each other. Most consoles use none; use what the device's manual says.");
-        _choosePort.Click += (_, _) =>
+        _choosePort.Click += (_, _) => ShowHostChoices();
+
+        // Each protocol's own settings, such as RDP's drives or a serial line's speed: remote desktops' first, under the Display
+        // section about them, then terminals'.
+        var context = new PropertiesContext(ShowInherited, () => TopLevel.GetTopLevel(this), message => Fail(message));
+        foreach (var descriptor in ProtocolRegistry.All.OrderBy(d => d.Traits[0].Kind))
         {
-            if (_hostLabel.Text == "Shell")
+            if (descriptor.CreateSection(context) is { } section)
             {
-                ShowShells();
+                _sections.Add((descriptor, section));
             }
-            else
-            {
-                ShowSerialPorts();
-            }
-        };
-        AutomationProperties.SetName(_choosePort, "Choose a serial port on this computer");
-        ToolTip.SetTip(_choosePort, "The serial ports on this computer");
+        }
 
         AutomationProperties.SetName(_forwards, "Port forwards");
         AutomationProperties.SetHelpText(_forwards, "One per line. L port:host:port opens a port here, R port:host:port one on the server, D port a SOCKS proxy.");
@@ -350,31 +301,6 @@ sealed class PropertiesPanel : UserControl
         ToolTip.SetTip(_managementUrl, "A web page for managing this machine, such as a firewall's or a server's out-of-band console. "
             + "Open management page in the connection's right-click menu opens it in a tab, or in your browser where Settings or this connection says so. Set here only; folders don't pass it on.");
         _notesField = Pane.Section("Notes", _notes);
-
-        var browseStart = new Button { Content = "Browse…", Margin = new Thickness(6, 0, 0, 0), MinWidth = 0 };
-        browseStart.Click += async (_, _) => await BrowseStartFolderAsync();
-        AutomationProperties.SetName(browseStart, "Browse for the starting folder");
-        AutomationProperties.SetName(_startFolder, "Starting folder");
-        ToolTip.SetTip(_startFolder, "Where the shell starts; empty or ~ is your home folder. A WSL shell starts in its own home folder.");
-        AutomationProperties.SetName(_runAsAdmin, "Run as administrator");
-        _localSection = Pane.Section("Local terminal",
-            Dialogs.Field("Starting folder", new DockPanel { Children = { Pane.Docked(browseStart, Dock.Right), _startFolder } }),
-            new StackPanel
-            {
-                IsVisible = OperatingSystem.IsWindows(),
-                Spacing = 4,
-                Children =
-                {
-                    new DockPanel { Children = { Pane.Docked(_runAsAdmin, Dock.Right), new TextBlock { Text = "Run as administrator", VerticalAlignment = VerticalAlignment.Center } } },
-                    new TextBlock
-                    {
-                        Text = "Windows asks each time it opens. The tab is marked Administrator, and isn't reopened when Orrery next starts.",
-                        FontSize = 11,
-                        Foreground = Dialogs.MutedBrush,
-                        TextWrapping = TextWrapping.Wrap,
-                    },
-                },
-            });
 
         _save = new Button { Content = "Save", Margin = new Thickness(8, 0, 0, 0) };
         _save.Click += (_, _) => TrySave();
@@ -411,17 +337,14 @@ sealed class PropertiesPanel : UserControl
                 _commandsSection,
                 (_displaySection = Pane.RowSection("Display", _desktopSizeRow.View, _enlargeRow.View, _scalingRow.View, _fullScreenRow.View, _qualityRow.View, _colorCorrectionRow.View)),
                 (_keyboardSection = Pane.RowSection("Keyboard", _shortcutsRow.View)),
-                (_rdpSection = Pane.RowSection("RDP", _remoteAudioRow.View, _shareAllDrivesRow.View, _sharedFoldersRow.View, _adminSessionRow.View)),
-                (_vncSection = Pane.RowSection("VNC", _viewOnlyRow.View)),
-                (_sshSection = Pane.RowSection("SSH", _sshAgentRow.View, _sshLegacyRow.View, legacyHint, _keepAliveRow.View, _socksProxyRow.View)),
-                (_serialSection = Pane.RowSection("Serial line", _baudRateRow.View, _dataBitsRow.View, _parityRow.View, _stopBitsRow.View, _flowControlRow.View)),
-                _localSection,
-                (_tunnelSection = Pane.RowSection("SSH tunnels", _jumpHostRow.View, _forwardsField)),
-                _webSection,
-                _wakeSection,
-                _notesField,
             },
         };
+        foreach (var (_, section) in _sections)
+        {
+            editor.Children.Add(section.View);
+        }
+
+        editor.Children.AddRange([(_tunnelSection = Pane.RowSection("SSH tunnels", _jumpHostRow.View, _forwardsField)), _webSection, _wakeSection, _notesField]);
 
         // What an open session's This session tab can change while it runs.
         foreach (var (row, _) in LiveRows())
@@ -459,9 +382,9 @@ sealed class PropertiesPanel : UserControl
             },
         };
 
-        _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _sshAgent, _sshLegacy, _jumpHost, _autoReconnect, _record, _recordTyping, _checkHost, _enlarge,
+        _fields.AddRange([_credential, _displayPicker, _protocol, _clipboard, _jumpHost, _autoReconnect, _record, _recordTyping, _checkHost, _enlarge,
             _quality, _colorCorrection, _webPages, _shortcuts]);
-        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl, _startFolder, _sharedFolders, _keepAlive, _socksProxy, _baudRate })
+        foreach (var box in new[] { _name, _host, _port, _username, _domain, _keyFile, _notes, _forwards, _desktopSize, _mac, _broadcast, _managementUrl })
         {
             _fields.Add(box);
             // TextChanged comes later, after the panel has finished filling the fields, so it took filling them for
@@ -497,8 +420,6 @@ sealed class PropertiesPanel : UserControl
             MarkDirty();
         };
         _clipboard.IsCheckedChanged += (_, _) => MarkDirty();
-        _sshAgent.IsCheckedChanged += (_, _) => MarkDirty();
-        _sshLegacy.IsCheckedChanged += (_, _) => MarkDirty();
         _jumpHost.SelectionChanged += (_, _) => MarkDirty();
         _autoReconnect.IsCheckedChanged += (_, _) => MarkDirty();
         _record.IsCheckedChanged += (_, _) => MarkDirty();
@@ -513,25 +434,44 @@ sealed class PropertiesPanel : UserControl
         _colorCorrection.SelectionChanged += (_, _) => MarkDirty();
         _webPages.SelectionChanged += (_, _) => MarkDirty();
         _shortcuts.SelectionChanged += (_, _) => MarkDirty();
-        foreach (var box in new[] { _remoteAudio, _fullScreenOn, _scaling, _dataBits, _parity, _stopBits, _flowControl })
+        foreach (var box in new[] { _fullScreenOn, _scaling })
         {
             _fields.Add(box);
             box.SelectionChanged += (_, _) => MarkDirty();
         }
 
-        foreach (var toggle in new[] { _shareAllDrives, _adminSession, _viewOnly, _confirmCommands, _runAsAdmin })
+        _fields.Add(_confirmCommands);
+        _confirmCommands.IsCheckedChanged += (_, _) => MarkDirty();
+
+        // A protocol's own fields count as edits the same way.
+        foreach (var field in _sections.SelectMany(s => s.Section.Fields))
         {
-            _fields.Add(toggle);
-            toggle.IsCheckedChanged += (_, _) => MarkDirty();
+            _fields.Add(field);
+            switch (field)
+            {
+                case TextBox box:
+                    box.PropertyChanged += (_, e) =>
+                    {
+                        if (e.Property == TextBox.TextProperty)
+                        {
+                            MarkDirty();
+                        }
+                    };
+                    break;
+                case ToggleButton toggle:
+                    toggle.IsCheckedChanged += (_, _) => MarkDirty();
+                    break;
+                case ComboBox box:
+                    box.SelectionChanged += (_, _) => MarkDirty();
+                    break;
+            }
         }
 
         foreach (var row in new[]
                  {
-                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _sshAgentRow, _sshLegacyRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow,
-                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow, _remoteAudioRow, _shareAllDrivesRow, _sharedFoldersRow, _fullScreenRow,
-                     _adminSessionRow, _viewOnlyRow, _scalingRow, _keepAliveRow, _socksProxyRow, _baudRateRow, _dataBitsRow, _parityRow, _stopBitsRow, _flowControlRow,
-                     _confirmCommandsRow, _shortcutsRow,
-                 })
+                     _protocolRow, _portRow, _credentialRow, _usernameRow, _domainRow, _keyFileRow, _clipboardRow, _jumpHostRow, _autoReconnectRow, _recordRow, _recordTypingRow, _checkHostRow,
+                     _desktopSizeRow, _enlargeRow, _qualityRow, _colorCorrectionRow, _webPagesRow, _fullScreenRow, _scalingRow, _confirmCommandsRow, _shortcutsRow,
+                 }.Concat(_sections.SelectMany(s => s.Section.Rows)))
         {
             row.IsLoading = () => _loading;
             row.Changed += (_, _) => MarkDirty();
@@ -708,12 +648,6 @@ sealed class PropertiesPanel : UserControl
             _clipboardRow.Load(own.ShareClipboard is null, Describe(inherited.ShareClipboard));
             _clipboard.IsChecked = own.ShareClipboard ?? inherited.ShareClipboard.Value;
 
-            _sshAgentRow.Load(own.UseSshAgent is null, Describe(inherited.UseSshAgent));
-            _sshAgent.IsChecked = own.UseSshAgent ?? inherited.UseSshAgent.Value;
-
-            _sshLegacyRow.Load(own.AllowLegacySsh is null, Describe(inherited.AllowLegacySsh));
-            _sshLegacy.IsChecked = own.AllowLegacySsh ?? inherited.AllowLegacySsh.Value;
-
             _desktopSizeRow.Load(own.DesktopSize is null, Describe(inherited.DesktopSize));
             _desktopSize.Text = own.DesktopSize ?? inherited.DesktopSize.Value;
 
@@ -748,36 +682,16 @@ sealed class PropertiesPanel : UserControl
             _confirmCommands.IsChecked = own.ConfirmCommands ?? inherited.ConfirmCommands.Value;
             ShowCommands();
 
-            _remoteAudioRow.Load(own.RemoteAudio is null, Describe(inherited.RemoteAudio));
-            Choose(_remoteAudio, own.RemoteAudio ?? inherited.RemoteAudio.Value);
-            _shareAllDrivesRow.Load(own.ShareAllDrives is null, Describe(inherited.ShareAllDrives));
-            _shareAllDrives.IsChecked = own.ShareAllDrives ?? inherited.ShareAllDrives.Value;
-            _sharedFoldersRow.Load(own.SharedFolders is null, Describe(inherited.SharedFolders));
-            _sharedFolders.Text = string.Join("\n", own.SharedFolders ?? inherited.SharedFolders.Value);
             _fullScreenRow.Load(own.ChosenDisplays is null && own.UseAllMonitors is null, Describe(inherited.FullScreen));
             ShowFullScreen(own.ChosenDisplays is { } chosen ? new FullScreenChoice(FullScreenOn.ChosenDisplays, chosen)
                 : own.UseAllMonitors is { } every ? (every ? FullScreenChoice.EveryDisplay : FullScreenChoice.ThisDisplay)
                 : inherited.FullScreen.Value);
-            _adminSessionRow.Load(own.AdminSession is null, Describe(inherited.AdminSession));
-            _adminSession.IsChecked = own.AdminSession ?? inherited.AdminSession.Value;
-            _viewOnlyRow.Load(own.ViewOnly is null, Describe(inherited.ViewOnly));
-            _viewOnly.IsChecked = own.ViewOnly ?? inherited.ViewOnly.Value;
             _scalingRow.Load(own.Scaling is null, Describe(inherited.Scaling));
             Choose(_scaling, own.Scaling ?? inherited.Scaling.Value);
-            _keepAliveRow.Load(own.KeepAliveSeconds is null, Describe(inherited.KeepAliveSeconds));
-            _keepAlive.Text = (own.KeepAliveSeconds ?? inherited.KeepAliveSeconds.Value).ToString(CultureInfo.InvariantCulture);
-            _socksProxyRow.Load(own.SocksProxy is null, Describe(inherited.SocksProxy));
-            _socksProxy.Text = own.SocksProxy ?? inherited.SocksProxy.Value;
-            _baudRateRow.Load(own.BaudRate is null, Describe(inherited.BaudRate));
-            _baudRate.Text = (own.BaudRate ?? inherited.BaudRate.Value).ToString(CultureInfo.InvariantCulture);
-            _dataBitsRow.Load(own.DataBits is null, Describe(inherited.DataBits));
-            Choose(_dataBits, own.DataBits ?? inherited.DataBits.Value);
-            _parityRow.Load(own.Parity is null, Describe(inherited.Parity));
-            Choose(_parity, own.Parity ?? inherited.Parity.Value);
-            _stopBitsRow.Load(own.StopBits is null, Describe(inherited.StopBits));
-            Choose(_stopBits, own.StopBits ?? inherited.StopBits.Value);
-            _flowControlRow.Load(own.FlowControl is null, Describe(inherited.FlowControl));
-            Choose(_flowControl, own.FlowControl ?? inherited.FlowControl.Value);
+            foreach (var (_, section) in _sections)
+            {
+                section.Load(node, own, inherited);
+            }
 
             FillJumpHosts(node);
             _jumpHostRow.Load(own.JumpHostId is null, Describe(inherited.JumpHostId));
@@ -793,8 +707,6 @@ sealed class PropertiesPanel : UserControl
             _mac.Text = (node as ConnectionEntry)?.MacAddress;
             _broadcast.Text = (node as ConnectionEntry)?.WakeBroadcast;
             _managementUrl.Text = (node as ConnectionEntry)?.ManagementUrl;
-            _startFolder.Text = (node as ConnectionEntry)?.StartFolder;
-            _runAsAdmin.IsChecked = (node as ConnectionEntry)?.RunAsAdministrator == true;
             ShowSections(own.Protocol ?? inherited.Protocol.Value);
 
             Content = _root;
@@ -924,49 +836,13 @@ sealed class PropertiesPanel : UserControl
             }
         }
 
-        int? keepAlive = null;
-        if (!_keepAliveRow.Inheriting)
+        // Each protocol's own settings go into the node's new settings, checked as they go; nothing is kept if one fails.
+        var settings = new InheritableSettings();
+        foreach (var (_, section) in _sections)
         {
-            if (!int.TryParse(_keepAlive.Text?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) || seconds > MaxKeepAliveSeconds)
+            if (section.Save(settings) is { } problem)
             {
-                return Fail($"The keep-alive interval must be a number of seconds from 0 (none) to {MaxKeepAliveSeconds}.");
-            }
-
-            keepAlive = seconds;
-        }
-
-        string? socksProxy = null;
-        if (!_socksProxyRow.Inheriting)
-        {
-            // Empty with Inherit off means none, overriding a folder's.
-            socksProxy = _socksProxy.Text?.Trim() ?? string.Empty;
-            if (socksProxy.Length > 0 && PortForward.TryParseSocks(socksProxy, out var socksError) is null)
-            {
-                return Fail(socksError!);
-            }
-        }
-
-        int? baudRate = null;
-        if (!_baudRateRow.Inheriting)
-        {
-            if (!int.TryParse(_baudRate.Text?.Trim(), NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var baud)
-                || (SerialLine.Default with { BaudRate = baud }).Problem() is not null)
-            {
-                return Fail("The speed must be a number of bits per second from 50 to 4,000,000, such as 9600 or 115200.");
-            }
-
-            baudRate = baud;
-        }
-
-        List<string>? sharedFolders = null;
-        if (!_sharedFoldersRow.Inheriting)
-        {
-            // Only paths, which can't be checked here: a folder may be on a drive that isn't plugged in now.
-            sharedFolders = (_sharedFolders.Text ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).ToList();
-            if (sharedFolders.Any(f => f.Length > MaxKeyFilePathLength || f.Any(char.IsControl)))
-            {
-                return Fail("A shared folder's path is too long or has characters a path can't have.");
+                return Fail(problem);
             }
         }
 
@@ -1019,50 +895,34 @@ sealed class PropertiesPanel : UserControl
         }
 
         // Empty text with Inherit unticked means "none", overriding the parent.
-        _node.Settings = new InheritableSettings
+        settings.Protocol = _protocolRow.Inheriting ? null : (_protocol.SelectedItem as ComboBoxItem)?.Tag as Protocol?;
+        settings.Port = port;
+        settings.CredentialId = _credentialRow.Inheriting ? null : _credential.SelectedId ?? InheritableSettings.NoCredential;
+        settings.Username = _usernameRow.Inheriting ? null : _username.Text?.Trim() ?? string.Empty;
+        settings.Domain = _domainRow.Inheriting ? null : _domain.Text?.Trim() ?? string.Empty;
+        settings.KeyFile = keyFile;
+        settings.ShareClipboard = _clipboardRow.Inheriting ? null : _clipboard.IsChecked == true;
+        settings.DesktopSize = desktopSize;
+        settings.EnlargeRemoteDesktop = _enlargeRow.Inheriting ? null : _enlarge.IsChecked == true;
+        settings.WebPagesInOrrery = _webPagesRow.Inheriting ? null : (_webPages.SelectedItem as ComboBoxItem)?.Tag as bool?;
+        settings.SystemShortcuts = _shortcutsRow.Inheriting ? null : (_shortcuts.SelectedItem as ComboBoxItem)?.Tag as SystemShortcuts?;
+        settings.DisplayQuality = _qualityRow.Inheriting ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?;
+        settings.ColorCorrection = _colorCorrectionRow.Inheriting ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?;
+        settings.AutoReconnect = _autoReconnectRow.Inheriting ? null : _autoReconnect.IsChecked == true;
+        settings.RecordSessions = _recordRow.Inheriting ? null : _record.IsChecked == true;
+        settings.RecordTyping = _recordTypingRow.Inheriting ? null : _recordTyping.IsChecked == true;
+        settings.CheckHostStatus = _checkHostRow.Inheriting ? null : _checkHost.IsChecked == true;
+        settings.ConfirmCommands = _confirmCommandsRow.Inheriting ? null : _confirmCommands.IsChecked == true;
+        settings.JumpHostId = _jumpHostRow.Inheriting ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost;
+        settings.UseAllMonitors = _fullScreenRow.Inheriting ? null : Chosen<FullScreenOn>(_fullScreenOn) switch
         {
-            Protocol = _protocolRow.Inheriting ? null : (_protocol.SelectedItem as ComboBoxItem)?.Tag as Protocol?,
-            Port = port,
-            CredentialId = _credentialRow.Inheriting ? null : _credential.SelectedId ?? InheritableSettings.NoCredential,
-            Username = _usernameRow.Inheriting ? null : _username.Text?.Trim() ?? string.Empty,
-            Domain = _domainRow.Inheriting ? null : _domain.Text?.Trim() ?? string.Empty,
-            KeyFile = keyFile,
-            ShareClipboard = _clipboardRow.Inheriting ? null : _clipboard.IsChecked == true,
-            UseSshAgent = _sshAgentRow.Inheriting ? null : _sshAgent.IsChecked == true,
-            AllowLegacySsh = _sshLegacyRow.Inheriting ? null : _sshLegacy.IsChecked == true,
-            DesktopSize = desktopSize,
-            EnlargeRemoteDesktop = _enlargeRow.Inheriting ? null : _enlarge.IsChecked == true,
-            WebPagesInOrrery = _webPagesRow.Inheriting ? null : (_webPages.SelectedItem as ComboBoxItem)?.Tag as bool?,
-            SystemShortcuts = _shortcutsRow.Inheriting ? null : (_shortcuts.SelectedItem as ComboBoxItem)?.Tag as SystemShortcuts?,
-            DisplayQuality = _qualityRow.Inheriting ? null : (_quality.SelectedItem as ComboBoxItem)?.Tag as DisplayQuality?,
-            ColorCorrection = _colorCorrectionRow.Inheriting ? null : (_colorCorrection.SelectedItem as ComboBoxItem)?.Tag as bool?,
-            AutoReconnect = _autoReconnectRow.Inheriting ? null : _autoReconnect.IsChecked == true,
-            RecordSessions = _recordRow.Inheriting ? null : _record.IsChecked == true,
-            RecordTyping = _recordTypingRow.Inheriting ? null : _recordTyping.IsChecked == true,
-            CheckHostStatus = _checkHostRow.Inheriting ? null : _checkHost.IsChecked == true,
-            ConfirmCommands = _confirmCommandsRow.Inheriting ? null : _confirmCommands.IsChecked == true,
-            JumpHostId = _jumpHostRow.Inheriting ? null : (_jumpHost.SelectedItem as ComboBoxItem)?.Tag as Guid? ?? InheritableSettings.NoJumpHost,
-            RemoteAudio = _remoteAudioRow.Inheriting ? null : Chosen<RemoteAudio>(_remoteAudio),
-            ShareAllDrives = _shareAllDrivesRow.Inheriting ? null : _shareAllDrives.IsChecked == true,
-            SharedFolders = sharedFolders,
-            UseAllMonitors = _fullScreenRow.Inheriting ? null : Chosen<FullScreenOn>(_fullScreenOn) switch
-            {
-                FullScreenOn.EveryDisplay => true,
-                FullScreenOn.ThisDisplay => false,
-                _ => null,
-            },
-            ChosenDisplays = chosenDisplays,
-            AdminSession = _adminSessionRow.Inheriting ? null : _adminSession.IsChecked == true,
-            ViewOnly = _viewOnlyRow.Inheriting ? null : _viewOnly.IsChecked == true,
-            Scaling = _scalingRow.Inheriting ? null : Chosen<DesktopScaling>(_scaling),
-            KeepAliveSeconds = keepAlive,
-            SocksProxy = socksProxy,
-            BaudRate = baudRate,
-            DataBits = _dataBitsRow.Inheriting ? null : Chosen<int>(_dataBits),
-            Parity = _parityRow.Inheriting ? null : Chosen<SerialParity>(_parity),
-            StopBits = _stopBitsRow.Inheriting ? null : Chosen<SerialStopBits>(_stopBits),
-            FlowControl = _flowControlRow.Inheriting ? null : Chosen<SerialFlowControl>(_flowControl),
+            FullScreenOn.EveryDisplay => true,
+            FullScreenOn.ThisDisplay => false,
+            _ => null,
         };
+        settings.ChosenDisplays = chosenDisplays;
+        settings.Scaling = _scalingRow.Inheriting ? null : Chosen<DesktopScaling>(_scaling);
+        _node.Settings = settings;
         _node.Name = name;
         _node.Notes = string.IsNullOrWhiteSpace(_notes.Text) ? null : _notes.Text.Trim();
         if (_node is ConnectionEntry entry)
@@ -1072,8 +932,10 @@ sealed class PropertiesPanel : UserControl
             entry.MacAddress = mac;
             entry.WakeBroadcast = broadcast;
             entry.ManagementUrl = managementUrl;
-            entry.StartFolder = string.IsNullOrWhiteSpace(_startFolder.Text) ? null : _startFolder.Text.Trim();
-            entry.RunAsAdministrator = _runAsAdmin.IsChecked == true && OperatingSystem.IsWindows();
+            foreach (var (_, section) in _sections)
+            {
+                section.SaveEntry(entry);
+            }
         }
 
         MarkClean();
@@ -1084,9 +946,6 @@ sealed class PropertiesPanel : UserControl
     }
 
     const int MaxKeyFilePathLength = 1024;
-
-    /// <summary>An hour: anything longer wouldn't keep a session from being dropped as idle.</summary>
-    const int MaxKeepAliveSeconds = 3600;
 
     /// <summary>
     /// Shows the sections that apply to <paramref name="protocol"/>, the one picked. A folder and the defaults show every
@@ -1116,15 +975,17 @@ sealed class PropertiesPanel : UserControl
         _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible || _checkHostRow.View.IsVisible;
         // A web page has only the color correction of them.
         _displaySection.IsVisible = rdp || vnc || web;
-        _desktopSizeRow.View.IsVisible = rdp;
+        _desktopSizeRow.View.IsVisible = all || ProtocolRegistry.For(protocol).ChoosesDesktopSize;
         _enlargeRow.View.IsVisible = _scalingRow.View.IsVisible = _fullScreenRow.View.IsVisible = _qualityRow.View.IsVisible = rdp || vnc;
 
         // Only Windows lets Orrery take Alt+Tab from the system.
         _keyboardSection.IsVisible = _shortcutsRow.View.IsVisible = (rdp || vnc) && OperatingSystem.IsWindows();
-        _rdpSection.IsVisible = rdp;
-        _vncSection.IsVisible = vnc;
-        _sshSection.IsVisible = ssh;
-        _serialSection.IsVisible = serial;
+        // Each protocol's own section: its connections', and every one but those about a connection itself on a folder.
+        foreach (var (descriptor, section) in _sections)
+        {
+            section.View.IsVisible = all ? section.ForFolders : descriptor.Traits.Any(t => t.Protocol == protocol);
+        }
+
         _jumpHostRow.View.IsVisible = network && !web || host;
         _forwardsField.IsVisible = _node is ConnectionEntry && protocol == Protocol.Ssh;
         _tunnelSection.IsVisible = _jumpHostRow.View.IsVisible || _forwardsField.IsVisible;
@@ -1134,88 +995,47 @@ sealed class PropertiesPanel : UserControl
         _managementUrlField.IsVisible = _node is ConnectionEntry && network;
         // Web connections, and any machine's management page.
         _webSection.IsVisible = network;
-        _localSection.IsVisible = _node is ConnectionEntry && protocol == Protocol.Local;
 
         // A serial port and a local shell are named where a host would be; a web page's host can have a path after it.
-        bool local = protocol == Protocol.Local;
-        _hostLabel.Text = protocol == Protocol.Serial ? "Serial port" : local ? "Shell" : ProtocolInfo.IsWeb(protocol) ? "Host (and path)" : "Host";
-        AutomationProperties.SetName(_host, _hostLabel.Text);
-        _host.PlaceholderText = protocol == Protocol.Serial ? (OperatingSystem.IsWindows() ? "COM3" : "/dev/ttyUSB0")
-            : local ? "The one chosen in Settings" : ProtocolInfo.IsWeb(protocol) ? "router.lan/admin" : null;
-        _choosePort.IsVisible = (protocol == Protocol.Serial || local) && _node is ConnectionEntry;
-        _choosePort.Content = local ? "Shells…" : "Ports…";
-        AutomationProperties.SetName(_choosePort, local ? "Choose a shell on this computer" : "Choose a serial port on this computer");
-        ToolTip.SetTip(_choosePort, local ? "The shells on this computer" : "The serial ports on this computer");
-    }
-
-    /// <summary>The shells on this computer, to fill the host with their ids, and one for the shell chosen in Settings.</summary>
-    void ShowShells()
-    {
-        var chosen = new MenuItem { Header = "The one chosen in Settings" };
-        chosen.Click += (_, _) => _host.Text = string.Empty;
-        List<Control> items = [chosen, new Separator()];
-        foreach (var shell in Orrery.Protocols.Local.LocalShells.Available())
+        var field = ProtocolRegistry.For(protocol).Host;
+        _hostLabel.Text = field.Label;
+        AutomationProperties.SetName(_host, field.Label);
+        _host.PlaceholderText = field.Placeholder;
+        _hostChooser = _node is ConnectionEntry ? field.Chooser : null;
+        _choosePort.IsVisible = _hostChooser is not null;
+        if (_hostChooser is { } chooser)
         {
-            var item = new MenuItem { Header = shell.Name };
-            item.Click += (_, _) => _host.Text = shell.Id;
-            items.Add(item);
+            _choosePort.Content = chooser.Button;
+            AutomationProperties.SetName(_choosePort, chooser.Name);
+            ToolTip.SetTip(_choosePort, chooser.Tip);
         }
-
-        PopupMenu.ShowAt(_choosePort, items, PlacementMode.BottomEdgeAlignedRight);
     }
 
-    /// <summary>Fills the starting folder from the folder picker, with ~ for the home folder.</summary>
-    async Task BrowseStartFolderAsync()
+    /// <summary>The protocol's list of what can go in the host box, such as this computer's serial ports or shells.</summary>
+    void ShowHostChoices()
     {
-        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+        if (_hostChooser is not { } chooser)
         {
             return;
         }
 
-        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose where the shell starts", AllowMultiple = false });
-        if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path)
+        List<Control> items = [];
+        foreach (var choice in chooser.Choices())
         {
-            _startFolder.Text = WithHome(path.TrimEnd('/', '\\') is { Length: > 0 } trimmed ? trimmed : path);
-        }
-    }
-
-    /// <summary>The serial ports on this computer, to fill the host with.</summary>
-    void ShowSerialPorts()
-    {
-        var ports = SerialSession.PortNames();
-        List<Control> items = ports.Count == 0
-            ? [new MenuItem { Header = "No serial ports found", IsEnabled = false }]
-            : [.. ports.Select(name =>
+            var item = new MenuItem { Header = choice.Label, IsEnabled = choice.Value is not null };
+            if (choice.Value is { } value)
             {
-                var item = new MenuItem { Header = name };
-                item.Click += (_, _) => _host.Text = name;
-                return item;
-            })];
+                item.Click += (_, _) => _host.Text = value;
+            }
+
+            items.Add(item);
+            if (choice.SeparatorAfter)
+            {
+                items.Add(new Separator());
+            }
+        }
+
         PopupMenu.ShowAt(_choosePort, items, PlacementMode.BottomEdgeAlignedRight);
-    }
-
-    /// <summary>Adds a folder from the folder picker to the shared folders, written with ~ when it's under the home folder.</summary>
-    async Task AddSharedFolderAsync()
-    {
-        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
-        {
-            return;
-        }
-
-        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose a folder to share", AllowMultiple = false });
-        if (folders.Count == 0)
-        {
-            return;
-        }
-
-        if (folders[0].TryGetLocalPath() is not { } path)
-        {
-            Fail("That folder isn't on this computer, so it can't be shared.");
-            return;
-        }
-
-        var text = _sharedFolders.Text?.TrimEnd() ?? string.Empty;
-        _sharedFolders.Text = (text.Length > 0 ? text + "\n" : string.Empty) + WithHome(path.TrimEnd('/', '\\') is { Length: > 0 } trimmed ? trimmed : path);
     }
 
     /// <summary>
@@ -1248,20 +1068,9 @@ sealed class PropertiesPanel : UserControl
             return;
         }
 
-        _keyFile.Text = WithHome(path);
+        _keyFile.Text = PropertyEditors.WithHome(path);
     }
 
-    /// <summary>The path with the home folder written as ~, when it's under it.</summary>
-    internal static string WithHome(string path)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (home.Length > 0 && path.StartsWith(home.TrimEnd('/', '\\') + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-        {
-            return "~/" + path[(home.TrimEnd('/', '\\').Length + 1)..].Replace('\\', '/');
-        }
-
-        return path;
-    }
 
     public void FocusName()
     {
@@ -1412,24 +1221,6 @@ sealed class PropertiesPanel : UserControl
     static readonly IBrush FolderTileBrush = new SolidColorBrush(Color.Parse("#33291A")).ToImmutable();
     static readonly IBrush FolderBrush = new SolidColorBrush(Color.Parse("#E0B45A")).ToImmutable();
 
-    /// <summary>A drop-down of values, each shown by its label.</summary>
-    static ComboBox Choices<T>(string name, params (T Value, string Label)[] choices) where T : notnull
-    {
-        var box = new ComboBox { Name = name, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var (value, label) in choices)
-        {
-            box.Items.Add(new ComboBoxItem { Content = label, Tag = value });
-        }
-
-        return box;
-    }
-
-    static void Choose(ComboBox box, object value) => box.SelectedItem = box.Items.OfType<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, value));
-
-    static T? Chosen<T>(ComboBox box) where T : struct => (box.SelectedItem as ComboBoxItem)?.Tag as T?;
-
-    // Fluent's switch keeps a gap on its right for On/Off text; the negative margin lines the track up
-    // with the right edge of the text fields.
     // ---- Saved commands: changed at once, each in its own window, rather than with Save ----
 
     /// <summary>The node's own commands, which can be changed, then those it takes from its folders, muted.</summary>
@@ -1605,16 +1396,6 @@ sealed class PropertiesPanel : UserControl
         }
     }
 
-    static ToggleSwitch Switch(string name) => new()
-    {
-        Name = name,
-        OnContent = null,
-        OffContent = null,
-        MinWidth = 0,
-        Margin = new Thickness(10, 0, -11, 0),
-        VerticalAlignment = VerticalAlignment.Center,
-    };
-
     /// <summary>
     /// The port a node gets when it doesn't set one: an ancestor's, or else the default for the protocol it uses. The
     /// resolver works out that default from the ancestors' protocol, which is wrong when the node sets its own.
@@ -1720,265 +1501,11 @@ sealed class PropertiesPanel : UserControl
     {
         yield return (_scalingRow, SessionSettingsView.ScalingKey);
         yield return (_colorCorrectionRow, SessionSettingsView.ColorCorrectionKey);
-        yield return (_viewOnlyRow, SessionSettingsView.ViewOnlyKey);
+        foreach (var live in _sections.SelectMany(s => s.Section.LiveRows))
+        {
+            yield return live;
+        }
+
         yield return (_shortcutsRow, SessionSettingsView.ShortcutsKey);
-    }
-
-    static string Describe<T>(Resolved<T> resolved) =>
-        resolved.Source is { } source ? source.Parent is null ? "From defaults for all connections" : $"From {source.Name}" : "Orrery's default";
-
-    /// <summary>
-    /// One saved setting as a quiet row: a dot when it's set on this node, its name, and its value, muted while it comes
-    /// from above. A click opens the editor under it, with where the inherited value comes from and, once it's set here,
-    /// a way back to that. Changing the value is what sets it here; there's no separate switch for that.
-    /// </summary>
-    sealed class InheritRow
-    {
-        static readonly IBrush DotBrush = new SolidColorBrush(Color.Parse("#4C8DFF")).ToImmutable();
-        static readonly IBrush LabelBrush = new SolidColorBrush(Color.Parse("#C3C9D3")).ToImmutable();
-        static readonly IBrush OwnBrush = new SolidColorBrush(Color.Parse("#E6E9EE")).ToImmutable();
-        static readonly IBrush InheritedBrush = new SolidColorBrush(Color.Parse("#7D8693")).ToImmutable();
-        static readonly IBrush EditorBrush = new SolidColorBrush(Color.Parse("#111317")).ToImmutable();
-
-        readonly string _label;
-        readonly Control _editor;
-        readonly Action _showInherited;
-        readonly string _whenEmpty;
-        readonly bool _canPreview;
-        readonly Func<string>? _describe;
-        static readonly IBrush LiveBrush = new SolidColorBrush(Color.Parse("#1E3A2C")).ToImmutable();
-        static readonly IBrush LiveTextBrush = new SolidColorBrush(Color.Parse("#7BD3A0")).ToImmutable();
-        static readonly IBrush SessionBrush = new SolidColorBrush(Color.Parse("#F0B455")).ToImmutable();
-
-        readonly Border _live = new()
-        {
-            IsVisible = false,
-            Background = LiveBrush,
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(5, 0),
-            Margin = new Thickness(8, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = "live", FontSize = 10, Foreground = LiveTextBrush },
-        };
-        readonly TextBlock _sessionValue = new() { IsVisible = false, FontSize = 11, Foreground = SessionBrush, Margin = new Thickness(14, -6, 0, 4), TextTrimming = TextTrimming.CharacterEllipsis };
-        readonly Ellipse _dot = new() { Width = 6, Height = 6, Fill = DotBrush, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
-        // The value takes only the room it needs, up to a limit, so the name beside it reads in full.
-        readonly TextBlock _value = new()
-        {
-            FontSize = 13,
-            TextAlignment = TextAlignment.Right,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-            MaxWidth = 140,
-            Margin = new Thickness(10, 0, 0, 0),
-        };
-        readonly TextBlock _hint = new() { FontSize = 11, Foreground = InheritedBrush, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-        readonly Button _useInherited = new() { Content = "Use that instead", Classes = { "link" } };
-        readonly Button _header;
-        readonly Border _card;
-        string _source = string.Empty, _inheritedValue = string.Empty;
-        int _quiet;
-
-        /// <param name="watchEditor">
-        /// False where the editor changes itself (the credential picker, while it lists the vault): the panel calls
-        /// <see cref="Edited"/> for the user's own changes instead.
-        /// </param>
-        /// <param name="whenEmpty">The value shown for an empty text box.</param>
-        /// <param name="describe">The value to show, where the editor's own isn't it.</param>
-        public InheritRow(string label, Control editor, Action showInherited, bool watchEditor = true, string whenEmpty = "None", Func<string>? describe = null)
-        {
-            _describe = describe;
-            _label = label;
-            _editor = editor;
-            _showInherited = showInherited;
-            _whenEmpty = whenEmpty;
-            _canPreview = watchEditor;
-
-            // The label is beside the editor only on screen; a screen reader needs it on the editor.
-            AutomationProperties.SetName(editor, label);
-
-            var name = new TextBlock { Text = label, FontSize = 13, Foreground = LabelBrush, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(name, 1);
-            Grid.SetColumn(_live, 2);
-            Grid.SetColumn(_value, 3);
-            _header = new Button
-            {
-                Classes = { "setting" },
-                Content = new Grid { ColumnDefinitions = new ColumnDefinitions("14,*,Auto,Auto"), Children = { _dot, name, _live, _value } },
-            };
-            _header.Click += (_, _) => Expanded = !Expanded;
-
-            _useInherited.Click += (_, _) =>
-            {
-                Inheriting = true;
-                Quietly(_showInherited);
-                ShowState();
-                Changed?.Invoke(this, EventArgs.Empty);
-            };
-            AutomationProperties.SetName(_useInherited, $"{label}: use the inherited value");
-
-            // Opened, the editor is a darker band across its section's card, not a card of its own inside it.
-            _card = new Border
-            {
-                IsVisible = false,
-                Background = EditorBrush,
-                Padding = new Thickness(Pane.CardPadding, 10),
-                Margin = new Thickness(-Pane.CardPadding, 0, -Pane.CardPadding, 6),
-                Child = new StackPanel
-                {
-                    Spacing = 8,
-                    Children = { editor, new DockPanel { Children = { Pane.Docked(_useInherited, Dock.Right), _hint } } },
-                },
-            };
-
-            // Every change shows in the row; one made by the user, not by the panel, sets the value here.
-            void OnEditorChanged(object? sender, EventArgs e)
-            {
-                ShowValue();
-
-                // A display picker says itself when the user changes it, not when it's filled in.
-                if (watchEditor && !((e as RoutedEventArgs)?.Source is StyledElement source && source.FindLogicalAncestorOfType<DisplayPicker>() is not null))
-                {
-                    Edited();
-                }
-            }
-
-            // TextChanged comes later, after the panel has finished filling the fields, so the text itself is watched.
-            foreach (var box in new[] { editor }.Concat(editor.GetLogicalDescendants()).OfType<TextBox>())
-            {
-                box.PropertyChanged += (_, e) =>
-                {
-                    if (e.Property == TextBox.TextProperty)
-                    {
-                        OnEditorChanged(box, e);
-                    }
-                };
-            }
-
-            editor.AddHandler(SelectingItemsControl.SelectionChangedEvent, OnEditorChanged, handledEventsToo: true);
-            editor.AddHandler(ToggleButton.IsCheckedChangedEvent, OnEditorChanged, handledEventsToo: true);
-
-            View = new StackPanel { Children = { _header, _sessionValue, _card } };
-        }
-
-        /// <summary>Tags the row as one an open session takes up at once, from its This session tab.</summary>
-        public void MarkLive()
-        {
-            _live.IsVisible = true;
-            ToolTip.SetTip(_live, "Changes an open session at once, from its This session tab");
-        }
-
-        /// <summary>What the open session has instead of the saved value, or null when it has that.</summary>
-        public void ShowSessionValue(string? value)
-        {
-            _sessionValue.IsVisible = value is not null;
-            _sessionValue.Text = value is null ? null : $"This session: {value}";
-        }
-
-        /// <summary>Raised when the row goes from inherited to set here or back.</summary>
-        public event EventHandler? Changed;
-
-        /// <summary>True while the panel fills its fields, so its changes aren't taken for the user's.</summary>
-        public Func<bool> IsLoading { get; set; } = () => false;
-
-        /// <summary>The value comes from above, and nothing is stored on this node.</summary>
-        public bool Inheriting { get; private set; }
-
-        public Control View { get; }
-
-        public bool Expanded
-        {
-            get => _card.IsVisible;
-            set => _card.IsVisible = value;
-        }
-
-        /// <summary>The user changed the value: it's set here from now on.</summary>
-        public void Edited()
-        {
-            if (_quiet > 0 || IsLoading() || !Inheriting)
-            {
-                return;
-            }
-
-            Inheriting = false;
-            ShowState();
-            Changed?.Invoke(this, EventArgs.Empty);
-        }
-
-        /// <summary>Changes the editor without that counting as the user's change.</summary>
-        public void Quietly(Action change)
-        {
-            _quiet++;
-            try
-            {
-                change();
-            }
-            finally
-            {
-                _quiet--;
-            }
-
-            ShowValue();
-        }
-
-        /// <param name="source">Where the inherited value comes from, such as "From Lab servers".</param>
-        public void Load(bool inheriting, string source)
-        {
-            Inheriting = inheriting;
-            _source = source;
-
-            // What the parent would give, for the line under the editor. The panel puts the node's own value in next.
-            _inheritedValue = string.Empty;
-            if (_canPreview)
-            {
-                Quietly(_showInherited);
-                _inheritedValue = Summary();
-            }
-
-            ShowState();
-        }
-
-        /// <summary>Explains the setting: a tooltip over the row, and the editor's description for a screen reader.</summary>
-        public void Tip(string text)
-        {
-            ToolTip.SetTip(View, text);
-            AutomationProperties.SetHelpText(_editor, text);
-        }
-
-        void ShowState()
-        {
-            _dot.Opacity = Inheriting ? 0 : 1;
-            _value.Foreground = Inheriting ? InheritedBrush : OwnBrush;
-            _useInherited.IsVisible = !Inheriting;
-            _hint.Text = Inheriting || _inheritedValue.Length == 0 ? _source : $"{_source}: {_inheritedValue}";
-            ShowValue();
-        }
-
-        void ShowValue()
-        {
-            _value.Text = Summary();
-            AutomationProperties.SetName(_header, $"{_label}: {_value.Text}{(Inheriting ? $", {_source}" : ", set here")}");
-        }
-
-        /// <summary>The editor's value in a few words: On or Off, the choice picked, or the text.</summary>
-        string Summary()
-        {
-            if (_describe is not null)
-            {
-                return _describe();
-            }
-
-            var input = _editor is TextBox or ComboBox or ToggleSwitch
-                ? _editor
-                : _editor.GetLogicalDescendants().OfType<Control>().FirstOrDefault(c => c is TextBox or ComboBox or ToggleSwitch);
-            return input switch
-            {
-                ToggleSwitch toggle => toggle.IsChecked == true ? "On" : "Off",
-                ComboBox box => (box.SelectedItem as ComboBoxItem)?.Content as string ?? string.Empty,
-                TextBox box when string.IsNullOrWhiteSpace(box.Text) => _whenEmpty,
-                TextBox box => string.Join(", ", box.Text!.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
-                _ => string.Empty,
-            };
-        }
     }
 }
