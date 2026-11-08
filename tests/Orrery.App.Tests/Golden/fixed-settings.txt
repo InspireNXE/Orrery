@@ -1,0 +1,163 @@
+== Rdp plain enlarge=True
+Display quality: Balanced
+Remote desktop size: Fit the window
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+Remote audio: Play here
+Shared drives and folders: None
+Console session: Off
+== Rdp plain enlarge=False
+Display quality: Balanced
+Remote desktop size: Fit the window
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+Remote audio: Play here
+Shared drives and folders: None
+Console session: Off
+== Rdp set enlarge=True
+Display quality: Best look
+Remote desktop size: 1280x720
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Remote audio: Don't play
+Shared drives and folders: ~/Shared
+Console session: On
+== Ssh plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Ssh plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Ssh set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On
+== Vnc plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Vnc plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Vnc set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On
+== Telnet plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Telnet plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Telnet set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On
+== Serial plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Serial plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Serial set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On
+== Http plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Http plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Http set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On
+== Https plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Https plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Https set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On
+== Local plain enlarge=True
+Display quality: Balanced
+Match display scaling: On
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Local plain enlarge=False
+Display quality: Balanced
+Match display scaling: Off
+Share the clipboard: On
+Reconnect if it drops: On
+Record sessions: Off
+== Local set enlarge=True
+Display quality: Best look
+Match display scaling: On
+Share the clipboard: Off
+Reconnect if it drops: On
+Record sessions: On
+Record what's typed too: On

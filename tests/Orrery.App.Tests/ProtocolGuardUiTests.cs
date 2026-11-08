@@ -133,6 +133,37 @@ public class ProtocolGuardUiTests
         Golden($"properties.{kind}.txt", string.Join("\n", lines) + "\n");
     }
 
+    /// <summary>What a running session's settings say it can't take up until it reconnects, for each protocol, with and without settings of its own.</summary>
+    [Fact]
+    public void A_sessions_fixed_settings_are_listed_as_they_were()
+    {
+        var lines = new List<string>();
+        foreach (var protocol in Enum.GetValues<Protocol>())
+        {
+            var tree = ConnectionTree.Empty();
+            var plain = new ConnectionEntry { Name = "plain", Host = "box", Settings = { Protocol = protocol } };
+            var set = new ConnectionEntry
+            {
+                Name = "set",
+                Host = "box",
+                Settings =
+                {
+                    Protocol = protocol, DesktopSize = "1280x720", RecordTyping = true, RecordSessions = true, ShareClipboard = false,
+                    RemoteAudio = RemoteAudio.DoNotPlay, SharedFolders = ["~/Shared"], AdminSession = true, DisplayQuality = Orrery.Core.Sessions.DisplayQuality.Best,
+                },
+            };
+            tree.Add(plain, tree.Root);
+            tree.Add(set, tree.Root);
+            foreach (var (entry, enlarge) in new[] { (plain, true), (plain, false), (set, true) })
+            {
+                lines.Add($"== {protocol} {entry.Name} enlarge={enlarge}");
+                lines.AddRange(Orrery.App.Sessions.SessionSettingsView.FixedSettingsNow(entry, protocol, enlarge).Select(s => $"{s.Label}: {s.Value}"));
+            }
+        }
+
+        Golden("fixed-settings.txt", string.Join("\n", lines) + "\n");
+    }
+
     static (PropertiesPanel Panel, Window Window) Show(ConnectionTree tree)
     {
         var panel = new PropertiesPanel(tree, new PropertiesPanelTests.EmptyCredentialStore());
