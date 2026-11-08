@@ -73,7 +73,7 @@ sealed class SessionSettingsView : UserControl
     /// <param name="startedWith">The fixed settings as they were when the session started (<see cref="FixedSettingsNow"/>).</param>
     /// <param name="view">The remote desktop, whose view settings can change; null for a terminal, which has only the Connection card.</param>
     /// <param name="link">How the connection is doing, for the Connection card; no card when null.</param>
-    public SessionSettingsView(ConnectionTree tree, ConnectionEntry entry, Protocol protocol, RemoteFrameView? view, Func<bool> enlargeByDefault,
+    public SessionSettingsView(ConnectionTree tree, ConnectionEntry entry, Protocol protocol, IDesktopView? view, Func<bool> enlargeByDefault,
         IReadOnlyList<(string Label, string Value)> startedWith, LinkMonitor? link = null)
     {
         _tree = tree;

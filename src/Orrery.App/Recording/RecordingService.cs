@@ -63,7 +63,7 @@ sealed class RecordingService(DataLocation location, AppSettingsStore settingsSt
     /// <summary>The connection's "Color correction" as its view has it, for the recording to play by; null for a terminal.</summary>
     static bool? AllowsColorCorrection(Control view) => view switch
     {
-        RemoteFrameView desktop => desktop.AllowsColorCorrection,
+        IDesktopView desktop => desktop.AllowsColorCorrection,
         WebPageView web => web.AllowsColorCorrection,
         _ => null,
     };

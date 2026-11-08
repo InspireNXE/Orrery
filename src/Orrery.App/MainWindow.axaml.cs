@@ -107,7 +107,7 @@ public partial class MainWindow : Window, IFullScreenHost
     /// <summary>Open remote desktops take up a changed choice for Alt+Tab, the one with the keyboard at once.</summary>
     void RefreshShortcuts()
     {
-        foreach (var view in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
+        foreach (var view in _tabs.Select(t => t.View).OfType<IDesktopView>())
         {
             view.RefreshShortcuts();
         }
@@ -1484,7 +1484,7 @@ public partial class MainWindow : Window, IFullScreenHost
 
     static Input.FocusPlace FocusPlaceOf(object? source) => (source as Visual) switch
     {
-        { } visual when visual.FindAncestorOfType<RemoteFrameView>(includeSelf: true) is not null => Input.FocusPlace.Desktop,
+        { } visual when visual.GetSelfAndVisualAncestors().OfType<IDesktopView>().Any() => Input.FocusPlace.Desktop,
         { } visual when visual.FindAncestorOfType<TerminalView>(includeSelf: true) is not null => Input.FocusPlace.Terminal,
         _ => Input.FocusPlace.App,
     };
@@ -3339,7 +3339,7 @@ public partial class MainWindow : Window, IFullScreenHost
         HistoryRecorder.Attach(tab, _tree, _history);
 
         // The bar under the tabs shows the remote desktop's size, which follows the window as it's resized.
-        if (view is RemoteFrameView desktop)
+        if (view is IDesktopView desktop)
         {
             desktop.DesktopResized += (_, _) =>
             {
@@ -3702,7 +3702,7 @@ public partial class MainWindow : Window, IFullScreenHost
         (_, SessionState.Failed) => tab.HasConnected ? "Connection lost" : "Couldn't connect",
         (IFrameBufferSession { Width: > 0 } frame, _) => $"{frame.Width}×{frame.Height}",
         _ => "Connected",
-    } + (tab.View is RemoteFrameView { ViewOnly: true } ? " · View only" : string.Empty);
+    } + (tab.View is IDesktopView { ViewOnly: true } ? " · View only" : string.Empty);
 
     const string ClosedLock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4";
     const string OpenLock = "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 7.75-1.4";
@@ -3797,20 +3797,20 @@ public partial class MainWindow : Window, IFullScreenHost
         }
 
         // Recording: a REC pill with its settings while it records, a button to start one while connected.
-        if ((state == SessionState.Connected || tab.IsRecording) && tab.View is TerminalView or RemoteFrameView
+        if ((state == SessionState.Connected || tab.IsRecording) && Recording.RecordingService.Recordable(tab.View) && tab.View is not WebPageView
             && Recording.RecordingControl.For(tab, async () => await StartRecordingAsync(tab), () => StopRecording(tab), () => ShowRecordings()) is { } recording)
         {
             actions.Children.Add(recording);
         }
 
-        if (state == SessionState.Connected && tab.View is RemoteFrameView desktop && !desktop.ViewOnly)
+        if (state == SessionState.Connected && tab.View is IDesktopView desktop && !desktop.ViewOnly)
         {
             var ctrlAltDel = new Button { Content = "Ctrl+Alt+Del" };
             ToolTip.SetTip(ctrlAltDel, $"Send Ctrl+Alt+Del to the remote computer ({Input.CtrlAltDelShortcut.Description})");
             ctrlAltDel.Click += (_, _) =>
             {
                 desktop.SendKeys(RemoteKeyCombo.CtrlAltDel);
-                desktop.Focus();
+                tab.View.Focus();
             };
             actions.Children.Add(ctrlAltDel);
         }
@@ -3890,7 +3890,7 @@ public partial class MainWindow : Window, IFullScreenHost
         bool connected = tab.Session.State == SessionState.Connected;
         bool mac = OperatingSystem.IsMacOS();
         var items = new List<Control>();
-        if (tab.View is RemoteFrameView desktop)
+        if (tab.View is IDesktopView desktop)
         {
             var keys = MenuItemFor("Send keys", null, enabled: connected && !desktop.ViewOnly);
             foreach (var combo in RemoteKeyCombo.Menu)
@@ -3898,7 +3898,7 @@ public partial class MainWindow : Window, IFullScreenHost
                 keys.Items.Add(MenuItemFor(combo.Label, () =>
                 {
                     desktop.SendKeys(combo);
-                    desktop.Focus();
+                    tab.View.Focus();
                 }, combo == RemoteKeyCombo.CtrlAltDel ? Input.CtrlAltDelShortcut.MenuText : null));
             }
 
@@ -3912,8 +3912,11 @@ public partial class MainWindow : Window, IFullScreenHost
             viewOnly.IsChecked = desktop.ViewOnly;
             ToolTip.SetTip(viewOnly, "Watch without sending keys or clicks");
             items.Add(viewOnly);
-            items.Add(new Separator());
-            items.Add(MenuItemFor("Save screenshot…", async () => await SaveScreenshotAsync(tab, desktop), enabled: desktop.HasFrame));
+            if (desktop is RemoteFrameView frame)
+            {
+                items.Add(new Separator());
+                items.Add(MenuItemFor("Save screenshot…", async () => await SaveScreenshotAsync(tab, frame), enabled: frame.HasFrame));
+            }
         }
         else if (tab.View is TerminalView terminal)
         {
@@ -4952,7 +4955,7 @@ public partial class MainWindow : Window, IFullScreenHost
                 }
 
                 var correction = ColorCorrection.For(change.Vision, change.Strength);
-                foreach (var desktop in _tabs.Select(t => t.View).OfType<RemoteFrameView>())
+                foreach (var desktop in _tabs.Select(t => t.View).OfType<IDesktopView>())
                 {
                     desktop.Correction = correction;
                 }

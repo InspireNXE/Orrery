@@ -24,7 +24,7 @@ namespace Orrery.App.Sessions;
 /// Shows an <see cref="IFrameBufferSession"/> (RDP today, VNC later) and forwards keyboard and pointer
 /// input to it. Frame updates arrive on a background thread and are coalesced into one copy per UI frame.
 /// </summary>
-public sealed partial class RemoteFrameView : Panel
+public sealed partial class RemoteFrameView : Panel, IDesktopView
 {
     static readonly IBrush SurfaceBrush = new SolidColorBrush(Color.Parse("#0B0D10"));
 
@@ -382,6 +382,8 @@ public sealed partial class RemoteFrameView : Panel
     }
 
     ColorCorrection? _correction;
+
+    ColorCorrection? IDesktopView.Correction { set => Correction = value; }
 
     /// <summary>
     /// The color correction for the user's color vision, from Settings; null for none. Changing it redraws the

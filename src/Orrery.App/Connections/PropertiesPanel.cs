@@ -561,7 +561,7 @@ sealed class PropertiesPanel : UserControl
         _liveTab = tab;
 
         // A tab comes to the front as it opens, before anything can be changed, so this is what it started with.
-        if (tab is { FixedAtStart: null, View: RemoteFrameView, Origin: { Files: false, EntryId: { } id } } && _tree.Find(id) is ConnectionEntry started)
+        if (tab is { FixedAtStart: null, View: IDesktopView, Origin: { Files: false, EntryId: { } id } } && _tree.Find(id) is ConnectionEntry started)
         {
             tab.FixedAtStart = SessionSettingsView.FixedSettingsNow(started, tab.Origin.Protocol, _enlargeByDefault());
         }
@@ -574,7 +574,7 @@ sealed class PropertiesPanel : UserControl
 
     void UpdateTabs()
     {
-        bool live = _liveTab is { Session.State: SessionState.Connected } tab && (tab.View is RemoteFrameView || tab.Link is not null)
+        bool live = _liveTab is { Session.State: SessionState.Connected } tab && (tab.View is IDesktopView || tab.Link is not null)
             && _node is ConnectionEntry entry && tab.Origin.EntryId == entry.Id && !tab.Origin.Files;
         _tabStrip.IsVisible = live;
         if (!live)
@@ -587,7 +587,7 @@ sealed class PropertiesPanel : UserControl
         {
             var open = _liveTab!;
             // A terminal has nothing fixed at the start to compare: only the Connection card.
-            var desktop = open.View as RemoteFrameView;
+            var desktop = open.View as IDesktopView;
             var view = new SessionSettingsView(_tree, (ConnectionEntry)_node!, open.Origin.Protocol, desktop, _enlargeByDefault,
                 desktop is null ? [] : open.FixedAtStart ?? SessionSettingsView.FixedSettingsNow((ConnectionEntry)_node!, open.Origin.Protocol, _enlargeByDefault()),
                 open.Link);

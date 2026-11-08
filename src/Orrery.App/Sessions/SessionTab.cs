@@ -175,7 +175,7 @@ sealed class SessionTab
             Avalonia.Automation.AutomationProperties.SetName(view, ViewName(view, origin.Title));
         }
 
-        if (view is TerminalView or RemoteFrameView && string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetHelpText(view)))
+        if (view is TerminalView or IDesktopView && string.IsNullOrEmpty(Avalonia.Automation.AutomationProperties.GetHelpText(view)))
         {
             Avalonia.Automation.AutomationProperties.SetHelpText(view, Input.SessionEscape.Help);
         }
@@ -372,7 +372,7 @@ sealed class SessionTab
     internal static string ViewName(Control view, string title) => view switch
     {
         TerminalView => $"Terminal: {title}",
-        RemoteFrameView => $"Remote desktop: {title}",
+        IDesktopView => $"Remote desktop: {title}",
         FileBrowserView => $"Files: {title}",
         _ => title,
     };
