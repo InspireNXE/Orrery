@@ -1,0 +1,11 @@
+Folder,Name,Host,Protocol,Port,Username,Domain,Notes
+Every protocol,Rdp,rdp.example,RDP,3389,alice,CORP,
+Every protocol,Ssh,ssh.example,SSH,22,alice,,
+Every protocol,Vnc,vnc.example,VNC,5900,alice,,
+Every protocol,Telnet,telnet.example,TELNET,23,alice,,
+Every protocol,Serial,COM3,SERIAL,0,,,
+Every protocol,Http,router.lan/admin,HTTP,80,alice,,
+Every protocol,Https,router.lan/admin,HTTPS,8443,alice,,
+Every protocol,Local,pwsh,LOCAL,0,,,
+
+--- warnings ---

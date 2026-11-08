@@ -1,0 +1,38 @@
+Local
+Lab
+<Connect>
+Connect
+<Save>
+Save
+<Revert>
+Revert
+1 set on this connection
+CONNECTION
+Name
+Shell
+<Shells…>
+Shells…
+[The one chosen in Settings]
+Protocol
+LOCAL
+SESSION
+Reconnect if the connection drops
+On
+Record sessions
+Off
+Record what's typed too
+Off
+COMMANDS
+Confirm every command
+Off
+<Add command…>
+Add command…
+Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.
+LOCAL TERMINAL
+Starting folder
+<Browse…>
+Browse…
+[~]
+Run as administrator
+Windows asks each time it opens. The tab is marked Administrator, and isn't reopened when Orrery next starts.
+NOTES

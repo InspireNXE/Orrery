@@ -1,0 +1,42 @@
+Serial
+Lab
+<Connect>
+Connect
+<Save>
+Save
+<Revert>
+Revert
+1 set on this connection
+CONNECTION
+Name
+Serial port
+<Ports…>
+Ports…
+[COM3]
+Protocol
+SERIAL
+SESSION
+Reconnect if the connection drops
+On
+Record sessions
+Off
+Record what's typed too
+Off
+COMMANDS
+Confirm every command
+Off
+<Add command…>
+Add command…
+Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.
+SERIAL LINE
+Speed (baud)
+9600
+Data bits
+8
+Parity
+None
+Stop bits
+1
+Flow control
+None
+NOTES

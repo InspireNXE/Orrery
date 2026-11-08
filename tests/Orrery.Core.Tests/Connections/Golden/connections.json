@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 6,
+  "history": [],
+  "root": {
+    "expanded": true,
+    "children": [
+      {
+        "type": "folder",
+        "expanded": true,
+        "children": [
+          {
+            "type": "connection",
+            "host": "rdp.example",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "name": "Rdp",
+            "settings": {
+              "protocol": "rdp",
+              "username": "alice",
+              "domain": "CORP",
+              "desktopSize": "1920x1080"
+            }
+          },
+          {
+            "type": "connection",
+            "host": "ssh.example",
+            "id": "00000000-0000-0000-0000-000000000002",
+            "name": "Ssh",
+            "settings": {
+              "protocol": "ssh",
+              "username": "alice",
+              "keyFile": "~/.ssh/id_ed25519",
+              "keepAliveSeconds": 15
+            }
+          },
+          {
+            "type": "connection",
+            "host": "vnc.example",
+            "id": "00000000-0000-0000-0000-000000000003",
+            "name": "Vnc",
+            "settings": {
+              "protocol": "vnc",
+              "username": "alice",
+              "viewOnly": true
+            }
+          },
+          {
+            "type": "connection",
+            "host": "telnet.example",
+            "id": "00000000-0000-0000-0000-000000000004",
+            "name": "Telnet",
+            "settings": {
+              "protocol": "telnet",
+              "username": "alice"
+            }
+          },
+          {
+            "type": "connection",
+            "host": "COM3",
+            "id": "00000000-0000-0000-0000-000000000005",
+            "name": "Serial",
+            "settings": {
+              "protocol": "serial",
+              "baudRate": 115200
+            }
+          },
+          {
+            "type": "connection",
+            "host": "router.lan/admin",
+            "id": "00000000-0000-0000-0000-000000000006",
+            "name": "Http",
+            "settings": {
+              "protocol": "http",
+              "username": "alice"
+            }
+          },
+          {
+            "type": "connection",
+            "host": "router.lan/admin",
+            "id": "00000000-0000-0000-0000-000000000007",
+            "name": "Https",
+            "settings": {
+              "protocol": "https",
+              "port": 8443,
+              "username": "alice"
+            }
+          },
+          {
+            "type": "connection",
+            "host": "pwsh",
+            "id": "00000000-0000-0000-0000-000000000008",
+            "name": "Local",
+            "settings": {
+              "protocol": "local"
+            }
+          }
+        ],
+        "id": "00000000-0000-0000-0000-000000000100",
+        "name": "Every protocol",
+        "settings": {}
+      }
+    ],
+    "id": "00000000-0000-0000-0000-000000000999",
+    "name": "Connections",
+    "settings": {}
+  }
+}

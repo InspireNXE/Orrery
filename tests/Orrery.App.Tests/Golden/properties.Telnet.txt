@@ -1,0 +1,51 @@
+Telnet
+Lab
+<Connect>
+Connect
+<Save>
+Save
+<Revert>
+Revert
+1 set on this connection
+CONNECTION
+Name
+Host
+Protocol
+TELNET
+Port
+23
+Management URL (optional)
+[https://10.20.0.1:8443]
+CREDENTIALS
+Saved credential
+None
+Username (when no saved credential)
+None
+SESSION
+Reconnect if the connection drops
+On
+Record sessions
+Off
+Record what's typed too
+Off
+Check whether the host is up
+On
+COMMANDS
+Confirm every command
+Off
+<Add command…>
+Add command…
+Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.
+SSH TUNNELS
+Jump host
+Connect directly
+WEB PAGES
+Open web pages in
+An Orrery tab
+WAKE ON LAN
+MAC address
+[00:1A:2B:3C:4D:5E]
+Broadcast address (optional)
+[255.255.255.255]
+Wake in the connection's right-click menu sends a wake-up packet to this address on UDP port 9. Leave the broadcast address empty to use 255.255.255.255; if the machine doesn't wake, try your network's, such as 192.168.1.255.
+NOTES

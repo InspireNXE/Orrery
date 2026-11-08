@@ -1,0 +1,75 @@
+Rdp
+Lab
+<Connect>
+Connect
+<Save>
+Save
+<Revert>
+Revert
+1 set on this connection
+CONNECTION
+Name
+Host
+Protocol
+RDP
+Port
+3389
+Management URL (optional)
+[https://10.20.0.1:8443]
+CREDENTIALS
+Saved credential
+None
+Username (when no saved credential)
+None
+Domain
+None
+SESSION
+Share the clipboard
+On
+Reconnect if the connection drops
+On
+Record sessions
+Off
+Check whether the host is up
+On
+DISPLAY
+Remote desktop size
+Fit the window
+Enlarge to match display scaling
+On
+Scaling
+live
+Fit the tab
+Full screen on
+This display
+Display quality
+Balanced
+Color correction
+live
+Use app setting
+KEYBOARD
+Alt+Tab, Alt+Esc and Ctrl+Esc go to the remote
+live
+In full screen
+RDP
+Remote audio
+Play on this computer
+Share every drive
+Off
+Shared folders
+None
+Connect to the console session
+Off
+SSH TUNNELS
+Jump host
+Connect directly
+WEB PAGES
+Open web pages in
+An Orrery tab
+WAKE ON LAN
+MAC address
+[00:1A:2B:3C:4D:5E]
+Broadcast address (optional)
+[255.255.255.255]
+Wake in the connection's right-click menu sends a wake-up packet to this address on UDP port 9. Leave the broadcast address empty to use 255.255.255.255; if the machine doesn't wake, try your network's, such as 192.168.1.255.
+NOTES

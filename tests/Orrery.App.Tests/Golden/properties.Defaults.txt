@@ -1,0 +1,97 @@
+Defaults for all connections
+Used by every folder and connection that doesn't set its own. Inherit means Orrery's default.
+<Save>
+Save
+<Revert>
+Revert
+Nothing set in the defaults
+CONNECTION
+Protocol
+RDP
+Port
+3389
+CREDENTIALS
+Saved credential
+None
+Username (when no saved credential)
+None
+Domain
+None
+Key file (SSH)
+None
+SESSION
+Share the clipboard
+On
+Reconnect if the connection drops
+On
+Record sessions
+Off
+Record what's typed too
+Off
+Check whether the host is up
+On
+COMMANDS
+Confirm every command
+Off
+<Add command…>
+Add command…
+Sent to the terminal from Ctrl+K or the session's menu, and by themselves only where one is set to go each time a saved connection connects. A folder's go to every connection in it; the defaults' also go to local terminals and quick connects. Changes here are saved at once.
+DISPLAY
+Remote desktop size
+Fit the window
+Enlarge to match display scaling
+On
+Scaling
+live
+Fit the tab
+Full screen on
+This display
+Display quality
+Balanced
+Color correction
+live
+Use app setting
+KEYBOARD
+Alt+Tab, Alt+Esc and Ctrl+Esc go to the remote
+live
+In full screen
+RDP
+Remote audio
+Play on this computer
+Share every drive
+Off
+Shared folders
+None
+Connect to the console session
+Off
+VNC
+View only
+live
+Off
+SSH
+Use SSH agent keys
+On
+Allow older, weaker algorithms
+Off
+Only for old devices that can't connect otherwise
+Keep-alive (seconds)
+30
+SOCKS proxy
+None
+SERIAL LINE
+Speed (baud)
+9600
+Data bits
+8
+Parity
+None
+Stop bits
+1
+Flow control
+None
+SSH TUNNELS
+Jump host
+Connect directly
+WEB PAGES
+Open web pages in
+An Orrery tab
