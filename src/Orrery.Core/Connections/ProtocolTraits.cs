@@ -100,11 +100,9 @@ public sealed record ProtocolTraits(
     bool HasDomain,
     int AddedInSchema,
     IReadOnlyList<string> MRemoteNgNames,
-    string? NotOnNetwork = null);
-
-/// <summary>Every protocol's <see cref="ProtocolTraits"/>, in the enum's order.</summary>
-public static class Protocols
+    string? NotOnNetwork = null)
 {
+    /// <summary>Every protocol's traits, in the enum's order.</summary>
     public static IReadOnlyList<ProtocolTraits> All { get; } =
     [
         new(Protocol.Rdp, "RDP", "RDP", 3389, ["rdp"], SessionKind.Desktop, ProtocolReach.Network, JumpHostSupport.Tunnel,
@@ -131,7 +129,7 @@ public static class Protocols
 
     static readonly Dictionary<Protocol, ProtocolTraits> ByProtocol = All.ToDictionary(t => t.Protocol);
 
-    public static ProtocolTraits Get(Protocol protocol) =>
+    public static ProtocolTraits Of(Protocol protocol) =>
         ByProtocol.TryGetValue(protocol, out var traits) ? traits : throw new ArgumentOutOfRangeException(nameof(protocol));
 
     /// <summary>The protocol mRemoteNG calls <paramref name="name"/> ("SSH2"), ignoring case; null when Orrery has none.</summary>

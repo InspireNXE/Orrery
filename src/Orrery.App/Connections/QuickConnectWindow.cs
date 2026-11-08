@@ -30,10 +30,7 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
     public bool Alt { get; init; }
 
     static readonly (string Scheme, Protocol Protocol)[] Schemes =
-    [
-        ("rdp://", Protocol.Rdp), ("ssh://", Protocol.Ssh), ("vnc://", Protocol.Vnc), ("telnet://", Protocol.Telnet),
-        ("serial://", Protocol.Serial), ("http://", Protocol.Http), ("https://", Protocol.Https),
-    ];
+        [.. ProtocolTraits.All.SelectMany(t => t.Schemes.Select(s => (s + "://", t.Protocol)))];
 
     /// <summary>
     /// Reads "host", "host:port", "rdp://host", "ssh://host", "vnc://host", "telnet://host", "user@host" and "ssh://user@host:port";
@@ -111,7 +108,8 @@ sealed record QuickConnectChoice(ConnectionEntry? Entry, string? Host, int Port,
             return [];
         }
 
-        if (first.Protocol is Protocol.Serial or Protocol.Http or Protocol.Https
+        // A serial port or a web address is only ever that.
+        if (ProtocolTraits.Of(first.Protocol) is { Reach: ProtocolReach.ThisComputer } or { Kind: SessionKind.Web }
             || Schemes.Any(s => text.TrimStart().StartsWith(s.Scheme, StringComparison.OrdinalIgnoreCase)))
         {
             return [first];
@@ -464,7 +462,7 @@ sealed class QuickConnectWindow : Window
         }
 
         var who = choice.Username is null ? string.Empty : $"{choice.Username}@";
-        var port = choice.Protocol != Protocol.Serial && choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
+        var port = ProtocolInfo.UsesNetwork(choice.Protocol) && choice.Port != ProtocolInfo.DefaultPort(choice.Protocol) ? $":{choice.Port}" : string.Empty;
         return $"{who}{choice.Host}{port}";
     }
 

@@ -31,21 +31,21 @@ public enum Protocol
 public static class ProtocolInfo
 {
     /// <summary>The port a protocol uses unless one is set. A serial port has none: it's 0 and never shown.</summary>
-    public static int DefaultPort(Protocol protocol) => Protocols.Get(protocol).DefaultPort;
+    public static int DefaultPort(Protocol protocol) => ProtocolTraits.Of(protocol).DefaultPort;
 
-    public static string Label(Protocol protocol) => Protocols.Get(protocol).Label;
+    public static string Label(Protocol protocol) => ProtocolTraits.Of(protocol).Label;
 
     /// <summary>A web page: in an Orrery tab or the default browser, with no login.</summary>
-    public static bool IsWeb(Protocol protocol) => Protocols.Get(protocol).Kind == SessionKind.Web;
+    public static bool IsWeb(Protocol protocol) => ProtocolTraits.Of(protocol).Kind == SessionKind.Web;
 
     /// <summary>Reached over the network at a host and port, so it can have a host check. Not a serial port or a local shell.</summary>
-    public static bool UsesNetwork(Protocol protocol) => Protocols.Get(protocol).Reach == ProtocolReach.Network;
+    public static bool UsesNetwork(Protocol protocol) => ProtocolTraits.Of(protocol).Reach == ProtocolReach.Network;
 
     /// <summary>A remote desktop drawn in a tab (RDP, VNC).</summary>
-    public static bool IsDesktop(Protocol protocol) => Protocols.Get(protocol).Kind == SessionKind.Desktop;
+    public static bool IsDesktop(Protocol protocol) => ProtocolTraits.Of(protocol).Kind == SessionKind.Desktop;
 
     /// <summary>Whether an Orrery that reads only schemas before <paramref name="schema"/> can't read the protocol, so a file using it is written with a newer one.</summary>
-    internal static bool NeedsSchema(Protocol protocol, int schema) => Protocols.Get(protocol).AddedInSchema >= schema;
+    internal static bool NeedsSchema(Protocol protocol, int schema) => ProtocolTraits.Of(protocol).AddedInSchema >= schema;
 }
 
 /// <summary>RDP: where the remote computer's sound goes.</summary>

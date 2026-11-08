@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Orrery.App.Connections;
 using Orrery.App.Controls;
+using Orrery.App.Protocols;
 using Orrery.Core.Connections;
 using Orrery.Core.Settings;
 
@@ -272,42 +273,10 @@ sealed class SessionSettingsView : UserControl
     }
 
     /// <summary>The saved settings a running session can't take up, as they'd be used on reconnecting.</summary>
-    static IEnumerable<(string Label, string Value)> FixedSettings(ResolvedSettings saved, Protocol protocol, bool enlargeByDefault)
-    {
-        static string OnOff(bool on) => on ? "On" : "Off";
-        bool rdp = protocol == Protocol.Rdp;
-        yield return ("Display quality", PropertiesPanel.QualityLabels.First(q => q.Quality == saved.DisplayQuality.Value).Label);
-        if (rdp)
-        {
-            yield return ("Remote desktop size", string.IsNullOrEmpty(saved.DesktopSize.Value) ? "Fit the window" : saved.DesktopSize.Value!);
-        }
+    static IEnumerable<(string Label, string Value)> FixedSettings(ResolvedSettings saved, Protocol protocol, bool enlargeByDefault) =>
+        ProtocolRegistry.For(protocol).FixedSettings(saved, enlargeByDefault);
 
-        yield return ("Match display scaling", OnOff(saved.Enlarge(enlargeByDefault)));
-        yield return ("Share the clipboard", OnOff(saved.ShareClipboard.Value));
-        yield return ("Reconnect if it drops", OnOff(saved.AutoReconnect.Value));
-        yield return ("Record sessions", OnOff(saved.RecordSessions.Value));
-        if (!rdp && saved.RecordTyping.Value)
-        {
-            yield return ("Record what's typed too", "On");
-        }
-
-        if (rdp)
-        {
-            yield return ("Remote audio", saved.RemoteAudio.Value == RemoteAudio.PlayHere ? "Play here" : "Don't play");
-            yield return ("Shared drives and folders", saved.ShareAllDrives.Value ? "Every drive"
-                : saved.SharedFolders.Value is { Count: > 0 } folders ? string.Join(", ", folders) : "None");
-            yield return ("Console session", OnOff(saved.AdminSession.Value));
-        }
-    }
-
-    static string ProtocolName(Protocol protocol) => protocol switch
-    {
-        Protocol.Rdp => "RDP",
-        Protocol.Vnc => "VNC",
-        Protocol.Ssh => "SSH",
-        Protocol.Telnet => "Telnet",
-        _ => protocol.ToString(),
-    };
+    static string ProtocolName(Protocol protocol) => ProtocolTraits.Of(protocol).Name;
 
     static TextBlock Note(string text) => new() { Text = text, FontSize = 11, Foreground = Dialogs.MutedBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
 

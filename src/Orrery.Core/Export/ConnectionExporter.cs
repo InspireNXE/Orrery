@@ -397,7 +397,7 @@ public static class ConnectionExporter
 
     /// <summary>Whether mRemoteNG can hold the connection: every protocol it has a name for, so not a serial port or a local shell.</summary>
     static bool InMRemoteNg(ConnectionNode node) =>
-        node is not ConnectionEntry entry || Protocols.Get(SettingsResolver.Resolve(entry).Protocol.Value).MRemoteNgNames.Count > 0;
+        node is not ConnectionEntry entry || ProtocolTraits.Of(SettingsResolver.Resolve(entry).Protocol.Value).MRemoteNgNames.Count > 0;
 
     /// <param name="passwordFor">A connection's encrypted password, or empty.</param>
     static IEnumerable<XElement> MRemoteNgNodes(IEnumerable<ConnectionNode> nodes, Func<ConnectionNode, string> passwordFor) =>
@@ -428,7 +428,7 @@ public static class ConnectionExporter
             ["Hostname"] = asFolder ? string.Empty : (node as ConnectionEntry)?.Host ?? string.Empty,
             ["MacAddress"] = asFolder ? string.Empty : (node as ConnectionEntry)?.MacAddress ?? string.Empty,
             // A folder set to a protocol mRemoteNG doesn't have is written as RDP, its default.
-            ["Protocol"] = Protocols.Get(resolved.Protocol.Value).MRemoteNgNames.FirstOrDefault() ?? "RDP",
+            ["Protocol"] = ProtocolTraits.Of(resolved.Protocol.Value).MRemoteNgNames.FirstOrDefault() ?? "RDP",
             ["Port"] = resolved.Port.Value.ToString(CultureInfo.InvariantCulture),
             ["RedirectClipboard"] = resolved.ShareClipboard.Value ? "true" : "false",
             // The visual effects and VNC compression the display quality stands for; importing reads them back the same.

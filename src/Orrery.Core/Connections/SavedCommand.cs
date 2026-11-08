@@ -194,7 +194,7 @@ public static partial class SavedCommands
     /// </summary>
     public static bool ReachesUnencrypted(ConnectionNode owner) =>
         (owner is ConnectionFolder folder ? folder.Descendants().OfType<ConnectionEntry>() : [(ConnectionEntry)owner])
-            .Any(e => Protocols.Get(SettingsResolver.Resolve(e).Protocol.Value) is { Kind: SessionKind.Terminal, Encryption: WireEncryption.Never });
+            .Any(e => ProtocolTraits.Of(SettingsResolver.Resolve(e).Protocol.Value) is { Kind: SessionKind.Terminal, Encryption: WireEncryption.Never });
 
     /// <summary>
     /// Why the login password shouldn't be typed at this prompt, or null when it may: the login credential is for

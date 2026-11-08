@@ -838,7 +838,7 @@ public static class MRemoteNgImporter
             return new InheritableSettings { Username = resolved.Username.Value, Domain = resolved.Domain.Value };
         }
 
-        static Protocol? MapProtocol(string name) => Protocols.FromMRemoteNg(name);
+        static Protocol? MapProtocol(string name) => ProtocolTraits.FromMRemoteNg(name);
 
         static string? SourceId(MNode node) => node.Raw("Id") is { Length: > 0 } id ? SourcePrefix + id : null;
 

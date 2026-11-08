@@ -38,7 +38,7 @@ public sealed record ProbeTarget(Guid Id, string Host, int Port)
         var resolved = SettingsResolver.Resolve(entry);
         if (!ProtocolInfo.UsesNetwork(resolved.Protocol.Value))
         {
-            whyNot = Protocols.Get(resolved.Protocol.Value).NotOnNetwork;
+            whyNot = ProtocolTraits.Of(resolved.Protocol.Value).NotOnNetwork;
             return null;
         }
 

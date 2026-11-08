@@ -25,7 +25,7 @@ sealed class PerComputerFields(ComputerValues values)
         new("settings." + name, _ => true, n => ToJson(get(n.Settings)), (n, v) => set(n.Settings, FromJson<T>(v)));
 
     static bool OpensOnThisComputer(ConnectionNode node) =>
-        node is ConnectionEntry entry && Protocols.Get(SettingsResolver.Resolve(entry).Protocol.Value).Reach == ProtocolReach.ThisComputer;
+        node is ConnectionEntry entry && ProtocolTraits.Of(SettingsResolver.Resolve(entry).Protocol.Value).Reach == ProtocolReach.ThisComputer;
 
     static readonly Field[] Fields =
     [
