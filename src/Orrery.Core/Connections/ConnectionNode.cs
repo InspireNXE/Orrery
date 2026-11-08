@@ -27,38 +27,25 @@ public enum Protocol
     Local,
 }
 
+/// <summary>Shorthands for the <see cref="ProtocolTraits"/> most callers ask about.</summary>
 public static class ProtocolInfo
 {
     /// <summary>The port a protocol uses unless one is set. A serial port has none: it's 0 and never shown.</summary>
-    public static int DefaultPort(Protocol protocol) => protocol switch
-    {
-        Protocol.Rdp => 3389,
-        Protocol.Ssh => 22,
-        Protocol.Vnc => 5900,
-        Protocol.Telnet => 23,
-        Protocol.Serial => 0,
-        Protocol.Http => 80,
-        Protocol.Https => 443,
-        Protocol.Local => 0,
-        _ => throw new ArgumentOutOfRangeException(nameof(protocol)),
-    };
+    public static int DefaultPort(Protocol protocol) => Protocols.Get(protocol).DefaultPort;
 
-    public static string Label(Protocol protocol) => protocol.ToString().ToUpperInvariant();
+    public static string Label(Protocol protocol) => Protocols.Get(protocol).Label;
 
-    /// <summary>Opens in the default browser: no tab, no session, nothing to reconnect.</summary>
-    public static bool IsWeb(Protocol protocol) => protocol is Protocol.Http or Protocol.Https;
+    /// <summary>A web page: in an Orrery tab or the default browser, with no login.</summary>
+    public static bool IsWeb(Protocol protocol) => Protocols.Get(protocol).Kind == SessionKind.Web;
 
-    /// <summary>Reached over the network at a host and port, so it can have a jump host and a host check. Not a serial port or a local shell.</summary>
-    public static bool UsesNetwork(Protocol protocol) => protocol is not (Protocol.Serial or Protocol.Local);
+    /// <summary>Reached over the network at a host and port, so it can have a host check. Not a serial port or a local shell.</summary>
+    public static bool UsesNetwork(Protocol protocol) => Protocols.Get(protocol).Reach == ProtocolReach.Network;
 
     /// <summary>A remote desktop drawn in a tab (RDP, VNC).</summary>
-    public static bool IsDesktop(Protocol protocol) => protocol is Protocol.Rdp or Protocol.Vnc;
+    public static bool IsDesktop(Protocol protocol) => Protocols.Get(protocol).Kind == SessionKind.Desktop;
 
-    /// <summary>The protocols Orrery 0.1 can't read, so a file using them is written with a newer schema.</summary>
-    internal static bool AddedInSchema3(Protocol protocol) => protocol is Protocol.Serial or Protocol.Http or Protocol.Https;
-
-    /// <summary>The protocols Orrery 0.1.2 can't read.</summary>
-    internal static bool AddedInSchema6(Protocol protocol) => protocol is Protocol.Local;
+    /// <summary>Whether an Orrery that reads only schemas before <paramref name="schema"/> can't read the protocol, so a file using it is written with a newer one.</summary>
+    internal static bool NeedsSchema(Protocol protocol, int schema) => Protocols.Get(protocol).AddedInSchema >= schema;
 }
 
 /// <summary>RDP: where the remote computer's sound goes.</summary>
@@ -323,7 +310,7 @@ public sealed class InheritableSettings
 
     /// <summary>Whether this uses a protocol, or sets anything, that Orrery 0.1.1 can't read or keep.</summary>
     internal bool NeedsSchema6() =>
-        (Protocol is { } protocol && ProtocolInfo.AddedInSchema6(protocol))
+        (Protocol is { } protocol && ProtocolInfo.NeedsSchema(protocol, 6))
         || SettingProperties.Any(p => AddedInSchema6.Contains(p.Name) && p.GetValue(this) is not null);
 
     /// <summary>Whether this sets anything Orrery 0.1.1 can't keep.</summary>
@@ -331,7 +318,7 @@ public sealed class InheritableSettings
 
     /// <summary>Whether this sets anything Orrery 0.1 can't keep: a setting added since, or a protocol added since.</summary>
     internal bool NeedsSchema3() =>
-        (Protocol is { } protocol && ProtocolInfo.AddedInSchema3(protocol))
+        (Protocol is { } protocol && ProtocolInfo.NeedsSchema(protocol, 3))
         || SettingProperties.Any(p => AddedInSchema3.Contains(p.Name) && p.GetValue(this) is not null);
 
     /// <summary>

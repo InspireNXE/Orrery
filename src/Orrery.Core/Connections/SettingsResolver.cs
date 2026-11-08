@@ -195,7 +195,7 @@ public static class SettingsResolver
                 return null;
             }
 
-            if (Resolve(jump).Protocol.Value != Protocol.Ssh || string.IsNullOrWhiteSpace(jump.Host))
+            if (Protocols.Get(Resolve(jump).Protocol.Value).JumpHosts != JumpHostSupport.Native || string.IsNullOrWhiteSpace(jump.Host))
             {
                 error = $"The jump host \"{jump.Name}\" must be an SSH connection with a host.";
                 return null;

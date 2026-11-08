@@ -168,17 +168,6 @@ public static class MRemoteNgImporter
     /// </summary>
     public const long MaxTotalKdfIterations = 200_000_000;
 
-    static readonly Dictionary<string, Protocol> ProtocolMap = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["RDP"] = Protocol.Rdp,
-        ["SSH2"] = Protocol.Ssh,
-        ["SSH1"] = Protocol.Ssh,
-        ["VNC"] = Protocol.Vnc,
-        ["Telnet"] = Protocol.Telnet,
-        ["HTTP"] = Protocol.Http,
-        ["HTTPS"] = Protocol.Https,
-    };
-
     public static ImportResult ImportFile(string path, string? masterPassword = null)
     {
         using var stream = File.OpenRead(path);
@@ -849,7 +838,7 @@ public static class MRemoteNgImporter
             return new InheritableSettings { Username = resolved.Username.Value, Domain = resolved.Domain.Value };
         }
 
-        static Protocol? MapProtocol(string name) => ProtocolMap.TryGetValue(name, out var p) ? p : null;
+        static Protocol? MapProtocol(string name) => Protocols.FromMRemoteNg(name);
 
         static string? SourceId(MNode node) => node.Raw("Id") is { Length: > 0 } id ? SourcePrefix + id : null;
 

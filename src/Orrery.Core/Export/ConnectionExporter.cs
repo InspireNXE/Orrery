@@ -395,9 +395,9 @@ public static class ConnectionExporter
         return output.ToString();
     }
 
-    /// <summary>Whether mRemoteNG can hold the connection: every protocol but a serial port and a local shell.</summary>
+    /// <summary>Whether mRemoteNG can hold the connection: every protocol it has a name for, so not a serial port or a local shell.</summary>
     static bool InMRemoteNg(ConnectionNode node) =>
-        node is not ConnectionEntry entry || SettingsResolver.Resolve(entry).Protocol.Value is not (Protocol.Serial or Protocol.Local);
+        node is not ConnectionEntry entry || Protocols.Get(SettingsResolver.Resolve(entry).Protocol.Value).MRemoteNgNames.Count > 0;
 
     /// <param name="passwordFor">A connection's encrypted password, or empty.</param>
     static IEnumerable<XElement> MRemoteNgNodes(IEnumerable<ConnectionNode> nodes, Func<ConnectionNode, string> passwordFor) =>
@@ -427,15 +427,8 @@ public static class ConnectionExporter
             ["Password"] = asFolder ? string.Empty : passwordFor(node),
             ["Hostname"] = asFolder ? string.Empty : (node as ConnectionEntry)?.Host ?? string.Empty,
             ["MacAddress"] = asFolder ? string.Empty : (node as ConnectionEntry)?.MacAddress ?? string.Empty,
-            ["Protocol"] = resolved.Protocol.Value switch
-            {
-                Protocol.Ssh => "SSH2",
-                Protocol.Vnc => "VNC",
-                Protocol.Telnet => "Telnet",
-                Protocol.Http => "HTTP",
-                Protocol.Https => "HTTPS",
-                _ => "RDP",
-            },
+            // A folder set to a protocol mRemoteNG doesn't have is written as RDP, its default.
+            ["Protocol"] = Protocols.Get(resolved.Protocol.Value).MRemoteNgNames.FirstOrDefault() ?? "RDP",
             ["Port"] = resolved.Port.Value.ToString(CultureInfo.InvariantCulture),
             ["RedirectClipboard"] = resolved.ShareClipboard.Value ? "true" : "false",
             // The visual effects and VNC compression the display quality stands for; importing reads them back the same.

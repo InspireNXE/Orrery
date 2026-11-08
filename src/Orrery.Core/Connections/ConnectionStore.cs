@@ -131,7 +131,7 @@ public sealed class ConnectionStore(string path, string backupDirectory, int bac
             Log.Learn(LogMaskKind.Host, node.Settings?.Domain);
             if (node is ConnectionEntry entry)
             {
-                if (entry.Settings?.Protocol is not (Protocol.Serial or Protocol.Local))
+                if (entry.Settings?.Protocol is not { } protocol || ProtocolInfo.UsesNetwork(protocol))
                 {
                     Log.Learn(LogMaskKind.Host, entry.Host);
                 }
