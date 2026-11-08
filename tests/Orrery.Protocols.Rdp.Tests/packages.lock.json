@@ -36,8 +36,8 @@
       },
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -140,16 +140,16 @@
       "orrery.protocols.rdp": {
         "type": "Project",
         "dependencies": {
-          "Devolutions.IronRdp": "[2026.10.29-orrery.11, )",
-          "Orrery.Core": "[0.1.2-dev, )"
+          "Devolutions.IronRdp": "[2026.10.29-orrery.12, )",
+          "Orrery.Core": "[0.2.0-dev, )"
         }
       }
     },
     "net10.0/linux-arm64": {
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -160,8 +160,8 @@
     "net10.0/linux-x64": {
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -172,8 +172,8 @@
     "net10.0/osx-arm64": {
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -184,8 +184,8 @@
     "net10.0/osx-x64": {
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -196,8 +196,8 @@
     "net10.0/win-arm64": {
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",
@@ -208,8 +208,8 @@
     "net10.0/win-x64": {
       "Devolutions.IronRdp": {
         "type": "Transitive",
-        "resolved": "2026.10.29-orrery.11",
-        "contentHash": "44lRAe5GFt7HcQADYa4L2DNzORklx0gN4RG936zfQuvYs6BhnBHwVmDLrhYzDGGapuG6rzQ4Bpg8FbYIQRu44g=="
+        "resolved": "2026.10.29-orrery.12",
+        "contentHash": "C3BPLiQLNdT90cp8FYQVT93VgHSva/Q5g5vHbZS1VMZkhjO5A09VGuMPAi5QCIDeecjERkq4q9ovJ5CRpIrQVw=="
       },
       "libsodium": {
         "type": "Transitive",

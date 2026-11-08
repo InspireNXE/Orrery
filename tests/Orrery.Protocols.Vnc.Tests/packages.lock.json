@@ -145,7 +145,7 @@
         "type": "Project",
         "dependencies": {
           "Community.MarcusW.VncClient": "[2.0.8, )",
-          "Orrery.Core": "[0.1.2-dev, )"
+          "Orrery.Core": "[0.2.0-dev, )"
         }
       }
     },

@@ -135,7 +135,7 @@
       "orrery.protocols.telnet": {
         "type": "Project",
         "dependencies": {
-          "Orrery.Core": "[0.1.2-dev, )"
+          "Orrery.Core": "[0.2.0-dev, )"
         }
       }
     },
