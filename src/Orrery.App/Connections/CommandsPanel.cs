@@ -358,6 +358,7 @@ sealed class CommandsPanel : DockPanel
     internal MenuItem NewItem => _newItem;
     internal MenuItem UpItem => _upItem;
     internal MenuItem DownItem => _downItem;
+    internal MenuItem DuplicateItem => _duplicateItem;
     internal MenuItem DeleteItem => _deleteItem;
 
     /// <summary>Where the menu's New command goes: the command's place when it has one, or the group's.</summary>

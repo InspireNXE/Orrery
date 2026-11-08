@@ -4,6 +4,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
 using Orrery.Core.Connections;
+using Orrery.Core.Storage;
 using Xunit;
 
 namespace Orrery.App.Tests;
@@ -21,6 +22,42 @@ public class CommandsPageTests
         tree.Root.Commands = [new SavedCommand { Name = "uptime", Text = "uptime" }];
         entry.Commands = [new SavedCommand { Name = "restart", Text = "sudo systemctl restart nginx", Confirm = true }];
         return (tree, folder, entry);
+    }
+
+    [AvaloniaFact]
+    public void In_the_main_window_the_menu_can_delete_duplicate_and_move_a_command()
+    {
+        // The page's editor is what the menu acts through; the other tests hand it over themselves.
+        var dir = Path.Combine(Path.GetTempPath(), "orrery-tests-" + Guid.NewGuid().ToString("N"));
+        var location = new DataLocation(StorageMode.Portable, Path.Combine(dir, "data"), Path.Combine(dir, "cache"), Path.Combine(dir, "logs"));
+        Directory.CreateDirectory(location.DataDir);
+        VaultAutoLockTests.AddMainWindowResources();
+        var window = new MainWindow(location);
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var panel = VaultAutoLockTests.Private<CommandsPanel>(window, "_commandsPanel");
+            var entry = new ConnectionEntry
+            {
+                Name = "web-01",
+                Host = "web-01.example",
+                Commands = [new SavedCommand { Name = "restart", Text = "sudo systemctl restart nginx" }, new SavedCommand { Name = "logs", Text = "journalctl -f" }],
+            };
+            tree.Add(entry, tree.Root);
+            panel.Refresh();
+
+            panel.ShowMenuFor(panel.Listed.Single(c => c.Command.Name == "restart"));
+            Assert.True(panel.DeleteItem.IsEnabled);
+            Assert.True(panel.DownItem.IsEnabled);
+            Assert.True(panel.DuplicateItem.IsEnabled);
+        }
+        finally
+        {
+            window.Close();
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
     }
 
     static List<CommandAt> Listed(CommandsPanel panel) =>

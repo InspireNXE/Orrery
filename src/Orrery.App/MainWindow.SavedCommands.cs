@@ -374,6 +374,9 @@ public partial class MainWindow
     {
         var panel = new CommandsPanel(_tree);
         var editor = new CommandEditorPane(_tree, _credentials, CommandSendTargetFor);
+
+        // The panel's menu sends, duplicates, moves and deletes through the editor; without it they stay disabled.
+        panel.Editor = editor;
         panel.Chosen += (_, at) =>
         {
             editor.Show(at);
