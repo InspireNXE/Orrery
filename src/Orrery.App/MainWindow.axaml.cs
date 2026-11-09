@@ -785,7 +785,7 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
             _connectMenuItem.IsEnabled = connections > 0;
             _connectMenuItem.Header = connections > 1 ? $"Connect {connections}" : "Connect";
             _newSessionMenuItem.IsVisible = connections == 1;
-            _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry ssh && SettingsResolver.Resolve(ssh).Protocol.Value == Protocol.Ssh;
+            _browseFilesMenuItem.IsVisible = SingleSelectedNode is ConnectionEntry files && ProtocolRegistry.For(SettingsResolver.Resolve(files).Protocol.Value).OpensFiles;
             int wakeable = nodes.OfType<ConnectionEntry>().Count(e => !string.IsNullOrEmpty(e.MacAddress));
             _wakeMenuItem.IsVisible = nodes.OfType<ConnectionEntry>().Any();
             _wakeMenuItem.IsEnabled = wakeable > 0;
@@ -2493,7 +2493,8 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
             ConnectLog.LogInformation("Connecting \"{Name}\": {Protocol}{Files} to {Host}:{Port}{Via}", entry.Name, protocol, files ? " files" : string.Empty,
                 entry.Host, resolved.Port.Value, jumps.Count == 0 ? string.Empty : " through " + string.Join(", ", jumps.Select(j => $"{j.Target.Host}:{j.Target.Port}")));
             // An SSH session opens its own forwards and the SOCKS proxy its folder asks for.
-            var route = new SshRoute(jumps, descriptor.Forwards(entry, resolved), SshSession.KeepAliveFor(resolved.KeepAliveSeconds.Value));
+            var route = new SshRoute(jumps, descriptor.ForwardsPorts ? PortForward.WithSocks(entry.PortForwards, resolved.SocksProxy.Value) : [],
+                SshSession.KeepAliveFor(resolved.KeepAliveSeconds.Value));
 
             // Telnet has no login of its own: the server asks in the terminal.
             if (traits.Login is LoginKind.Username or LoginKind.None)
@@ -2701,6 +2702,8 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
         elevated &= OperatingSystem.IsWindows();
         var name = entry?.Name ?? shell.Name;
         var folder = StartFolder(entry?.StartFolder);
+        // Its tab says SSH, with Local set: the label, the lock and the menus go by Local. It isn't Protocol.Local because
+        // the workspace file keeps a tab's protocol, and Orrery 0.1.1 and older have no Local: they would drop the whole workspace.
         var origin = new SessionOrigin(elevated ? $"{name} (Administrator)" : name, Protocol.Ssh, entry?.Id, () =>
         {
             OpenLocalTerminal(shell.Id, elevated, entry);
@@ -3867,7 +3870,8 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
                     () => ToggleSplit(tab), Input.TabShortcuts.SplitDescription(mac));
         }
 
-        if (tab.Origin is { Protocol: Protocol.Ssh, EntryId: { } id } && _tree.Find(id) is ConnectionEntry entry)
+        // Not a local shell, whose tab says SSH (see OpenLocalTerminal).
+        if (tab.Origin is { Local: false, EntryId: { } id } && ProtocolRegistry.For(tab.Origin.Protocol).OpensFiles && _tree.Find(id) is ConnectionEntry entry)
         {
             yield return tab.Origin.Files
                 ? MenuItemFor("Open a terminal", async () => await ConnectAsync(entry))

@@ -49,8 +49,8 @@ abstract class ProtocolDescriptor
     /// <summary>Whether it can open a file browser instead of its usual session (SSH's SFTP).</summary>
     public virtual bool OpensFiles => false;
 
-    /// <summary>The ports a session forwards for a saved connection, and the SOCKS proxy its folder asks for.</summary>
-    public virtual IReadOnlyList<PortForward> Forwards(ConnectionEntry entry, ResolvedSettings resolved) => [];
+    /// <summary>Whether its sessions forward ports a saved connection lists, and the SOCKS proxy its folder asks for (SSH).</summary>
+    public virtual bool ForwardsPorts => false;
 
     /// <summary>
     /// Opens what isn't a session Orrery logs in to, such as a shell on this computer or a web page, without the

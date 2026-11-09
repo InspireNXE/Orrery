@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Microsoft.Extensions.Logging;
 using Orrery.App.Connections;
 using Orrery.App.Credentials;
+using Orrery.App.Protocols;
 using Orrery.App.Sessions;
 using Orrery.Core.Connections;
 using Orrery.Core.Credentials;

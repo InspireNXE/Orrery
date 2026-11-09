@@ -127,6 +127,50 @@ public class ProtocolGuardConnectTests : IDisposable
         }
     }
 
+    [AvaloniaFact]
+    public void Only_an_ssh_tab_offers_its_files_not_a_saved_local_shell_whose_tab_says_ssh()
+    {
+        var location = new DataLocation(StorageMode.Portable, Path.Combine(_dir, "data"), Path.Combine(_dir, "cache"), Path.Combine(_dir, "logs"));
+        Directory.CreateDirectory(location.DataDir);
+        VaultAutoLockTests.AddMainWindowResources();
+        var window = new MainWindow(location) { Width = 1400, Height = 900 };
+        try
+        {
+            window.Show();
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var ssh = new ConnectionEntry { Name = "box", Host = "box.example", Settings = { Protocol = Protocol.Ssh } };
+            var shell = new ConnectionEntry { Name = "shell", Settings = { Protocol = Protocol.Local } };
+            tree.Add(ssh, tree.Root);
+            tree.Add(shell, tree.Root);
+            var addTab = typeof(MainWindow).GetMethod("AddTab", Hidden)!;
+            addTab.Invoke(window, [new Avalonia.Controls.Border(), new IdleSession("box.example"), new SessionOrigin("box", Protocol.Ssh, ssh.Id, () => Task.CompletedTask)]);
+            addTab.Invoke(window, [new Avalonia.Controls.Border(), new IdleSession("this computer"),
+                new SessionOrigin("shell", Protocol.Ssh, shell.Id, () => Task.CompletedTask) { Local = true }]);
+            Dispatcher.UIThread.RunJobs();
+
+            var tabs = VaultAutoLockTests.Private<List<SessionTab>>(window, "_tabs");
+            Assert.Contains("Browse files (SFTP)", MenuTitles(window, tabs[0]));
+            Assert.DoesNotContain("Browse files (SFTP)", MenuTitles(window, tabs[1]));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    static string[] MenuTitles(MainWindow window, SessionTab tab) =>
+        ((IEnumerable<Avalonia.Controls.Control>)typeof(MainWindow).GetMethod("TabActions", Hidden)!.Invoke(window, [tab])!)
+            .OfType<Avalonia.Controls.MenuItem>().Select(m => m.Header?.ToString() ?? string.Empty).ToArray();
+
+    sealed class IdleSession(string host) : IConnectionSession
+    {
+        public ConnectionTarget Target { get; } = new(host, 22, "user", null);
+        public SessionState State => SessionState.Connected;
+        public event EventHandler<SessionStateChangedEventArgs>? StateChanged { add { } remove { } }
+        public Task DisconnectAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     static string Describe(string name, SessionTab tab, Guid? entryId)
     {
         var origin = tab.Origin;

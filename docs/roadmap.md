@@ -4,6 +4,10 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 ## Built lately
 
+- **Unreleased:** each protocol is described in one place (see
+  [design-protocol-registry.md](design-protocol-registry.md)), so a new one is a descriptor rather than edits across
+  the app; nothing changes in use, except that a tab opened from a saved local shell no longer offers to browse its
+  files over SFTP.
 - **0.2.0 preview 1:** a Connection card in This session (a verdict first, five minutes on one graph, where
   connecting spent its time and what happened), a slow mark on the tab and hints; This session laid out like the
   saved settings, with Keep and Undo beside each change; on Windows, Alt+Tab, Alt+Esc and Ctrl+Esc go to the session

@@ -23,8 +23,7 @@ sealed class SshProtocol() : ProtocolDescriptor(Protocol.Ssh)
 
     public override bool OpensFiles => true;
 
-    public override IReadOnlyList<PortForward> Forwards(ConnectionEntry entry, ResolvedSettings resolved) =>
-        PortForward.WithSocks(entry.PortForwards, resolved.SocksProxy.Value);
+    public override bool ForwardsPorts => true;
 
     /// <summary>
     /// A terminal, or for <see cref="SessionOrigin.Files"/> a file browser (SFTP). SSH needs a username; a saved

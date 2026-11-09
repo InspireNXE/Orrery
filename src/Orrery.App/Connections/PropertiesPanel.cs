@@ -956,41 +956,41 @@ sealed class PropertiesPanel : UserControl
     {
         bool all = _node is not ConnectionEntry;
         bool host = _node is ConnectionEntry { IsHost: true };
-        bool Is(Protocol p) => all || protocol == p;
-        bool rdp = Is(Protocol.Rdp), vnc = Is(Protocol.Vnc), ssh = Is(Protocol.Ssh), serial = Is(Protocol.Serial);
-        bool web = !all && ProtocolInfo.IsWeb(protocol), network = all || ProtocolInfo.UsesNetwork(protocol);
+        var traits = ProtocolTraits.Of(protocol);
+        bool desktop = all || traits.Kind == SessionKind.Desktop, terminal = all || traits.Kind == SessionKind.Terminal;
+        bool web = !all && traits.Kind == SessionKind.Web, network = all || traits.Reach == ProtocolReach.Network;
 
         _portRow.View.IsVisible = network;
-        _credentialsSection.IsVisible = network && !web;
-        _domainRow.View.IsVisible = rdp;
-        _keyFileRow.View.IsVisible = ssh;
-        _clipboardRow.View.IsVisible = rdp || vnc || host;
+        _credentialsSection.IsVisible = all || traits.Login != LoginKind.None;
+        _domainRow.View.IsVisible = all || traits.HasDomain;
+        _keyFileRow.View.IsVisible = all || traits.Login == LoginKind.SshKeys;
+        _clipboardRow.View.IsVisible = desktop || host;
         _autoReconnectRow.View.IsVisible = !web || host;
         _recordRow.View.IsVisible = !web || host;
 
         // Only terminals: a remote desktop's recording is a picture, and its keys never go in.
-        _recordTypingRow.View.IsVisible = all || host || ssh || serial || Is(Protocol.Telnet) || Is(Protocol.Local);
+        _recordTypingRow.View.IsVisible = terminal || host;
         ShowRecordTypingWarning();
         _checkHostRow.View.IsVisible = network;
         _sessionSection.IsVisible = _clipboardRow.View.IsVisible || _autoReconnectRow.View.IsVisible || _recordRow.View.IsVisible || _checkHostRow.View.IsVisible;
         // A web page has only the color correction of them.
-        _displaySection.IsVisible = rdp || vnc || web;
+        _displaySection.IsVisible = desktop || web;
         _desktopSizeRow.View.IsVisible = all || ProtocolRegistry.For(protocol).ChoosesDesktopSize;
-        _enlargeRow.View.IsVisible = _scalingRow.View.IsVisible = _fullScreenRow.View.IsVisible = _qualityRow.View.IsVisible = rdp || vnc;
+        _enlargeRow.View.IsVisible = _scalingRow.View.IsVisible = _fullScreenRow.View.IsVisible = _qualityRow.View.IsVisible = desktop;
 
         // Only Windows lets Orrery take Alt+Tab from the system.
-        _keyboardSection.IsVisible = _shortcutsRow.View.IsVisible = (rdp || vnc) && OperatingSystem.IsWindows();
+        _keyboardSection.IsVisible = _shortcutsRow.View.IsVisible = desktop && OperatingSystem.IsWindows();
         // Each protocol's own section: its connections', and every one but those about a connection itself on a folder.
         foreach (var (descriptor, section) in _sections)
         {
             section.View.IsVisible = all ? section.ForFolders : descriptor.Traits.Any(t => t.Protocol == protocol);
         }
 
-        _jumpHostRow.View.IsVisible = network && !web || host;
-        _forwardsField.IsVisible = _node is ConnectionEntry && protocol == Protocol.Ssh;
+        _jumpHostRow.View.IsVisible = all || traits.JumpHosts != JumpHostSupport.None || host;
+        _forwardsField.IsVisible = _node is ConnectionEntry && ProtocolRegistry.For(protocol).ForwardsPorts;
         _tunnelSection.IsVisible = _jumpHostRow.View.IsVisible || _forwardsField.IsVisible;
-        // Terminals only: SSH, Telnet and serial. A folder's reach every connection in it.
-        _commandsSection.IsVisible = all || protocol is Protocol.Ssh or Protocol.Telnet or Protocol.Serial or Protocol.Local;
+        // Terminals only: SSH, Telnet, serial and local shells. A folder's reach every connection in it.
+        _commandsSection.IsVisible = terminal;
         _wakeSection.IsVisible = _node is ConnectionEntry && network;
         _managementUrlField.IsVisible = _node is ConnectionEntry && network;
         // Web connections, and any machine's management page.

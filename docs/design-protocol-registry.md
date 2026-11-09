@@ -1,6 +1,6 @@
 # Orrery design: protocol registry
 
-Status: **Accepted**, 2026-11-08. Phases 0–5 are done on `claude/exciting-poincare-c9b8a0`; phase 6 (tidying) is left (§6).
+Status: **Implemented**, 2026-11-08, on `claude/exciting-poincare-c9b8a0` (phases 0–6, §6); not merged.
 
 As built, two names differ from the sketch below: the Core table is `ProtocolTraits` (`ProtocolTraits.Of`, `.All`), since a
 Core class named `Protocols` hid the App namespace `Orrery.App.Protocols`; and the App side is an abstract class,
@@ -11,6 +11,13 @@ steps are done. `StartRequest` carries a `SessionLogin` (password, saved credent
 retry) and `StartOptions` (a saved connection's start settings, or quick connect's own defaults). A local shell and a
 web page don't start that way: their `OpenAsync` hands them to the window's own code for them, which the toolbar and
 management pages also use. The connect steps are guarded by `tests/Orrery.App.Tests/ProtocolGuardConnectTests.cs`.
+
+What phase 6 kept on purpose: `ProtocolInfo` stays as a few short names over the traits. The checks still naming a
+protocol are about that protocol itself: the importers and the exporter's list of what doesn't carry over, web
+addresses, quick connect's guesses from what's typed, VNC's view-only switch in This session, and jump hosts, which
+are SSH connections. A local shell's tab still says `Protocol.Ssh` with `Local` set, because the workspace file keeps a
+tab's protocol and Orrery 0.1.1 has no `Local`: it would drop the whole workspace. A network protocol that can't use
+jump hosts (OSP) still needs a connect step that refuses one with its reason; web pages refuse in their own code.
 
 Scope: one place that describes each protocol, so adding a protocol means writing a descriptor instead of editing
 about fifteen switches and type checks. Internal only: the descriptors are compiled into Orrery.
