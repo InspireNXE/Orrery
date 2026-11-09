@@ -172,7 +172,7 @@ public class ProtocolGuardUiTests
         return (panel, window);
     }
 
-    static void Golden(string name, string actual, [CallerFilePath] string here = "")
+    internal static void Golden(string name, string actual, [CallerFilePath] string here = "")
     {
         var path = Path.Combine(Path.GetDirectoryName(here)!, "Golden", name);
         actual = actual.ReplaceLineEndings("\n");
