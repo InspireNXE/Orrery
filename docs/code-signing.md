@@ -216,6 +216,30 @@ IddCx driver the way the app is signed (step 2) and install it on a machine with
 with only a publisher prompt, the display driver can ship before the rest. Attestation signing covers user-mode
 drivers too, so it can go through Partner Center with the other two once that exists.
 
+**How other streaming projects do it** (their READMEs and docs, read 2026-11-09):
+
+- **Virtual Display Driver** (VirtualDrivers), an IddCx driver from Microsoft's sample like ours, is signed by
+  **SignPath Foundation**. Its README names no Microsoft attestation, WHQL or company, and mentions test signing only
+  for ARM64 on Windows 11 24H2. That's good evidence the display driver can follow step 2; the test above still
+  stands, since the README doesn't rule out attestation as well.
+- **Apollo** (a Sunshine fork) bundles **SudoVDA**, a fork of Virtual Display Driver. Neither says how it's signed.
+- **Sunshine** writes no kernel driver of its own that it gives away:
+  - Gamepads: ViGEmBus, now at end of life, or LizardByte's **Virtual HID driver**, a paid add-on licensed per
+    machine. The paid driver is how they cover Microsoft signing.
+  - Audio: it installs **Valve's Steam Streaming Speakers** driver when Steam is there, or uses a third-party
+    virtual audio cable. No audio driver of its own.
+  - Display: none shipped. Its docs suggest a dummy HDMI plug, and its settings work with a separate virtual display
+    driver.
+- **ViGEmBus** was retired and archived in November 2023. Its signed builds came from **Nefarius Software Solutions
+  e.U.**, an Austrian registered sole trader. So the "registered organization" in step 1 below may be one person's
+  registered business, not a company. (An inference: the README doesn't say which Microsoft route signed it.)
+- **Moonlight** is a client and needs no drivers, like Orrery and Orrery Play.
+
+What that means here: the display driver can go the way Virtual Display Driver does. Valve's driver can stand in
+for host sound on machines with Steam, but not for the virtual microphone. And with ViGEmBus gone, there's no free
+signed XInput driver left to rely on: the gamepad driver needs our own Microsoft signature, paid for one way or
+another.
+
 **What Microsoft's signature takes:**
 
 1. **A registered organization.** Registering for the Windows Hardware Developer Program asks for the company's
@@ -269,3 +293,9 @@ drivers too, so it can go through Partner Center with the other two once that ex
 - UMDF drivers and signing (archived Microsoft blog): https://learn.microsoft.com/archive/blogs/peterwie/do-umdf-drivers-require-signing
 - SSL.com EV code signing: https://www.ssl.com/products/software-integrity/code-signing/ev/
 - SSL.com eSigner: https://www.ssl.com/products/software-integrity/signing-service/
+- Virtual Display Driver: https://github.com/VirtualDrivers/Virtual-Display-Driver
+- Sunshine on Windows: https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2getting__started.html
+- Sunshine configuration (gamepad and audio options): https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2configuration.html
+- Apollo: https://github.com/ClassicOldSong/Apollo
+- SudoVDA: https://github.com/SudoMaker/SudoVDA
+- ViGEmBus: https://github.com/nefarius/ViGEmBus
