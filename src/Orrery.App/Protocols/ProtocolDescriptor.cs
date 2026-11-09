@@ -40,6 +40,31 @@ abstract class ProtocolDescriptor
     /// </summary>
     public virtual PropertiesSection? CreateSection(PropertiesContext context) => null;
 
+    /// <summary>False for one that can open with no host (a local shell: the one chosen in Settings).</summary>
+    public virtual bool NeedsHost => true;
+
+    /// <summary>What to do about a saved connection with no host.</summary>
+    public virtual string NoHostHelp => "Enter a host name or IP address in its settings first.";
+
+    /// <summary>Whether it can open a file browser instead of its usual session (SSH's SFTP).</summary>
+    public virtual bool OpensFiles => false;
+
+    /// <summary>The ports a session forwards for a saved connection, and the SOCKS proxy its folder asks for.</summary>
+    public virtual IReadOnlyList<PortForward> Forwards(ConnectionEntry entry, ResolvedSettings resolved) => [];
+
+    /// <summary>
+    /// Opens what isn't a session Orrery logs in to, such as a shell on this computer or a web page, without the
+    /// connect steps (jump hosts, the login). False for a protocol that starts with <see cref="StartAsync"/>.
+    /// </summary>
+    public virtual Task<bool> OpenAsync(ISessionHost host, OpenRequest request) => Task.FromResult(false);
+
+    /// <summary>
+    /// Starts a session once the connect steps are done: its jump hosts are reached and its login is known. A
+    /// protocol that opens with <see cref="OpenAsync"/> never gets here.
+    /// </summary>
+    public virtual Task StartAsync(ISessionHost host, StartRequest request) =>
+        throw new InvalidOperationException($"{Traits[0].Label} opens without starting a session.");
+
     /// <summary>
     /// The saved settings a running session can't take up until it reconnects, as they'd be used then. These are the
     /// ones every session has; a protocol with more lists its own.

@@ -14,6 +14,7 @@ using Orrery.App.Connections;
 using Orrery.App.Credentials;
 using Orrery.App.Import;
 using Orrery.App.Logging;
+using Orrery.App.Protocols;
 using Orrery.Core.Diagnostics;
 using Orrery.Core.Export;
 using Orrery.Core.Import;
@@ -29,16 +30,12 @@ using Orrery.Core.Sessions;
 using Orrery.Core.Settings;
 using Orrery.Core.Storage;
 using Orrery.Protocols.Local;
-using Orrery.Protocols.Rdp;
-using Orrery.Protocols.Serial;
 using Orrery.Protocols.Ssh;
 using Orrery.Protocols.Ssh.Agent;
-using Orrery.Protocols.Telnet;
-using Orrery.Protocols.Vnc;
 
 namespace Orrery.App;
 
-public partial class MainWindow : Window, IFullScreenHost
+public partial class MainWindow : Window, IFullScreenHost, ISessionHost
 {
     // The session toolbar's height, which isn't laid out yet when the first session starts.
     const double SessionToolbarHeight = 45;
@@ -2455,39 +2452,33 @@ public partial class MainWindow : Window, IFullScreenHost
 
         var resolved = SettingsResolver.Resolve(entry);
         var protocol = resolved.Protocol.Value;
-        // A local shell's host is the shell, and empty is the one chosen in Settings.
-        if (protocol == Protocol.Local)
+        var descriptor = ProtocolRegistry.For(protocol);
+        var traits = ProtocolTraits.Of(protocol);
+        if (descriptor.NeedsHost && string.IsNullOrWhiteSpace(entry.Host))
         {
-            ConnectLog.LogInformation("Opening \"{Name}\": a local shell{Elevation}", entry.Name, entry.RunAsAdministrator ? ", as administrator" : string.Empty);
-            OpenLocalTerminal(string.IsNullOrWhiteSpace(entry.Host) ? null : entry.Host, entry.RunAsAdministrator, entry);
+            await Dialogs.ShowMessageAsync(this, $"\"{entry.Name}\" has no host", descriptor.NoHostHelp);
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(entry.Host))
+        // A local shell and a web page open as they are, with no jump hosts or login.
+        if (await descriptor.OpenAsync(this, new OpenRequest(protocol, entry.Name, entry, entry.Host, resolved.Port.Value, resolved.JumpHostId.Value is not null)))
         {
-            await Dialogs.ShowMessageAsync(this, $"\"{entry.Name}\" has no host", protocol == Protocol.Serial
-                ? "Enter the serial port's name, such as COM3 or /dev/ttyUSB0, in its settings first."
-                : "Enter a host name or IP address in its settings first.");
             return;
         }
 
-        if (ProtocolInfo.IsWeb(protocol))
-        {
-            await OpenWebPageAsync(entry.Name, entry.Id, protocol, entry.Host, resolved.Port.Value, resolved.JumpHostId.Value is not null);
-            return;
-        }
-
-        files &= protocol == Protocol.Ssh;
+        files &= descriptor.OpensFiles;
         var origin = new SessionOrigin(files ? $"{entry.Name} · files" : entry.Name, protocol, entry.Id, () => ConnectAsync(entry, files: files), resolved.AutoReconnect.Value)
         {
             Files = files,
             ReachableDirectly = resolved.JumpHostId.Value is null && ChecksHostDirectly(protocol),
         };
-        if (protocol == Protocol.Serial)
+        var options = StartOptions.From(resolved);
+
+        // A serial port is on this computer: no jump host reaches it, and it has no login.
+        if (traits.Reach == ProtocolReach.ThisComputer)
         {
-            var line = SerialLine.From(resolved);
-            ConnectLog.LogInformation("Opening \"{Name}\": serial port {Port} at {Line}", entry.Name, entry.Host, line);
-            StartSerial(origin, entry.Host, line);
+            await descriptor.StartAsync(this, new StartRequest(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, null, null), SessionLogin.None, options,
+                SshRoute.Direct));
             return;
         }
 
@@ -2502,13 +2493,13 @@ public partial class MainWindow : Window, IFullScreenHost
             ConnectLog.LogInformation("Connecting \"{Name}\": {Protocol}{Files} to {Host}:{Port}{Via}", entry.Name, protocol, files ? " files" : string.Empty,
                 entry.Host, resolved.Port.Value, jumps.Count == 0 ? string.Empty : " through " + string.Join(", ", jumps.Select(j => $"{j.Target.Host}:{j.Target.Port}")));
             // An SSH session opens its own forwards and the SOCKS proxy its folder asks for.
-            var route = new SshRoute(jumps, protocol == Protocol.Ssh ? PortForward.WithSocks(entry.PortForwards, resolved.SocksProxy.Value) : [],
-                SshSession.KeepAliveFor(resolved.KeepAliveSeconds.Value));
+            var route = new SshRoute(jumps, descriptor.Forwards(entry, resolved), SshSession.KeepAliveFor(resolved.KeepAliveSeconds.Value));
 
             // Telnet has no login of its own: the server asks in the terminal.
-            if (protocol == Protocol.Telnet)
+            if (traits.Login is LoginKind.Username or LoginKind.None)
             {
-                StartTelnet(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null), jumps);
+                await descriptor.StartAsync(this, new StartRequest(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, resolved.Username.Value, null),
+                    SessionLogin.None, options, route));
                 return;
             }
 
@@ -2542,8 +2533,9 @@ public partial class MainWindow : Window, IFullScreenHost
 
             // SSH: the connection's key file, with its passphrase asked for now if it has one. Skipped after the
             // server refused the keys, so the retry goes straight to asking for a password.
+            bool keys = traits.Login == LoginKind.SshKeys && !skipKeys;
             KeyFileLogin? keyFile = null;
-            if (protocol == Protocol.Ssh && !skipKeys && resolved.KeyFile.Value is { } keyPath)
+            if (keys && resolved.KeyFile.Value is { } keyPath)
             {
                 if (await PrepareKeyFileAsync(keyPath, entry.Name) is not { } prepared)
                 {
@@ -2555,13 +2547,14 @@ public partial class MainWindow : Window, IFullScreenHost
             }
 
             // SSH with no saved credential: the key file and the agent's keys, if there are any, without asking for a password.
-            bool useAgent = password is null && protocol == Protocol.Ssh && resolved.UseSshAgent.Value && !skipKeys
+            bool useAgent = password is null && keys && resolved.UseSshAgent.Value
                 && !string.IsNullOrWhiteSpace(username) && await AgentHasKeysAsync();
-            if (password is null && protocol == Protocol.Ssh && !skipKeys && !string.IsNullOrWhiteSpace(username) && (keyFile is not null || useAgent))
+            if (password is null && keys && !string.IsNullOrWhiteSpace(username) && (keyFile is not null || useAgent))
             {
                 ConnectLog.LogInformation("\"{Name}\": logging in as {User} with {Keys}", entry.Name, username, KeysIn(keyFile, useAgent));
-                StartSshWithKeys(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
-                    whenRefused: () => ConnectAsync(entry, skipKeys: true, files), keyFile, useAgent, resolved.AllowLegacySsh.Value, route);
+                await descriptor.StartAsync(this, new StartRequest(origin, new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain),
+                    new SessionLogin(KeyFile: keyFile, KeysOnly: true, UseAgent: useAgent, WhenKeysRefused: () => ConnectAsync(entry, skipKeys: true, files)),
+                    options, route));
                 return;
             }
 
@@ -2603,10 +2596,7 @@ public partial class MainWindow : Window, IFullScreenHost
             }
 
             var target = new ConnectionTarget(entry.Host, resolved.Port.Value, username, domain);
-            // Checked when saved; a hand-edited file that doesn't parse just fits the window.
-            DesktopResolution.TryParse(resolved.DesktopSize.Value, out var desktopSize, out _);
-            await StartSessionAsync(origin, target, password, saved, resolved.ShareClipboard.Value, resolved.AllowLegacySsh.Value, route, desktopSize,
-                resolved.EnlargeRemoteDesktop.Value, resolved.DisplayQuality.Value, keyFile, resolved.ViewOnly.Value, resolved.Scaling.Value);
+            await descriptor.StartAsync(this, new StartRequest(origin, target, new SessionLogin(password, saved, keyFile), options, route));
         }
         catch (Exception e) when (e is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -2632,12 +2622,15 @@ public partial class MainWindow : Window, IFullScreenHost
         }
     }
 
+    /// <summary>A host typed into quick connect: Orrery's defaults, not the defaults for all connections, and no jump hosts.</summary>
+    /// <param name="skipAgent">Ask for a password even if an SSH agent is running: its keys were just refused.</param>
     async Task ConnectDirectAsync(QuickConnectChoice choice, bool skipAgent = false)
     {
         var host = choice.Host!;
-        if (ProtocolInfo.IsWeb(choice.Protocol))
+        var descriptor = ProtocolRegistry.For(choice.Protocol);
+        var traits = ProtocolTraits.Of(choice.Protocol);
+        if (await descriptor.OpenAsync(this, new OpenRequest(choice.Protocol, host, null, host, choice.Port)))
         {
-            await OpenWebPageAsync(host, null, choice.Protocol, host, choice.Port);
             return;
         }
 
@@ -2645,22 +2638,20 @@ public partial class MainWindow : Window, IFullScreenHost
         {
             ReachableDirectly = ChecksHostDirectly(choice.Protocol),
         };
-        if (choice.Protocol == Protocol.Serial)
+        var options = StartOptions.QuickConnect;
+
+        // A serial port and Telnet have no login of their own.
+        if (traits.Login is LoginKind.None or LoginKind.Username)
         {
-            StartSerial(origin, host, SerialLine.Default);
+            await descriptor.StartAsync(this, new StartRequest(origin, new ConnectionTarget(host, choice.Port, choice.Username, null), SessionLogin.None, options,
+                SshRoute.Direct));
             return;
         }
 
-        if (choice.Protocol == Protocol.Telnet)
+        if (traits.Login == LoginKind.SshKeys && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
         {
-            StartTelnet(origin, new ConnectionTarget(host, choice.Port, choice.Username, null));
-            return;
-        }
-
-        if (choice.Protocol == Protocol.Ssh && !skipAgent && !string.IsNullOrWhiteSpace(choice.Username) && await AgentHasKeysAsync())
-        {
-            StartSshWithKeys(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
-                whenRefused: () => ConnectDirectAsync(choice, skipAgent: true), keyFile: null, useAgent: true);
+            await descriptor.StartAsync(this, new StartRequest(origin, new ConnectionTarget(host, choice.Port, choice.Username, null),
+                new SessionLogin(KeysOnly: true, UseAgent: true, WhenKeysRefused: () => ConnectDirectAsync(choice, skipAgent: true)), options, SshRoute.Direct));
             return;
         }
 
@@ -2673,112 +2664,7 @@ public partial class MainWindow : Window, IFullScreenHost
 
         var target = new ConnectionTarget(host, choice.Port, prompt.Username, prompt.Domain);
         var saved = prompt.CredentialId is { } id ? await _credentials.GetAsync(id) : null;
-        await StartSessionAsync(origin, target, prompt.Password, saved);
-    }
-
-    /// <param name="viewOnly">VNC: open watching only.</param>
-    /// <param name="scaling">VNC: how the desktop is fitted into the tab.</param>
-    Task StartSessionAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved,
-        bool shareClipboard = true, bool allowLegacySsh = false, SshRoute? route = null, (int Width, int Height)? desktopSize = null, bool? enlarge = null,
-        DisplayQuality quality = DisplayQuality.Balanced, KeyFileLogin? keyFile = null, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.Fit)
-    {
-        switch (origin.Protocol)
-        {
-            case Protocol.Ssh:
-                return StartSshAsync(origin, target, password, saved, allowLegacySsh, route, keyFile);
-            case Protocol.Vnc:
-                StartVnc(origin, target, password, shareClipboard, enlarge, route?.Jumps, quality, viewOnly, scaling);
-                return Task.CompletedTask;
-            default:
-                StartRdp(origin, target, password, shareClipboard, desktopSize, enlarge, route?.Jumps, quality, scaling);
-                return Task.CompletedTask;
-        }
-    }
-
-    /// <summary>VNC servers set their own desktop size; the view shrinks it to fit and zooms it like RDP.</summary>
-    /// <param name="enlarge">The connection's own choice; null uses the app setting.</param>
-    /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
-    /// <param name="viewOnly">Open watching only, as the session menu's View only does.</param>
-    void StartVnc(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, bool? enlarge = null, IReadOnlyList<SshHop>? jumps = null,
-        DisplayQuality quality = DisplayQuality.Balanced, bool viewOnly = false, Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.Fit)
-    {
-        Open(origin, () =>
-        {
-            var session = VncSession.Start(target, password, shareClipboard, route: Tunnel(jumps), quality: quality);
-            var view = NewRemoteFrameView(origin, session, enlarge ?? _settingsStore.Load().ZoomRemoteDesktops, followsViewSize: true);
-            view.ViewOnly = viewOnly;
-            view.Scaling = scaling;
-            return (view, session);
-        });
-        UpdateVaultButton();
-    }
-
-    /// <param name="fixedSize">A desktop size to keep; null fits the session area and follows it.</param>
-    /// <param name="enlarge">The connection's own choice; null uses the app setting. A desktop that follows the view
-    /// is matched to this display's scaling by telling the server it, as mstsc does, so it stays pixel for pixel; a
-    /// fixed size is enlarged instead.</param>
-    /// <param name="jumps">SSH jump hosts to tunnel through; directly when there are none.</param>
-    /// <param name="scaling">How a desktop that doesn't match the tab is fitted into it.</param>
-    void StartRdp(SessionOrigin origin, ConnectionTarget target, string password, bool shareClipboard, (int Width, int Height)? fixedSize = null, bool? enlarge = null,
-        IReadOnlyList<SshHop>? jumps = null, DisplayQuality quality = DisplayQuality.Balanced,
-        Orrery.Core.Connections.DesktopScaling scaling = Orrery.Core.Connections.DesktopScaling.Fit)
-    {
-        Open(origin, () =>
-        {
-            bool matchScaling = enlarge ?? _settingsStore.Load().ZoomRemoteDesktops;
-            bool tellServer = matchScaling && fixedSize is null;
-            bool zoom = matchScaling && !tellServer;
-            var (width, height) = fixedSize ?? DesktopSizeForView(zoom);
-            var problems = new List<string>();
-            var options = RdpOptionsFor(origin, problems);
-            var session = RdpSession.Start(target, password, width, height, _certificateValidator, shareClipboard, Tunnel(jumps), quality, options,
-                tellServer ? RenderScaling : null);
-            var view = NewRemoteFrameView(origin, session, zoom, followsViewSize: fixedSize is null);
-            view.Scaling = scaling;
-            if (problems.Count > 0)
-            {
-                // Said once the desktop shows, where it's seen, rather than over the connecting screen.
-                void OnConnected(object? sender, SessionStateChangedEventArgs e)
-                {
-                    if (e.State == SessionState.Connected)
-                    {
-                        session.StateChanged -= OnConnected;
-                        Dispatcher.UIThread.Post(() => view.ShowNotice(string.Join(" ", problems)));
-                    }
-                }
-
-                session.StateChanged += OnConnected;
-            }
-
-            return (view, session);
-        });
-        UpdateVaultButton();
-    }
-
-    /// <summary>
-    /// A saved connection's sound, shared folders and console session, with what can't be shared added to
-    /// <paramref name="problems"/>; Orrery's defaults for a host typed into quick connect.
-    /// </summary>
-    RdpOptions RdpOptionsFor(SessionOrigin origin, List<string> problems)
-    {
-        if (origin.EntryId is not { } id || _tree.Find(id) is not { } node)
-        {
-            return new RdpOptions();
-        }
-
-        var resolved = SettingsResolver.Resolve(node);
-        var drives = RdpDrives.ForThisComputer(resolved.ShareAllDrives.Value, resolved.SharedFolders.Value, problems);
-        foreach (var problem in problems)
-        {
-            ConnectLog.LogWarning("{Name}: {Problem}", origin.Title, problem);
-        }
-
-        return new RdpOptions
-        {
-            PlayAudio = resolved.RemoteAudio.Value == Orrery.Core.Connections.RemoteAudio.PlayHere,
-            Drives = drives,
-            AdminSession = resolved.AdminSession.Value,
-        };
+        await descriptor.StartAsync(this, new StartRequest(origin, target, new SessionLogin(prompt.Password, saved), options, SshRoute.Direct));
     }
 
     /// <summary>A remote desktop view with the color correction from Settings, unless its connection turns that off.</summary>
@@ -2859,19 +2745,6 @@ public partial class MainWindow : Window, IFullScreenHost
         + "anything else running as you could reach it through Orrery. Close it when you're done.";
 
     void OnElevatedTerminalClick(object? sender, RoutedEventArgs e) => OpenLocalTerminal(elevated: true);
-
-    void StartTelnet(SessionOrigin origin, ConnectionTarget target, IReadOnlyList<SshHop>? jumps = null) => Open(origin, () =>
-    {
-        var session = TelnetSession.Start(target, 80, 24, Tunnel(jumps));
-        return (NewTerminalView(session), session);
-    });
-
-    /// <summary>A terminal on a serial port of this computer, such as a switch's console cable.</summary>
-    void StartSerial(SessionOrigin origin, string portName, SerialLine line) => Open(origin, () =>
-    {
-        var session = SerialSession.Start(new ConnectionTarget(portName, 0, null, null), line);
-        return (NewTerminalView(session), session);
-    });
 
     /// <summary>
     /// Opens a web connection: in a tab, or in the default browser if the connection or Settings says so. Opening it
@@ -2977,6 +2850,39 @@ public partial class MainWindow : Window, IFullScreenHost
         AddTab(view, session, origin.AutoReconnect ? origin with { Restart = create } : origin);
     }
 
+    // What a protocol's descriptor starts its sessions with: see ISessionHost.
+    void ISessionHost.Open(SessionOrigin origin, Func<(Control View, IConnectionSession Session)> create) => Open(origin, create);
+
+    SshTunnel? ISessionHost.Tunnel(IReadOnlyList<SshHop>? jumps) => Tunnel(jumps);
+
+    RemoteFrameView ISessionHost.NewDesktopView(SessionOrigin origin, IFrameBufferSession session, bool zoom, bool followsViewSize) =>
+        NewRemoteFrameView(origin, session, zoom, followsViewSize);
+
+    TerminalView ISessionHost.NewTerminalView(ITerminalSession session) => NewTerminalView(session);
+
+    bool ISessionHost.EnlargesByDefault => _settingsStore.Load().ZoomRemoteDesktops;
+
+    (int Width, int Height) ISessionHost.DesktopSizeForView(bool zoom) => DesktopSizeForView(zoom);
+
+    double ISessionHost.DisplayScale => RenderScaling;
+
+    ServerCertificateValidator ISessionHost.CertificateValidator => _certificateValidator;
+
+    HostKeyValidator ISessionHost.HostKeyValidator => _hostKeyValidator;
+
+    ConnectionNode? ISessionHost.Find(Guid id) => _tree.Find(id);
+
+    Task ISessionHost.CloseTabAsync(IConnectionSession session) => CloseTabAsync(session);
+
+    Window ISessionHost.Owner => this;
+
+    void ISessionHost.LoginsChanged() => UpdateVaultButton();
+
+    void ISessionHost.OpenLocalTerminal(string? shellId, bool elevated, ConnectionEntry? entry) => OpenLocalTerminal(shellId, elevated, entry);
+
+    Task ISessionHost.OpenWebPageAsync(string title, Guid? entryId, Protocol protocol, string host, int port, bool behindJumpHost) =>
+        OpenWebPageAsync(title, entryId, protocol, host, port, behindJumpHost);
+
     /// <summary>Whether an SSH agent is running and holds at least one key. Never throws.</summary>
     static Task<bool> AgentHasKeysAsync() => Task.Run(() =>
     {
@@ -2990,82 +2896,6 @@ public partial class MainWindow : Window, IFullScreenHost
             return false;
         }
     });
-
-    /// <summary>
-    /// Logs in with the key file, then the agent's keys, and no password. If the server refuses them all, the tab
-    /// closes and <paramref name="whenRefused"/> asks for a login the usual way.
-    /// </summary>
-    void StartSshWithKeys(SessionOrigin origin, ConnectionTarget target, Func<Task> whenRefused, KeyFileLogin? keyFile, bool useAgent,
-        bool allowLegacySsh = false, SshRoute? route = null)
-    {
-        Open(origin, () =>
-        {
-            var login = new SshLogin(target.Username!, null, UseAgent: useAgent, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
-            var (view, session, rejected) = NewSshView(origin, target, login, allowLegacySsh, route);
-            session.StateChanged += (_, e) =>
-            {
-                if (e.State == SessionState.Failed && rejected())
-                {
-                    Dispatcher.UIThread.Post(async () =>
-                    {
-                        await CloseTabAsync(session);
-                        await whenRefused();
-                    });
-                }
-            };
-            return (view, session);
-        });
-    }
-
-    /// <summary>SSH needs a username; a saved SSH-key credential logs in with its key instead of the password.</summary>
-    async Task StartSshAsync(SessionOrigin origin, ConnectionTarget target, string password, Credential? saved, bool allowLegacySsh, SshRoute? route,
-        KeyFileLogin? keyFile = null)
-    {
-        if (string.IsNullOrWhiteSpace(target.Username))
-        {
-            await Dialogs.ShowMessageAsync(this, "SSH needs a username", "Set a username on the connection or its saved credential, then connect again.");
-            return;
-        }
-
-        var login = SshLoginFor(target.Username, password, saved, keyFile);
-        Open(origin, () =>
-        {
-            var (view, session, _) = NewSshView(origin, target, login, allowLegacySsh, route);
-            return (view, session);
-        });
-        UpdateVaultButton();
-    }
-
-    /// <summary>
-    /// A terminal, or for <see cref="SessionOrigin.Files"/> a file browser (SFTP), on a new SSH connection.
-    /// <c>Rejected</c> says whether the server turned the login down.
-    /// </summary>
-    (Control View, IConnectionSession Session, Func<bool> Rejected) NewSshView(SessionOrigin origin, ConnectionTarget target, SshLogin login, bool allowLegacySsh, SshRoute? route)
-    {
-        if (origin.Files)
-        {
-            var files = SftpSession.Start(target, login, _hostKeyValidator, allowLegacySsh, route?.Jumps, route?.KeepAlive);
-            return (new FileBrowserView(files), files, () => files.AuthenticationRejected);
-        }
-
-        var shell = SshSession.Start(target, login, _hostKeyValidator, 80, 24, allowLegacySsh, route?.Jumps, route?.Forwards, route?.KeepAlive);
-        return (NewTerminalView(shell), shell, () => shell.AuthenticationRejected);
-    }
-
-    /// <summary>
-    /// A saved SSH-key credential logs in with its key instead of the password. The connection's key file, if it has
-    /// one, comes after that and before the password.
-    /// </summary>
-    static SshLogin SshLoginFor(string username, string? password, Credential? saved, KeyFileLogin? keyFile = null) =>
-        saved?.Kind is CredentialKind.SshKey or CredentialKind.SshKeyWithPassphrase
-            ? new SshLogin(username, null, saved.Secret, saved.Passphrase, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase)
-            : new SshLogin(username, password, KeyFile: keyFile?.Path, KeyFilePassphrase: keyFile?.Passphrase);
-
-    /// <summary>A connection's key file and the passphrase it needs, if any, which is held only for this session.</summary>
-    sealed record KeyFileLogin(string Path, string? Passphrase)
-    {
-        public override string ToString() => "KeyFileLogin";
-    }
 
     /// <summary>What the log says a login uses: the key file by its name only, and the agent.</summary>
     static string KeysIn(KeyFileLogin? keyFile, bool useAgent) => (keyFile, useAgent) switch
@@ -3164,9 +2994,6 @@ public partial class MainWindow : Window, IFullScreenHost
         }
     }
 
-    /// <summary>What an SSH session goes through and opens besides its shell, and how often it sends keep-alives (null: the default).</summary>
-    sealed record SshRoute(IReadOnlyList<SshHop> Jumps, IReadOnlyList<PortForward> Forwards, TimeSpan? KeepAlive = null);
-
     static readonly ILogger ConnectLog = Log.For("Connect");
     static readonly ILogger StorageLog = Log.For("Storage");
     static readonly ILogger WakeLog = Log.For("Wake");
@@ -3245,7 +3072,7 @@ public partial class MainWindow : Window, IFullScreenHost
                     return null;
                 }
 
-                login = SshLoginFor(username, password, saved, keyFile);
+                login = SshProtocol.LoginFor(username, password, saved, keyFile);
             }
 
             hops.Add(new SshHop(new ConnectionTarget(jump.Host, resolved.Port.Value, username, null), login, resolved.AllowLegacySsh.Value,
@@ -3397,7 +3224,8 @@ public partial class MainWindow : Window, IFullScreenHost
 
     readonly HostReturnWatch _hostReturn = new(new TcpHostProbe());
 
-    static bool ChecksHostDirectly(Protocol protocol) => protocol is Protocol.Rdp or Protocol.Ssh or Protocol.Vnc or Protocol.Telnet;
+    /// <summary>Whether a session's host can be checked by connecting to its port, to tell when it's back.</summary>
+    static bool ChecksHostDirectly(Protocol protocol) => ProtocolTraits.Of(protocol).HostProbe == HostProbe.Tcp;
 
     /// <summary>
     /// The server ended the session itself, and it may reconnect by itself: a logoff or an administrator's disconnect,
@@ -3714,10 +3542,13 @@ public partial class MainWindow : Window, IFullScreenHost
     /// </summary>
     internal static bool? Encrypted(SessionTab tab) => tab switch
     {
-        { Origin.Local: true } or { Origin.Protocol: Protocol.Serial } => null,
+        { Origin.Local: true } => null,
         { View: WebPageView page } => page.Address.Scheme == Uri.UriSchemeHttps,
-        { Origin.Protocol: Protocol.Ssh or Protocol.Rdp } => true,
-        _ => false,
+        _ => ProtocolTraits.Of(tab.Origin.Protocol) switch
+        {
+            { Reach: ProtocolReach.ThisComputer } => null,
+            { Encryption: var encryption } => encryption == WireEncryption.Always,
+        },
     };
 
     /// <summary>
