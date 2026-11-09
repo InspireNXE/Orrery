@@ -343,14 +343,7 @@ sealed class ConnectionCard : Border
         : "Through an SSH tunnel or jump host it would only measure this computer, so it's left out. It also needs a system that reports it.";
 
     /// <summary>Orrery's version with the commit it was built from, short, so a report says which build it came from.</summary>
-    internal static string Version()
-    {
-        var assembly = typeof(ConnectionCard).Assembly;
-        var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? assembly.GetName().Version?.ToString() ?? "unknown";
-        int plus = version.IndexOf('+', StringComparison.Ordinal);
-        return plus >= 0 && version.Length > plus + 10 ? version[..(plus + 10)] : version;
-    }
+    internal static string Version() => Core.Diagnostics.BuildInfo.Display;
 
     /// <summary>Everything on the card as text.</summary>
     internal string Details()

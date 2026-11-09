@@ -182,9 +182,7 @@ static class AppLog
     static void WriteStartup(DataLocation location)
     {
         var app = Core.Diagnostics.Log.For("App");
-        var version = typeof(AppLog).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? typeof(AppLog).Assembly.GetName().Version?.ToString() ?? "unknown";
-        app.LogInformation("Orrery {Version} starting on {Os} ({Architecture}), .NET {Runtime}", version.Split('+')[0],
+        app.LogInformation("Orrery {Version} starting on {Os} ({Architecture}), .NET {Runtime}", Core.Diagnostics.BuildInfo.Display,
             RuntimeInformation.OSDescription, RuntimeInformation.OSArchitecture, Environment.Version);
         app.LogInformation("{Mode} mode, data in {DataFolder}", location.Mode, _showNames ? location.DataDir : HomeShortened(location.DataDir));
         app.LogInformation("Names and addresses are {Shown}; logs are kept for {Days} days", _showNames ? "shown" : "hidden", (int)_keepFor.TotalDays);

@@ -1976,9 +1976,9 @@ sealed class SettingsView : UserControl
 
     static Control AboutSection()
     {
-        var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "dev";
+        // With the commit it was built from, so a screenshot of About says exactly which build it is.
         return Section("About",
-            new TextBlock { Text = $"Orrery {version}" },
+            new SelectableTextBlock { Text = $"Orrery {Core.Diagnostics.BuildInfo.Display}" },
             Note("Copyright © 2026 InspireNXE. Released under the MIT License."));
     }
 
