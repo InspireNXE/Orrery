@@ -50,6 +50,14 @@
     </ItemGroup>
   </Target>
 
+  <!-- libsodium.dll (NSec, for the vault) needs VCRUNTIME140.dll, which Windows doesn't include: without the Visual C++
+       Redistributable it can't load, and Settings and the vault fail. The Windows build scripts find Microsoft's
+       redistributable copy (build/Find-VcRuntime.ps1) and pass it here, so it's published beside libsodium, and in a
+       single-file build it's unpacked with it. -->
+  <ItemGroup Condition="'$(OrreryVcRuntimeDll)' != ''">
+    <None Include="$(OrreryVcRuntimeDll)" Link="vcruntime140.dll" CopyToPublishDirectory="PreserveNewest" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
   <Target Name="DropUnusedIronRdpNatives" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RuntimeIdentifier)' != ''">
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"

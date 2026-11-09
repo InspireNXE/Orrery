@@ -77,8 +77,17 @@ foreach ($rid in $Runtimes) {
     Remove-Item -Recurse -Force $stage, $zip -ErrorAction SilentlyContinue
 
     Write-Host "== $rid" -ForegroundColor Cyan
+    # Windows: Microsoft's vcruntime140.dll goes beside libsodium.dll, which can't load without it (Find-VcRuntime.ps1).
+    $vcRuntime = @()
+    if ($rid -like 'win-*') {
+        $vcRuntimeDll = & (Join-Path $PSScriptRoot 'Find-VcRuntime.ps1') -Runtime $rid
+        if ($vcRuntimeDll) { $vcRuntime = @("-p:OrreryVcRuntimeDll=$vcRuntimeDll"); Write-Host "vcruntime140.dll for ${rid}: $vcRuntimeDll" }
+        elseif ($env:CI) { throw "No vcruntime140.dll for $rid in Visual Studio's redistributable folder; without it the vault can't load libsodium." }
+        else { Write-Warning "No vcruntime140.dll for $rid in Visual Studio's redistributable folder: this package's vault won't work on a machine without the Visual C++ Redistributable." }
+    }
+
     $publish = Join-Path $artifacts "publish/$rid"
-    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version
+    dotnet publish $project -c $Configuration -r $rid --self-contained true -o $publish -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version @vcRuntime
     if ($LASTEXITCODE -ne 0) { throw "Publishing $rid failed." }
     & (Join-Path $PSScriptRoot 'Generate-ThirdPartyNotices.ps1') -PublishDir $publish
 
@@ -89,7 +98,7 @@ foreach ($rid in $Runtimes) {
     # launch. Shipping them beside the executable instead made no difference to Defender's Wacatac.B!ml heuristic.
     if ($rid -notlike 'osx-*') {
         $single = Join-Path $artifacts "publish/$rid-single"
-        dotnet publish $project -c $Configuration -r $rid --self-contained true -o $single -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version `
+        dotnet publish $project -c $Configuration -r $rid --self-contained true -o $single -p:DebugType=none -p:DebugSymbols=false -p:OrreryLockedRestore=true -p:Version=$version @vcRuntime `
             -p:PublishSingleFile=true -p:EnableSingleFileAnalyzer=false -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
         if ($LASTEXITCODE -ne 0) { throw "Publishing $rid as a single file failed." }
         Copy-Item (Join-Path $publish 'THIRD-PARTY-NOTICES.txt') $single

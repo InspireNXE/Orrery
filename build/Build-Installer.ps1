@@ -73,11 +73,16 @@ if ($SkipPublish) {
 else {
     # Emptied first, so nothing from an earlier build ends up in the setup.
     if (Test-Path $PublishDir) { Remove-Item -Recurse -Force $PublishDir }
+    # Microsoft's vcruntime140.dll goes beside libsodium.dll, which can't load without it (Find-VcRuntime.ps1).
+    $vcRuntimeDll = & (Join-Path $PSScriptRoot "Find-VcRuntime.ps1") -Runtime $Runtime
+    if (-not $vcRuntimeDll) { throw "No vcruntime140.dll for $Runtime in Visual Studio's redistributable folder; without it the vault can't load libsodium." }
+    Write-Host "vcruntime140.dll for ${Runtime}: $vcRuntimeDll"
     Write-Host "Publishing Orrery ($Runtime, self-contained) to '$PublishDir'..."
     Invoke-Native "dotnet" -Description "dotnet publish" -Arguments @(
         "publish", (Join-Path $repoRoot "src\Orrery.App\Orrery.App.csproj"),
         "-c", $Configuration, "-r", $Runtime, "--self-contained", "true",
-        "-p:DebugType=none", "-p:DebugSymbols=false", "-p:OrreryLockedRestore=true", "-p:Version=$version", "-o", $PublishDir)
+        "-p:DebugType=none", "-p:DebugSymbols=false", "-p:OrreryLockedRestore=true", "-p:Version=$version",
+        "-p:OrreryVcRuntimeDll=$vcRuntimeDll", "-o", $PublishDir)
     $PublishDir = (Resolve-Path $PublishDir).Path
 }
 
