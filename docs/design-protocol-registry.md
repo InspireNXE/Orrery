@@ -1,11 +1,16 @@
 # Orrery design: protocol registry
 
-Status: **Accepted**, 2026-11-08. Phases 0–4 are done on `claude/exciting-poincare-c9b8a0`; phase 5 waits for a quiet point on
-`dev`, before OSP is wired in (§6).
+Status: **Accepted**, 2026-11-08. Phases 0–5 are done on `claude/exciting-poincare-c9b8a0`; phase 6 (tidying) is left (§6).
 
 As built, two names differ from the sketch below: the Core table is `ProtocolTraits` (`ProtocolTraits.Of`, `.All`), since a
 Core class named `Protocols` hid the App namespace `Orrery.App.Protocols`; and the App side is an abstract class,
 `ProtocolDescriptor`, listed in `ProtocolRegistry`, rather than an `IProtocolDescriptor` interface.
+
+Starting a session (§4.3) as built: a descriptor's `StartAsync(ISessionHost, StartRequest)` starts it once the connect
+steps are done. `StartRequest` carries a `SessionLogin` (password, saved credential, key file, or SSH keys only with a
+retry) and `StartOptions` (a saved connection's start settings, or quick connect's own defaults). A local shell and a
+web page don't start that way: their `OpenAsync` hands them to the window's own code for them, which the toolbar and
+management pages also use. The connect steps are guarded by `tests/Orrery.App.Tests/ProtocolGuardConnectTests.cs`.
 
 Scope: one place that describes each protocol, so adding a protocol means writing a descriptor instead of editing
 about fifteen switches and type checks. Internal only: the descriptors are compiled into Orrery.
