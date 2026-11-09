@@ -28,4 +28,5 @@ $found = foreach ($vs in (& $vswhere -products * -property installationPath)) {
             ForEach-Object { Get-Item (Join-Path $_.FullName 'vcruntime140.dll') -ErrorAction SilentlyContinue }
     }
 }
-$found | Sort-Object { [version]$_.VersionInfo.FileVersion } -Descending | Select-Object -First 1 | ForEach-Object FullName
+# By the numeric parts: the version string can carry text ("14.29.30157.0 built by: cloudtest").
+$found | Sort-Object { $v = $_.VersionInfo; [version]::new($v.FileMajorPart, $v.FileMinorPart, $v.FileBuildPart, $v.FilePrivatePart) } -Descending | Select-Object -First 1 | ForEach-Object FullName
