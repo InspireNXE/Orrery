@@ -1704,7 +1704,9 @@ sealed class SettingsView : UserControl
     Control UpdatesSection()
     {
         var current = _updates?.CurrentVersion ?? ReleaseVersion.Current;
-        var version = new TextBlock { Text = _updates is { UsesOtherFeed: true } ? $"Orrery {current} (test feed)" : $"Orrery {current}" };
+        // The commit it was built from, as on the About page and in the log: two dev builds share a version, not a commit.
+        string built = Orrery.Core.Diagnostics.BuildInfo.Commit is { } commit ? $" ({commit})" : string.Empty;
+        var version = new TextBlock { Text = $"Orrery {current}{built}{(_updates is { UsesOtherFeed: true } ? " (test feed)" : string.Empty)}" };
 
         var every = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = _settings.ChecksForUpdates };
         int minutes = (int)_settings.UpdateCheckInterval.TotalMinutes;

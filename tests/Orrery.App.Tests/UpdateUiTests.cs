@@ -503,7 +503,8 @@ public class UpdateUiTests : IDisposable
         var section = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("section") && t.Text == "UPDATES");
         Assert.True(section.IsEffectivelyVisible);
         var texts = window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
-        Assert.Contains("Orrery 0.1.0", texts);
+        string built = Orrery.Core.Diagnostics.BuildInfo.Commit is { } commit ? $" ({commit})" : string.Empty;
+        Assert.Contains($"Orrery 0.1.0{built}", texts);
         Assert.Contains("Checks GitHub as Orrery starts, then on that schedule while it's open. Sends only your version.", texts);
         Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "What's new"));
         var every = window.GetVisualDescendants().OfType<ComboBox>().Single(c => Avalonia.Automation.AutomationProperties.GetName(c) == "Then every");
