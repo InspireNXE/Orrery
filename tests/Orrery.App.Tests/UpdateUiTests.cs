@@ -111,6 +111,7 @@ public class UpdateUiTests : IDisposable
         await updates.CheckIfDueAsync();
         Assert.True(bar.IsVisible);
         Assert.Equal("Orrery 0.2.0 is out", bar.Text.Text);
+        Assert.Equal($"Orrery 0.2.0 is out. You have {Orrery.Core.Diagnostics.BuildInfo.Display}.", ToolTip.GetTip(bar.Text));
         Assert.Equal("See what's new", bar.Details.Content);
         Assert.Equal("Later", bar.LaterButton.Content);
         Assert.Equal("Skip this version", ToolTip.GetTip(bar.SkipButton));

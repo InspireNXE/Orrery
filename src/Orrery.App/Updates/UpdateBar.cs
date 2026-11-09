@@ -72,6 +72,8 @@ sealed class UpdateBar : Border
     {
         bool wasShown = IsVisible;
         Text.Text = _updates.BarText;
+        // The bar says what's new; the copy you have (with the commit it was built from) is one hover away.
+        ToolTip.SetTip(Text, Text.Text.Length == 0 ? null : $"{Text.Text}. You have {Orrery.Core.Diagnostics.BuildInfo.Display}.");
         IsVisible = _updates.BarShown;
         AutomationProperties.SetName(this, Text.Text);
         if (IsVisible && !wasShown)

@@ -176,11 +176,11 @@ sealed class UpdateController : IDisposable
             SaveSettings(s => s with { LastUpdateCheck = _time.GetUtcNow() });
             if (offer is null)
             {
-                UpdateLog.LogInformation("Orrery {Version} is up to date", CurrentVersion);
+                UpdateLog.LogInformation("Orrery {Version} is up to date (this copy is {Build})", CurrentVersion, Core.Diagnostics.BuildInfo.Display);
             }
             else
             {
-                UpdateLog.LogInformation("Orrery {Version} is out", offer.Release.Version);
+                UpdateLog.LogInformation("Orrery {Version} is out (this copy is {Build})", offer.Release.Version, Core.Diagnostics.BuildInfo.Display);
             }
 
             Show(offer);
