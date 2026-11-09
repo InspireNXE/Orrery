@@ -103,6 +103,7 @@ Filename: "{app}\{#MyAppExe}"; Parameters: "--restarted"; Flags: nowait skipifno
 
 [Code]
 #include "WizardLayout.iss"
+#include "WizardFront.iss"
 
 // /RELAUNCH=1 on setup's command line: start Orrery again after a silent install.
 function RelaunchAsked: Boolean;
@@ -113,6 +114,7 @@ end;
 procedure InitializeWizard;
 begin
   SetUpWizardArt;
+  PrepareWizardFront;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
