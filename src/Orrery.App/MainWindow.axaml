@@ -275,14 +275,19 @@
                   BorderBrush="{StaticResource OrreryBorder}" BorderThickness="0,0,0,1">
             <DockPanel>
               <StackPanel x:Name="SessionActions" DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" />
-              <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <c:StrokeIcon x:Name="SessionLock" Width="14" Height="14" StrokeThickness="2"
+              <!-- Docked rather than stacked, as in a popped-out session's bar, so in a narrow window the address and
+                   detail are cut short with an ellipsis instead of running under the buttons. -->
+              <DockPanel ClipToBounds="True" Margin="0,0,12,0" VerticalAlignment="Center">
+                <DockPanel DockPanel.Dock="Left" Margin="0,0,14,0">
+                  <c:StrokeIcon x:Name="SessionLock" DockPanel.Dock="Left" Width="14" Height="14" StrokeThickness="2" Margin="0,0,8,0"
+                                VerticalAlignment="Center"
                                 Data="M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z M8 11V7a4 4 0 0 1 8 0v4" />
-                  <TextBlock x:Name="SessionAddress" Classes="mono" FontSize="12" Foreground="{StaticResource OrrerySoftText}" VerticalAlignment="Center" />
-                </StackPanel>
-                <TextBlock x:Name="SessionDetail" FontSize="12" Foreground="#8A93A3" VerticalAlignment="Center" />
-              </StackPanel>
+                  <TextBlock x:Name="SessionAddress" Classes="mono" FontSize="12" Foreground="{StaticResource OrrerySoftText}"
+                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+                <TextBlock x:Name="SessionDetail" FontSize="12" Foreground="#8A93A3" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+              </DockPanel>
             </DockPanel>
           </Border>
 
