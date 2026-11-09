@@ -13,9 +13,11 @@ from each provider's own pages on that date; links are at the end.
 | 2 | SignPath Foundation | Windows | Free | Apply; name the approvers; approve each release | Workflow ready; applying needs some reputation first |
 | 3 | GPG-signed packages | Linux | Free | Make and keep a signing key | Workflow ready; waiting on the key |
 | 4 | Developer ID and notarization | macOS | $99 a year | Decide whether macOS is worth it; enroll | Not started |
+| 5 | Microsoft-signed drivers | Windows, Orrery Host only | EV certificate, about $280 to $350 a year, plus cloud signing | A registered organization; buy the certificate; register in Partner Center | Not started; phase 6 of the stream design |
 
-Steps 1 to 3 cost nothing. Step 4 is the only one with no free route. Until a step's secrets exist, the workflow
-builds that platform's files unsigned, as before, and a release run says so in a warning.
+Steps 1 to 3 cost nothing. Step 4 is the only one with no free route for the app. Step 5 matters only for the
+streaming host's drivers, not for Orrery itself. Until a step's secrets exist, the workflow builds that platform's
+files unsigned, as before, and a release run says so in a warning.
 
 ## 1. Build attestations (all platforms)
 
@@ -190,6 +192,61 @@ key kept as a secret, and staple the ticket with `xcrun stapler`. The certificat
 imported into a temporary keychain on the runner. The entitlements need checking against what Orrery does: the
 network, the keychain, and the IronRDP and libsodium native libraries, which the hardened runtime may need allowed.
 
+## 5. Drivers (Orrery Host, Windows)
+
+Added 2026-11-09, from Microsoft's driver-signing pages as updated between April and August 2026. Orrery itself
+installs no drivers, and neither will the Linux host (uinput and PipeWire need none). Phase 6 of the stream design
+(`docs/design-stream.md` on the `design/stream-protocol` branch) adds three to the Windows host:
+
+| Driver | Runs in | Microsoft's signature | Without it |
+|---|---|---|---|
+| XInput-compatible gamepad | Kernel (a bus driver, as ViGEmBus was) | Required | Gamepads through `InputInjector.InjectGamepadInput` or a user-mode HID device: games that use Windows.Gaming.Input see them, XInput-only games don't |
+| IddCx virtual display, for headless hosts | User mode (UMDF 2) | Not settled; see below | The host streams a real monitor, or a dummy plug |
+| Virtual audio: microphone and speaker | Kernel (an audio miniport) | Required | Host sound already works through WASAPI loopback; only the virtual microphone waits |
+
+**Why the kernel drivers can't avoid it.** Since Windows 10 1607, with Secure Boot on, Windows loads a new kernel
+driver only if Microsoft signed it. Cross-signed drivers still load only with Secure Boot off, on machines upgraded
+from before 1607, or with certificates issued before 29 July 2015. Test signing needs Secure Boot off too. All of
+that is fine for development and not something to ask users to do.
+
+**The user-mode display driver.** Microsoft's pages don't say plainly whether a UMDF driver package installs on
+Windows 10 and 11 with only a third-party Authenticode signature. Older Microsoft guidance says user-mode drivers
+skip kernel code integrity but still need a signed package to install. Before counting on that, sign a build of the
+IddCx driver the way the app is signed (step 2) and install it on a machine with Secure Boot on. If it installs
+with only a publisher prompt, the display driver can ship before the rest. Attestation signing covers user-mode
+drivers too, so it can go through Partner Center with the other two once that exists.
+
+**What Microsoft's signature takes:**
+
+1. **A registered organization.** Registering for the Windows Hardware Developer Program asks for the company's
+   details or a D-U-N-S number and a legal contact who can sign for the company. Individuals aren't mentioned, and EV
+   certificates are only issued to organizations, so InspireNXE has to be a legal entity a certificate authority
+   can verify. This is the real gate, and it comes before any money is spent.
+2. **An EV code-signing certificate.** Registration requires one, and attestation submissions have to be signed
+   with one. Artifact Signing (step 2's paid alternative) isn't accepted. Microsoft lists Certum, DigiCert,
+   GlobalSign, IdenTrust, Sectigo and SSL.com. Prices seen 2026-11-09: SSL.com's EV is $349 for a year; Sectigo's
+   resellers ask about $280 to $350. Multi-year terms are going away, so expect to buy yearly. For CI the key has to
+   be in a cloud HSM rather than on a USB token: SSL.com's eSigner adds about $15 a month and works from GitHub
+   Actions; DigiCert's KeyLocker is the equivalent there.
+3. **Register in Partner Center** for the hardware program, with the EV certificate. Microsoft's pages give no fee.
+4. **Attestation signing for each driver release.** Put the driver packages in a CAB, sign it with the EV
+   certificate, submit it, and download the package Microsoft signed. No hardware tests. It can run from CI through
+   the Hardware Dashboard API; Microsoft's SDCM tool on GitHub wraps it. Limits:
+   - Attestation-signed drivers load on Windows 10 and 11 desktop only. **Windows Server 2016 and later don't load
+     them**; a host on Windows Server would need the full route below.
+   - They can't be published through Windows Update, so the host's installer installs them itself.
+5. **WHQL, only if needed later.** Passing the Hardware Lab Kit tests on real machines and submitting the results
+   signs a driver for every Windows version, Server included, and allows Windows Update. Much more work; skip it
+   unless Windows Server hosts turn out to matter.
+
+**Order, when phase 6 comes:**
+
+1. Settle whether InspireNXE is, or becomes, a registered organization. Nothing below happens without it.
+2. Test the IddCx driver with an ordinary signature, as above. It may not need to wait.
+3. Ship gamepads through `InputInjector` or HID in the meantime, and say that XInput-only games won't see them.
+4. Buy the EV certificate with cloud signing, register, and attest the gamepad and audio drivers from CI.
+5. Keep the drivers in the host's installer only. The client and Orrery Play stay driver-free and portable.
+
 ## Sources
 
 - SignPath Foundation terms: https://signpath.org/terms
@@ -203,3 +260,12 @@ network, the keychain, and the IronRDP and libsodium native libraries, which the
 - Homebrew 5.0.0 (Gatekeeper deprecation): https://brew.sh/2025/11/12/homebrew-5.0.0/
 - GitHub artifact attestations: https://docs.github.com/actions/concepts/security/artifact-attestations
 - Debian third-party repositories: https://wiki.debian.org/DebianRepository/UseThirdParty
+- Driver code signing requirements: https://learn.microsoft.com/windows-hardware/drivers/dashboard/code-signing-reqs
+- Registering for the Hardware Developer Program: https://learn.microsoft.com/windows-hardware/drivers/dashboard/hardware-program-register
+- Driver signing offerings (which Windows versions load what): https://learn.microsoft.com/windows-hardware/drivers/dashboard/driver-signing-offerings
+- Kernel-mode code signing policy: https://learn.microsoft.com/windows-hardware/drivers/install/kernel-mode-code-signing-policy--windows-vista-and-later-
+- Attestation signing: https://learn.microsoft.com/windows-hardware/drivers/dashboard/code-signing-attestation
+- SDCM, Microsoft's Hardware Dashboard API tool: https://github.com/Microsoft/SDCM
+- UMDF drivers and signing (archived Microsoft blog): https://learn.microsoft.com/archive/blogs/peterwie/do-umdf-drivers-require-signing
+- SSL.com EV code signing: https://www.ssl.com/products/software-integrity/code-signing/ev/
+- SSL.com eSigner: https://www.ssl.com/products/software-integrity/signing-service/
