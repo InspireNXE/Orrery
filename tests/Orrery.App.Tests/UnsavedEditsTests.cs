@@ -2,6 +2,7 @@ using System.Reflection;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Orrery.App.Connections;
@@ -183,6 +184,51 @@ public class UnsavedEditsTests : IDisposable
         Assert.False(SettingsResolver.Resolve(guest).AutoReconnect.Value);
         Assert.Equal(17, SettingsResolver.Resolve(guest).KeepAliveSeconds.Value);
         Assert.Equal([jump], SettingsResolver.JumpChain(guest, tree, out _));
+    }
+
+    // A user's right-click menu "stopped working": the pane with a bad edit had been hidden, so the menu stayed shut
+    // (and other rows wouldn't select) with the reason out of sight.
+    [AvaloniaFact]
+    public void With_the_pane_hidden_a_bad_edit_brings_it_back_when_it_stops_the_menu_or_a_row_change()
+    {
+        var window = Open();
+        try
+        {
+            var tree = VaultAutoLockTests.Private<ConnectionTree>(window, "_tree");
+            var panel = VaultAutoLockTests.Private<PropertiesPanel>(window, "_properties");
+            var inspector = VaultAutoLockTests.Private<Border>(window, "_propertiesHost");
+            var treeView = VaultAutoLockTests.Private<TreeView>(window, "_treeView");
+            var first = new ConnectionEntry { Name = "one", Host = "one.example" };
+            var second = new ConnectionEntry { Name = "two", Host = "two.example" };
+            tree.Add(first, tree.Root);
+            tree.Add(second, tree.Root);
+            SelectRow(window, first);
+
+            PortBox(panel).Text = "abc";
+            Dispatcher.UIThread.RunJobs();
+            Call(window, "ToggleInspector");
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(inspector.IsVisible);
+
+            bool opened = false;
+            treeView.ContextMenu!.Opened += (_, _) => opened = true;
+            treeView.RaiseEvent(new ContextRequestedEventArgs());
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(opened);
+            Assert.True(inspector.IsVisible);
+
+            Call(window, "ToggleInspector");
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(inspector.IsVisible);
+            SelectRow(window, second);
+            Assert.Same(first, SelectedRow(window));
+            Assert.True(inspector.IsVisible);
+            Assert.Equal("abc", PortBox(panel).Text);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     public void Dispose()

@@ -773,8 +773,8 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
         _treeView.ContextMenu!.Opening += (_, e) =>
         {
             // A right-click selects its row, but edits that don't validate put the selection back on theirs: the menu
-            // would act on that one instead. It stays shut, and the inspector says what's wrong.
-            if (!_properties.TrySave())
+            // would act on that one instead. It stays shut, and the inspector says what's wrong, shown again if it was hidden.
+            if (!SaveEdits())
             {
                 e.Cancel = true;
                 return;
@@ -1808,6 +1808,8 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
     {
         if (!await _properties.ShowAsync(SelectedNode) && SelectedNode != _properties.Node)
         {
+            // The selection goes back to the row with edits that don't validate; the inspector, if hidden, says why.
+            RevealInspector();
             Dispatcher.UIThread.Post(SelectEdited);
         }
     }
@@ -2445,7 +2447,7 @@ public partial class MainWindow : Window, IFullScreenHost, ISessionHost
     /// <param name="files">SSH: open a file browser (SFTP) instead of a terminal.</param>
     async Task ConnectAsync(ConnectionEntry entry, bool skipKeys = false, bool files = false)
     {
-        if (_properties.Node == entry && !_properties.TrySave())
+        if (_properties.Node == entry && !SaveEdits())
         {
             return;
         }
