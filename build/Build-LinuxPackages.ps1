@@ -9,8 +9,11 @@
 
     .deb and .rpm: built with nfpm (https://nfpm.goreleaser.com/), which runs on Windows, Linux and macOS and
     sets Unix file modes itself. The app goes to /opt/orrery, with /usr/bin/orrery linked to it, the launcher in
-    /usr/share/applications and the icons in the hicolor theme. Installed copies run in installed mode, with
-    data in ~/.config/orrery.
+    /usr/share/applications, its AppStream metadata in /usr/share/metainfo and the icons in the hicolor theme.
+    Installed copies run in installed mode, with data in ~/.config/orrery.
+
+    The AppStream metadata (installer/linux/org.inspirenxe.Orrery.metainfo.xml) gets one <release> for the version
+    being built, dated with the commit's date. If appstreamcli is on PATH, the result is validated with it.
 
     AppImage: built with appimagetool, which only runs on Linux, so it's skipped elsewhere with a warning. The
     image is read-only and carries no orrery.portable.json, so it runs in installed mode too.
@@ -65,6 +68,11 @@ $debDepends = @(
 )
 $rpmDepends = @('glibc', 'libgcc', 'libstdc++', 'libicu', 'openssl-libs', 'fontconfig', 'libX11', 'libICE', 'libSM', 'alsa-lib')
 $iconSizes = 16, 24, 32, 48, 64, 128, 256, 512
+# The AppStream component id, also the launcher's file name (AppStream wants the two to match). It's the macOS bundle's
+# CFBundleIdentifier too (build/package.ps1).
+$appId = 'org.inspirenxe.Orrery'
+$desktopFile = "$appId.desktop"
+$metainfoFile = "$appId.metainfo.xml"
 # Everything else in the publish is a library or data file.
 $executables = 'Orrery', 'createdump'
 
@@ -78,10 +86,35 @@ function Find-Tool([string] $Explicit, [string] $Name, [string] $Hint) {
     return $found.Source
 }
 
+# installer/linux's metainfo with its <releases> replaced by one entry for $version, written to $Path. Package versions
+# use "~" before a prerelease (0.2.0~preview.2), which AppStream sorts the same way: before 0.2.0, not after it.
+function Write-Metainfo([string] $Path) {
+    $appStreamVersion = $version -replace '-', '~'
+    $type = if ($version -match '-') { 'development' } else { 'stable' }
+    # The commit's date, so rebuilding the same commit gives the same file; today's outside a git checkout.
+    $date = try { git -C $root log -1 --format=%cs 2>$null } catch { $null }
+    if ($date -notmatch '^\d{4}-\d{2}-\d{2}$') { $date = [DateTime]::UtcNow.ToString('yyyy-MM-dd') }
+    $source = [IO.File]::ReadAllText((Join-Path $linux $metainfoFile))
+    $releases = "  <releases>`n    <release version=`"$appStreamVersion`" date=`"$date`" type=`"$type`"/>`n  </releases>"
+    # The element at the start of a line, not a mention of it in a comment.
+    $pattern = [regex]::new('^[ \t]*<releases>.*?</releases>', 'Singleline, Multiline')
+    if (-not $pattern.IsMatch($source)) { throw "$metainfoFile has no <releases> to replace." }
+    $text = $pattern.Replace($source, { param($m) $releases }, 1)
+    [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new($false))
+
+    $appstreamcli = Get-Command appstreamcli -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($appstreamcli) {
+        # Without network checks, so a slow or offline machine doesn't fail on the URLs. Not fatal yet: nothing has
+        # validated this file on Linux before, so its first runs only warn.
+        & $appstreamcli.Source validate --no-net $Path
+        if ($LASTEXITCODE -ne 0) { Write-Warning "appstreamcli found problems in $metainfoFile (exit code $LASTEXITCODE)." }
+    }
+}
+
 # Single-quoted YAML: only the quote itself needs escaping.
 function Yaml([string] $Text) { "'" + $Text.Replace("'", "''") + "'" }
 
-function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
+function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Metainfo, [string] $Path) {
     $arch = if ($Rid -eq 'linux-arm64') { 'arm64' } else { 'amd64' }
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.AddRange([string[]]@(
@@ -117,8 +150,11 @@ function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
         '  - src: /opt/orrery/Orrery'
         '    dst: /usr/bin/orrery'
         '    type: symlink'
-        "  - src: $(Yaml (Join-Path $linux 'orrery.desktop').Replace('\', '/'))"
-        '    dst: /usr/share/applications/orrery.desktop'
+        "  - src: $(Yaml (Join-Path $linux $desktopFile).Replace('\', '/'))"
+        "    dst: /usr/share/applications/$desktopFile"
+        '    file_info: { mode: 0644 }'
+        "  - src: $(Yaml $Metainfo.Replace('\', '/'))"
+        "    dst: /usr/share/metainfo/$metainfoFile"
         '    file_info: { mode: 0644 }'
         '  - dst: /usr/share/doc/orrery'
         '    type: dir'
@@ -168,8 +204,10 @@ function Write-NfpmConfig([string] $Rid, [string] $Publish, [string] $Path) {
     [IO.File]::WriteAllLines($Path, $lines, [Text.UTF8Encoding]::new($false))
 }
 
-function Build-AppImage([string] $Rid, [string] $Publish, [string] $Tool) {
+function Build-AppImage([string] $Rid, [string] $Publish, [string] $Metainfo, [string] $Tool) {
     $arch = if ($Rid -eq 'linux-arm64') { 'aarch64' } else { 'x86_64' }
+    # appimagetool 1.9.1 only looks for the old name, usr/share/metainfo/<launcher>.appdata.xml: given the current
+    # .metainfo.xml it would warn that the metadata is missing and check nothing. Write-Metainfo validates it instead.
     $toolArgs = @('--no-appstream')
     if ($AppImageRuntimeDir) {
         $runtime = Join-Path $AppImageRuntimeDir "runtime-$arch"
@@ -190,7 +228,10 @@ function Build-AppImage([string] $Rid, [string] $Publish, [string] $Tool) {
     New-Item -ItemType Directory -Force $doc | Out-Null
     # The runtime appimagetool puts in front of the image links libfuse and others statically, so their notices too.
     Copy-Item (Join-Path $root 'LICENSE'), (Join-Path $Publish 'THIRD-PARTY-NOTICES.txt'), (Join-Path $linux 'APPIMAGE-RUNTIME-NOTICES.txt') $doc
-    Copy-Item (Join-Path $linux 'AppRun'), (Join-Path $linux 'orrery.desktop') $appDir
+    $metainfoDir = Join-Path $appDir 'usr/share/metainfo'
+    New-Item -ItemType Directory -Force $metainfoDir | Out-Null
+    Copy-Item $Metainfo (Join-Path $metainfoDir $metainfoFile)
+    Copy-Item (Join-Path $linux 'AppRun'), (Join-Path $linux $desktopFile) $appDir
     Copy-Item (Join-Path $linux 'icons/256.png') (Join-Path $appDir 'orrery.png')
     Copy-Item (Join-Path $linux 'icons/256.png') (Join-Path $appDir '.DirIcon')
     chmod +x (Join-Path $appDir 'AppRun') (Join-Path $lib 'Orrery') (Join-Path $lib 'createdump')
@@ -213,7 +254,9 @@ if ($wantAppImage -and -not $IsLinux) {
 }
 $appImageTool = if ($wantAppImage) { Find-Tool $AppImageToolPath 'appimagetool' 'Get it from https://github.com/AppImage/appimagetool/releases or pass -AppImageToolPath.' }
 
-New-Item -ItemType Directory -Force $out | Out-Null
+New-Item -ItemType Directory -Force $out, $work | Out-Null
+$metainfo = Join-Path $work $metainfoFile
+Write-Metainfo $metainfo
 
 foreach ($rid in $Runtimes) {
     Write-Host "== $rid" -ForegroundColor Cyan
@@ -227,7 +270,7 @@ foreach ($rid in $Runtimes) {
 
     if ($wantNfpm) {
         $config = Join-Path $work "$rid/nfpm.yaml"
-        Write-NfpmConfig $rid $publish $config
+        Write-NfpmConfig $rid $publish $metainfo $config
         foreach ($format in @('deb', 'rpm') | Where-Object { $Formats -contains $_ }) {
             & $nfpm package --config $config --packager $format --target $out
             if ($LASTEXITCODE -ne 0) { throw "nfpm failed building the $format for $rid." }
@@ -239,7 +282,7 @@ foreach ($rid in $Runtimes) {
             Move-Item -Force $_.FullName (Join-Path $out ($_.Name -replace '~', '.'))
         }
     }
-    if ($wantAppImage) { Build-AppImage $rid $publish $appImageTool }
+    if ($wantAppImage) { Build-AppImage $rid $publish $metainfo $appImageTool }
 }
 
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

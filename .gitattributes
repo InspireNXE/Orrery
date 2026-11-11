@@ -8,3 +8,4 @@
 # Run on Linux, so Unix line endings even in a Windows checkout.
 installer/linux/AppRun text eol=lf
 installer/linux/*.desktop text eol=lf
+installer/linux/*.metainfo.xml text eol=lf
