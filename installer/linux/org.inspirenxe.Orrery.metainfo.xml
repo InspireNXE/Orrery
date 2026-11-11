@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata, so software centers (KDE Discover, GNOME Software) show Orrery as an app rather than a bare
+     package. The .deb and .rpm install it to /usr/share/metainfo, as does the AppImage inside its image.
+     build/Build-LinuxPackages.ps1 replaces the releases list with one entry for the version it builds; the entry below
+     only keeps this file valid on its own. Check it with: appstreamcli validate installer/linux/org.inspirenxe.Orrery.metainfo.xml -->
+<component type="desktop-application">
+  <id>org.inspirenxe.Orrery</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Orrery</name>
+  <summary>Remote connection manager</summary>
+  <description>
+    <p>
+      Orrery keeps your RDP, SSH, VNC, Telnet and serial connections in one tree and opens them in tabs. Folders pass
+      their settings down to the connections inside them, and saved passwords go to your system's secret store or an
+      encrypted vault file.
+    </p>
+    <ul>
+      <li>RDP that follows window resizes, with sound, shared drives and full screen</li>
+      <li>SSH with SFTP, port forwards, a SOCKS proxy, key files and agent keys</li>
+      <li>VNC, Telnet, serial consoles, local shells and web pages, each in a tab</li>
+      <li>Quick connect for a one-off session without saving it first</li>
+      <li>Imports mRemoteNG confCons.xml, .rdp files and ~/.ssh/config</li>
+    </ul>
+  </description>
+
+  <developer id="org.inspirenxe">
+    <name>InspireNXE</name>
+  </developer>
+
+  <launchable type="desktop-id">org.inspirenxe.Orrery.desktop</launchable>
+  <icon type="stock">orrery</icon>
+
+  <url type="homepage">https://github.com/InspireNXE/Orrery</url>
+  <url type="bugtracker">https://github.com/InspireNXE/Orrery/issues</url>
+  <url type="vcs-browser">https://github.com/InspireNXE/Orrery</url>
+
+  <categories>
+    <category>Network</category>
+    <category>RemoteAccess</category>
+  </categories>
+
+  <keywords>
+    <keyword>RDP</keyword>
+    <keyword>SSH</keyword>
+    <keyword>VNC</keyword>
+    <keyword>Telnet</keyword>
+    <keyword>SFTP</keyword>
+    <keyword>Remote desktop</keyword>
+    <keyword>Terminal</keyword>
+  </keywords>
+
+  <provides>
+    <binary>orrery</binary>
+  </provides>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <branding>
+    <color type="primary">#5b6cff</color>
+  </branding>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.1" date="2026-11-03" type="stable"/>
+  </releases>
+</component>

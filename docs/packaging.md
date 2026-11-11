@@ -74,8 +74,10 @@ Writes to `artifacts/linux/`: `orrery_<version>-1_amd64.deb`, `orrery_<version>-
 
 - **.deb and .rpm** are built with [nfpm](https://nfpm.goreleaser.com/install/), which runs on Windows, Linux and
   macOS and sets Unix file modes itself (no `chmod` problem). Put `nfpm` on PATH or pass `-NfpmPath`. The app goes to
-  `/opt/orrery`, with `/usr/bin/orrery` linked to it, the launcher in `/usr/share/applications/orrery.desktop`, icons
-  in the hicolor theme, and `LICENSE` and `THIRD-PARTY-NOTICES.txt` in `/usr/share/doc/orrery`. The packages
+  `/opt/orrery`, with `/usr/bin/orrery` linked to it, the launcher in
+  `/usr/share/applications/org.inspirenxe.Orrery.desktop`, its AppStream metadata in
+  `/usr/share/metainfo/org.inspirenxe.Orrery.metainfo.xml`, icons in the hicolor theme, and `LICENSE` and
+  `THIRD-PARTY-NOTICES.txt` in `/usr/share/doc/orrery`. The packages
   require the C runtime, ICU, OpenSSL, fontconfig and the X11 libraries, and recommend libsecret. Their dependency
   lists are in the script.
 - **AppImage** needs [appimagetool](https://github.com/AppImage/appimagetool/releases) (on PATH or
@@ -85,13 +87,66 @@ Writes to `artifacts/linux/`: `orrery_<version>-1_amd64.deb`, `orrery_<version>-
   read-only and has no `orrery.portable.json`, so it runs in installed mode; settings' restart relaunches the
   `.AppImage` file (`$APPIMAGE`), not the copy inside its mount.
 
-The launcher, the AppImage's `AppRun` and the icons are in `installer/linux/`. So is
+The launcher, the AppStream metadata, the AppImage's `AppRun` and the icons are in `installer/linux/`. So is
 `APPIMAGE-RUNTIME-NOTICES.txt`, which the AppImage carries in `usr/share/doc/orrery`. It covers the runtime that
 appimagetool puts in front of the image, which is statically linked with libfuse 3 (LGPL 2.1), squashfuse, zstd,
 zlib, mimalloc and musl. Update it if a newer runtime links something else (see `src/runtime/Makefile` in
 AppImage/type2-runtime). `build/generate-art.py` draws the icons.
 The window's X11 class is set to `Orrery` (`Program.cs`) to match the launcher's `StartupWMClass`, so docks group the
 window with its icon.
+
+### AppStream metadata (KDE Discover, GNOME Software)
+
+Software centers list apps from AppStream components, not from packages. Before 0.2.0 the packages had no AppStream
+metadata, so there was no component for Orrery, and KDE Discover on Fedora showed the installed .rpm as a bare package
+called `orrery-0`, with no icon or summary. That name is most likely the package file's name cut at its first dot
+(`orrery-0.2.0.preview.2-1.x86_64.rpm`), which is what Discover falls back to for a package it has no app for.
+
+`installer/linux/org.inspirenxe.Orrery.metainfo.xml` is that component: a `desktop-application` with Orrery's name,
+summary, description, developer, links, categories, keywords, OARS rating (`oars-1.1`, nothing to declare) and
+`<provides><binary>orrery</binary></provides>`. Its id is reverse-DNS, `org.inspirenxe.Orrery`, the same as the macOS
+bundle's `CFBundleIdentifier`, so Orrery has one id everywhere. AppStream wants the launcher's file name to match
+the id, so the launcher is `org.inspirenxe.Orrery.desktop` (it was `orrery.desktop`), with
+`<launchable type="desktop-id">` pointing at it. It keeps `StartupWMClass=Orrery` and `Icon=orrery`. A launcher
+pinned to a panel or favorites from the old file name needs pinning again after upgrading.
+
+The id is meant to stay: changing it later needs a `<replaces>` entry, or software centers treat the new id as
+another app. If InspireNXE ever publishes to Flathub, Flathub checks that the publisher controls the id's domain
+(`inspirenxe.org`); `io.github.InspireNXE.Orrery` is the id it accepts without a domain.
+
+The build script replaces the file's `<releases>` with one entry for the version it builds, with the same "~" the
+package versions use (`0.2.0~preview.2`, so it sorts before `0.2.0`), `type="development"` for a prerelease and
+`stable` otherwise, dated with the commit's date. The .deb and .rpm install the result to `/usr/share/metainfo/`, and
+the AppImage carries it in `usr/share/metainfo/`. If `appstreamcli` is on PATH, the script
+validates the generated file with `appstreamcli validate --no-net` and warns, without failing, if it finds problems;
+make that fatal once a few runs have come out clean. There are no screenshots in it yet: they'd need a URL that won't
+move, such as images attached to a release.
+
+The AppImage is still built with `--no-appstream`. appimagetool 1.9.1 only looks for the old file name,
+`usr/share/metainfo/<launcher>.appdata.xml`, so with the current `.metainfo.xml` name its check would only warn that
+the metadata is missing. Naming it `.appdata.xml` for appimagetool's sake would make it run `appstreamcli
+validate-tree` (when that's installed), which checks the links over the network and fails the build on any warning it
+raises, before anyone has validated the file on Linux. Revisit this once the Fedora checks below pass.
+
+What to check on Fedora (`appstreamcli` is in the `appstream` package, `desktop-file-validate` in
+`desktop-file-utils`), from a checkout and the .rpm of a build from this commit or later:
+
+```bash
+appstreamcli validate installer/linux/org.inspirenxe.Orrery.metainfo.xml
+sudo dnf install ./orrery-<version>-1.x86_64.rpm
+rpm -ql orrery | grep -E 'metainfo|applications'
+appstreamcli validate /usr/share/metainfo/org.inspirenxe.Orrery.metainfo.xml
+desktop-file-validate /usr/share/applications/org.inspirenxe.Orrery.desktop
+appstreamcli get org.inspirenxe.Orrery
+```
+
+`rpm -ql` should list `/usr/share/metainfo/org.inspirenxe.Orrery.metainfo.xml` and
+`/usr/share/applications/org.inspirenxe.Orrery.desktop`. The validations should report no errors or warnings (infos
+and pedantic hints are fine), and `appstreamcli get` should print the component with the package's version under
+releases. Then open Discover, search "Orrery" and check that it shows the name Orrery, the icon, the summary "Remote
+connection manager" and the version, and that the entry under Installed is the app rather than `orrery-0`. If
+Discover still shows the old entry, quit it, run `sudo appstreamcli refresh-cache --force` and open it again. For the
+AppImage, `./Orrery-<version>-x86_64.AppImage --appimage-extract` and then `appstreamcli validate-tree squashfs-root`.
 
 Status: the .deb and .rpm build on Windows, and their contents have been checked (file modes, the symlink, control fields
 and dependencies). None of them has been installed on a real Linux machine yet, and the AppImage hasn't been built,
