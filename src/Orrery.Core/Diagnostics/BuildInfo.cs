@@ -4,7 +4,7 @@ namespace Orrery.Core.Diagnostics;
 
 /// <summary>
 /// Which build this is: the release version and the commit it was built from. The SDK stamps both into the
-/// informational version as <c>0.2.0-preview.2+5e760e304464…</c>; Orrery shows them as <c>0.2.0-preview.2 (5e760e3)</c>,
+/// informational version as <c>0.2.0-preview.2+4924ab4527d7…</c>; Orrery shows them as <c>0.2.0-preview.2 (4924ab4)</c>,
 /// so a report or a screenshot of About says exactly which build it came from.
 /// </summary>
 public static class BuildInfo
@@ -19,7 +19,7 @@ public static class BuildInfo
     /// <summary>The commit it was built from, abbreviated as git does (seven characters), or null if none was stamped.</summary>
     public static string? Commit => Stamped.Commit;
 
-    /// <summary>The version with its commit: <c>0.2.0-preview.2 (5e760e3)</c>, or the version alone without one.</summary>
+    /// <summary>The version with its commit: <c>0.2.0-preview.2 (4924ab4)</c>, or the version alone without one.</summary>
     public static string Display => Format(Version, Commit);
 
     internal static string Format(string version, string? commit) => commit is null ? version : $"{version} ({commit})";

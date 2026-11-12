@@ -1,7 +1,7 @@
 # Audit round 2026-11
 
 Security pass over what landed after round 2026-10, plus a correctness pass over the newest UI work, run 2026-11-03
-on `dev` at `4ae708e` (round 2026-10 ended at `bfdd177`). Profile: `.claude/audit-profile.md`.
+on `dev` at `a80e35d` (round 2026-10 ended at `a675c27`). Profile: `.claude/audit-profile.md`.
 
 Run lighter than 2026-10 at the owner's request ("if it's more economical, do it during the security audit"): six
 finders and no separate verifier agents. Fixes were made in the same session, where they keep every feature, as the

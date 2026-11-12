@@ -22,7 +22,7 @@ jump hosts (OSP) still needs a connect step that refuses one with its reason; we
 Scope: one place that describes each protocol, so adding a protocol means writing a descriptor instead of editing
 about fifteen switches and type checks. Internal only: the descriptors are compiled into Orrery.
 
-Line numbers below are from `dev` at `7568f2d`.
+Line numbers below are from `dev` at `f9e3fe2`.
 
 ---
 

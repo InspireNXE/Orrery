@@ -1,13 +1,13 @@
 # Bug pass, round 2026-11
 
-Run 2026-11-03 on `dev` at `058f90d`, after the security pass, at the owner's request ("do another round of bug
+Run 2026-11-03 on `dev` at `e79fbaa`, after the security pass, at the owner's request ("do another round of bug
 testing. Verify nothing is found and if it is, fix it"). Five finders, each on one area, reading only. Each area's
 fixes were then made in their own worktree, with a failing test first where one could be written, and a sixth reader
 went over all five fix commits for anything they broke. It found four, fixed in the last commit (B2-32 to B2-35).
 
 The finders found 28 and the reader over the fixes 4 more: 32 in all, all fixed, none open. One (B2-20) was a regression from S-4, built earlier the same day.
 
-## RDP (`293bf14`)
+## RDP (`c85f60c`)
 
 - B2-1: keys and clicks were each sent from their own task, so they could reach the server out of order: swapped
   letters, a modifier or button left down. They now go out in the order they're applied. Test: `RdpInputOrderTests`.
@@ -22,7 +22,7 @@ The finders found 28 and the reader over the fixes 4 more: 32 in all, all fixed,
 - B2-6: a resize asked for before the server opened its display channel was dropped. It's sent once the channel is
   ready.
 
-## SSH, Telnet, terminal (`6b08882`)
+## SSH, Telnet, terminal (`1a5f856`)
 
 - B2-20: S-4 made a jump host's forward take one connection, but the retry after a slow host-key answer dials it
   again. That retry now lets exactly one more in. Test: `SshTunnelTests.A_retry_after_a_slow_host_key_answer_gets_exactly_one_more_connection`.
@@ -33,7 +33,7 @@ The finders found 28 and the reader over the fixes 4 more: 32 in all, all fixed,
 - B2-23: a resize while the SSH shell or local terminal was opening was lost. It's sent once the shell is open.
 - B2-24: disconnecting an SSH or SFTP session while it connected could mark it Failed. It ends Disconnected.
 
-## Recording (`ed8bc09`)
+## Recording (`5b9eec3`)
 
 - B2-10: a screen recording with nothing saved in it broke the player. It says there's nothing to play. Test:
   `RecordingUiTests.A_screen_recording_with_nothing_in_it_says_so_rather_than_playing`.
@@ -45,7 +45,7 @@ The finders found 28 and the reader over the fixes 4 more: 32 in all, all fixed,
   stops it.
 - B2-15: the recordings list's description cache was read across threads without a lock.
 
-## Core (`96a34f7`)
+## Core (`74889f2`)
 
 - B2-40: duplicating a folder left its hosts' guests with no folder, so they lost its settings. Test:
   `HostGroupTests.Duplicating_a_folder_puts_its_hosts_guests_in_the_copy_so_they_take_its_settings`.
@@ -61,7 +61,7 @@ The finders found 28 and the reader over the fixes 4 more: 32 in all, all fixed,
 - B2-47: a number Orrery doesn't know for a choice (a protocol of 99, say) got past import and threw later. Imports
   refuse it; `connections.json` falls back to inherited. Tests: `ConnectionExporterTests`, `ConnectionModelTests`.
 
-## Main window (`4bbdf07`, then the follow-up commit)
+## Main window (`9ba78d5`, then the follow-up commit)
 
 - B2-30: reconnecting or duplicating a deleted connection's tab went without its folder's jump host and login. A
   connection being deleted keeps what it inherited first. Test: `UnsavedEditsTests.A_deleted_connection_keeps_what_its_folders_and_host_gave_it`.

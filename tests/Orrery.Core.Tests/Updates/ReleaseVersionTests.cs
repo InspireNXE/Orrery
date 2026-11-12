@@ -12,7 +12,7 @@ public class ReleaseVersionTests
     [InlineData("V10.20.30", 10, 20, 30, null)]
     [InlineData("0.2.0-preview.1", 0, 2, 0, "preview.1")]
     [InlineData("1.0.0-rc.1+abc123", 1, 0, 0, "rc.1")]
-    [InlineData("0.1.0+7ecb185", 0, 1, 0, null)]
+    [InlineData("0.1.0+1b2aeb1", 0, 1, 0, null)]
     public void Parses_versions_and_tags(string text, int major, int minor, int patch, string? prerelease)
     {
         Assert.Equal(new ReleaseVersion(major, minor, patch, prerelease), ReleaseVersion.Parse(text));

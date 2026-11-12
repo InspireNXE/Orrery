@@ -1,10 +1,10 @@
 # Security and correctness findings, round 2026-11
 
-A pass over what landed after round 2026-10 (from `bfdd177` to `4ae708e`, 94 commits): web tabs, session recording,
+A pass over what landed after round 2026-10 (from `a675c27` to `a80e35d`, 94 commits): web tabs, session recording,
 RDP clipboard images and files, sound and shared folders, serial, `.rdp` import, the Ctrl+K palette, the panes, the
 password rules, the recording player rework and the CI build. Six finders, one per surface: web tabs, RDP channels
 (this repo and the IronRDP fork's drive backend), recording, import and secrets, supply chain, and a correctness pass
-over the latest UI work. Line numbers are at `4ae708e`.
+over the latest UI work. Line numbers are at `a80e35d`.
 
 This round was run lighter than 2026-10, at the owner's request to keep it economical: no separate verifier agents.
 Each finding below that's marked Fixed was checked against the code before fixing, and most have a regression

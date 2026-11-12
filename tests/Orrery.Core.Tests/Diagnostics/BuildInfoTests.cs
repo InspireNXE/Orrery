@@ -6,9 +6,9 @@ namespace Orrery.Core.Tests.Diagnostics;
 public class BuildInfoTests
 {
     [Theory]
-    [InlineData("0.2.0-preview.2+5e760e304464f7784eb9478d72e19491fd4ffd58", "0.2.0-preview.2", "5e760e3")]
-    [InlineData("0.2.0+5E760E304464F778", "0.2.0", "5e760e3")]
-    [InlineData("0.2.0-dev+5e760e3.dirty", "0.2.0-dev", "5e760e3")]
+    [InlineData("0.2.0-preview.2+4924ab4527d7454f26b031c8bbf24eedbeae8e42", "0.2.0-preview.2", "4924ab4")]
+    [InlineData("0.2.0+4924AB4527D7454F", "0.2.0", "4924ab4")]
+    [InlineData("0.2.0-dev+4924ab4.dirty", "0.2.0-dev", "4924ab4")]
     [InlineData("0.2.0", "0.2.0", null)]
     [InlineData("0.2.0+local", "0.2.0", null)]
     [InlineData("0.2.0+abc12", "0.2.0", null)]
@@ -20,7 +20,7 @@ public class BuildInfoTests
     [Fact]
     public void Shows_the_commit_in_brackets_after_the_version()
     {
-        Assert.Equal("0.2.0-preview.2 (5e760e3)", BuildInfo.Format("0.2.0-preview.2", "5e760e3"));
+        Assert.Equal("0.2.0-preview.2 (4924ab4)", BuildInfo.Format("0.2.0-preview.2", "4924ab4"));
         Assert.Equal("0.2.0", BuildInfo.Format("0.2.0", null));
     }
 
