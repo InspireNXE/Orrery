@@ -9,9 +9,10 @@
 
 name: Packages
 
+# Pushes build only on dev and main (and v* tags); other branches build when merged, or by hand with Run workflow.
 on:
   push:
-    branches: ['**']
+    branches: [dev, main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
