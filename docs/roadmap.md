@@ -4,6 +4,12 @@ What's planned next and what's parked for later. Orrery stays free; nothing here
 
 ## Built lately
 
+- **0.2.0 preview 3:** on a link slower than a LAN, a remote desktop no longer resizes over and over through a window
+  drag: a resize is timed to the desktop redrawn at its new size, not to its first piece, so a slow redraw is seen
+  and the size is asked for at the start of the drag and once it settles (the Connection card's Last resize is that
+  time now); About, the log and Settings › Updates show the commit a build came from; setup comes to the front after
+  the UAC prompt; a bad edit in a hidden properties pane shows the pane when it stops something; on Linux, Discover
+  and GNOME Software show Orrery as an app (AppStream metadata).
 - **0.2.0 preview 2:** on Windows, the vault and Settings work on a computer without the Visual C++ Redistributable
   (libsodium's runtime now ships with Orrery); the Commands page's menu can delete, duplicate and move a command
   again; the session bar's address and status stop short of the buttons in a narrow window; each protocol is
