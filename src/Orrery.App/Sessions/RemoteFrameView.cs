@@ -114,8 +114,8 @@ public sealed partial class RemoteFrameView : Panel, IDesktopView
     long _askedAt;
 
     /// <summary>
-    /// How long the server took the last time it resized: from asking to its first picture at the new size, as the
-    /// session measures it where it can (RDP), since the picture is the slow part; else to the new size arriving.
+    /// How long the server took the last time it resized: from asking to the desktop redrawn at the new size, as the
+    /// session measures it where it can (RDP), since the redraw is the slow part; else to the new size arriving.
     /// </summary>
     internal TimeSpan? LastResizeTook
     {

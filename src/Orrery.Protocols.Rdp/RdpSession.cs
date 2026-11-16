@@ -78,6 +78,12 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
     // For the Connection card: when connecting started, and when Orrery last asked for a size the server then took.
     long _connectStarted, _resizeAsked;
 
+    // How much of the desktop the server has redrawn since it took that size, to time the resize to. Under _stageLock.
+    readonly RedrawCoverage _redraw = new();
+
+    // A redraw not covering the desktop by then isn't timed: the server is leaving part of it, not slow.
+    static readonly TimeSpan RedrawGiveUp = TimeSpan.FromSeconds(5);
+
     // The connector's steps for the last host it reached; the first picture adds its own.
     IReadOnlyList<ConnectStep> _connectSteps = [];
 
@@ -843,16 +849,12 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
         {
             _firstPictureAfter = null;
             Logger.LogDebug("{Host}: first picture {Ms:0} ms after {After}", Target.Host, Stopwatch.GetElapsedTime(_firstPictureFrom).TotalMilliseconds, after);
-            // What the user waits for: from starting to connect, or asking for the size, to seeing the desktop.
+            // What the user waits for: from starting to connect to seeing the desktop. A resize is timed to the
+            // redraw instead (below): its first picture can be one small piece of the desktop.
             if (after == "connecting")
             {
                 Link.ConnectSteps = [.. _connectSteps, new ConnectStep("First screen", Stopwatch.GetElapsedTime(_firstPictureFrom))];
                 Link.ConnectTime = Stopwatch.GetElapsedTime(_connectStarted);
-            }
-            else if (_resizeAsked != 0)
-            {
-                Link.LastResize = Stopwatch.GetElapsedTime(_resizeAsked);
-                Logger.LogInformation("{Host}: the desktop showed at its new size {Ms:0} ms after Orrery asked", Target.Host, Link.LastResize.Value.TotalMilliseconds);
             }
         }
 
@@ -865,6 +867,17 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
             }
 
             rect = new FrameRect(damage.Left, damage.Top, damage.Right - damage.Left + 1, damage.Bottom - damage.Top + 1);
+            if (_redraw.Active && Stopwatch.GetElapsedTime(_resizeAsked) >= RedrawGiveUp)
+            {
+                _redraw.Stop();
+                Logger.LogInformation("{Host}: the server hasn't redrawn the whole desktop {Ms:0} ms after resizing; not timing that resize", Target.Host,
+                    RedrawGiveUp.TotalMilliseconds);
+            }
+            else if (_redraw.Add(damage.Left, damage.Top, damage.Right, damage.Bottom))
+            {
+                Link.LastResize = Stopwatch.GetElapsedTime(_resizeAsked);
+                Logger.LogInformation("{Host}: the desktop was redrawn at its new size {Ms:0} ms after Orrery asked", Target.Host, Link.LastResize.Value.TotalMilliseconds);
+            }
         }
 
         FrameUpdated?.Invoke(this, new FrameUpdatedEventArgs(rect, resized: false));
@@ -906,14 +919,29 @@ public sealed class RdpSession : IFrameBufferSession, IAudioSession, IClipboardS
 
     /// <summary>
     /// The server resized, so a size held back meanwhile can go. For the detailed log, how long it took after Orrery
-    /// asked, and then to draw. Caller holds _stageLock.
+    /// asked, and then to draw; for the Connection card and the view, how long until the desktop was redrawn at the new
+    /// size. Caller holds _stageLock.
     /// </summary>
     void NoteServerResized()
     {
+        if (_redraw.Active)
+        {
+            // Resized again before the last redraw covered the desktop: it took at least this long, which is what
+            // tells the view not to ask on the way through a drag. Long after, the server just never drew all of it.
+            _redraw.Stop();
+            var took = Stopwatch.GetElapsedTime(_resizeAsked);
+            if (took < RedrawGiveUp)
+            {
+                Link.LastResize = took;
+                Logger.LogInformation("{Host}: resized again before the desktop was redrawn, over {Ms:0} ms after Orrery asked", Target.Host, took.TotalMilliseconds);
+            }
+        }
+
         if (_resizes.Answered() is var asked and not 0)
         {
             Logger.LogDebug("{Host}: the server resized {Ms:0} ms after Orrery asked", Target.Host, Stopwatch.GetElapsedTime(asked).TotalMilliseconds);
             (_firstPictureFrom, _firstPictureAfter, _resizeAsked) = (Stopwatch.GetTimestamp(), "resizing", asked);
+            _redraw.Start(Width, Height);
         }
     }
 
